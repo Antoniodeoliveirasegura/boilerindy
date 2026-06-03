@@ -2006,7 +2006,26 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 const TZ = 'America/Indiana/Indianapolis'
 
-const CAMPUS_SYSTEM_PROMPT = `You are Indy Assist — a helpful campus assistant for Purdue University Indianapolis (Purdue Indy / IUPUI).
+// In-memory rate limiter: keyed by user ID (authed) or IP (anon)
+const _geminiWindows = new Map()
+setInterval(() => {
+  const now = Date.now()
+  for (const [k, v] of _geminiWindows) if (now >= v.resetAt) _geminiWindows.delete(k)
+}, 60 * 60 * 1000)
+
+function geminiAllowed(key, max) {
+  const now = Date.now()
+  const win = _geminiWindows.get(key)
+  if (!win || now >= win.resetAt) {
+    _geminiWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
+    return true
+  }
+  if (win.count >= max) return false
+  win.count++
+  return true
+}
+
+const CAMPUS_SYSTEM_PROMPT = `You are BoilerIndy — a helpful campus assistant for Purdue University Indianapolis (Purdue Indy / IUPUI).
 You have access to real-time data about the student's schedule, dining, and campus events — all provided in the context block below.
 Use that data to answer questions directly and accurately. Do not tell the student to "check the app" or "check the tab" when the answer is already in the context.
 
@@ -2194,6 +2213,11 @@ function buildAssistantCalendarContext(calendarData, now) {
 app.post('/api/assistant', async (req, res) => {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({ error: 'Assistant not configured.' })
+  }
+
+  const rlKey = req.session?.userId || req.ip || 'anon'
+  if (!geminiAllowed(rlKey, 20)) {
+    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
   }
 
   const { messages } = req.body
@@ -2468,6 +2492,12 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({
       error: { message: 'AI suggestions are not configured.', status: 503 },
+    })
+  }
+
+  if (!geminiAllowed(req.session.userId, 10)) {
+    return res.status(429).json({
+      error: { message: 'Rate limit reached. Try again in an hour.', status: 429 },
     })
   }
   const context = req.body.context === 'reply' ? 'reply' : 'compose'
