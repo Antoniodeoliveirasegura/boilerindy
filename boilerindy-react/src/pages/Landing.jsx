@@ -143,7 +143,7 @@ export default function Landing() {
             background: 'radial-gradient(ellipse at center, rgba(212,168,75,0.12) 0%, transparent 70%)',
           }}
         />
-        <div className="relative inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)]/20 border border-[var(--color-gold)]/40 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
+        <div className="relative inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/20 border border-[var(--color-gold)]/40 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
           <Icon name="sparkles" size={13} />
           Built for Purdue Indianapolis
         </div>
