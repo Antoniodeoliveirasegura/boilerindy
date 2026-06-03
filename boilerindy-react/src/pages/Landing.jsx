@@ -205,7 +205,7 @@ export default function Landing() {
             <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
             <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
             <div className="flex-1 bg-[var(--color-bg-2)] rounded-md py-1.5 px-3 text-[11px] text-[var(--color-txt-2)] font-mono">
-              purdueindyhub.edu
+              boilerindy.app
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3.5">
