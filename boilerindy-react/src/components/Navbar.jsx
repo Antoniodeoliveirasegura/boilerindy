@@ -54,7 +54,7 @@ export default function Navbar() {
               <div className="absolute inset-0 bg-[var(--color-gold)] rounded-lg opacity-0 group-hover:opacity-20 blur-md transition-opacity duration-300" />
             </div>
             <span className="text-[15px] font-semibold text-[var(--color-txt-0)] tracking-tight hidden sm:block">
-              IndyAssist
+              BoilerIndy
             </span>
           </Link>
 

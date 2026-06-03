@@ -47,7 +47,7 @@ const featCards = [
   },
   {
     icon: 'sparkles',
-    title: 'IndyAssist',
+    title: 'BoilerIndy',
     desc: 'Ask anything in natural language — classes, menus, bus times, deadlines. Instant answers powered by Gemini.',
     wrap: 'bg-[var(--color-gold)]/25 text-[var(--color-gold-dark)]',
   },
@@ -83,7 +83,7 @@ export default function Landing() {
           <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">
             IA
 </span>
-          IndyAssist
+          BoilerIndy
         </Link>
         <div className="hidden sm:flex items-center gap-0.5">
           <a href="#features" className="text-[13px] text-[var(--color-txt-1)] px-3.5 py-1.5 rounded-lg hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] flex items-center gap-1.5 no-underline">
@@ -268,7 +268,7 @@ export default function Landing() {
               One hub for campus life
             </h2>
             <p className="text-[15px] text-[var(--color-txt-1)] max-w-[540px] mx-auto leading-relaxed">
-              No more juggling a dozen different apps. IndyAssist brings it all together in a clean, fast interface.
+              No more juggling a dozen different apps. BoilerIndy brings it all together in a clean, fast interface.
             </p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -297,7 +297,7 @@ export default function Landing() {
             Plugged into campus systems
           </h2>
           <p className="text-[15px] text-[var(--color-txt-1)] max-w-[540px] mx-auto leading-relaxed">
-            IndyAssist connects to the systems you already use, pulling in real data so you&apos;re never out of the loop.
+            BoilerIndy connects to the systems you already use, pulling in real data so you&apos;re never out of the loop.
           </p>
         </div>
         <div className="flex flex-wrap gap-3 justify-center mt-8">
@@ -324,7 +324,7 @@ export default function Landing() {
           Ready to get started?
         </div>
         <h2 className="relative text-[clamp(1.6rem,3vw,2.4rem)] font-bold tracking-tight text-[var(--color-gold)] mb-3">
-          Join IndyAssist today
+          Join BoilerIndy today
         </h2>
         <p className="relative text-[15px] text-[var(--color-gold)]/70 mb-8 max-w-md mx-auto">
           Free for all Purdue Indianapolis students. Sign in with your university account.
@@ -371,7 +371,7 @@ export default function Landing() {
           <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md">
             IA
 </span>
-          IndyAssist
+          BoilerIndy
         </div>
         <div className="text-[12px] text-[var(--color-txt-2)]">
           Built for Purdue University Indianapolis students · Not an official Purdue product

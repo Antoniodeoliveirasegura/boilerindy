@@ -154,8 +154,8 @@ export default function Login() {
           <div className="absolute -top-[20%] -right-[20%] w-[400px] h-[400px] pointer-events-none" style={{ background: 'radial-gradient(ellipse, rgba(207,185,145,0.18) 0%, transparent 70%)' }} />
           <div className="absolute -bottom-[10%] -left-[10%] w-[300px] h-[300px] pointer-events-none" style={{ background: 'radial-gradient(ellipse, rgba(207,185,145,0.1) 0%, transparent 70%)' }} />
           <div className="relative flex items-center gap-2.5 mb-auto">
-            <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">IA</span>
-            <span className="text-[15px] font-semibold text-[var(--color-gold)]">IndyAssist</span>
+            <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>
+            <span className="text-[15px] font-semibold text-[var(--color-gold)]">BoilerIndy</span>
           </div>
           <div className="relative my-auto max-w-[360px]">
             <h2 className="text-[clamp(1.5rem,2.5vw,2rem)] font-bold tracking-tight text-[var(--color-gold)] leading-tight mb-3">
@@ -190,13 +190,13 @@ export default function Login() {
           <div className="w-full max-w-[420px]">
             <div className="mb-7">
               <div className="flex items-center gap-2 mb-5">
-                <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">IA</span>
+                <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-[var(--color-txt-0)] mb-1">
                 {isSignup ? 'Create your account' : 'Welcome back'}
               </h1>
               <p className="text-[13px] text-[var(--color-txt-1)]">
-                {isSignup ? 'Create your account to get started.' : 'Sign in to continue to IndyAssist.'}
+                {isSignup ? 'Create your account to get started.' : 'Sign in to continue to BoilerIndy.'}
               </p>
             </div>
 
