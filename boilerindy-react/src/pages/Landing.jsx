@@ -81,7 +81,7 @@ export default function Landing() {
       <nav className="sticky top-0 z-50 h-14 px-5 sm:px-8 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]/85 backdrop-blur-md">
         <Link to="/" className="flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-txt-0)] no-underline">
           <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">
-            IA
+            BI
 </span>
           BoilerIndy
         </Link>
@@ -369,7 +369,7 @@ export default function Landing() {
       <footer className="bg-[var(--color-bg-0)] border-t border-[var(--color-border)] py-8 px-5 text-center">
         <div className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-txt-0)] mb-2">
           <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md">
-            IA
+            BI
 </span>
           BoilerIndy
         </div>

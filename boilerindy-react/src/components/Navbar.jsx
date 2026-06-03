@@ -49,7 +49,7 @@ export default function Navbar() {
           >
             <div className="relative">
               <span className="bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-lg tracking-wider shadow-sm group-hover:shadow-md transition-shadow duration-300">
-                IA
+                BI
 </span>
               <div className="absolute inset-0 bg-[var(--color-gold)] rounded-lg opacity-0 group-hover:opacity-20 blur-md transition-opacity duration-300" />
             </div>
