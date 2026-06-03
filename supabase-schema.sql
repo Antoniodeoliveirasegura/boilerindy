@@ -81,16 +81,19 @@ END;
 $$ language 'plpgsql';
 
 -- Triggers to auto-update updated_at
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at
   BEFORE UPDATE ON users
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_linked_sources_updated_at ON linked_sources;
 CREATE TRIGGER update_linked_sources_updated_at
   BEFORE UPDATE ON linked_sources
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_calendar_items_updated_at ON calendar_items;
 CREATE TRIGGER update_calendar_items_updated_at
   BEFORE UPDATE ON calendar_items
   FOR EACH ROW
@@ -146,6 +149,7 @@ ALTER TABLE board_upvotes ENABLE ROW LEVEL SECURITY;
 -- Board rows are read/written by the HackIndy Node server (SUPABASE_SERVICE_ROLE_KEY),
 -- which bypasses RLS. Endpoints: GET/POST /api/board/posts, reply, upvote.
 
+DROP TRIGGER IF EXISTS update_board_posts_updated_at ON board_posts;
 CREATE TRIGGER update_board_posts_updated_at
   BEFORE UPDATE ON board_posts
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
