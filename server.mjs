@@ -2342,7 +2342,7 @@ app.get('/api/dining', async (req, res) => {
 // Board API
 // ============================================================
 
-const BOARD_SQL_FILE = 'hackindy/supabase-board-only.sql'
+const BOARD_SQL_FILE = 'supabase-board-only.sql'
 
 function isBoardSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -2743,13 +2743,13 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 })
 
 app.listen(port, host, async () => {
-  console.log(`HackIndy backend listening on ${publicBaseUrl}`)
+  console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
   console.log(`Database: Supabase`)
   const probe = await supabase.from('board_posts').select('id').limit(1)
   if (probe.error && isBoardSchemaMissingError(probe.error)) {
     console.warn(
-      `\n[HackIndy] Campus board: table board_posts not found. Run ${BOARD_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+      `\n[BoilerIndy] Campus board: table board_posts not found. Run ${BOARD_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
 })

@@ -1,4 +1,4 @@
--- Supabase Schema for HackIndy
+-- Supabase Schema for BoilerIndy
 -- Run this in your Supabase SQL Editor to create the required tables
 
 -- Enable UUID extension
@@ -146,7 +146,7 @@ ALTER TABLE board_posts   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE board_replies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE board_upvotes ENABLE ROW LEVEL SECURITY;
 
--- Board rows are read/written by the HackIndy Node server (SUPABASE_SERVICE_ROLE_KEY),
+-- Board rows are read/written by the BoilerIndy Node server (SUPABASE_SERVICE_ROLE_KEY),
 -- which bypasses RLS. Endpoints: GET/POST /api/board/posts, reply, upvote.
 
 DROP TRIGGER IF EXISTS update_board_posts_updated_at ON board_posts;

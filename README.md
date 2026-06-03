@@ -1,13 +1,13 @@
-# HackIndy
+# BoilerIndy
 
-HackIndy is a campus services web application for Purdue University Indianapolis. It combines a Node.js/Express backend with a React + Vite frontend, integrating Supabase, Purdue authentication, campus schedules, dining, transit, board, and an AI campus assistant.
+BoilerIndy is a campus services web application for Purdue University Indianapolis. It combines a Node.js/Express backend with a React + Vite frontend, integrating Supabase, Purdue authentication, campus schedules, dining, transit, board, and an AI campus assistant.
 
 ---
 
 ## Repository structure
 
 ```
-hackindy/
+boilerindy/
 ├── server.mjs                     # Express backend entry point
 ├── auth.mjs                       # Auth helpers
 ├── boardProfanity.mjs             # Board content moderation
@@ -19,7 +19,7 @@ hackindy/
 ├── supabase-board-only.sql        # Board tables schema
 ├── supabase-user-tasks.sql        # User tasks schema
 ├── .env.example                   # Backend env template — copy to .env
-├── hackindy-react/                # React + Vite frontend
+├── boilerindy-react/                # React + Vite frontend
 │   ├── src/
 │   │   ├── pages/                 # Route-level page components
 │   │   ├── components/            # Layout, navbar, auth guards
@@ -30,7 +30,7 @@ hackindy/
 ```
 
 **Branches:**
-- `main` — production (deployed to Vercel + Railway)
+- `main` — production (deployed to Vercel + Render)
 - `develop` — local development and testing
 
 ---
@@ -50,8 +50,8 @@ This section explains how to run the full stack (frontend + backend) on your own
 ### 1. Clone the repo and switch to develop
 
 ```bash
-git clone https://github.com/Antoniodeoliveirasegura/hackindy.git
-cd hackindy
+git clone https://github.com/Antoniodeoliveirasegura/boilerindy.git
+cd boilerindy
 git checkout develop
 ```
 
@@ -99,7 +99,7 @@ Open `.env` and fill in the values:
 ### 4. Install frontend dependencies
 
 ```bash
-cd hackindy-react
+cd boilerindy-react
 npm install
 cd ..
 ```
@@ -110,15 +110,15 @@ cd ..
 
 ```bash
 # macOS / Linux
-cd hackindy-react && cp .env.example .env && cd ..
+cd boilerindy-react && cp .env.example .env && cd ..
 
 # Windows
-cd hackindy-react
+cd boilerindy-react
 copy .env.example .env
 cd ..
 ```
 
-Open `hackindy-react/.env` and fill in:
+Open `boilerindy-react/.env` and fill in:
 
 | Variable | Where to get it |
 |---|---|
@@ -140,7 +140,7 @@ npm run dev
 You should see:
 
 ```
-HackIndy backend listening on http://127.0.0.1:3000
+BoilerIndy backend listening on http://127.0.0.1:3000
 Purdue link mode: mock
 Database: Supabase
 ```
@@ -149,10 +149,10 @@ Database: Supabase
 
 ### 7. Run the frontend
 
-In a **separate terminal**, from `hackindy-react/`:
+In a **separate terminal**, from `boilerindy-react/`:
 
 ```bash
-cd hackindy-react
+cd boilerindy-react
 npm run dev
 ```
 
@@ -180,7 +180,7 @@ In development, **you never need to set a backend URL in the frontend**. Vite au
 - `/api/*` → `http://127.0.0.1:3000/api/*`
 - `/auth/purdue/*` → `http://127.0.0.1:3000/auth/purdue/*`
 
-This is configured in `hackindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Railway backend — the frontend code never changes between environments.
+This is configured in `boilerindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Railway backend — the frontend code never changes between environments.
 
 ---
 
@@ -190,16 +190,16 @@ This is configured in `hackindy-react/vite.config.js`. In production, Vercel rew
 Run `npm install` from the repo root. Dependencies aren't installed.
 
 **`'vite' is not recognized` on frontend start**
-Run `npm install` from inside `hackindy-react/`. Frontend dependencies aren't installed.
+Run `npm install` from inside `boilerindy-react/`. Frontend dependencies aren't installed.
 
 **Backend exits immediately with `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`**
-Your `.env` is missing or empty. Make sure `.env` exists in the **repo root** (not inside `hackindy-react/`) and contains valid Supabase credentials.
+Your `.env` is missing or empty. Make sure `.env` exists in the **repo root** (not inside `boilerindy-react/`) and contains valid Supabase credentials.
 
 **Frontend loads but all API calls fail**
 The backend isn't running. Start it first (`npm run dev` from repo root), then start the frontend in a second terminal.
 
 **Port 3000 already in use**
-Another process holds port 3000. Kill it, or change `PORT` in the root `.env` and set `VITE_API_PROXY=http://127.0.0.1:<new-port>` in `hackindy-react/.env`.
+Another process holds port 3000. Kill it, or change `PORT` in the root `.env` and set `VITE_API_PROXY=http://127.0.0.1:<new-port>` in `boilerindy-react/.env`.
 
 **Port 5173 already in use**
 Vite automatically tries 5174, 5175, etc. Check which port Vite actually started on in the terminal output, then update `CLIENT_APP_URL` in the root `.env` to match (e.g. `http://localhost:5174`).
@@ -239,9 +239,9 @@ All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXI
 
 - **Frontend** — Vercel, auto-deploys from `main`
 - **Backend** — Render, running `node server.mjs`
-- **Routing** — `hackindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
+- **Routing** — `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
 
-Do not merge dev-only env variables into `main`. Production secrets are configured in the Vercel and Railway dashboards, not in this repo.
+Do not merge dev-only env variables into `main`. Production secrets are configured in the Vercel and Render dashboards, not in this repo.
 
 ---
 
@@ -268,7 +268,7 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 npm install          # Install backend dependencies
 npm run dev          # Start backend on :3000
 
-# From hackindy-react/
+# From boilerindy-react/
 npm install          # Install frontend dependencies
 npm run dev          # Start frontend on :5173
 npm run build        # Production build

@@ -838,7 +838,7 @@ export default function Home() {
               </div>
               <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
                 {needsPurdueConnection
-                  ? 'Your HackIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
+                  ? 'Your BoilerIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
                   : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
               </p>
             </div>

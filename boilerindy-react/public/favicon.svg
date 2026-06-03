@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Dark rounded background -->
+  <rect width="32" height="32" rx="7" fill="#1a1206"/>
+  <!-- Gold "B" — stem + two bumps using evenodd fill -->
+  <path fill-rule="evenodd" d="
+    M5 7 L5 25 L13 25 Q18 25 18 21 Q18 19 16 18 Q18 17 18 13 Q18 7 13 7 Z
+    M7.5 9.5 L12 9.5 Q15 9.5 15 12.5 Q15 15.5 12 15.5 L7.5 15.5 Z
+    M7.5 17 L12.5 17 Q15.5 17 15.5 21 Q15.5 23 12.5 23 L7.5 23 Z
+  " fill="#C9A84C"/>
+  <!-- Gold "I" -->
+  <path d="M21 7h2.5v18H21V7z" fill="#C9A84C"/>
+  <!-- Gold dot accent -->
+  <circle cx="28.5" cy="8.5" r="1.5" fill="#C9A84C"/>
+</svg>

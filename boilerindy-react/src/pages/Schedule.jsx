@@ -247,7 +247,7 @@ export default function Schedule() {
               </div>
               <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
                 {onboarding?.needsPurdueConnection
-                  ? 'Your HackIndy account is ready. Link Purdue first, then attach your timetable iCal export.'
+                  ? 'Your BoilerIndy account is ready. Link Purdue first, then attach your timetable iCal export.'
                   : 'Your Purdue account is linked. Finish setup to sync your recurring class meetings into this page.'}
               </p>
             </div>

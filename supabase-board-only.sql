@@ -8,9 +8,9 @@
 -- 1. https://supabase.com/dashboard → your project
 -- 2. SQL Editor → New query
 -- 3. Paste this ENTIRE file → Run (confirm if prompted)
--- 4. Wait ~30s, then restart HackIndy Node
+-- 4. Wait ~30s, then restart BoilerIndy Node
 --
--- Requires: public.users (main HackIndy supabase-schema.sql).
+-- Requires: public.users (main BoilerIndy supabase-schema.sql).
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
