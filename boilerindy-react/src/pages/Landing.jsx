@@ -87,7 +87,7 @@ export default function Landing() {
 </span>
           BoilerIndy
         </Link>
-        <div className="hidden sm:flex items-center gap-0.5">
+        <div className="hidden sm:flex items-center gap-0.5 absolute left-1/2 -translate-x-1/2">
           <a href="#features" className="text-[13px] text-[var(--color-txt-1)] px-3.5 py-1.5 rounded-lg hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] flex items-center gap-1.5 no-underline">
             <Icon name="grid" size={13} />
             Features
