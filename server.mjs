@@ -14,6 +14,8 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './boardProfanity.mjs'
 import { createRateLimiter } from './rateLimiter.mjs'
+import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents } from './scheduleSync.mjs'
+import { createCalendarItemStore } from './calendarItemStore.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -468,567 +470,49 @@ function validateSourceUrl(sourceUrl) {
   }
 }
 
-function normalizeCategory(sourceType, event) {
-  if (sourceType === 'purdue_schedule_ical') return 'class'
-  
-  const summary = (event.summary || '').toLowerCase()
-  const rawSummary = event.summary || ''
-  const location = (event.location || '').toLowerCase()
-  
-  // FIRST: Check for resources/available items (solutions, posted materials)
-  // These should NOT be categorized as exams/assignments even if they contain those words
-  if (/- available\b|solution|posted|released/i.test(rawSummary)) {
-    return 'resource'
-  }
-  
-  // Campus events - career fairs, workshops, social events (check before academic items)
-  if (/career fair|workshop|showcase|networking|info session|call out|social|tailgate|bash|celebration|week\b|speaker|panel|mixer|party|resumania|block party/i.test(summary) ||
-      location.includes('ece indy resources') ||
-      location.includes('boiler park')) {
-    return 'campus_event'
-  }
-  
-  // Due items - assignments that are actually due
-  if (/- due\b/i.test(rawSummary)) {
-    // Check if it's a lab
-    if (/\blab\b|\bprelab\b|\bwriteup\b|\bnotebook\b/i.test(summary)) {
-      return 'lab'
-    }
-    // Check if it's a project
-    if (/\bproject\b|\bformal report\b/i.test(summary)) {
-      return 'project'
-    }
-    return 'assignment'
-  }
-  
-  // Exams (only if not a resource/available item - already filtered above)
-  if (/\bexam\b|\bmidterm\b|\bfinal\b|\bpracticum\b/i.test(summary) && !/solution|available/i.test(summary)) {
-    return 'exam'
-  }
-  
-  // Homework and assignments
-  if (/\bhw\d*\b|\bhomework\b|\bassignment\b/i.test(summary) ||
-      /^[PQ]\d+\s*-/i.test(rawSummary)) {
-    return 'assignment'
-  }
-  
-  // Labs and prelabs
-  if (/\blab\b|\bprelab\b|\bwriteup\b|\bnotebook\b/i.test(summary)) {
-    return 'lab'
-  }
-  
-  // Projects
-  if (/\bproject\b|\bformal report\b/i.test(summary)) {
-    return 'project'
-  }
-  
-  // Quizzes
-  if (/\bquiz\b/i.test(summary)) {
-    return 'quiz'
-  }
-  
-  // Deadlines
-  if (/\bdeadline\b|\blast day\b|\bregistration\b/i.test(summary)) {
-    return 'deadline'
-  }
-  
-  // Default to event
-  return 'event'
-}
+// ── Schedule sync (imperative shell) ─────────────────────────────────────────
+// The pure plan lives in scheduleSync.mjs; this shell owns the fetch, the
+// database writes (via calendarItemStore), and item identity stamping.
+const calendarItemStore = createCalendarItemStore(supabase)
 
-/**
- * Detect timezone from iCal feed data. Falls back to Indianapolis timezone.
- */
-function detectTimezoneFromFeed(eventsByKey) {
-  const DEFAULT_TZ = 'America/Indiana/Indianapolis'
-  try {
-    for (const key of Object.keys(eventsByKey)) {
-      const item = eventsByKey[key]
-      if (item?.type === 'VTIMEZONE' && item.tzid) {
-        return item.tzid
-      }
-    }
-    for (const key of Object.keys(eventsByKey)) {
-      const item = eventsByKey[key]
-      if (item?.type === 'VEVENT' && item.start?.tz) {
-        return item.start.tz
-      }
-    }
-  } catch {
-    // Ignore detection errors
-  }
-  return DEFAULT_TZ
-}
-
-/**
- * node-ical sets the rrule DTSTART to the *local* class time (e.g. 9:30 AM)
- * without the UTC offset, so rrule.between() returns dates where the UTC
- * hours/minutes equal the Eastern local hours/minutes (e.g. 09:30Z instead
- * of 14:30Z for an EST class).  This function corrects each generated date
- * back to real UTC by applying the timezone offset for that date.
- */
-function fixRruleTimezone(rruleDate, timezone = 'America/Indiana/Indianapolis') {
-  const TZ = timezone || 'America/Indiana/Indianapolis'
-  const lYear  = rruleDate.getUTCFullYear()
-  const lMonth = rruleDate.getUTCMonth()
-  const lDay   = rruleDate.getUTCDate()
-  const lHour  = rruleDate.getUTCHours()
-  const lMin   = rruleDate.getUTCMinutes()
-  const lSec   = rruleDate.getUTCSeconds()
-
-  // Try common US timezone offsets: UTC-4 (EDT), UTC-5 (EST/CDT), UTC-6 (CST), UTC-7 (MST/PDT), UTC-8 (PST)
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: TZ,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-  for (const offsetH of [4, 5, 6, 7, 8]) {
-    try {
-      const candidate = new Date(Date.UTC(lYear, lMonth, lDay, lHour + offsetH, lMin, lSec))
-      const parts = fmt.formatToParts(candidate)
-      const hourPart = parts.find(p => p.type === 'hour')
-      const minutePart = parts.find(p => p.type === 'minute')
-      if (!hourPart || !minutePart) continue
-      const checkH = parseInt(hourPart.value) % 24
-      const checkM = parseInt(minutePart.value)
-      if (checkH === lHour && checkM === lMin) return candidate
-    } catch {
-      continue
-    }
-  }
-  // Fallback: assume EST (UTC-5)
-  return new Date(Date.UTC(lYear, lMonth, lDay, lHour + 5, lMin, lSec))
-}
-
-/**
- * Safely parse a date value from iCal event.
- * Handles Date objects, strings, and edge cases.
- */
-function safeParseDate(dateValue) {
-  if (!dateValue) return null
-  if (dateValue instanceof Date) {
-    return Number.isNaN(dateValue.getTime()) ? null : dateValue
-  }
-  if (typeof dateValue === 'string') {
-    const parsed = new Date(dateValue)
-    return Number.isNaN(parsed.getTime()) ? null : parsed
-  }
-  if (typeof dateValue === 'object' && dateValue.toJSDate) {
-    try {
-      const jsDate = dateValue.toJSDate()
-      return Number.isNaN(jsDate.getTime()) ? null : jsDate
-    } catch {
-      return null
-    }
-  }
-  return null
-}
-
-/**
- * Get the local time components (hour, minute) from a Date in a specific timezone.
- */
-function getLocalTimeInTimezone(date, timezone) {
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })
-    const parts = fmt.formatToParts(date)
-    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10)
-    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10)
-    return { hour: hour % 24, minute }
-  } catch {
-    return { hour: date.getUTCHours(), minute: date.getUTCMinutes() }
-  }
-}
-
-/**
- * Get the weekday of a date in a specific timezone (0 = Sunday, 1 = Monday, etc.)
- */
-function getWeekdayInTimezone(date, timezone) {
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      weekday: 'short',
-    })
-    const dayStr = fmt.format(date)
-    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
-    return dayMap[dayStr] ?? date.getUTCDay()
-  } catch {
-    return date.getUTCDay()
-  }
-}
-
-/**
- * Create a Date object for a specific date and local time in a timezone.
- * This properly handles DST by finding the UTC time that corresponds to the local time.
- */
-function createDateInTimezone(year, month, day, hour, minute, timezone) {
-  // Try different UTC offsets to find the one that gives us the correct local time
-  for (const offsetHours of [4, 5, 6, 7, 8, -4, -5, -6, -7, -8]) {
-    const candidate = new Date(Date.UTC(year, month, day, hour + offsetHours, minute, 0, 0))
-    const localTime = getLocalTimeInTimezone(candidate, timezone)
-    if (localTime.hour === hour && localTime.minute === minute) {
-      return candidate
-    }
-  }
-  // Fallback: assume UTC-5 (EST)
-  return new Date(Date.UTC(year, month, day, hour + 5, minute, 0, 0))
-}
-
-/**
- * Expand RRULE-based recurring events into individual occurrences.
- * node-ical returns one object per UID even for recurring events; this
- * function generates all individual date instances within ±1 year.
- * 
- * The key insight: we preserve the LOCAL time from the original event start,
- * then apply it to each occurrence date. This avoids timezone conversion bugs.
- */
-function expandRecurringEvents(events, timezone = 'America/Indiana/Indianapolis') {
-  const rangeStart = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000) // ~6 months back
-  const rangeEnd   = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000) // ~13 months forward
-  const result = []
-  let skippedCount = 0
-  const seenKeys = new Set() // Deduplication
-
-  for (const event of events) {
-    // Handle non-recurring events
-    if (!event.rrule) {
-      const startDate = safeParseDate(event.start)
-      if (!startDate) {
-        skippedCount++
-        continue
-      }
-      
-      // Dedupe key for non-recurring events
-      const dedupeKey = `${event.uid}:${startDate.toISOString()}`
-      if (seenKeys.has(dedupeKey)) continue
-      seenKeys.add(dedupeKey)
-      
-      result.push({
-        ...event,
-        start: startDate,
-        end: safeParseDate(event.end) || startDate,
-      })
-      continue
-    }
-
-    // Handle recurring events
-    const startDate = safeParseDate(event.start)
-    const endDate = safeParseDate(event.end)
-    if (!startDate) {
-      skippedCount++
-      continue
-    }
-
-    // Get the original event's LOCAL time (hour/minute) - this is what we want to preserve
-    const originalLocalTime = getLocalTimeInTimezone(startDate, timezone)
-    const durationMs = endDate ? Math.max(0, endDate.getTime() - startDate.getTime()) : 0
-
-    let dates
-    try {
-      dates = event.rrule.between(rangeStart, rangeEnd, true /* inclusive */)
-    } catch (rruleError) {
-      console.warn(`[syncSource] RRULE expansion failed for "${event.summary}":`, rruleError?.message || rruleError)
-      const dedupeKey = `${event.uid}:${startDate.toISOString()}`
-      if (!seenKeys.has(dedupeKey)) {
-        seenKeys.add(dedupeKey)
-        result.push({
-          ...event,
-          start: startDate,
-          end: endDate || startDate,
-        })
-      }
-      continue
-    }
-
-    // Track which days we've already created events for (to prevent duplicates on same day)
-    const eventDaysSeen = new Set()
-
-    for (const date of dates) {
-      // Get the date components from the rrule-generated date
-      // Note: rrule.between() returns dates where the TIME might be wrong,
-      // but the DATE (year/month/day) is correct for recurrence
-      let year, month, day
-      try {
-        // Use UTC components since rrule often puts local time in UTC fields
-        year = date.getUTCFullYear()
-        month = date.getUTCMonth()
-        day = date.getUTCDate()
-      } catch {
-        continue
-      }
-
-      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-
-      // Skip if we already have this event on this day (prevents duplicates)
-      const eventDayKey = `${event.uid}:${dateKey}`
-      if (eventDaysSeen.has(eventDayKey)) continue
-      eventDaysSeen.add(eventDayKey)
-
-      // Skip excluded (EXDATE) dates
-      if (event.exdate) {
-        try {
-          const excluded = Object.keys(event.exdate).some(k => {
-            const exKey = k.slice(0, 10)
-            return exKey === dateKey || exKey === date.toISOString?.()?.slice(0, 10)
-          })
-          if (excluded) continue
-        } catch {
-          // Ignore exdate parsing errors
-        }
-      }
-
-      // Use RECURRENCE-ID override if present
-      const override = event.recurrences?.[dateKey]
-      if (override) {
-        const overrideStart = safeParseDate(override.start)
-        if (overrideStart) {
-          const dedupeKey = `${event.uid}:${dateKey}:override`
-          if (!seenKeys.has(dedupeKey)) {
-            seenKeys.add(dedupeKey)
-            result.push({ 
-              ...override, 
-              uid: `${event.uid}:${dateKey}`,
-              start: overrideStart,
-              end: safeParseDate(override.end) || overrideStart,
-            })
-          }
-        }
-        continue
-      }
-
-      // Create the correct start time: same LOCAL time as original, but on this date
-      const correctStart = createDateInTimezone(
-        year, month, day, 
-        originalLocalTime.hour, 
-        originalLocalTime.minute, 
-        timezone
-      )
-      const correctEnd = new Date(correctStart.getTime() + durationMs)
-
-      // Final dedupe check
-      const dedupeKey = `${event.uid}:${dateKey}`
-      if (seenKeys.has(dedupeKey)) continue
-      seenKeys.add(dedupeKey)
-
-      result.push({
-        ...event,
-        start: correctStart,
-        end: correctEnd,
-        uid: `${event.uid}:${dateKey}`,
-        rrule: undefined,
-        recurrences: undefined,
-        exdate: undefined,
-      })
-    }
-  }
-
-  if (skippedCount > 0) {
-    console.warn(`[syncSource] Skipped ${skippedCount} events with invalid dates`)
-  }
-
-  return result
-}
-
-async function syncSource(source) {
+async function runScheduleSync(source) {
   const syncedAt = nowIso()
-  const userId = source.user_id
   const sourceId = source.id
 
-  console.log(`[syncSource] Starting sync for user=${userId}, source=${sourceId}, type=${source.source_type}`)
-
-  // Step 1: Fetch and parse iCal data
   let eventsByKey
   try {
     eventsByKey = await ical.async.fromURL(source.source_url)
   } catch (fetchError) {
-    const errorMsg = fetchError?.message || 'Failed to fetch calendar'
-    const isNetworkError = errorMsg.includes('ENOTFOUND') || errorMsg.includes('ETIMEDOUT') || errorMsg.includes('fetch')
-    const isAuthError = errorMsg.includes('401') || errorMsg.includes('403') || errorMsg.includes('Unauthorized')
-    
-    let userMessage = 'Could not fetch the calendar feed.'
-    if (isNetworkError) {
-      userMessage = 'Could not reach the calendar URL. Please check the URL is correct and accessible.'
-    } else if (isAuthError) {
-      userMessage = 'Calendar access denied. The feed URL may have expired — try generating a new one.'
-    } else if (errorMsg.includes('404')) {
-      userMessage = 'Calendar not found. The URL may be incorrect or the calendar may have been deleted.'
-    }
-
-    console.error(`[syncSource] Fetch failed for source=${sourceId}:`, errorMsg)
-    await supabase
-      .from('linked_sources')
-      .update({ status: 'error', last_error: userMessage, updated_at: syncedAt })
-      .eq('id', sourceId)
-    throw new Error(userMessage)
+    const classified = classifyFetchError(fetchError)
+    console.error('[runScheduleSync] Fetch failed for source=' + sourceId + ':', fetchError?.message || fetchError)
+    await calendarItemStore.setStatus(sourceId, classified.status, classified.message)
+    throw new Error(classified.message)
   }
 
-  // Step 2: Extract events and detect timezone
-  const rawEvents = Object.values(eventsByKey).filter((item) => item?.type === 'VEVENT')
-  const detectedTimezone = detectTimezoneFromFeed(eventsByKey)
-  
-  console.log(`[syncSource] source=${sourceId}: Found ${rawEvents.length} raw events, timezone=${detectedTimezone}`)
+  const plan = planSync(eventsByKey, source)
 
-  if (rawEvents.length === 0) {
-    console.warn(`[syncSource] source=${sourceId}: No events found in feed`)
-    await supabase
-      .from('linked_sources')
-      .update({ status: 'ready', last_synced_at: syncedAt, last_error: 'No events found in calendar (this may be normal for an empty calendar)', updated_at: syncedAt })
-      .eq('id', sourceId)
-    return { syncedAt, itemCount: 0, warning: 'No events found in the calendar feed.' }
+  // Empty feed parsed cleanly: leave any existing items untouched (prior behaviour).
+  if (plan.meta.rawCount === 0) {
+    await calendarItemStore.setStatus(sourceId, plan.sourceStatus, plan.statusMessage, { markSynced: true })
+    return { syncedAt, itemCount: 0, warning: plan.meta.warning }
   }
 
-  // Step 3: Expand recurring events
-  let events
   try {
-    events = expandRecurringEvents(rawEvents, detectedTimezone)
-  } catch (expandError) {
-    console.error(`[syncSource] RRULE expansion failed for source=${sourceId}:`, expandError)
-    events = rawEvents.map(e => ({
-      ...e,
-      start: safeParseDate(e.start) || new Date(),
-      end: safeParseDate(e.end) || safeParseDate(e.start) || new Date(),
-    }))
+    await calendarItemStore.replaceItems(sourceId, plan.itemsToInsert)
+  } catch (insertError) {
+    await calendarItemStore.setStatus(sourceId, 'error', 'Failed to save events: ' + insertError.message)
+    throw new Error('Failed to save calendar events: ' + insertError.message)
   }
 
-  console.log(`[syncSource] source=${sourceId}: Expanded to ${events.length} event instances`)
+  await calendarItemStore.setStatus(sourceId, plan.sourceStatus, plan.statusMessage, { markSynced: true })
 
-  // Step 4: Delete existing items for this source
-  const { error: deleteError } = await supabase
-    .from('calendar_items')
-    .delete()
-    .eq('source_id', sourceId)
+  console.log('[runScheduleSync] source=' + sourceId + ': ' + plan.meta.itemCount + ' items saved (' + plan.meta.skippedCount + ' skipped, ' + plan.meta.duplicateCount + ' duplicates removed)')
 
-  if (deleteError) {
-    console.error(`[syncSource] Delete failed for source=${sourceId}:`, deleteError)
-  }
-
-  // Step 5: Build items to insert with validation and deduplication
-  const itemsToInsert = []
-  const skippedItems = []
-  const seenItemKeys = new Set() // For final deduplication
-  let duplicateCount = 0
-
-  for (const event of events) {
-    // Validate start time
-    let startTime
-    let startDate
-    try {
-      startDate = event.start instanceof Date ? event.start : new Date(event.start)
-      if (Number.isNaN(startDate.getTime())) {
-        skippedItems.push({ summary: event.summary, reason: 'invalid start date' })
-        continue
-      }
-      startTime = startDate.toISOString()
-    } catch {
-      skippedItems.push({ summary: event.summary, reason: 'unparseable start date' })
-      continue
-    }
-
-    // Parse end time (optional)
-    let endTime = null
-    if (event.end) {
-      try {
-        const endDate = event.end instanceof Date ? event.end : new Date(event.end)
-        if (!Number.isNaN(endDate.getTime())) {
-          endTime = endDate.toISOString()
-        }
-      } catch {
-        // End time is optional, continue without it
-      }
-    }
-
-    const uid = String(event.uid || `${sourceId}:${event.summary}:${startTime}`)
-    const category = normalizeCategory(source.source_type, event)
-
-    // Skip resources for Brightspace
-    if ((source.source_type === 'brightspace_ical' || source.source_url.includes('brightspace.com')) && category === 'resource') {
-      continue
-    }
-
-    // Deduplication: key by title + date + start hour
-    // This allows multiple events on same day at different times (lecture + lab)
-    // but catches true duplicates (same class, same day, same hour)
-    const dateOnly = startTime.slice(0, 10) // YYYY-MM-DD
-    const hourOnly = startTime.slice(11, 13) // HH (hour)
-    const dedupeKey = `${event.summary}:${dateOnly}:${hourOnly}:${event.location || ''}`
-    
-    if (seenItemKeys.has(dedupeKey)) {
-      duplicateCount++
-      continue
-    }
-    seenItemKeys.add(dedupeKey)
-
-    itemsToInsert.push({
-      id: makeId(),
-      user_id: userId,
-      source_id: sourceId,
-      source_type: source.source_type,
-      title: String(event.summary || 'Untitled item').slice(0, 500),
-      description: event.description ? String(event.description).slice(0, 5000) : null,
-      start_time: startTime,
-      end_time: endTime,
-      location: event.location ? String(event.location).slice(0, 500) : null,
-      category,
-      external_uid: uid.slice(0, 500),
-      all_day: event.datetype === 'date',
-      raw_json: { uid, summary: event.summary, description: event.description, location: event.location },
-      created_at: syncedAt,
-      updated_at: syncedAt
-    })
-  }
-
-  if (skippedItems.length > 0) {
-    console.warn(`[syncSource] source=${sourceId}: Skipped ${skippedItems.length} items with invalid data:`, skippedItems.slice(0, 5))
-  }
-  
-  if (duplicateCount > 0) {
-    console.log(`[syncSource] source=${sourceId}: Removed ${duplicateCount} duplicate events`)
-  }
-
-  console.log(`[syncSource] source=${sourceId}: Inserting ${itemsToInsert.length} unique items`)
-
-  // Step 6: Insert items (in batches if needed for large calendars)
-  if (itemsToInsert.length > 0) {
-    const BATCH_SIZE = 500
-    for (let i = 0; i < itemsToInsert.length; i += BATCH_SIZE) {
-      const batch = itemsToInsert.slice(i, i + BATCH_SIZE)
-      const { error: insertError } = await supabase
-        .from('calendar_items')
-        .insert(batch)
-
-      if (insertError) {
-        console.error(`[syncSource] Insert failed for source=${sourceId} batch ${i}:`, insertError)
-        await supabase
-          .from('linked_sources')
-          .update({ status: 'error', last_error: `Failed to save events: ${insertError.message}`, updated_at: syncedAt })
-          .eq('id', sourceId)
-        throw new Error(`Failed to save calendar events: ${insertError.message}`)
-      }
-    }
-  }
-
-  // Step 7: Update source status
-  const statusMessage = skippedItems.length > 0 
-    ? `Synced with ${skippedItems.length} items skipped due to invalid dates` 
-    : null
-
-  await supabase
-    .from('linked_sources')
-    .update({ status: 'ready', last_synced_at: syncedAt, last_error: statusMessage, updated_at: syncedAt })
-    .eq('id', sourceId)
-
-  console.log(`[syncSource] source=${sourceId}: Sync complete, ${itemsToInsert.length} items saved`)
-
-  return { 
-    syncedAt, 
-    itemCount: itemsToInsert.length, 
-    skippedCount: skippedItems.length,
-    timezone: detectedTimezone,
+  return {
+    syncedAt,
+    itemCount: plan.meta.itemCount,
+    skippedCount: plan.meta.skippedCount,
+    timezone: plan.meta.timezone,
   }
 }
 
@@ -1705,7 +1189,7 @@ app.post('/api/sources/purdue/schedule', sourceSyncRateLimit, requireAuth, requi
     const source = await createScheduleSource(userId, { icsUrl: trimmedUrl, label })
     
     console.log(`[/api/sources/purdue/schedule] User ${userId} syncing source ${source.id}...`)
-    const sync = await syncSource(source)
+    const sync = await runScheduleSync(source)
     
     console.log(`[/api/sources/purdue/schedule] User ${userId} sync complete: ${sync.itemCount} items`)
     res.status(201).json({ source: await getSourceForUser(source.id, userId), sync })
@@ -1747,7 +1231,7 @@ app.post('/api/sources/brightspace/schedule', sourceSyncRateLimit, requireAuth, 
     })
     
     console.log(`[/api/sources/brightspace/schedule] User ${userId} syncing source ${source.id}...`)
-    const sync = await syncSource(source)
+    const sync = await runScheduleSync(source)
     
     console.log(`[/api/sources/brightspace/schedule] User ${userId} sync complete: ${sync.itemCount} items`)
     res.status(201).json({ source: await getSourceForUser(source.id, userId), sync })
@@ -1768,7 +1252,7 @@ app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, re
   
   try {
     console.log(`[/api/sync] User ${userId} re-syncing source ${sourceId}...`)
-    const sync = await syncSource(source)
+    const sync = await runScheduleSync(source)
     console.log(`[/api/sync] User ${userId} sync complete: ${sync.itemCount} items`)
     
     const response = { source: await getSourceForUser(sourceId, userId), sync }
