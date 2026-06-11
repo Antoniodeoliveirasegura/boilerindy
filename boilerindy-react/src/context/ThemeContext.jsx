@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 const STORAGE_KEY = 'pih-theme'
 const LEGACY_KEY = 'pih-dark'
@@ -20,9 +20,27 @@ function getInitialTheme() {
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(getInitialTheme)
+  const firstRun = useRef(true)
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
+    const root = document.documentElement
+
+    // Crossfade colours on user-initiated switches (not on first paint),
+    // unless the user prefers reduced motion.
+    if (!firstRun.current) {
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      if (!reduce) {
+        root.classList.add('theme-transition')
+        window.clearTimeout(root._themeTransitionTimer)
+        root._themeTransitionTimer = window.setTimeout(
+          () => root.classList.remove('theme-transition'),
+          450,
+        )
+      }
+    }
+    firstRun.current = false
+
+    root.classList.toggle('dark', theme === 'dark')
     try {
       localStorage.setItem(STORAGE_KEY, theme)
       localStorage.setItem(LEGACY_KEY, theme === 'dark' ? '1' : '0')

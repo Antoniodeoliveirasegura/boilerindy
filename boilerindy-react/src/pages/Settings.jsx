@@ -171,7 +171,7 @@ export default function Settings() {
                 </p>
                 <Link to="/setup" className="btn btn-secondary text-[13px] px-4 py-2 mt-4 inline-flex">
                   <Icon name="calendar" size={14} />
-                  Manage schedule sources
+                  Manage calendar sources
                 </Link>
               </>
             ) : (
@@ -213,7 +213,7 @@ export default function Settings() {
             <div className="mt-4 pt-4 border-t border-[var(--color-border)] flex flex-wrap gap-2">
               <Link to="/setup" className="btn btn-secondary text-[13px] px-4 py-2">
                 <Icon name="calendar" size={14} />
-                Open setup
+                Calendar sources
               </Link>
               <Link to="/schedule" className="btn btn-secondary text-[13px] px-4 py-2">
                 <Icon name="schedule" size={14} />

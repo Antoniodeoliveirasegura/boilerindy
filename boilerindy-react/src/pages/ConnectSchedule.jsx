@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { authRequest } from '../lib/authApi'
+import { authRequest, setSkipSetup } from '../lib/authApi'
 import Icon from '../components/Icons'
 
 const sourceConfigs = {
@@ -209,6 +209,11 @@ export default function ConnectSchedule() {
   }
 
 
+  function handleSkipSetup() {
+    setSkipSetup(true)
+    navigate('/dashboard')
+  }
+
   // ── Helpers ──
 
   function getSourceTypeLabel(st) {
@@ -282,6 +287,15 @@ export default function ConnectSchedule() {
         <p className="text-center text-[12px] text-[var(--color-txt-3)] mt-4 px-4">
           Signed in as <span className="font-medium text-[var(--color-txt-2)]">{user?.email}</span>
         </p>
+        <div className="text-center mt-4">
+          <button
+            type="button"
+            onClick={handleSkipSetup}
+            className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] underline underline-offset-2"
+          >
+            Skip for now — don&rsquo;t ask me again
+          </button>
+        </div>
       </div>
     )
   }
@@ -292,9 +306,11 @@ export default function ConnectSchedule() {
   return (
     <div className="max-w-[800px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
       <div className="mb-6 sm:mb-8">
-        <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">Connect Your Calendars</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">
+          {sources.length > 0 ? 'Manage Calendar Sources' : 'Connect Your Calendars'}
+        </h1>
         <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-1">
-          Import your assignments and class schedule from Purdue systems.
+          Import your assignments and class schedule from Brightspace and your Purdue timetable.
         </p>
       </div>
 
@@ -478,9 +494,19 @@ export default function ConnectSchedule() {
             View Schedule
           </Link>
         </div>
-        <button type="button" onClick={() => navigate('/dashboard')} className="btn btn-secondary text-[13px] px-4 py-2.5 sm:py-2 w-full sm:w-auto justify-center">
-          Go to Dashboard
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={handleSkipSetup}
+            className="btn text-[13px] px-4 py-2.5 sm:py-2 text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] hover:bg-[var(--color-bg-2)] w-full sm:w-auto justify-center"
+            title="Go to the dashboard and stop showing this setup screen at login"
+          >
+            Don&rsquo;t ask again
+          </button>
+          <button type="button" onClick={() => navigate('/dashboard')} className="btn btn-secondary text-[13px] px-4 py-2.5 sm:py-2 w-full sm:w-auto justify-center">
+            Go to Dashboard
+          </button>
+        </div>
       </div>
     </div>
   )

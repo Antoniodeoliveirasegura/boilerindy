@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import Icon from '../components/Icons'
 
 const featCards = [
@@ -74,6 +75,7 @@ const integrations = [
 
 export default function Landing() {
   const { user, loading } = useAuth()
+  const { dark, toggleTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
 
   return (
@@ -85,7 +87,7 @@ export default function Landing() {
 </span>
           BoilerIndy
         </Link>
-        <div className="hidden sm:flex items-center gap-0.5">
+        <div className="hidden sm:flex items-center gap-0.5 absolute left-1/2 -translate-x-1/2">
           <a href="#features" className="text-[13px] text-[var(--color-txt-1)] px-3.5 py-1.5 rounded-lg hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] flex items-center gap-1.5 no-underline">
             <Icon name="grid" size={13} />
             Features
@@ -100,6 +102,15 @@ export default function Landing() {
           </Link>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={dark ? 'Light mode' : 'Dark mode'}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-colors"
+          >
+            <Icon name={dark ? 'sun' : 'moon'} size={16} />
+          </button>
           {!loading && user ? (
             <>
               <Link
@@ -137,12 +148,12 @@ export default function Landing() {
       </nav>
 
       <section className="relative min-h-[calc(100vh-3.5rem)] flex flex-col items-center justify-center px-6 py-16 text-center overflow-hidden">
-        <div
-          className="pointer-events-none absolute -top-[10%] left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full opacity-100"
-          style={{
-            background: 'radial-gradient(ellipse at center, rgba(212,168,75,0.12) 0%, transparent 70%)',
-          }}
-        />
+        <div className="hero-bg" aria-hidden="true">
+          <div className="hero-bg__grid" />
+          <div className="hero-bg__aurora hero-bg__aurora--gold" />
+          <div className="hero-bg__aurora hero-bg__aurora--accent" />
+          <div className="hero-bg__aurora hero-bg__aurora--gold2" />
+        </div>
         <div className="relative inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/20 border border-[var(--color-gold)]/40 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
           <Icon name="sparkles" size={13} />
           Built for Purdue Indianapolis

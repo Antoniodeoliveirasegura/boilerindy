@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { authRequest } from '../lib/authApi'
+import { authRequest, shouldSkipSetup } from '../lib/authApi'
 import { cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import {
@@ -803,7 +803,7 @@ export default function Home() {
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const needsScheduleSource = onboarding?.needsScheduleSource
-  const showSetupBanner = needsPurdueConnection || needsScheduleSource
+  const showSetupBanner = (needsPurdueConnection || needsScheduleSource) && !shouldSkipSetup()
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass
 
