@@ -12,25 +12,25 @@
   --color-gold-dark: #1A1408;
   --color-gold-muted: #B8943F;
   
-  /* Backgrounds - Warm neutrals */
-  --color-bg-0: #FAFAF8;
-  --color-bg-1: #F5F4F1;
-  --color-bg-2: #ECEAE5;
-  --color-bg-3: #E2DFD8;
-  
-  /* Text hierarchy */
-  --color-txt-0: #1A1918;
-  --color-txt-1: #4A4844;
-  --color-txt-2: #7A776F;
-  --color-txt-3: #A5A29A;
-  
+  /* Backgrounds - Cool slate neutrals */
+  --color-bg-0: #F9F9FA;
+  --color-bg-1: #EEEFF5;
+  --color-bg-2: #E5E6EF;
+  --color-bg-3: #D2D4DD;
+
+  /* Text hierarchy - Slate ramp */
+  --color-txt-0: #474C6B;
+  --color-txt-1: #565B7A;
+  --color-txt-2: #656988;
+  --color-txt-3: #9295A8;
+
   /* Borders & surfaces */
-  --color-border: rgba(26, 25, 24, 0.08);
-  --color-border-2: rgba(26, 25, 24, 0.14);
-  --color-border-3: rgba(26, 25, 24, 0.22);
+  --color-border: rgba(71, 76, 107, 0.10);
+  --color-border-2: rgba(71, 76, 107, 0.18);
+  --color-border-3: rgba(71, 76, 107, 0.28);
   --color-surface: #FFFFFF;
-  --color-surface-hover: #F8F7F5;
-  --color-stat: #F0EEE9;
+  --color-surface-hover: #F1F2F7;
+  --color-stat: #E9EAF1;
   
   /* Accent - Deep blue with warmth */
   --color-accent: #2D5A87;
@@ -61,10 +61,10 @@
   --color-error: #C45A5A;
   
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(26, 25, 24, 0.04), 0 1px 4px rgba(26, 25, 24, 0.06);
-  --shadow-md: 0 2px 4px rgba(26, 25, 24, 0.04), 0 4px 12px rgba(26, 25, 24, 0.08);
-  --shadow-lg: 0 4px 8px rgba(26, 25, 24, 0.04), 0 8px 24px rgba(26, 25, 24, 0.10);
-  --shadow-xl: 0 8px 16px rgba(26, 25, 24, 0.06), 0 16px 48px rgba(26, 25, 24, 0.12);
+  --shadow-sm: 0 1px 2px rgba(45, 49, 71, 0.05), 0 1px 4px rgba(45, 49, 71, 0.07);
+  --shadow-md: 0 2px 4px rgba(45, 49, 71, 0.05), 0 4px 12px rgba(45, 49, 71, 0.09);
+  --shadow-lg: 0 4px 8px rgba(45, 49, 71, 0.05), 0 8px 24px rgba(45, 49, 71, 0.11);
+  --shadow-xl: 0 8px 16px rgba(45, 49, 71, 0.07), 0 16px 48px rgba(45, 49, 71, 0.13);
   --shadow-glow: 0 0 0 3px rgba(212, 168, 75, 0.15);
   
   /* Animation timing */
