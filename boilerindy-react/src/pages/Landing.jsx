@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import Icon from '../components/Icons'
 
 const featCards = [
@@ -74,6 +75,7 @@ const integrations = [
 
 export default function Landing() {
   const { user, loading } = useAuth()
+  const { dark, toggleTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
 
   return (
@@ -100,6 +102,15 @@ export default function Landing() {
           </Link>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={dark ? 'Light mode' : 'Dark mode'}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-colors"
+          >
+            <Icon name={dark ? 'sun' : 'moon'} size={16} />
+          </button>
           {!loading && user ? (
             <>
               <Link
