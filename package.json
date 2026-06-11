@@ -2,9 +2,12 @@
   "name": "boilerindy",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.6.0",
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
+    "test": "node --test \"*.test.mjs\" && pnpm -C boilerindy-react test",
+    "test:backend": "node --test \"*.test.mjs\"",
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
