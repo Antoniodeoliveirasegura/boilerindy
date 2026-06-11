@@ -130,7 +130,7 @@ export default function CampusAssistant() {
                 <Icon name="sparkles" size={20} className="text-[var(--color-gold)]" />
               </div>
               <div>
-                <div className="text-[14px] font-semibold text-[var(--color-gold)]">IndyAssist</div>
+                <div className="text-[14px] font-semibold text-[var(--color-gold)]">BoilerIndy</div>
                 <div className="text-[11px] text-[var(--color-gold)]/60 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
                   Powered by Gemini
@@ -215,7 +215,7 @@ export default function CampusAssistant() {
             ? 'bg-[var(--color-surface)] border border-[var(--color-border-2)] rotate-90'
             : 'bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] hover:shadow-xl hover:scale-110'
           }`}
-        title="IndyAssist"
+        title="BoilerIndy"
       >
         {open ? (
           <Icon name="close" size={22} className="text-[var(--color-txt-1)]" />

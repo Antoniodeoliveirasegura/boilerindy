@@ -350,6 +350,18 @@ const icons = {
       <path d="M13.73 21a2 2 0 01-3.46 0"/>
     </>
   ),
+  edit: (
+    <>
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </>
+  ),
+  flag: (
+    <>
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+      <line x1="4" y1="22" x2="4" y2="15"/>
+    </>
+  ),
 }
 
 export default function Icon({ name, size = 16, className = '', strokeWidth = 2 }) {

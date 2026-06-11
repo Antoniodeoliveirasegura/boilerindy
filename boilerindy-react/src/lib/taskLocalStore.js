@@ -4,7 +4,7 @@
  */
 
 function key(userId) {
-  return `hackindy-tasks-v1-${userId}`
+  return `boilerindy-tasks-v1-${userId}`
 }
 
 export function loadLocalTasks(userId) {

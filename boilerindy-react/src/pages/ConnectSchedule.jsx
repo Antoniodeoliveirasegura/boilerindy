@@ -35,6 +35,7 @@ export default function ConnectSchedule() {
 
   const [banner, setBanner] = useState('')
   const [bannerType, setBannerType] = useState('info')
+  const [syncingAll, setSyncingAll] = useState(false)
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const config = sourceConfigs[sourceType]
@@ -137,9 +138,8 @@ export default function ConnectSchedule() {
       await loadData()
       
       const itemCount = response?.sync?.itemCount ?? 0
-      const skippedCount = response?.sync?.skippedCount ?? 0
       const warning = response?.warning
-      
+
       if (warning) {
         setBannerType('info')
         setBanner(`Synced ${itemCount} items. ${warning}`)
@@ -154,6 +154,43 @@ export default function ConnectSchedule() {
       setBannerType('error')
       setBanner(error.message || 'Could not sync source.')
     }
+  }
+
+  // Sync every connected source from one action (issue #8)
+  async function handleSyncAll() {
+    if (syncingAll || sources.length === 0) return
+    setSyncingAll(true)
+    setBannerType('info')
+
+    let totalItems = 0
+    const failures = []
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i]
+      setBanner(`Syncing ${i + 1} of ${sources.length}: ${source.label}…`)
+      try {
+        const response = await authRequest(`/api/sync/${source.id}`, { method: 'POST' })
+        totalItems += response?.sync?.itemCount ?? 0
+      } catch (error) {
+        failures.push(`${source.label}: ${error.message || 'sync failed'}`)
+      }
+    }
+
+    await refreshSession()
+    await loadData()
+
+    if (failures.length === 0) {
+      setBannerType('success')
+      setBanner(`All ${sources.length} sources synced. ${totalItems} items imported.`)
+    } else if (failures.length < sources.length) {
+      setBannerType('info')
+      setBanner(
+        `Synced ${sources.length - failures.length} of ${sources.length} sources (${totalItems} items). Failed — ${failures.join('; ')}`,
+      )
+    } else {
+      setBannerType('error')
+      setBanner(`Could not sync any sources. ${failures.join('; ')}`)
+    }
+    setSyncingAll(false)
   }
 
   async function handleDelete(sourceId) {
@@ -266,9 +303,29 @@ export default function ConnectSchedule() {
       {/* Connected Sources */}
       {sources.length > 0 && (
         <div className="mb-6 sm:mb-8">
-          <h2 className="text-[11px] sm:text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">
-            Connected Sources
-          </h2>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="text-[11px] sm:text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+              Connected Sources
+            </h2>
+            <button
+              type="button"
+              onClick={handleSyncAll}
+              disabled={syncingAll}
+              className="btn btn-primary text-[12px] px-4 py-2 disabled:opacity-50"
+            >
+              {syncingAll ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Syncing all…
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon name="refresh" size={13} />
+                  Sync all
+                </span>
+              )}
+            </button>
+          </div>
           <div className="space-y-3">
             {sources.map((source) => (
               <div key={source.id} className="card p-3 sm:p-4">
@@ -306,7 +363,7 @@ export default function ConnectSchedule() {
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0 ml-[52px] sm:ml-0">
-                    <button type="button" onClick={() => handleSync(source.id)} className="btn btn-secondary text-[12px] px-3 py-2 sm:py-1.5 flex-1 sm:flex-none justify-center">
+                    <button type="button" onClick={() => handleSync(source.id)} disabled={syncingAll} className="btn btn-secondary text-[12px] px-3 py-2 sm:py-1.5 flex-1 sm:flex-none justify-center disabled:opacity-50">
                       Sync
                     </button>
                     <button type="button" onClick={() => handleDelete(source.id)} className="btn text-[12px] px-3 py-2 sm:py-1.5 text-[var(--color-error)] hover:bg-[var(--color-error)]/10 active:bg-[var(--color-error)]/15">

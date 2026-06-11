@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS user_manual_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_user_manual_tasks_user_due ON user_manual_tasks(user_id, due_at);
 
+ALTER TABLE user_task_completions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_manual_tasks ENABLE ROW LEVEL SECURITY;
+
+DROP TRIGGER IF EXISTS update_user_manual_tasks_updated_at ON user_manual_tasks;
 CREATE TRIGGER update_user_manual_tasks_updated_at
   BEFORE UPDATE ON user_manual_tasks
   FOR EACH ROW

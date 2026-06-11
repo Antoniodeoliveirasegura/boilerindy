@@ -8,15 +8,25 @@ export default function Board() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(new Set())
   const [repliesOpen, setRepliesOpen] = useState(new Set())
-  const [showForm, setShowForm] = useState(false)
-  const [newTitle, setNewTitle] = useState('')
-  const [newBody, setNewBody] = useState('')
+  // Drafts survive session-expiry redirects to /login (issue #23)
+  const [showForm, setShowForm] = useState(() => {
+    const draft = loadBoardDraft()
+    return Boolean(draft.title || draft.body)
+  })
+  const [newTitle, setNewTitle] = useState(() => loadBoardDraft().title)
+  const [newBody, setNewBody] = useState(() => loadBoardDraft().body)
   const [isAnon, setIsAnon] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [improving, setImproving] = useState(false)
   const [postError, setPostError] = useState('')
   const [filterTag, setFilterTag] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [editingId, setEditingId] = useState(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState('')
   const [liveCompose, setLiveCompose] = useState(null)
   const [liveComposeLoading, setLiveComposeLoading] = useState(false)
 
@@ -59,6 +69,7 @@ export default function Board() {
         ...p,
         isMine: Boolean(p.isMine),
         time: formatRelative(p.time),
+        editedTime: p.editedTime ? formatRelative(p.editedTime) : null,
         replies: (p.replies || []).map((r) => ({ ...r, time: formatRelative(r.time) })),
       })))
     } catch (err) {
@@ -70,6 +81,10 @@ export default function Board() {
   }, [sort])
 
   useEffect(() => { fetchPosts() }, [fetchPosts])
+
+  useEffect(() => {
+    saveBoardDraft(newTitle, newBody)
+  }, [newTitle, newBody])
 
   // ── Live AI suggestions (debounced) while composing ─────────────────────
   useEffect(() => {
@@ -177,6 +192,46 @@ export default function Board() {
     }
   }
 
+  // ── Edit post (issue #7) ───────────────────────────────────────────────────
+  const startEditPost = (post) => {
+    setEditingId(post.id)
+    setEditTitle(post.title)
+    setEditBody(post.body || '')
+    setEditError('')
+  }
+
+  const cancelEditPost = () => {
+    setEditingId(null)
+    setEditTitle('')
+    setEditBody('')
+    setEditError('')
+  }
+
+  const handleSaveEdit = async (id) => {
+    if (!editTitle.trim() || savingEdit) return
+    setSavingEdit(true)
+    setEditError('')
+    try {
+      const data = await authRequest(`/api/board/posts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: editTitle.trim(), body: editBody.trim() }),
+      })
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, title: data.post.title, body: data.post.body, editedTime: 'Just now' }
+            : p,
+        ),
+      )
+      cancelEditPost()
+    } catch (err) {
+      console.error('Edit post error', err)
+      setEditError(err?.message || 'Could not save your changes. Try again.')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   // ── Submit post ────────────────────────────────────────────────────────────
   const handleSubmitPost = async () => {
     if (!newTitle.trim() || submitting) return
@@ -189,6 +244,7 @@ export default function Board() {
       })
       setNewTitle('')
       setNewBody('')
+      saveBoardDraft('', '')
       setLiveCompose(null)
       setShowForm(false)
       setFilterTag(null)
@@ -264,8 +320,14 @@ export default function Board() {
       .map(([tag, count]) => ({ tag, count }))
   }, [posts])
 
+  const normalizedQuery = searchQuery.trim().toLowerCase()
   const sortedPosts = [...posts]
     .filter((p) => !filterTag || (p.tags || []).includes(filterTag))
+    .filter((p) => {
+      if (!normalizedQuery) return true
+      const haystack = [p.title, p.body, ...(p.tags || [])].join(' ').toLowerCase()
+      return haystack.includes(normalizedQuery)
+    })
     .sort((a, b) => {
       if (a.pinned && !b.pinned) return -1
       if (!a.pinned && b.pinned) return 1
@@ -469,6 +531,36 @@ export default function Board() {
         </div>
       </div>
 
+      {/* Search (issue #5) */}
+      <div className="relative mb-4">
+        <Icon
+          name="search"
+          size={16}
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-txt-3)] pointer-events-none"
+        />
+        <label className="sr-only" htmlFor="board-search">
+          Search board posts
+        </label>
+        <input
+          id="board-search"
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search threads by title, details, or tag…"
+          className="input w-full text-[14px] pl-11 pr-10 py-3 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            aria-label="Clear search"
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)] hover:bg-[var(--color-bg-2)] transition-colors"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        )}
+      </div>
+
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div className="inline-flex p-1 rounded-xl bg-[var(--color-stat)] border border-[var(--color-border)] w-fit">
@@ -573,6 +665,51 @@ export default function Board() {
                     )}
                   </div>
 
+                  {editingId === post.id ? (
+                    <div className="mt-1">
+                      <label className="sr-only" htmlFor={`edit-title-${post.id}`}>
+                        Edit title
+                      </label>
+                      <input
+                        id={`edit-title-${post.id}`}
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="input w-full text-[15px] font-medium px-3 py-2.5 mb-2 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+                      />
+                      <label className="sr-only" htmlFor={`edit-body-${post.id}`}>
+                        Edit details
+                      </label>
+                      <textarea
+                        id={`edit-body-${post.id}`}
+                        value={editBody}
+                        onChange={(e) => setEditBody(e.target.value)}
+                        placeholder="Optional context — course, building, deadline…"
+                        className="input w-full text-[14px] px-3 py-2.5 resize-y min-h-[88px] rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+                      />
+                      {editError && (
+                        <p className="text-[12px] text-red-600 dark:text-red-400 mt-2" role="alert">
+                          {editError}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEdit(post.id)}
+                          disabled={!editTitle.trim() || savingEdit}
+                          className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[12px] font-semibold bg-[var(--color-accent)] text-white disabled:opacity-45 disabled:cursor-not-allowed hover:brightness-110 transition-all"
+                        >
+                          {savingEdit ? 'Saving…' : 'Save changes'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditPost}
+                          className="btn btn-secondary text-[12px] px-4 py-2 rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
                   <button
                     type="button"
                     onClick={() => toggleExpand(post.id)}
@@ -585,8 +722,9 @@ export default function Board() {
                       </span>
                     ) : null}
                   </button>
+                  )}
 
-                  {post.tags?.length > 0 && (
+                  {editingId !== post.id && post.tags?.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-3">
                       {post.tags.map((tag) => (
                         <span
@@ -601,7 +739,7 @@ export default function Board() {
 
                   <div
                     className={`grid transition-all duration-300 ease-out ${
-                      expanded.has(post.id) && post.body ? 'grid-rows-[1fr] mt-3' : 'grid-rows-[0fr]'
+                      expanded.has(post.id) && post.body && editingId !== post.id ? 'grid-rows-[1fr] mt-3' : 'grid-rows-[0fr]'
                     }`}
                   >
                     <div className="overflow-hidden min-h-0">
@@ -618,6 +756,21 @@ export default function Board() {
                     </span>
                     <span className="text-[var(--color-txt-3)]">·</span>
                     <span>{post.time}</span>
+                    {post.editedTime && (
+                      <span className="italic text-[var(--color-txt-3)]" title="This post was edited by its author">
+                        edited {post.editedTime}
+                      </span>
+                    )}
+                    {post.isMine && editingId !== post.id && (
+                      <button
+                        type="button"
+                        onClick={() => startEditPost(post)}
+                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--color-accent)] hover:underline"
+                      >
+                        <Icon name="edit" size={13} />
+                        Edit
+                      </button>
+                    )}
                     {post.isMine && (
                       <button
                         type="button"
@@ -708,20 +861,39 @@ export default function Board() {
           {sortedPosts.length === 0 && (
             <div className="rounded-2xl border-2 border-dashed border-[var(--color-border-2)] bg-[var(--color-stat)]/40 py-16 px-8 text-center">
               <div className="w-16 h-16 mx-auto rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-sm)] flex items-center justify-center mb-4">
-                <Icon name="messageCircle" size={30} className="text-[var(--color-txt-3)]" />
+                <Icon name={normalizedQuery ? 'search' : 'messageCircle'} size={30} className="text-[var(--color-txt-3)]" />
               </div>
-              <p className="text-[16px] font-semibold text-[var(--color-txt-0)]">No threads yet</p>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-2 max-w-xs mx-auto leading-relaxed">
-                Start the conversation — someone else is probably wondering the same thing.
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowForm(true)}
-                className="mt-6 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:brightness-110 transition-all shadow-[var(--shadow-sm)]"
-              >
-                <Icon name="plus" size={16} />
-                Ask a question
-              </button>
+              {normalizedQuery ? (
+                <>
+                  <p className="text-[16px] font-semibold text-[var(--color-txt-0)]">No matching threads</p>
+                  <p className="text-[13px] text-[var(--color-txt-2)] mt-2 max-w-xs mx-auto leading-relaxed">
+                    Nothing matches &ldquo;{searchQuery.trim()}&rdquo;. Try a different keyword or clear the search.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="mt-6 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:brightness-110 transition-all shadow-[var(--shadow-sm)]"
+                  >
+                    <Icon name="close" size={14} />
+                    Clear search
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-[16px] font-semibold text-[var(--color-txt-0)]">No threads yet</p>
+                  <p className="text-[13px] text-[var(--color-txt-2)] mt-2 max-w-xs mx-auto leading-relaxed">
+                    Start the conversation — someone else is probably wondering the same thing.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowForm(true)}
+                    className="mt-6 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:brightness-110 transition-all shadow-[var(--shadow-sm)]"
+                  >
+                    <Icon name="plus" size={16} />
+                    Ask a question
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -842,6 +1014,34 @@ function ReplyInput({ onSubmit, threadTitle = '', threadBody = '' }) {
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
+
+const BOARD_DRAFT_KEY = 'boilerindy-board-draft-v1'
+
+function loadBoardDraft() {
+  try {
+    const raw = localStorage.getItem(BOARD_DRAFT_KEY)
+    if (!raw) return { title: '', body: '' }
+    const parsed = JSON.parse(raw)
+    return {
+      title: typeof parsed.title === 'string' ? parsed.title : '',
+      body: typeof parsed.body === 'string' ? parsed.body : '',
+    }
+  } catch {
+    return { title: '', body: '' }
+  }
+}
+
+function saveBoardDraft(title, body) {
+  try {
+    if (!title.trim() && !body.trim()) {
+      localStorage.removeItem(BOARD_DRAFT_KEY)
+    } else {
+      localStorage.setItem(BOARD_DRAFT_KEY, JSON.stringify({ title, body }))
+    }
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 function toggle(set, id) {
   const next = new Set(set)

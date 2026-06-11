@@ -1,125 +1,282 @@
-# HackIndy
+# BoilerIndy
 
-HackIndy is a campus services web application combining a Node.js backend with a React + Vite frontend. The project integrates Purdue authentication, Supabase, campus schedules, dining, transit, and event-related functionality.
+BoilerIndy is a campus services web application for Purdue University Indianapolis. It combines a Node.js/Express backend with a React + Vite frontend, integrating Supabase, Purdue authentication, campus schedules, dining, transit, board, and an AI campus assistant.
+
+---
 
 ## Repository structure
 
-- `server.mjs` - Node.js/Express backend entry point
-- `auth.mjs`, `browser-auth.js`, `boardProfanity.mjs`, `nutrisliceDining.mjs`, `purdueCalendarAutomation.mjs`, `temp-dining-debug.js` - backend utilities and integrations
-- `hackindy-react/` - frontend React application built with Vite
-- `scripts/` - helper scripts such as `seed-test-user.mjs`
-- `.env` - local environment configuration (should be kept secret)
-- `supabase-schema.sql`, `supabase-board-only.sql` - database schema and board-related SQL
+```
+boilerindy/
+├── server.mjs                     # Express backend entry point
+├── auth.mjs                       # Auth helpers
+├── boardProfanity.mjs             # Board content moderation
+├── nutrisliceDining.mjs           # Dining data (Nutrislice API)
+├── purdueCalendarAutomation.mjs   # Purdue calendar capture
+├── scripts/
+│   └── seed-test-user.mjs         # Seed a test user
+├── supabase-schema.sql            # Core DB schema (run once in Supabase)
+├── supabase-board-only.sql        # Board tables schema
+├── supabase-user-tasks.sql        # User tasks schema
+├── .env.example                   # Backend env template — copy to .env
+├── boilerindy-react/                # React + Vite frontend
+│   ├── src/
+│   │   ├── pages/                 # Route-level page components
+│   │   ├── components/            # Layout, navbar, auth guards
+│   │   ├── context/               # Auth and theme context
+│   │   └── lib/                   # API helpers, Supabase client, utilities
+│   ├── vite.config.js             # Vite config with dev proxy
+│   └── .env.example               # Frontend env template — copy to .env
+```
 
-## Prerequisites
+**Branches:**
+- `main` — production (deployed to Vercel + Render)
+- `develop` — local development and testing
 
-- Node.js 20+ (or a compatible active LTS version)
-- npm
-- Optional: Supabase project for backend data storage and auth
+---
 
-## Setup
+## Local Development Setup
 
-1. Install root dependencies:
+This section explains how to run the full stack (frontend + backend) on your own machine. No hosted dev backend is needed — the backend runs locally and Vite proxies all API calls to it automatically.
+
+### Prerequisites
+
+- **Node.js 20+** — check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`.
+- **npm** — comes with Node.js.
+- **Supabase project** — you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
+
+---
+
+### 1. Clone the repo and switch to develop
+
+```bash
+git clone https://github.com/Antoniodeoliveirasegura/boilerindy.git
+cd boilerindy
+git checkout develop
+```
+
+---
+
+### 2. Install backend dependencies
+
+From the **repo root**:
 
 ```bash
 npm install
 ```
 
-2. Install frontend dependencies:
+---
+
+### 3. Set up the backend `.env`
 
 ```bash
-cd hackindy-react
+# macOS / Linux
+cp .env.example .env
+
+# Windows
+copy .env.example .env
+```
+
+Open `.env` and fill in the values:
+
+| Variable | Where to get it |
+|---|---|
+| `SUPABASE_URL` | Supabase dashboard → Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Settings → API → service_role key |
+| `SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
+| `SESSION_SECRET` | Any long random string (e.g. `openssl rand -hex 32`) |
+| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com/app/apikey) — free tier works |
+| `PORT` | Leave as `3000` |
+| `HOST` | Leave as `127.0.0.1` |
+| `CLIENT_APP_URL` | Leave as `http://localhost:5173` |
+| `PURDUE_AUTH_MODE` | Leave as `mock` for local dev |
+| `DEV_PURDUE_EMAIL` | Any `@purdue.edu` address, used on the mock link screen |
+
+> **Note:** `GEMINI_API_KEY` is optional. If omitted, the campus assistant and board AI features return a 503 but everything else works.
+
+---
+
+### 4. Install frontend dependencies
+
+```bash
+cd boilerindy-react
 npm install
 cd ..
 ```
 
-3. Copy or create your `.env` file in the repository root.
+---
 
-### Required environment variables
+### 5. Set up the frontend `.env`
 
-The application uses these variables in `.env`:
+```bash
+# macOS / Linux
+cd boilerindy-react && cp .env.example .env && cd ..
 
-- `SUPABASE_URL` - Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key
-- `PORT` - backend port (default: `3000`)
-- `HOST` - backend host (default: `127.0.0.1`)
-- `SESSION_SECRET` - Express session secret
-- `CLIENT_APP_URL` - frontend URL for redirects (usually `http://localhost:5176`)
-- `PURDUE_AUTH_MODE` - authentication mode, such as `mock` for development or `cas` for production
-- `DEV_PURDUE_EMAIL` - development test email for mocked login flows
+# Windows
+cd boilerindy-react
+copy .env.example .env
+cd ..
+```
 
-> Warning: Do not commit `.env` or secret keys to source control.
+Open `boilerindy-react/.env` and fill in:
 
-## Running the app locally
+| Variable | Where to get it |
+|---|---|
+| `VITE_SUPABASE_URL` | Same Supabase URL as the backend |
+| `VITE_SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
 
-### Start the backend
+Leave `VITE_API_PROXY` commented out — it defaults to `http://127.0.0.1:3000` which is where the local backend runs.
 
-From the repository root:
+---
+
+### 6. Run the backend
+
+From the **repo root**:
 
 ```bash
 npm run dev
 ```
 
-This launches `server.mjs` on the configured `HOST` and `PORT`.
+You should see:
 
-### Start the frontend
+```
+BoilerIndy backend listening on http://127.0.0.1:3000
+Purdue link mode: mock
+Database: Supabase
+```
 
-From `hackindy-react/`:
+---
+
+### 7. Run the frontend
+
+In a **separate terminal**, from `boilerindy-react/`:
 
 ```bash
-cd hackindy-react
+cd boilerindy-react
 npm run dev
 ```
 
-The Vite development server typically runs at `http://localhost:5176`.
+Vite starts at **http://localhost:5173**.
 
-## Frontend details
+---
 
-The React app lives in `hackindy-react/` and includes:
+### 8. Verify the connection
 
-- `src/App.jsx` and route-based pages
-- `src/components/` for layout, navigation, auth guards, and UI features
-- `src/context/` for auth and theme state
-- `src/lib/` for Supabase API helpers, transit utilities, schedule filters, and linkification
+Open http://localhost:5173. The login page should load. To confirm the frontend is talking to the backend, run:
+
+```bash
+curl http://localhost:5173/api/session
+# Expected: {"authenticated":false,"session":null}
+```
+
+If you get a valid JSON response, the full stack is working.
+
+---
+
+### How the dev proxy works
+
+In development, **you never need to set a backend URL in the frontend**. Vite automatically proxies:
+
+- `/api/*` → `http://127.0.0.1:3000/api/*`
+- `/auth/purdue/*` → `http://127.0.0.1:3000/auth/purdue/*`
+
+This is configured in `boilerindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Railway backend — the frontend code never changes between environments.
+
+---
+
+### Troubleshooting
+
+**`Cannot find package 'dotenv'` or module not found on backend start**
+Run `npm install` from the repo root. Dependencies aren't installed.
+
+**`'vite' is not recognized` on frontend start**
+Run `npm install` from inside `boilerindy-react/`. Frontend dependencies aren't installed.
+
+**Backend exits immediately with `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`**
+Your `.env` is missing or empty. Make sure `.env` exists in the **repo root** (not inside `boilerindy-react/`) and contains valid Supabase credentials.
+
+**Frontend loads but all API calls fail**
+The backend isn't running. Start it first (`npm run dev` from repo root), then start the frontend in a second terminal.
+
+**Port 3000 already in use**
+Another process holds port 3000. Kill it, or change `PORT` in the root `.env` and set `VITE_API_PROXY=http://127.0.0.1:<new-port>` in `boilerindy-react/.env`.
+
+**Port 5173 already in use**
+Vite automatically tries 5174, 5175, etc. Check which port Vite actually started on in the terminal output, then update `CLIENT_APP_URL` in the root `.env` to match (e.g. `http://localhost:5174`).
+
+**CORS errors in the browser console**
+This should not happen with the Vite proxy active. If you see CORS errors, make sure you're accessing the app through Vite (`http://localhost:5173`) and not directly from `http://localhost:3000`.
+
+**`fetch failed` errors in the backend console**
+The backend makes outbound requests to Nutrislice (dining), TransLoc (transit), and Gemini (AI). These can fail when external services are down — it does not affect auth, calendar, or board features.
+
+**Supabase errors — `table does not exist` or `schema cache`**
+The database schema hasn't been applied. See the [Database setup](#database-setup) section below.
+
+---
+
+## What a teammate needs to do
+
+1. Get the Supabase credentials (URL, service role key, anon key) from the project owner.
+2. Follow steps 1–8 above.
+3. That's it — no Railway account, no Vercel account, no separate backend hosting required.
+
+---
+
+## Database setup
+
+Run these SQL files **once** in your Supabase project's SQL Editor (Supabase dashboard → SQL Editor):
+
+1. `supabase-schema.sql` — core tables: `users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`
+2. `supabase-user-tasks.sql` — tasks tables: `user_task_completions`, `user_manual_tasks`
+3. `supabase-board-only.sql` — only needed if board tables are missing separately
+
+All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
+
+---
+
+## Production deployment
+
+- **Frontend** — Vercel, auto-deploys from `main`
+- **Backend** — Render, running `node server.mjs`
+- **Routing** — `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
+
+Do not merge dev-only env variables into `main`. Production secrets are configured in the Vercel and Render dashboards, not in this repo.
+
+---
 
 ## Backend details
 
-The backend uses:
+- Framework: Express
+- Session: `express-session` (cookie-based, `httpOnly`, `sameSite: lax`)
+- Database: Supabase (Postgres via `@supabase/supabase-js`)
+- Auth: local email/password + optional Purdue CAS
+- External integrations: Nutrislice dining API, TransLoc transit API, Google Gemini
 
-- Express for HTTP routing
-- `express-session` for session management
-- `dotenv` for environment loading
-- Supabase client for database access
-- campus-specific integration scripts for Purdue auth, dining, calendar, and board tools
+## Frontend details
 
-## Development helpers
-
-- `scripts/seed-test-user.mjs` - seed a test user into the backend/store
-- `hackindy-react/package.json` includes `lint`, `build`, and `preview` scripts for the frontend
-
-## Deployment notes
-
-- Ensure the Supabase URL and service role key are configured securely
-- Use production-ready values for `SESSION_SECRET`
-- Switch `PURDUE_AUTH_MODE` from `mock` to `cas` for live auth
-- Build the frontend with `npm run build` inside `hackindy-react`
+- Framework: React 19 + Vite
+- Styling: Tailwind CSS v4
+- Auth: Supabase Auth + session sync with backend
+- Maps: Leaflet + React Leaflet
+- All API calls use relative paths, proxied to the backend by Vite in dev and by Vercel rewrites in production
 
 ## Useful commands
 
-From the repository root:
-
 ```bash
-npm run dev
-```
+# From repo root
+npm install          # Install backend dependencies
+npm run dev          # Start backend on :3000
 
-From the frontend folder:
+# From boilerindy-react/
+npm install          # Install frontend dependencies
+npm run dev          # Start frontend on :5173
+npm run build        # Production build
+npm run preview      # Preview production build locally
+npm run lint         # Run ESLint
 
-```bash
-cd hackindy-react
-npm run dev
-npm run build
-npm run preview
-npm run lint
+# Utilities (from repo root, backend must be running)
+node scripts/seed-test-user.mjs
 ```
 
 ## License

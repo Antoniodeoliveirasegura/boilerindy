@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
 import Icon from '../components/Icons'
 
 export default function Settings() {
   const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
+  const { theme, setTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
   const [searchParams] = useSearchParams()
   const [name, setName] = useState(user?.name || '')
@@ -217,6 +219,33 @@ export default function Settings() {
                 <Icon name="schedule" size={14} />
                 View schedule
               </Link>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
+              Appearance
+            </div>
+            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed mb-3">
+              Choose how BoilerIndy looks on this device. Your preference is saved between sessions.
+            </p>
+            <div className="inline-flex p-1 rounded-xl bg-[var(--color-stat)] border border-[var(--color-border)]">
+              {['light', 'dark'].map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setTheme(mode)}
+                  aria-pressed={theme === mode}
+                  className={`px-4 py-2 rounded-lg text-[12px] font-semibold capitalize transition-all inline-flex items-center gap-1.5 ${
+                    theme === mode
+                      ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-[var(--shadow-sm)]'
+                      : 'text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]'
+                  }`}
+                >
+                  <Icon name={mode === 'light' ? 'sun' : 'moon'} size={13} />
+                  {mode}
+                </button>
+              ))}
             </div>
           </div>
 

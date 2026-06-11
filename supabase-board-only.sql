@@ -8,9 +8,9 @@
 -- 1. https://supabase.com/dashboard → your project
 -- 2. SQL Editor → New query
 -- 3. Paste this ENTIRE file → Run (confirm if prompted)
--- 4. Wait ~30s, then restart HackIndy Node
+-- 4. Wait ~30s, then restart BoilerIndy Node
 --
--- Requires: public.users (main HackIndy supabase-schema.sql).
+-- Requires: public.users (main BoilerIndy supabase-schema.sql).
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS board_posts (
 );
 
 ALTER TABLE board_posts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+
+-- Set when the author edits title/body (updated_at also moves on reply/upvote
+-- count changes, so it cannot mark content edits).
+ALTER TABLE board_posts ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS board_replies (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

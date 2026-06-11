@@ -5,6 +5,30 @@ import { authRequest } from '../lib/authApi'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
+import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
+
+const priorityConfig = {
+  high: {
+    label: 'High',
+    bg: 'bg-red-50 dark:bg-red-900/20',
+    text: 'text-red-700 dark:text-red-400',
+    border: 'border-red-200 dark:border-red-800',
+  },
+  medium: {
+    label: 'Medium',
+    bg: 'bg-amber-50 dark:bg-amber-900/20',
+    text: 'text-amber-700 dark:text-amber-400',
+    border: 'border-amber-200 dark:border-amber-800',
+  },
+  low: {
+    label: 'Low',
+    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
+    text: 'text-emerald-700 dark:text-emerald-400',
+    border: 'border-emerald-200 dark:border-emerald-800',
+  },
+}
+
+const priorityRank = { high: 0, medium: 1, low: 2 }
 
 const categoryConfig = {
   exam: { 
@@ -148,6 +172,9 @@ export default function Assignments() {
 
   const [taskMeta, setTaskMeta] = useState({ completions: [], manualTasks: [] })
   const [hideCompleted, setHideCompleted] = useState(false)
+  const [priorities, setPriorities] = useState({})
+  const [priorityFilter, setPriorityFilter] = useState(null)
+  const [sortByPriority, setSortByPriority] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDueDate, setNewDueDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [addSubmitting, setAddSubmitting] = useState(false)
@@ -170,10 +197,10 @@ export default function Assignments() {
           const clean = cleanAiText(d.reply)
           if (mode === 'study') {
             setStudyPlan(clean)
-            try { localStorage.setItem(getInsightsCacheKey('study'), JSON.stringify(clean)) } catch {}
+            try { localStorage.setItem(getInsightsCacheKey('study'), JSON.stringify(clean)) } catch { /* quota */ }
           } else {
             setInsightsText(clean)
-            try { localStorage.setItem(getInsightsCacheKey('priority'), JSON.stringify(clean)) } catch {}
+            try { localStorage.setItem(getInsightsCacheKey('priority'), JSON.stringify(clean)) } catch { /* quota */ }
           }
         }
       })
@@ -234,6 +261,21 @@ export default function Assignments() {
     if (user?.id) loadTaskMeta()
   }, [user?.id, loadTaskMeta])
 
+  useEffect(() => {
+    setPriorities(user?.id ? loadPriorities(user.id) : {})
+  }, [user?.id])
+
+  function setItemPriority(item, priority) {
+    const uid = user?.id
+    if (!uid) {
+      setTaskError('Sign in to set priorities.')
+      return
+    }
+    const next = savePriority(uid, item.id, priority)
+    setPriorities(next)
+    setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, priority } : prev))
+  }
+
   const mergedItems = useMemo(() => {
     const completionById = {}
     for (const c of taskMeta?.completions || []) {
@@ -243,14 +285,16 @@ export default function Assignments() {
       ...item,
       completed: !!completionById[item.id],
       isManual: false,
+      priority: priorities[item.id] || null,
     }))
     const manual = (taskMeta?.manualTasks || []).map((t) => ({
       ...t,
       completed: !!t.completedAt,
       isManual: true,
+      priority: priorities[t.id] || null,
     }))
     return [...cal, ...manual]
-  }, [items, taskMeta])
+  }, [items, taskMeta, priorities])
 
   const categoriesWithManual = useMemo(() => {
     const n = mergedItems.filter((i) => i.isManual).length
@@ -275,11 +319,20 @@ export default function Assignments() {
       filtered = filtered.filter((item) => !item.completed)
     }
 
+    if (priorityFilter) {
+      filtered = filtered.filter((item) => item.priority === priorityFilter)
+    }
+
     return filtered.sort((a, b) => {
       if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1
+      if (sortByPriority) {
+        const rankA = a.priority ? priorityRank[a.priority] : 3
+        const rankB = b.priority ? priorityRank[b.priority] : 3
+        if (rankA !== rankB) return rankA - rankB
+      }
       return new Date(a.startTime) - new Date(b.startTime)
     })
-  }, [mergedItems, selectedCategories, showPast, hideCompleted])
+  }, [mergedItems, selectedCategories, showPast, hideCompleted, priorityFilter, sortByPriority])
 
   const groupedItems = useMemo(() => {
     const groups = {}
@@ -454,6 +507,15 @@ export default function Assignments() {
           <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
             <input
               type="checkbox"
+              checked={sortByPriority}
+              onChange={(e) => setSortByPriority(e.target.checked)}
+              className="w-4 h-4 rounded border-[var(--color-border-2)]"
+            />
+            Sort by priority
+          </label>
+          <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
+            <input
+              type="checkbox"
               checked={hideCompleted}
               onChange={(e) => setHideCompleted(e.target.checked)}
               className="w-4 h-4 rounded border-[var(--color-border-2)]"
@@ -561,6 +623,21 @@ export default function Assignments() {
                 className={`pill whitespace-nowrap ${isActive ? 'pill-active' : ''}`}
               >
                 {cat.label} ({cat.count})
+              </button>
+            )
+          })}
+          <span className="w-px self-stretch bg-[var(--color-border)] mx-1" aria-hidden="true" />
+          {PRIORITY_LEVELS.map((level) => {
+            const isActive = priorityFilter === level
+            return (
+              <button
+                key={level}
+                onClick={() => setPriorityFilter(isActive ? null : level)}
+                className={`pill whitespace-nowrap inline-flex items-center gap-1.5 ${isActive ? 'pill-active' : ''}`}
+                title={`Show only ${priorityConfig[level].label.toLowerCase()} priority tasks`}
+              >
+                <Icon name="flag" size={11} className={priorityConfig[level].text} />
+                {priorityConfig[level].label}
               </button>
             )
           })}
@@ -694,9 +771,19 @@ export default function Assignments() {
                               >
                                 {item.title}
                               </div>
-                              <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${config.bg} ${config.text}`}>
-                                {config.label}
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {item.priority && (
+                                  <span
+                                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ${priorityConfig[item.priority].bg} ${priorityConfig[item.priority].text}`}
+                                  >
+                                    <Icon name="flag" size={10} />
+                                    {priorityConfig[item.priority].label}
+                                  </span>
+                                )}
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full ${config.bg} ${config.text}`}>
+                                  {config.label}
+                                </span>
+                              </div>
                             </div>
                             <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[var(--color-txt-2)]">
                               <span className="flex items-center gap-1">
@@ -746,6 +833,33 @@ export default function Assignments() {
                 >
                   {selectedItem.title}
                 </h3>
+
+                <div className="mb-5">
+                  <div className="text-[12px] font-medium text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
+                    Priority
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRIORITY_LEVELS.map((level) => {
+                      const isActive = selectedItem.priority === level
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setItemPriority(selectedItem, isActive ? null : level)}
+                          aria-pressed={isActive}
+                          className={`inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-xl border transition-all ${
+                            isActive
+                              ? `${priorityConfig[level].bg} ${priorityConfig[level].text} ${priorityConfig[level].border}`
+                              : 'border-[var(--color-border)] text-[var(--color-txt-2)] hover:border-[var(--color-border-2)]'
+                          }`}
+                        >
+                          <Icon name="flag" size={11} />
+                          {priorityConfig[level].label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
 
                 <div className="flex flex-wrap gap-2 mb-5">
                   <button
