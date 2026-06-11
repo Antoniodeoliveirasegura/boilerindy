@@ -15,5 +15,11 @@ export default defineConfig(({ mode }) => {
         '/auth/purdue': { target: apiTarget, changeOrigin: true },
       },
     },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: './vitest.setup.js',
+      css: false,
+    },
   }
 })
