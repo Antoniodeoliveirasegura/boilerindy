@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS board_posts (
 
 ALTER TABLE board_posts ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
 
+-- Set when the author edits title/body (updated_at also moves on reply/upvote
+-- count changes, so it cannot mark content edits).
+ALTER TABLE board_posts ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS board_replies (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   post_id    UUID NOT NULL REFERENCES board_posts(id) ON DELETE CASCADE,

@@ -13,6 +13,7 @@ import {
   boardTextFailsPolicy,
   BOARD_PROFANITY_USER_MESSAGE,
 } from './boardProfanity.mjs'
+import { createRateLimiter } from './rateLimiter.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -54,6 +55,9 @@ app.use(
     secret: process.env.SESSION_SECRET || process.env.BETTER_AUTH_SECRET || 'dev-session-secret',
     resave: false,
     saveUninitialized: false,
+    // Refresh the cookie on every response so active users are never logged
+    // out mid-task; the client warns shortly before idle expiry (issue #23)
+    rolling: true,
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
@@ -63,6 +67,43 @@ app.use(
   }),
 )
 app.use(express.static(__dirname))
+
+// ── Abuse protection (issue #22) ────────────────────────────────────────────
+// Per-user buckets when signed in, per-IP otherwise. Tunable via
+// RATE_LIMIT_* env vars; full endpoint coverage in docs/RATE_LIMITS.md.
+const signInRateLimit = createRateLimiter({
+  name: 'sign-in',
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyBy: 'ip',
+  message: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+})
+const accountCreateRateLimit = createRateLimiter({
+  name: 'account-create',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyBy: 'ip',
+  message: 'Too many account requests from this network. Please try again in an hour.',
+})
+const sessionSyncRateLimit = createRateLimiter({
+  name: 'session-sync',
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  keyBy: 'ip',
+  message: 'Too many session requests. Please slow down and try again shortly.',
+})
+const boardWriteRateLimit = createRateLimiter({
+  name: 'board-write',
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  message: 'You are posting too quickly. Take a short break and try again.',
+})
+const sourceSyncRateLimit = createRateLimiter({
+  name: 'source-sync',
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many sync requests. Please wait a few minutes before syncing again.',
+})
 
 function nowIso() {
   return new Date().toISOString()
@@ -341,10 +382,13 @@ async function getCurrentUser(req) {
   return await getUserById(req.session.userId)
 }
 
-async function buildSessionPayload(user) {
+async function buildSessionPayload(user, req) {
   if (!user) return null
   const summary = await getUserSummary(user.id)
+  // Cookie expiry lets the client warn before the session lapses (issue #23)
+  const cookieExpires = req?.session?.cookie?.expires
   return {
+    expiresAt: cookieExpires ? new Date(cookieExpires).toISOString() : null,
     user: {
       id: user.id,
       email: user.email,
@@ -1187,11 +1231,11 @@ app.get('/api/auth-config', (_req, res) => {
 
 app.get('/api/session', async (req, res) => {
   const user = await getCurrentUser(req)
-  const sessionPayload = await buildSessionPayload(user)
+  const sessionPayload = await buildSessionPayload(user, req)
   res.json({ authenticated: Boolean(sessionPayload), session: sessionPayload })
 })
 
-app.post('/api/auth/register-supabase', async (req, res) => {
+app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res) => {
   try {
     const emailRaw = req.body.email
     const password = req.body.password
@@ -1261,7 +1305,7 @@ app.post('/api/auth/register-supabase', async (req, res) => {
       req.session.cookie.maxAge = cookieMaxAge
       req.session.userId = row.id
       req.session.save(async () => {
-        res.status(201).json({ session: await buildSessionPayload(row) })
+        res.status(201).json({ session: await buildSessionPayload(row, req) })
       })
     })
   } catch (error) {
@@ -1269,7 +1313,7 @@ app.post('/api/auth/register-supabase', async (req, res) => {
   }
 })
 
-app.post('/api/auth/sign-up', async (req, res) => {
+app.post('/api/auth/sign-up', accountCreateRateLimit, async (req, res) => {
   try {
     const user = await createLocalUser({
       email: req.body.email,
@@ -1282,7 +1326,7 @@ app.post('/api/auth/sign-up', async (req, res) => {
       }
       req.session.userId = user.id
       req.session.save(async () => {
-        res.status(201).json({ session: await buildSessionPayload(user) })
+        res.status(201).json({ session: await buildSessionPayload(user, req) })
       })
     })
   } catch (error) {
@@ -1358,7 +1402,7 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
   return data
 }
 
-app.post('/api/auth/sign-in', async (req, res) => {
+app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
   try {
     const normalizedEmail = normalizeEmail(req.body.email)
     const password = req.body.password
@@ -1397,7 +1441,7 @@ app.post('/api/auth/sign-in', async (req, res) => {
       req.session.cookie.maxAge = cookieMaxAge
       req.session.userId = user.id
       req.session.save(async () => {
-        res.json({ session: await buildSessionPayload(user) })
+        res.json({ session: await buildSessionPayload(user, req) })
       })
     })
   } catch (error) {
@@ -1412,7 +1456,7 @@ app.post('/api/sign-out', (req, res) => {
   })
 })
 
-app.post('/api/auth/supabase-sync', async (req, res) => {
+app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
   try {
     const { supabaseUserId, email, name, avatarUrl, provider, accessToken } = req.body
     
@@ -1476,7 +1520,7 @@ app.post('/api/auth/supabase-sync', async (req, res) => {
 
     req.session.userId = user.id
 
-    const session = await buildSessionPayload(user)
+    const session = await buildSessionPayload(user, req)
     res.json({ session })
   } catch (error) {
     console.error('Supabase sync error:', error)
@@ -1520,7 +1564,7 @@ app.post('/api/purdue/mock-link', requireAuth, async (req, res) => {
   }
   try {
     await linkPurdueIdentity(req.currentUser.id, { email: req.body.email })
-    const payload = await buildSessionPayload(await getUserById(req.currentUser.id))
+    const payload = await buildSessionPayload(await getUserById(req.currentUser.id), req)
     res.json({ ok: true, session: payload })
   } catch (error) {
     res.status(400).json({ error: { message: error.message || 'Could not link Purdue account.', status: 400 } })
@@ -1544,7 +1588,7 @@ app.get('/auth/purdue/callback', requireAuth, async (req, res) => {
 })
 
 app.get('/api/me/profile', requireAuth, async (req, res) => {
-  const payload = await buildSessionPayload(req.currentUser)
+  const payload = await buildSessionPayload(req.currentUser, req)
   res.json({ user: payload.user })
 })
 
@@ -1556,7 +1600,7 @@ app.patch('/api/me/profile', requireAuth, async (req, res) => {
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
     })
-    const payload = await buildSessionPayload(user)
+    const payload = await buildSessionPayload(user, req)
     res.json({ user: payload.user })
   } catch (error) {
     res.status(400).json({ error: { message: error.message || 'Could not update profile.', status: 400 } })
@@ -1634,7 +1678,7 @@ app.post('/api/purdue/calendar-link/cancel', requireAuth, requirePurdueLinked, a
   res.json({ job: await cancelCalendarCapture(req.currentUser.id) })
 })
 
-app.post('/api/sources/purdue/schedule', requireAuth, requirePurdueLinked, async (req, res) => {
+app.post('/api/sources/purdue/schedule', sourceSyncRateLimit, requireAuth, requirePurdueLinked, async (req, res) => {
   const userId = req.currentUser.id
   const { icsUrl, label } = req.body
 
@@ -1671,7 +1715,7 @@ app.post('/api/sources/purdue/schedule', requireAuth, requirePurdueLinked, async
   }
 })
 
-app.post('/api/sources/brightspace/schedule', requireAuth, async (req, res) => {
+app.post('/api/sources/brightspace/schedule', sourceSyncRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { icsUrl, label } = req.body
 
@@ -1713,7 +1757,7 @@ app.post('/api/sources/brightspace/schedule', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/sync/:sourceId', requireAuth, async (req, res) => {
+app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const sourceId = req.params.sourceId
   
@@ -2399,9 +2443,11 @@ function respondBoardDbError(res, err) {
 app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
 
+  // select('*') keeps the board working whether or not the optional
+  // edited_at migration (supabase-board-only.sql) has been applied yet
   let query = supabase
     .from('board_posts')
-    .select('id, title, body, is_anon, pinned, upvote_count, reply_count, tags, created_at, user_id')
+    .select('*')
   if (sort === 'popular') {
     query = query
       .order('pinned', { ascending: false })
@@ -2474,6 +2520,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
     hot: !p.pinned && p.upvote_count >= 10,
     time: p.created_at,
     tags: Array.isArray(p.tags) ? p.tags : [],
+    editedTime: p.edited_at || null,
     upvotedByMe: upvotedIds.has(p.id),
     isMine: p.user_id === myId,
     replies: repliesByPost[p.id] || [],
@@ -2615,7 +2662,7 @@ async function autoTagBoardPost(postId, title, body) {
   }
 }
 
-app.post('/api/board/posts', requireAuth, async (req, res) => {
+app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) => {
   const title = String(req.body.title || '').trim()
   const body  = String(req.body.body  || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
@@ -2679,7 +2726,7 @@ app.post('/api/board/posts', requireAuth, async (req, res) => {
   res.status(201).json({ post: postPayload })
 })
 
-app.post('/api/board/posts/:id/reply', requireAuth, async (req, res) => {
+app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (req, res) => {
   const postId = req.params.id
   const body   = String(req.body.body || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
@@ -2722,7 +2769,7 @@ app.post('/api/board/posts/:id/reply', requireAuth, async (req, res) => {
   })
 })
 
-app.post('/api/board/posts/:id/upvote', requireAuth, async (req, res) => {
+app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
 
@@ -2752,6 +2799,59 @@ app.post('/api/board/posts/:id/upvote', requireAuth, async (req, res) => {
 
   await supabase.from('board_posts').update({ upvote_count: newCount, updated_at: nowIso() }).eq('id', postId)
   res.json({ upvotes: newCount, upvotedByMe })
+})
+
+// Owner-only edit of a post's title/body (issue #7)
+app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const postId = req.params.id
+  const userId = req.currentUser.id
+  const title = String(req.body.title ?? '').trim()
+  const body = String(req.body.body ?? '').trim()
+
+  if (!title) return res.status(400).json({ error: { message: 'Title is required.', status: 400 } })
+  if (title.length > 300) {
+    return res.status(400).json({ error: { message: 'Title must be 300 characters or fewer.', status: 400 } })
+  }
+
+  const profanityCheck = assertBoardPostTextAllowed(title, body)
+  if (!profanityCheck.ok) {
+    return res.status(400).json({ error: { message: profanityCheck.message, status: 400 } })
+  }
+
+  const editedAt = nowIso()
+  let { data, error } = await supabase
+    .from('board_posts')
+    .update({ title, body, edited_at: editedAt, updated_at: editedAt })
+    .eq('id', postId)
+    .eq('user_id', userId)
+    .select('*')
+
+  // Retry without edited_at when the optional column migration hasn't run yet
+  if (error && (error.code === 'PGRST204' || error.code === '42703')) {
+    ;({ data, error } = await supabase
+      .from('board_posts')
+      .update({ title, body, updated_at: editedAt })
+      .eq('id', postId)
+      .eq('user_id', userId)
+      .select('*'))
+  }
+
+  if (error) return respondBoardDbError(res, error)
+  if (!data?.length) {
+    return res.status(404).json({
+      error: { message: 'Post not found or you can only edit your own posts.', status: 404 },
+    })
+  }
+
+  const post = data[0]
+  res.json({
+    post: {
+      id: post.id,
+      title: post.title,
+      body: post.body,
+      editedTime: post.edited_at || editedAt,
+    },
+  })
 })
 
 app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
