@@ -859,12 +859,17 @@ body {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PURDUE GOLD MAP (DARK MODE) - ARCHITECTURAL EDITION
+   PURDUE GOLD MAP - ARCHITECTURAL EDITION (theme-aware)
 ═══════════════════════════════════════════════════════════════════════════ */
 
-.dark-purdue-map .leaflet-tile-pane {
-  /* Lighter dark mode: increased brightness so buildings/roads are visible */
+/* Dark basemap: warm gold treatment so buildings/roads stay legible */
+.purdue-map.is-dark .leaflet-tile-pane {
   filter: sepia(60%) hue-rotate(-10deg) saturate(300%) brightness(1.15) contrast(95%);
+}
+
+/* Light basemap: gentle warm tint to match the brand without washing out */
+.purdue-map.is-light .leaflet-tile-pane {
+  filter: saturate(102%) brightness(1.02);
 }
 
 /* Building label markers - positioned at polygon centroids */
@@ -899,20 +904,25 @@ body {
   filter: drop-shadow(0 0 2px rgba(212, 168, 75, 0.5));
 }
 
-.dark-purdue-map .leaflet-marker-pane,
-.dark-purdue-map .leaflet-popup-pane {
+.purdue-map .leaflet-marker-pane,
+.purdue-map .leaflet-popup-pane {
   filter: none !important;
 }
 
-.dark-purdue-map .leaflet-popup-content-wrapper,
-.dark-purdue-map .leaflet-popup-tip {
+.purdue-map .leaflet-popup-content-wrapper,
+.purdue-map .leaflet-popup-tip {
   background: var(--color-surface);
   color: var(--color-txt-0);
   border: 1px solid var(--color-border-2);
   box-shadow: var(--shadow-lg);
 }
 
-/* Make the GeoJSON building outlines pop in dark mode */
-.dark-purdue-map .leaflet-overlay-pane svg path {
+/* Glow the GeoJSON building outlines on the dark basemap */
+.purdue-map.is-dark .leaflet-overlay-pane svg path {
   filter: drop-shadow(0 0 3px rgba(255, 215, 0, 0.4));
+}
+
+/* Subtle outline definition on the light basemap */
+.purdue-map.is-light .leaflet-overlay-pane svg path {
+  filter: drop-shadow(0 0 1px rgba(120, 80, 0, 0.35));
 }

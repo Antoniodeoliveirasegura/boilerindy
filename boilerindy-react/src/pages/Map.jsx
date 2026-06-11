@@ -4,12 +4,14 @@ import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker } from '
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
+import { useTheme } from '../context/ThemeContext'
 
 const CAMPUS_CENTER = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
 const FLY_ZOOM = 18
 
 const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
 
 // Official Purdue Indianapolis Building Shapes - has BUILDING_NAME, PU_ABBR, BuildingLabels
 const PURDUE_BUILDINGS_URL = "https://services1.arcgis.com/mLNdQKiKsj5Z5YMN/arcgis/rest/services/Indianapolis_Building_Shapes/FeatureServer/123/query?where=1%3D1&outFields=BUILDING_NAME,PU_ABBR,BuildingLabels,add_full&returnGeometry=true&outSR=4326&f=geojson"
@@ -159,6 +161,7 @@ function MapController({ flyRequest }) {
 }
 
 export default function Map() {
+  const { dark } = useTheme()
   const [searchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState(null)
@@ -289,10 +292,10 @@ export default function Map() {
     const address = props.add_full || ''
     
     const popupContent = `
-      <div style="color:#F5F4F1;min-width:180px;">
+      <div style="color:var(--color-txt-0);min-width:180px;">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${name}</div>
-        ${code ? `<div style="font-size:12px;color:#A9A6A0;margin-bottom:2px;">Code: <strong style="color:#E8C878;">${code}</strong></div>` : ''}
-        ${address ? `<div style="font-size:11px;color:#8F8B84;">${address}</div>` : ''}
+        ${code ? `<div style="font-size:12px;color:var(--color-txt-2);margin-bottom:2px;">Code: <strong style="color:var(--color-gold);">${code}</strong></div>` : ''}
+        ${address ? `<div style="font-size:11px;color:var(--color-txt-3);">${address}</div>` : ''}
       </div>
     `
     layer.bindPopup(popupContent)
@@ -381,9 +384,11 @@ export default function Map() {
 
       {/* Map Container */}
       <div className="relative flex-1 p-2 lg:p-3 bg-[var(--color-bg-2)] min-h-0">
-        <div className="h-full w-full rounded-2xl overflow-hidden border shadow-lg dark-purdue-map border-[#2A1E0A]">
+        <div className={`h-full w-full rounded-2xl overflow-hidden border shadow-lg purdue-map ${
+          dark ? 'is-dark border-[#2A1E0A]' : 'is-light border-[var(--color-border-2)]'
+        }`}>
           <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full">
-            <TileLayer url={TILE_DARK} />
+            <TileLayer key={dark ? 'dark' : 'light'} url={dark ? TILE_DARK : TILE_LIGHT} />
             
             {geoData && (
               <GeoJSON
@@ -394,7 +399,7 @@ export default function Map() {
               />
             )}
             
-            <BuildingLabels buildings={buildings} dark selectedId={selectedId} />
+            <BuildingLabels buildings={buildings} dark={dark} selectedId={selectedId} />
             <MapController flyRequest={flyRequest} />
             
             {/* User location marker */}
