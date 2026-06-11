@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import Navbar from './Navbar'
 import CampusAssistant from './CampusAssistant'
+import SessionExpiryWatcher from './SessionExpiryWatcher'
 
 export default function AppLayout() {
   return (
@@ -8,6 +9,7 @@ export default function AppLayout() {
       <Navbar />
       <Outlet />
       <CampusAssistant />
+      <SessionExpiryWatcher />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import Icon from './Icons'
 
 const navItems = [
@@ -22,6 +23,7 @@ const mobileNavItems = [
 export default function Navbar() {
   const location = useLocation()
   const { user, getInitials, getDisplayName } = useAuth()
+  const { dark, toggleTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -117,6 +119,15 @@ export default function Navbar() {
                         <div className="text-[11px] text-[var(--color-txt-2)] truncate">{user.email}</div>
                       )}
                     </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="w-full text-left flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] border-0 bg-transparent cursor-pointer"
+                      onClick={toggleTheme}
+                    >
+                      <Icon name={dark ? 'sun' : 'moon'} size={14} />
+                      {dark ? 'Light mode' : 'Dark mode'}
+                    </button>
                     <Link
                       to="/settings"
                       role="menuitem"
@@ -217,6 +228,14 @@ export default function Navbar() {
               <Icon name="settings" size={20} />
               <span className="text-[15px]">Settings</span>
             </Link>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-all duration-300 border-0 bg-transparent cursor-pointer"
+            >
+              <Icon name={dark ? 'sun' : 'moon'} size={20} />
+              <span className="text-[15px]">{dark ? 'Light mode' : 'Dark mode'}</span>
+            </button>
           </div>
 
           <div className="mt-8 pt-6 border-t border-[var(--color-border)]">
