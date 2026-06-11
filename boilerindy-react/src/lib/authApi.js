@@ -63,10 +63,30 @@ export function getFirstName(user) {
   return displayName.split(/\s+/)[0] || displayName
 }
 
+export const SKIP_SETUP_KEY = 'pih-skip-setup'
+
+export function shouldSkipSetup() {
+  try {
+    return localStorage.getItem(SKIP_SETUP_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function setSkipSetup(skip) {
+  try {
+    if (skip) localStorage.setItem(SKIP_SETUP_KEY, '1')
+    else localStorage.removeItem(SKIP_SETUP_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function parseNextPath(search) {
   const next = new URLSearchParams(search).get('next')
-  if (!next || !next.startsWith('/')) return '/setup'
-  return next
+  if (next && next.startsWith('/')) return next
+  // Respect a saved choice to skip the schedule-setup screen on login
+  return shouldSkipSetup() ? '/dashboard' : '/setup'
 }
 
 export function startPurdueLink(nextPath = '/setup') {

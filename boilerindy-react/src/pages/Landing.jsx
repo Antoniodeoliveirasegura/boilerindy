@@ -148,12 +148,12 @@ export default function Landing() {
       </nav>
 
       <section className="relative min-h-[calc(100vh-3.5rem)] flex flex-col items-center justify-center px-6 py-16 text-center overflow-hidden">
-        <div
-          className="pointer-events-none absolute -top-[10%] left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full opacity-100"
-          style={{
-            background: 'radial-gradient(ellipse at center, rgba(212,168,75,0.12) 0%, transparent 70%)',
-          }}
-        />
+        <div className="hero-bg" aria-hidden="true">
+          <div className="hero-bg__grid" />
+          <div className="hero-bg__aurora hero-bg__aurora--gold" />
+          <div className="hero-bg__aurora hero-bg__aurora--accent" />
+          <div className="hero-bg__aurora hero-bg__aurora--gold2" />
+        </div>
         <div className="relative inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/20 border border-[var(--color-gold)]/40 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
           <Icon name="sparkles" size={13} />
           Built for Purdue Indianapolis

@@ -151,6 +151,27 @@ body {
   transition: background-color 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo);
 }
 
+/* Light/dark switch: crossfade colours app-wide for the duration of the toggle.
+   Added to <html> by ThemeContext only on user switches, removed after 450ms. */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 0.4s var(--ease-out-expo),
+              border-color 0.4s var(--ease-out-expo),
+              color 0.4s var(--ease-out-expo),
+              fill 0.4s var(--ease-out-expo),
+              stroke 0.4s var(--ease-out-expo),
+              box-shadow 0.4s var(--ease-out-expo) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition * {
+    transition: none !important;
+  }
+}
+
 ::selection {
   background: var(--color-gold);
   color: var(--color-gold-dark);
@@ -857,6 +878,60 @@ body {
   border-radius: 8px;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDING HERO BACKGROUND (issue #35) — drifting aurora + technical grid
+═══════════════════════════════════════════════════════════════════════════ */
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Fine grid, faded toward the edges via a radial mask */
+.hero-bg__grid {
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(to right, var(--color-border-2) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-border-2) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 0%, transparent 76%);
+  mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 0%, transparent 76%);
+}
+
+/* Soft drifting colour fields */
+.hero-bg__aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.55;
+  will-change: transform;
+}
+.hero-bg__aurora--gold {
+  width: 620px; height: 620px; top: -16%; left: 50%; margin-left: -310px;
+  background: radial-gradient(circle at center, rgba(212, 168, 75, 0.45), transparent 65%);
+  animation: heroDrift1 19s var(--ease-in-out) infinite alternate;
+}
+.hero-bg__aurora--accent {
+  width: 520px; height: 520px; top: 4%; left: 16%;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--color-accent) 38%, transparent), transparent 65%);
+  animation: heroDrift2 23s var(--ease-in-out) infinite alternate;
+}
+.hero-bg__aurora--gold2 {
+  width: 460px; height: 460px; bottom: -8%; right: 10%;
+  background: radial-gradient(circle at center, rgba(212, 168, 75, 0.26), transparent 65%);
+  animation: heroDrift3 27s var(--ease-in-out) infinite alternate;
+}
+
+@keyframes heroDrift1 { from { transform: translate(0, 0) scale(1); } to { transform: translate(-42px, 30px) scale(1.08); } }
+@keyframes heroDrift2 { from { transform: translate(0, 0) scale(1); } to { transform: translate(52px, -26px) scale(1.1); } }
+@keyframes heroDrift3 { from { transform: translate(0, 0) scale(1); } to { transform: translate(-30px, -38px) scale(1.06); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-bg__aurora { animation: none !important; }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PURDUE GOLD MAP - ARCHITECTURAL EDITION (theme-aware)
