@@ -1,0 +1,567 @@
+# Instincts generated from https://github.com/Antoniodeoliveirasegura/boilerindy
+# Generated: 2026-06-11T21:31:40.785Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: boilerindy-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: fix, feat, rebrand, docs
+
+## Evidence
+
+- 10 commits analyzed
+- Detected conventional commit pattern
+- Examples: fix: point Vercel rewrites to Render backend, add dev workflow docs, rebrand: rename HackIndy → BoilerIndy across entire codebase
+
+---
+id: boilerindy-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Commit Length
+
+## Action
+
+Write moderate-length commit messages (~66 characters)
+
+## Evidence
+
+- Average commit message length: 66 chars
+- Based on 10 commits
+
+---
+id: boilerindy-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: boilerindy-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: boilerindy-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: 
+
+---
+id: boilerindy-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: boilerindy-workflow-database-migration
+trigger: "when modifying the database schema or adding tables"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Workflow Database Migration
+
+## Action
+
+Follow the database-migration workflow:
+1. Create migration file
+2. Update schema definitions
+3. Generate/update types
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~9x per month
+- Files: **/schema.*
+
+---
+id: boilerindy-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~15x per month
+- Files: boilerindy-react/src/components/*
+
+---
+id: boilerindy-workflow-rebranding-across-codebase
+trigger: "when doing rebranding across codebase"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Workflow Rebranding Across Codebase
+
+## Action
+
+Follow the rebranding-across-codebase workflow:
+1. Rename relevant directories and files (e.g., hackindy-react/ to boilerindy-react/).
+2. Update package.json and package-lock.json with new names.
+3. Replace brand references in code files, environment templates, and documentation.
+4. Update assets such as favicons and logos.
+5. Change user-facing strings in UI components and pages.
+6. Update configuration files and deployment settings (e.g., vercel.json, server.mjs).
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: **/package.json, **/package-lock.json, **/public/favicon.svg
+
+---
+id: boilerindy-workflow-feature-implementation-with-ui-and-backend
+trigger: "when doing feature implementation with ui and backend"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Workflow Feature Implementation With Ui And Backend
+
+## Action
+
+Follow the feature-implementation-with-ui-and-backend workflow:
+1. Implement backend logic or endpoints (e.g., in server.mjs, add new files like rateLimiter.mjs).
+2. Update or create documentation for the new feature.
+3. Update .env.example and configuration as needed.
+4. Update or add frontend components and context/state files.
+5. Modify or create new UI elements and pages to expose the feature.
+6. Persist new settings or data locally (e.g., localStorage).
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: server.mjs, rateLimiter.mjs, docs/**/*.md
+
+---
+id: boilerindy-workflow-documentation-and-env-template-update
+trigger: "when doing documentation and env template update"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Workflow Documentation And Env Template Update
+
+## Action
+
+Follow the documentation-and-env-template-update workflow:
+1. Edit or add sections to README.md and other docs.
+2. Update .env.example files with new variables or clearer instructions.
+3. Add or update feature-specific documentation (e.g., docs/RATE_LIMITS.md).
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: README.md, .env.example, boilerindy-react/.env.example
+
+---
+id: boilerindy-workflow-ui-string-and-badge-update
+trigger: "when doing ui string and badge update"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Workflow Ui String And Badge Update
+
+## Action
+
+Follow the ui-string-and-badge-update workflow:
+1. Edit relevant UI components and pages to update strings or badges.
+2. Replace or update visual badge assets if necessary.
+3. Test changes in the UI to ensure consistency.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: boilerindy-react/src/components/**/*.jsx, boilerindy-react/src/pages/**/*.jsx
+
+---
+id: boilerindy-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct File Naming
+
+## Action
+
+Name the file using PascalCase (e.g., MyComponent.jsx)
+
+## Evidence
+
+- Pattern in namingConventions.files: PascalCase
+
+---
+id: boilerindy-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Function Naming
+
+## Action
+
+Name the function using camelCase (e.g., handleClick)
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: boilerindy-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase (e.g., RateLimiter)
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: boilerindy-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE (e.g., MAX_RATE_LIMIT)
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: boilerindy-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Import Style
+
+## Action
+
+Use absolute import paths
+
+## Evidence
+
+- Pattern in importStyle: absolute
+
+---
+id: boilerindy-instinct-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: boilerindy-instinct-try-catch
+trigger: "When handling errors in JavaScript code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Try Catch
+
+## Action
+
+Use try-catch blocks for error handling
+
+## Evidence
+
+- Pattern in errorHandling.style: try-catch
+
+---
+id: boilerindy-instinct-test-location
+trigger: "When adding tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Test Location
+
+## Action
+
+Place tests in a separate directory from source code
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation: separate
+
+---
+id: boilerindy-instinct-test-after-feature
+trigger: "When implementing a new feature"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Test After Feature
+
+## Action
+
+Add tests for the feature after implementation
+
+## Evidence
+
+- feature-development workflow commitSequence: Add tests for feature
+
+---
+id: boilerindy-instinct-git-commit-format
+trigger: "When writing a git commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Git Commit Format
+
+## Action
+
+Use conventional commit prefixes (fix, feat, rebrand, docs) followed by a colon and a short description
+
+## Evidence
+
+- Pattern in commits.type: conventional
+- Examples: fix: point Vercel rewrites to Render backend, add dev workflow docs
+
+---
+id: boilerindy-instinct-git-commit-length
+trigger: "When writing a git commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Git Commit Length
+
+## Action
+
+Keep the commit message concise, around 66 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength: 66
+
+---
+id: boilerindy-instinct-rebranding-workflow
+trigger: "When someone wants to rebrand the application (e.g., rename HackIndy to BoilerIndy)"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Rebranding Workflow
+
+## Action
+
+Systematically update all references to the old brand across code, assets, configs, and documentation
+
+## Evidence
+
+- Workflow: rebranding-across-codebase
+- Commits: rebrand: rename HackIndy → BoilerIndy across entire codebase
+
+---
+id: boilerindy-instinct-feature-implementation-workflow
+trigger: "When someone wants to add a new feature that spans backend and frontend"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Feature Implementation Workflow
+
+## Action
+
+Update backend logic, documentation, environment templates, and frontend components/pages to support the feature
+
+## Evidence
+
+- Workflow: feature-implementation-with-ui-and-backend
+- Commits: feat: add per-user Gemini rate limiting (20/hr assistant, 10/hr board AI)
+
+---
+id: boilerindy-instinct-docs-env-update-workflow
+trigger: "When someone adds new features, changes configuration, or wants to improve developer onboarding"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Docs Env Update Workflow
+
+## Action
+
+Update README.md, .env.example, and relevant documentation files
+
+## Evidence
+
+- Workflow: documentation-and-env-template-update
+- Commits: docs: add 32-issue triage and implementation plan
+
+---
+id: boilerindy-instinct-ui-string-badge-update-workflow
+trigger: "When someone wants to change displayed names, badges, or clarify UI text"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: Antoniodeoliveirasegura/boilerindy
+---
+
+# Boilerindy Instinct Ui String Badge Update Workflow
+
+## Action
+
+Edit UI components/pages to update strings or badges and test for consistency
+
+## Evidence
+
+- Workflow: ui-string-and-badge-update
+- Commits: fix: replace remaining IA badge with BI in navbar and landing
+

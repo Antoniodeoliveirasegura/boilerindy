@@ -1,0 +1,15 @@
+{
+  "version": "2.0",
+  "technicalLevel": "technical",
+  "preferredStyle": {
+    "verbosity": "moderate",
+    "codeComments": true,
+    "explanations": true
+  },
+  "domains": [
+    "javascript",
+    "express"
+  ],
+  "suggestedBy": "ecc-tools-repo-analysis",
+  "createdAt": "2026-06-11T21:31:40.785Z"
+}
