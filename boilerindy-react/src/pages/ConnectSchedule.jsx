@@ -51,7 +51,12 @@ export default function ConnectSchedule() {
   }, [])
 
   useEffect(() => {
-    if (!needsPurdueConnection) loadData()
+    if (needsPurdueConnection) return
+    // loadData performs its setState after an await; calling it inside an IIFE
+    // keeps the effect body free of a synchronous setState call.
+    void (async () => {
+      await loadData()
+    })()
   }, [loadData, needsPurdueConnection])
 
   // ── Step 1: Link Purdue ──

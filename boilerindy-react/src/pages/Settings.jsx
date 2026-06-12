@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -15,25 +15,30 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [banner, setBanner] = useState('')
-  const [status, setStatus] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    setName(user?.name || '')
-    setEmail(user?.email || '')
-  }, [user?.name, user?.email])
-
-  useEffect(() => {
+  // Seed the banner from the redirect URL once at mount (CAS redirect), reading
+  // it in the initializer rather than a setState-in-effect.
+  const [banner, setBanner] = useState(() => {
     const error = searchParams.get('error')
-    if (!error) return
+    if (!error) return ''
     const messages = {
       'cas-config': 'Purdue CAS is not configured yet on the backend.',
       'missing-ticket': 'Purdue CAS did not return a ticket. Try linking again.',
       'cas-validation': 'Purdue CAS could not validate your identity. Try again.',
     }
-    setBanner(messages[error] || 'Could not complete Purdue linking.')
-  }, [searchParams])
+    return messages[error] || 'Could not complete Purdue linking.'
+  })
+  const [status, setStatus] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Keep the editable name/email fields in sync when the authenticated user
+  // changes (e.g. after refreshSession). Adjusting during render instead of in
+  // an effect avoids the cascading-render lint warning.
+  const [prevUser, setPrevUser] = useState(user)
+  if (user !== prevUser) {
+    setPrevUser(user)
+    setName(user?.name || '')
+    setEmail(user?.email || '')
+  }
 
   async function handleSave(e) {
     e.preventDefault()

@@ -456,18 +456,26 @@ export default function Home() {
     return `ai-week-ahead-${monday.toISOString().slice(0, 10)}`
   }
 
-  const [weekAheadText, setWeekAheadText] = useState(() => {
+  function readCachedWeekDigest() {
     try {
       const raw = JSON.parse(localStorage.getItem(getWeekDigestStorageKey()))
       return typeof raw === 'string' && raw.trim() ? raw : null
     } catch {
       return null
     }
-  })
-  const [weekAheadLoading, setWeekAheadLoading] = useState(false)
+  }
 
-  const generateWeekAheadSummary = () => {
-    setWeekAheadLoading(true)
+  const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
+  // Start loading when there is no cached digest: the mount effect will fetch
+  // one. Deriving the initial value here means the effect never has to flip the
+  // flag synchronously (which trips react-hooks/set-state-in-effect).
+  const [weekAheadLoading, setWeekAheadLoading] = useState(() => !readCachedWeekDigest())
+
+  // Fetches and stores the digest. Does NOT raise the loading flag on entry —
+  // the mount path starts with it already true, and the Refresh button raises it
+  // via generateWeekAheadSummary. The only setState calls here run inside async
+  // promise callbacks, so this is safe to call directly from an effect.
+  const fetchWeekAheadSummary = () => {
     fetch('/api/assistant', {
       method: 'POST',
       credentials: 'include',
@@ -492,8 +500,13 @@ export default function Home() {
       .finally(() => setWeekAheadLoading(false))
   }
 
+  const generateWeekAheadSummary = () => {
+    setWeekAheadLoading(true)
+    fetchWeekAheadSummary()
+  }
+
   useEffect(() => {
-    if (!weekAheadText) generateWeekAheadSummary()
+    if (!weekAheadText) fetchWeekAheadSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

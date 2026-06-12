@@ -382,7 +382,7 @@ function LiveMap({
       const bounds = L.latLngBounds(displayVehicles.map((v) => [v.Latitude, v.Longitude]))
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 })
     }
-  }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId])
+  }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes])
 
   return (
     <div className="relative w-full h-[280px] sm:h-[380px] lg:h-[450px] rounded-2xl overflow-hidden border border-[var(--color-border)] shadow-lg">

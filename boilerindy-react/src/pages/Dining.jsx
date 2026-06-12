@@ -143,8 +143,29 @@ export default function Dining() {
   }
 
   useEffect(() => {
-    loadMenu()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Initial menu load. `loading` already starts true, so we fetch directly and
+    // only setState inside async callbacks — no synchronous setState in the effect
+    // body. The Refresh button still calls loadMenu(force) for the spinner path.
+    let cancelled = false
+    fetch('/api/dining')
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return
+        if (data?.ok && Array.isArray(data.locations)) setLive(data)
+        else setLoadError('Live menus are temporarily unavailable.')
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError('Could not reach the dining server.')
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+          setRefreshing(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const locations = useMemo(() => {
@@ -153,14 +174,20 @@ export default function Dining() {
     return [...api, ...STATIC_LOCATIONS]
   }, [live, loading])
 
-  useEffect(() => {
-    if (!locations.length) return
-    setSelectedId((prev) => {
-      if (prev && locations.some((l) => l.id === prev)) return prev
-      const tower = locations.find((l) => l.slug === 'tower-dining')
-      return tower?.id || locations[0].id
-    })
-  }, [locations])
+  // Default the selected location once the list loads, keeping any still-valid
+  // choice. Adjusting during render (guarded by a locations identity check)
+  // avoids the setState-in-effect cascading-render warning.
+  const [prevLocations, setPrevLocations] = useState(null)
+  if (locations !== prevLocations) {
+    setPrevLocations(locations)
+    if (locations.length) {
+      setSelectedId((prev) => {
+        if (prev && locations.some((l) => l.id === prev)) return prev
+        const tower = locations.find((l) => l.slug === 'tower-dining')
+        return tower?.id || locations[0].id
+      })
+    }
+  }
 
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
   const todayHours = selected?.weekly_hours?.[getTodayDayName()]

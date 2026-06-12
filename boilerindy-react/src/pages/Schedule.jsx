@@ -195,18 +195,21 @@ export default function Schedule() {
   const schedule = useMemo(() => getWeeklyPattern(scheduleClassItems), [scheduleClassItems])
   const classes = useMemo(() => schedule[selectedDay] || [], [schedule, selectedDay])
 
-  useEffect(() => {
+  // Keep the selected class valid as the day/class list changes. Adjusting during
+  // render (guarded by a class-list identity check) avoids the setState-in-effect
+  // cascading-render warning. `classes` is derived from `selectedDay`, so its
+  // identity already changes when the day changes.
+  const [prevClasses, setPrevClasses] = useState(null)
+  if (classes !== prevClasses) {
+    setPrevClasses(classes)
     if (!classes.length) {
       setSelectedClass(null)
-      return
+    } else {
+      setSelectedClass((current) =>
+        current && classes.some((item) => item.id === current.id) ? current : classes[0],
+      )
     }
-    setSelectedClass((current) => {
-      if (current && classes.some((item) => item.id === current.id)) {
-        return current
-      }
-      return classes[0]
-    })
-  }, [selectedDay, classes])
+  }
 
   const needsSetup = onboarding?.needsPurdueConnection || onboarding?.needsScheduleSource
 

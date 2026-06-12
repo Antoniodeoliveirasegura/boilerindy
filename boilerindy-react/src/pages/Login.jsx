@@ -25,26 +25,21 @@ export default function Login() {
   const [pwVisible, setPwVisible] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [banner, setBanner] = useState('')
-  const [successBanner, setSuccessBanner] = useState('')
-  const [fieldErr, setFieldErr] = useState({})
-
-  useEffect(() => {
+  // Seed banners from the redirect URL once at mount. These arrive via a CAS
+  // redirect, so reading them in the initializer (instead of a setState-in-effect)
+  // is both correct and avoids the cascading-render lint warning.
+  const [banner, setBanner] = useState(() => {
     const error = searchParams.get('error')
-    const message = searchParams.get('message')
-    
-    if (message) {
-      setSuccessBanner(message)
-    }
-    
-    if (!error) return
+    if (!error) return ''
     const messages = {
       'cas-config': 'Purdue linking is not configured yet on the backend.',
       'missing-ticket': 'Purdue CAS did not return a ticket. Try again from setup.',
       'cas-validation': 'Purdue CAS could not validate the identity. Try again from setup.',
     }
-    setBanner(messages[error] || 'Authentication could not be completed.')
-  }, [searchParams])
+    return messages[error] || 'Authentication could not be completed.'
+  })
+  const [successBanner, setSuccessBanner] = useState(() => searchParams.get('message') || '')
+  const [fieldErr, setFieldErr] = useState({})
 
   useEffect(() => {
     if (loading) return
