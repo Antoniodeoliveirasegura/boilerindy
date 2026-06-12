@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { parseNextPath, registerSupabaseUser } from '../lib/authApi'
 import { signInWithEmail } from '../lib/supabase'
 import Icon from '../components/Icons'
+import CampusMapBackground from '../components/CampusMapBackground'
 
 const asideFeatures = [
   ['user', 'Create an account with your email'],
@@ -146,6 +147,7 @@ export default function Login() {
     <div className="min-h-screen flex flex-col bg-[var(--color-bg-1)] text-[var(--color-txt-0)]">
       <div className="flex-1 grid lg:grid-cols-2 min-h-[100vh]">
         <aside className="hidden lg:flex flex-col relative overflow-hidden p-10 bg-gradient-to-br from-[var(--color-gold-dark)] via-[#5c3a00] to-[#2a1800] dark:from-[#1e1000] dark:via-[#2e1800] dark:to-[#1a0e00]">
+          <CampusMapBackground />
           <div className="absolute -top-[20%] -right-[20%] w-[400px] h-[400px] pointer-events-none" style={{ background: 'radial-gradient(ellipse, rgba(207,185,145,0.18) 0%, transparent 70%)' }} />
           <div className="absolute -bottom-[10%] -left-[10%] w-[300px] h-[300px] pointer-events-none" style={{ background: 'radial-gradient(ellipse, rgba(207,185,145,0.1) 0%, transparent 70%)' }} />
           <div className="relative flex items-center gap-2.5 mb-auto">
