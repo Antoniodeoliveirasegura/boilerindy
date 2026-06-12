@@ -113,6 +113,28 @@ test('planSync treats posted solutions as resources', () => {
   assert.equal(categoryOf('Exam 1 Solutions posted'), 'resource')
 })
 
+test('planSync handles node-ical object-shaped text properties (SUMMARY;LANGUAGE=…)', () => {
+  // node-ical yields { params, val } objects for properties that carry
+  // parameters. The old code crashed on (event.summary || '').toLowerCase()
+  // and would otherwise have stored "[object Object]".
+  const source = purdueSource({ source_type: 'generic_ical', source_url: 'https://example.com/feed.ics' })
+  const feed = {
+    a: vevent({
+      summary: { params: { LANGUAGE: 'en-US' }, val: 'Midterm Exam 1' },
+      location: { params: { LANGUAGE: 'en-US' }, val: 'LWSN B155' },
+      description: { params: {}, val: 'Covers chapters 1-5' },
+    }),
+  }
+  const plan = planSync(feed, source)
+  const item = plan.itemsToInsert[0]
+
+  assert.equal(item.title, 'Midterm Exam 1')
+  assert.equal(item.location, 'LWSN B155')
+  assert.equal(item.description, 'Covers chapters 1-5')
+  assert.equal(item.category, 'exam') // categorization must see the unwrapped string
+  assert.equal(item.raw_json.summary, 'Midterm Exam 1')
+})
+
 // ── Brightspace resource skip ───────────────────────────────────────────────
 
 test('planSync drops resource items for Brightspace feeds', () => {
