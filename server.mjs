@@ -17,6 +17,7 @@ import { createRateLimiter } from './rateLimiter.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents } from './scheduleSync.mjs'
 import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
+import { hasFreeFood } from './freeFood.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -116,6 +117,13 @@ const calendarFeedRateLimit = createRateLimiter({
   max: 60,
   keyBy: 'ip',
   message: 'Too many calendar feed requests. Please try again shortly.',
+})
+// Lost & Found posting (issue #47): per-user budget on creates/edits.
+const lostFoundWriteRateLimit = createRateLimiter({
+  name: 'lost-found-write',
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  message: 'You are posting too quickly. Take a short break and try again.',
 })
 
 function nowIso() {
@@ -582,7 +590,10 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
     location: row.location,
     category: row.category,
     externalUid: row.external_uid,
-    sourceType: row.source_type
+    sourceType: row.source_type,
+    // Flag events that advertise free food (issue #46). Cheap per-row regex;
+    // only meaningful for event categories but harmless elsewhere.
+    freeFood: hasFreeFood(row.title, row.description),
   }))
 }
 
@@ -1634,6 +1645,158 @@ app.get('/feeds/calendar/:file', calendarFeedRateLimit, async (req, res) => {
   res.setHeader('Content-Disposition', 'inline; filename="boilerindy.ics"')
   res.setHeader('Cache-Control', 'private, max-age=900')
   res.send(ics)
+})
+
+// ── Lost & Found: standalone feature, independent of the board (issue #47) ────
+
+const LOST_FOUND_TYPES = new Set(['lost', 'found'])
+
+function mapLostFoundRow(row, userId) {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    location: row.location,
+    contact: row.contact,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    isOwner: row.user_id === userId,
+  }
+}
+
+function cleanField(value, max) {
+  const trimmed = String(value ?? '').trim()
+  return trimmed ? trimmed.slice(0, max) : null
+}
+
+app.get('/api/lost-found', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const type = typeof req.query.type === 'string' && LOST_FOUND_TYPES.has(req.query.type) ? req.query.type : null
+  const status = req.query.status === 'resolved' || req.query.status === 'open' ? req.query.status : null
+  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : ''
+
+  let query = supabase
+    .from('lost_found_items')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (type) query = query.eq('type', type)
+  if (status) query = query.eq('status', status)
+  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,location.ilike.%${search}%`)
+
+  const { data, error } = await query
+  if (error) {
+    console.error('GET /api/lost-found:', error.message)
+    return res.json({ items: [], unavailable: true })
+  }
+  res.json({ items: (data || []).map((row) => mapLostFoundRow(row, userId)) })
+})
+
+app.post('/api/lost-found', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const type = String(req.body?.type || '').trim()
+  if (!LOST_FOUND_TYPES.has(type)) {
+    return res.status(400).json({ error: { message: 'Type must be "lost" or "found".', status: 400 } })
+  }
+  const title = cleanField(req.body?.title, 200)
+  if (!title) {
+    return res.status(400).json({ error: { message: 'A short title is required.', status: 400 } })
+  }
+  const description = cleanField(req.body?.description, 2000)
+  const location = cleanField(req.body?.location, 200)
+  const contact = cleanField(req.body?.contact, 200)
+
+  // Reuse the campus board's profanity policy so all user text is moderated.
+  const policy = assertBoardPostTextAllowed(title, `${description || ''}\n${location || ''}`)
+  if (!policy.ok) {
+    return res.status(400).json({ error: { message: policy.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('lost_found_items')
+    .insert({ user_id: userId, type, title, description, location, contact, status: 'open' })
+    .select()
+    .single()
+  if (error) {
+    console.error('POST /api/lost-found:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your post. Please try again.', status: 500 } })
+  }
+  res.status(201).json({ item: mapLostFoundRow(data, userId) })
+})
+
+app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+
+  const { data: existing, error: findErr } = await supabase
+    .from('lost_found_items')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (findErr || !existing) {
+    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+  }
+  if (existing.user_id !== userId) {
+    return res.status(403).json({ error: { message: 'You can only edit your own posts.', status: 403 } })
+  }
+
+  const patch = {}
+  if (req.body?.status === 'resolved' || req.body?.status === 'open') patch.status = req.body.status
+  if (req.body?.title !== undefined) {
+    const title = cleanField(req.body.title, 200)
+    if (!title) return res.status(400).json({ error: { message: 'Title cannot be empty.', status: 400 } })
+    patch.title = title
+  }
+  if (req.body?.description !== undefined) patch.description = cleanField(req.body.description, 2000)
+  if (req.body?.location !== undefined) patch.location = cleanField(req.body.location, 200)
+  if (req.body?.contact !== undefined) patch.contact = cleanField(req.body.contact, 200)
+
+  if (Object.keys(patch).length === 0) {
+    return res.status(400).json({ error: { message: 'Nothing to update.', status: 400 } })
+  }
+
+  const nextTitle = patch.title ?? existing.title
+  const nextDesc = patch.description ?? existing.description
+  const nextLoc = patch.location ?? existing.location
+  const policy = assertBoardPostTextAllowed(nextTitle, `${nextDesc || ''}\n${nextLoc || ''}`)
+  if (!policy.ok) {
+    return res.status(400).json({ error: { message: policy.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('lost_found_items')
+    .update(patch)
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select()
+    .single()
+  if (error) {
+    console.error('PATCH /api/lost-found/:id:', error.message)
+    return res.status(500).json({ error: { message: 'Could not update the post.', status: 500 } })
+  }
+  res.json({ item: mapLostFoundRow(data, userId) })
+})
+
+app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+  const { data, error } = await supabase
+    .from('lost_found_items')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select('id')
+  if (error) {
+    console.error('DELETE /api/lost-found/:id:', error.message)
+    return res.status(500).json({ error: { message: 'Could not delete the post.', status: 500 } })
+  }
+  if (!data || data.length === 0) {
+    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+  }
+  res.json({ ok: true })
 })
 
 app.get('/', (_req, res) => {

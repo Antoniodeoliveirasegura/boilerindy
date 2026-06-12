@@ -12,6 +12,8 @@ import Map from './pages/Map'
 import Schedule from './pages/Schedule'
 import Assignments from './pages/Assignments'
 import Events from './pages/Events'
+import FreeFood from './pages/FreeFood'
+import LostFound from './pages/LostFound'
 import Dining from './pages/Dining'
 import Transit from './pages/Transit'
 import Services from './pages/Services'
@@ -82,6 +84,22 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Events />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/free-food"
+                element={
+                  <RequireAuth>
+                    <FreeFood />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/lost-found"
+                element={
+                  <RequireAuth>
+                    <LostFound />
                   </RequireAuth>
                 }
               />
