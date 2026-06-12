@@ -20,7 +20,9 @@ boilerindy/
 ├── supabase-user-tasks.sql        # User tasks schema
 ├── supabase-calendar-feed.sql     # Calendar feed token column (issue #48)
 ├── supabase-lost-found.sql        # Lost & Found items table (issue #47)
+├── supabase-dashboard-layout.sql  # Home dashboard layout column (issue #52)
 ├── freeFood.mjs                   # Free-food keyword matcher (issue #46)
+├── dashboardLayout.mjs            # Dashboard layout validator (issue #52)
 ├── .env.example                   # Backend env template — copy to .env
 ├── boilerindy-react/                # React + Vite frontend
 │   ├── src/
@@ -234,7 +236,8 @@ Run these SQL files **once** in your Supabase project's SQL Editor (Supabase das
 2. `supabase-user-tasks.sql` — tasks tables: `user_task_completions`, `user_manual_tasks`
 3. `supabase-calendar-feed.sql` — adds `users.calendar_feed_token` for the subscribable calendar feed
 4. `supabase-lost-found.sql` — adds the `lost_found_items` table for the Lost & Found feature
-5. `supabase-board-only.sql` — only needed if board tables are missing separately
+5. `supabase-dashboard-layout.sql` — adds `users.dashboard_layout` for the customizable home dashboard
+6. `supabase-board-only.sql` — only needed if board tables are missing separately
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 

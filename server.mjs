@@ -18,6 +18,7 @@ import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEv
 import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
+import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1797,6 +1798,31 @@ app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
     return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
   }
   res.json({ ok: true })
+})
+
+// ── Customizable home dashboard layout (issue #52) ───────────────────────────
+// Per-user widget order/size/visibility, stored as JSONB on users. NULL means
+// the user has never customized, so the client applies the default layout.
+
+app.get('/api/me/dashboard', requireAuth, async (req, res) => {
+  const stored = req.currentUser.dashboard_layout
+  // Never customized → return the default so the client always has a layout.
+  const layout = stored == null ? defaultLayout() : normalizeLayout(stored)
+  res.json({ layout })
+})
+
+app.put('/api/me/dashboard', requireAuth, async (req, res) => {
+  // Sanitize untrusted client input against the widget allowlist before storing.
+  const layout = normalizeLayout(req.body?.layout)
+  const { error } = await supabase
+    .from('users')
+    .update({ dashboard_layout: layout })
+    .eq('id', req.currentUser.id)
+  if (error) {
+    console.error('PUT /api/me/dashboard:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your dashboard layout.', status: 500 } })
+  }
+  res.json({ layout })
 })
 
 app.get('/', (_req, res) => {
