@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../Icons'
-import { getActiveAd, trackAdEvent } from '../../lib/adsApi'
+import { getActiveAd, trackAdEvent } from '../../lib/spotlightApi'
 
 // Sponsored ad slot on the student home dashboard (advertiser-portal M3).
 // Fetches one active campaign for the home-widget placement, logs an impression

@@ -2930,8 +2930,11 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 // Student-session routes (requireAuth), NOT advertiser-gated. They serve a single
 // approved, in-window campaign into the student home dashboard and log aggregate
 // impression/tap events (no student PII — see supabase-advertiser-ad-events.sql).
+// Routed as /api/spotlight/* (not /api/ads/*) because ad-blocker filter lists
+// match the ads keyword and silently block the requests for students running
+// blockers. Client counterpart: boilerindy-react/src/lib/spotlightApi.js.
 
-app.get('/api/ads/active', requireAuth, async (req, res) => {
+app.get('/api/spotlight/active', requireAuth, async (req, res) => {
   const placement = CAMPAIGN_PLACEMENTS.includes(req.query.placement) ? req.query.placement : 'home-widget'
   const { data, error } = await supabase
     .from('campaigns')
@@ -2941,7 +2944,7 @@ app.get('/api/ads/active', requireAuth, async (req, res) => {
   // Ads are non-critical: never break the dashboard if the table is missing or a
   // query fails — just serve nothing.
   if (error) {
-    console.error('[/api/ads/active] query failed:', error?.message || error)
+    console.error('[/api/spotlight/active] query failed:', error?.message || error)
     return res.json({ ad: null })
   }
   const today = nowIso().slice(0, 10)
@@ -2949,7 +2952,7 @@ app.get('/api/ads/active', requireAuth, async (req, res) => {
   res.json({ ad: toServedAd(selected) })
 })
 
-app.post('/api/ads/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
+app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
   const kind = req.body?.kind
   if (!isValidAdEventKind(kind)) {
     return res.status(400).json({ error: { message: 'Invalid ad event kind.', status: 400 } })
@@ -2963,7 +2966,7 @@ app.post('/api/ads/:campaignId/event', adEventRateLimit, requireAuth, async (req
   // Best-effort logging: an invalid campaign id or missing table shouldn't surface
   // to the student. Log and accept.
   if (error) {
-    console.error('[/api/ads/event] insert failed:', error?.message || error)
+    console.error('[/api/spotlight/event] insert failed:', error?.message || error)
     return res.status(202).json({ ok: false })
   }
   res.status(204).end()

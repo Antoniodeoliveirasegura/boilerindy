@@ -128,10 +128,13 @@ Campaigns (all `requireAdvertiserAuth`, scoped to `req.session.advertiserId`):
 - `PATCH  /api/advertiser/campaigns/:id`
 - `GET    /api/advertiser/campaigns/:id/stats` — aggregated `ad_events`.
 
-Ad serving + tracking (public / student-session, NOT advertiser-gated):
-- `GET  /api/ads/active?placement=home-widget` — returns at most one active,
+Ad serving + tracking (public / student-session, NOT advertiser-gated). Routed
+under `/api/spotlight/*` — and the client lives in `lib/spotlightApi.js` — because
+ad-blocker filter lists match the "ads" keyword and silently block the requests
+(in dev, blocking the module file white-screened the whole app):
+- `GET  /api/spotlight/active?placement=home-widget` — returns at most one active,
   in-window campaign's creative for a placement.
-- `POST /api/ads/:campaignId/event` — body `{ kind: 'impression' | 'tap' }`,
+- `POST /api/spotlight/:campaignId/event` — body `{ kind: 'impression' | 'tap' }`,
   rate-limited, no PII.
 
 `requireAdvertiserAuth` mirrors `requireAuth` but reads `req.session.advertiserId`
@@ -150,7 +153,7 @@ and looks up the `advertisers` row; returns 401 otherwise.
 - New `lib/advertiserApi.js` — thin fetch wrapper (mirror `lib/authApi.js`,
   `credentials: 'include'`).
 - Student side: a `sponsored` entry in the `widgetRegistry` in `pages/Home.jsx`
-  that fetches `/api/ads/active?placement=home-widget`, renders a labeled
+  that fetches `/api/spotlight/active?placement=home-widget`, renders a labeled
   "Sponsored" card, fires an impression on mount and a tap on click.
 
 ---
@@ -162,7 +165,7 @@ and looks up the `advertisers` row; returns 401 otherwise.
   `requireAdvertiserAuth`, un-stub `AdvertiserLogin.jsx`. Tests for the auth path.
 - **M2: campaigns dashboard.** Campaign CRUD endpoints + `/advertise/dashboard`
   with `RequireAdvertiser`.
-- **M3: ad serving + analytics.** `/api/ads/*`, the `sponsored` home widget,
+- **M3: ad serving + analytics.** `/api/spotlight/*`, the `sponsored` home widget,
   `ad_events` logging, and a stats view in the dashboard.
 
 ---
@@ -171,7 +174,7 @@ and looks up the `advertisers` row; returns 401 otherwise.
 
 - [ ] Advertiser session key is distinct from `userId`; cross-access returns 401.
 - [ ] Passwords hashed with the existing helper; never stored plaintext.
-- [ ] Rate-limit sign-in, request-access, and `/api/ads/:id/event`.
+- [ ] Rate-limit sign-in, request-access, and `/api/spotlight/:id/event`.
 - [ ] Ownership enforced server-side on every `campaigns` query (`advertiser_id =
       session advertiser`).
 - [ ] `ad_events` stores **no** student PII — aggregate counts only.
