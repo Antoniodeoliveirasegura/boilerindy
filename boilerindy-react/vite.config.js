@@ -1,13 +1,34 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '')
   const apiTarget = env.VITE_API_PROXY || 'http://127.0.0.1:3000'
+  // Sourcemap upload (issue #50) only runs where SENTRY_AUTH_TOKEN is set
+  // (Vercel). Locally/CI the plugin is omitted and no maps are generated.
+  const uploadSourceMaps = Boolean(env.SENTRY_AUTH_TOKEN)
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      ...(uploadSourceMaps
+        ? [
+            sentryVitePlugin({
+              org: env.SENTRY_ORG,
+              project: env.SENTRY_PROJECT,
+              authToken: env.SENTRY_AUTH_TOKEN,
+              telemetry: false,
+            }),
+          ]
+        : []),
+    ],
+    build: {
+      // "hidden" emits maps for Sentry without referencing them publicly.
+      sourcemap: uploadSourceMaps ? 'hidden' : false,
+    },
     server: {
       // Allow importing repo-root shared modules (e.g. dashboardLayout.mjs,
       // shared verbatim with the server). The local pnpm-workspace.yaml makes

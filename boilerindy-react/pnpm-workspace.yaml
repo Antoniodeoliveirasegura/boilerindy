@@ -1,3 +1,7 @@
+# @sentry/cli's postinstall only verifies its binary, which already ships via
+# the platform optionalDependencies — no build script needed (issue #50).
+allowBuilds:
+  '@sentry/cli': false
 # Independent pnpm root for the frontend (separate lockfile + node_modules
 # from the backend at the repo root). pnpm 10+ reads settings from here, not
 # .npmrc. Flat node_modules (no symlinks) so installs work on exFAT/Windows.

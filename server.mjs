@@ -2,6 +2,22 @@ import 'dotenv/config'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import * as Sentry from '@sentry/node'
+import { scrubSentryEvent } from './sentryScrub.mjs'
+
+// Error tracking (issue #50). Plain error capture only (no auto-tracing, which
+// would need a pre-import hook). A missing DSN means Sentry is fully disabled —
+// zero events in local dev; the human step is setting SENTRY_DSN on the host.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    sendDefaultPii: false,
+    tracesSampleRate: 0, // errors only — keeps the free tier roomy
+    beforeSend: scrubSentryEvent,
+  })
+}
+
 import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
@@ -3032,6 +3048,12 @@ app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text(
   }
   res.status(204).end()
 })
+
+// Capture anything that escapes a route handler. Registered after all routes
+// (Express error-middleware ordering); no-op without a DSN.
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app)
+}
 
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
