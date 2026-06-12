@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker } from 'react-leaflet'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
 import { useTheme } from '../context/ThemeContext'
+import { extractBuildingCode } from '../lib/buildingCode'
 
 const CAMPUS_CENTER = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
@@ -78,13 +78,6 @@ function createLabelIcon(label, dark) {
     iconSize: [50, 20],
     iconAnchor: [25, 10],
   })
-}
-
-/** Extract building code from a room string like "ET 215" */
-export function extractBuildingCode(roomStr) {
-  if (!roomStr) return null
-  const match = roomStr.match(/^([A-Z]{2,4})\s*\d*/i)
-  return match ? match[1].toUpperCase() : null
 }
 
 /** Process GeoJSON to build places list */
@@ -162,13 +155,11 @@ function MapController({ flyRequest }) {
 
 export default function Map() {
   const { dark } = useTheme()
-  const [searchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [geoData, setGeoData] = useState(null)
   const [buildings, setBuildings] = useState([])
   const [flyRequest, setFlyRequest] = useState({ lat: null, lng: null, zoom: DEFAULT_ZOOM, seq: 0 })
-  const [initialFlyDone, setInitialFlyDone] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false) // For mobile
@@ -198,9 +189,12 @@ export default function Map() {
     )
   }, [])
 
-  // Fetch official Purdue Indianapolis building data
+  // Fetch official Purdue Indianapolis building data, then resolve any deep
+  // link (?building= / ?room=) from the Schedule page once buildings exist.
+  // Deep-link selection lives in this async callback (not a reactive effect)
+  // so it never calls setState synchronously inside an effect body. The URL is
+  // read directly (mount-time value) because deep links arrive on navigation.
   useEffect(() => {
-    setLoading(true)
     fetch(PURDUE_BUILDINGS_URL)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch building data')
@@ -211,6 +205,22 @@ export default function Map() {
         const processedBuildings = processBuildings(data)
         setBuildings(processedBuildings)
         setLoading(false)
+
+        const params = new URLSearchParams(window.location.search)
+        const targetCode =
+          params.get('building') ||
+          (params.get('room') ? extractBuildingCode(params.get('room')) : null)
+        if (!targetCode) return
+
+        const upperCode = targetCode.toUpperCase()
+        const place = processedBuildings.find(b =>
+          b.abbr.toUpperCase() === upperCode ||
+          b.displayCode?.toUpperCase() === upperCode
+        )
+        if (place) {
+          setSelectedId(place.id)
+          setFlyRequest(fr => ({ lat: place.lat, lng: place.lng, zoom: FLY_ZOOM, seq: fr.seq + 1 }))
+        }
       })
       .catch(err => {
         console.error("Failed to load Purdue building data:", err)
@@ -218,33 +228,6 @@ export default function Map() {
         setLoading(false)
       })
   }, [])
-
-  // Handle URL parameters for deep linking from Schedule page
-  useEffect(() => {
-    if (initialFlyDone || !buildings.length) return
-    
-    const buildingParam = searchParams.get('building')
-    const roomParam = searchParams.get('room')
-    
-    let targetCode = buildingParam
-    if (!targetCode && roomParam) {
-      targetCode = extractBuildingCode(roomParam)
-    }
-    
-    if (targetCode) {
-      const upperCode = targetCode.toUpperCase()
-      // Match by abbr, BuildingLabels, or displayCode
-      const place = buildings.find(b => 
-        b.abbr.toUpperCase() === upperCode || 
-        b.displayCode?.toUpperCase() === upperCode
-      )
-      if (place) {
-        setSelectedId(place.id)
-        setFlyRequest(fr => ({ lat: place.lat, lng: place.lng, zoom: FLY_ZOOM, seq: fr.seq + 1 }))
-        setInitialFlyDone(true)
-      }
-    }
-  }, [searchParams, initialFlyDone, buildings])
 
   const filteredBuildings = useMemo(() => {
     const q = search.trim().toLowerCase()

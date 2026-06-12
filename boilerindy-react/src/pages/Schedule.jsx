@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
-import { extractBuildingCode } from './Map'
+import { extractBuildingCode } from '../lib/buildingCode'
 import Icon from '../components/Icons'
 import { filterClassItemsForSchedulePage } from '../lib/scheduleFilters'
 
