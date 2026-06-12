@@ -1,7 +1,16 @@
 # Advertiser Portal — Scope & Architecture
 
-Status: **Login UI shipped (stubbed); backend not started.**
+Status: **M1 shipped — advertiser auth + leads backend wired; login un-stubbed.**
 Last updated: 2026-06-12
+
+> **M1 done (this session):** `supabase-advertiser-portal.sql` (`advertisers` +
+> `advertiser_leads`), `requireAdvertiserAuth` + sign-in/out/request-access/me
+> endpoints in `server.mjs`, shared `passwordHash.mjs`, pure `advertiserAuth.mjs`
+> (+ `advertiserAuth.test.mjs`), `scripts/create-advertiser.mjs` seed script,
+> `lib/advertiserApi.js`, and a real `AdvertiserLogin.jsx` (sign-in + lead form).
+> **Manual step before it works live:** run `supabase-advertiser-portal.sql` in
+> the Supabase SQL Editor, then seed an account with `node scripts/create-advertiser.mjs`.
+> Campaigns table + dashboard are **M2**.
 
 The advertiser portal lets local businesses/marketers run ads inside BoilerIndy,
 separate from the student app. The marketing front page (`/`) and the advertiser

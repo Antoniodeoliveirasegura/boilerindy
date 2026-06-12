@@ -19,6 +19,12 @@ import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
+import { hashPassword, verifyPassword } from './passwordHash.mjs'
+import {
+  normalizeAdvertiserSignIn,
+  normalizeLeadInput,
+  toAdvertiserProfile,
+} from './advertiserAuth.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -168,19 +174,6 @@ function deriveDisplayName(email, providedName = '') {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
-}
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex')
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return `${salt}:${hash}`
-}
-
-function verifyPassword(password, storedHash) {
-  const [salt, expectedHash] = String(storedHash || '').split(':')
-  if (!salt || !expectedHash) return false
-  const actualHash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return crypto.timingSafeEqual(Buffer.from(actualHash, 'hex'), Buffer.from(expectedHash, 'hex'))
 }
 
 async function getUserById(userId) {
@@ -2658,6 +2651,163 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
   res.status(204).end()
 })
 
+// ============================================================
+// Advertiser portal (separate from student auth — see
+// supabase-advertiser-portal.sql and docs/advertiser-portal.md).
+//
+// Isolation is the whole point: advertisers authenticate against the
+// `advertisers` table and are tracked by req.session.advertiserId — NEVER
+// req.session.userId. Sign-in regenerates the session, so a browser is either a
+// student session or an advertiser session, never both. requireAdvertiserAuth
+// gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
+// ============================================================
+
+const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
+
+function isAdvertiserSchemaMissingError(err) {
+  const m = String(err?.message || '')
+  const c = String(err?.code || '')
+  return (
+    m.includes('schema cache') ||
+    m.includes('Could not find the table') ||
+    (m.includes('does not exist') && m.includes('advertiser')) ||
+    c === 'PGRST205' ||
+    c === '42P01'
+  )
+}
+
+function respondAdvertiserDbError(res, err) {
+  console.error('Advertiser DB error:', err?.message || err, err?.code, err?.details)
+  if (isAdvertiserSchemaMissingError(err)) {
+    return res.status(503).json({
+      error: {
+        message: `Advertiser tables are missing in Supabase. In the dashboard: SQL Editor → paste and run ${ADVERTISER_SQL_FILE} from this repo → Run, then try again.`,
+        code: 'advertiser_schema_missing',
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: err?.message || 'Database error', status: 500 } })
+}
+
+async function getAdvertiserById(advertiserId) {
+  if (!advertiserId) return null
+  const { data, error } = await supabase
+    .from('advertisers')
+    .select('*')
+    .eq('id', advertiserId)
+    .single()
+  if (error || !data) return null
+  return data
+}
+
+async function getAdvertiserByEmail(email) {
+  const { data, error } = await supabase
+    .from('advertisers')
+    .select('*')
+    .eq('email', email)
+    .single()
+  // A "no rows" result is an expected miss, not a schema error — surface other
+  // errors (e.g. table missing) to the caller.
+  if (error) {
+    if (error.code === 'PGRST116') return { advertiser: null, error: null }
+    return { advertiser: null, error }
+  }
+  return { advertiser: data || null, error: null }
+}
+
+function buildAdvertiserSessionPayload(advertiser, req) {
+  if (!advertiser) return null
+  const cookieExpires = req?.session?.cookie?.expires
+  return {
+    expiresAt: cookieExpires ? new Date(cookieExpires).toISOString() : null,
+    advertiser: toAdvertiserProfile(advertiser),
+  }
+}
+
+// Mirrors requireAuth, but reads the advertiser session key. An advertiser
+// session grants zero access to student (/api/me/*) routes and vice versa.
+async function requireAdvertiserAuth(req, res, next) {
+  const advertiser = await getAdvertiserById(req.session.advertiserId)
+  if (!advertiser) {
+    return res.status(401).json({ error: { message: 'You must sign in to the advertiser portal.', status: 401 } })
+  }
+  if (advertiser.status !== 'active') {
+    return res.status(403).json({ error: { message: 'This advertiser account is suspended.', status: 403 } })
+  }
+  req.currentAdvertiser = advertiser
+  next()
+}
+
+app.post('/api/advertiser/sign-in', signInRateLimit, async (req, res) => {
+  let credentials
+  try {
+    credentials = normalizeAdvertiserSignIn(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { advertiser, error } = await getAdvertiserByEmail(credentials.email)
+  if (error) return respondAdvertiserDbError(res, error)
+
+  // Uniform message + always run verify against a real-ish hash shape to avoid
+  // leaking which emails exist via response timing/content.
+  const storedHash = advertiser?.password_hash || 'x:x'
+  const passwordOk = verifyPassword(credentials.password, storedHash)
+  if (!advertiser || !passwordOk) {
+    return res.status(401).json({ error: { message: 'Invalid email or password.', status: 401 } })
+  }
+  if (advertiser.status !== 'active') {
+    return res.status(403).json({ error: { message: 'This advertiser account is suspended.', status: 403 } })
+  }
+
+  // Regenerate wipes any prior session (including a student userId), enforcing
+  // the student/advertiser split on a shared browser.
+  req.session.regenerate((regenErr) => {
+    if (regenErr) {
+      return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
+    }
+    req.session.advertiserId = advertiser.id
+    req.session.save(() => {
+      res.json({ session: buildAdvertiserSessionPayload(advertiser, req) })
+    })
+  })
+})
+
+app.post('/api/advertiser/sign-out', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('pih.sid')
+    res.json({ ok: true })
+  })
+})
+
+app.get('/api/advertiser/me', requireAdvertiserAuth, (req, res) => {
+  res.json({ session: buildAdvertiserSessionPayload(req.currentAdvertiser, req) })
+})
+
+// Public (no auth): "Request advertiser access" from /advertise. Stores a lead
+// row reviewed manually for invite-only onboarding. Reuses the account-create
+// IP rate limiter to blunt spam.
+app.post('/api/advertiser/request-access', accountCreateRateLimit, async (req, res) => {
+  let lead
+  try {
+    lead = normalizeLeadInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { error } = await supabase.from('advertiser_leads').insert({
+    id: makeId(),
+    email: lead.email,
+    company_name: lead.companyName,
+    message: lead.message,
+    created_at: nowIso(),
+  })
+  if (error) return respondAdvertiserDbError(res, error)
+
+  res.status(201).json({ ok: true })
+})
+
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
@@ -2666,6 +2816,12 @@ app.listen(port, host, async () => {
   if (probe.error && isBoardSchemaMissingError(probe.error)) {
     console.warn(
       `\n[BoilerIndy] Campus board: table board_posts not found. Run ${BOARD_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const advProbe = await supabase.from('advertisers').select('id').limit(1)
+  if (advProbe.error && isAdvertiserSchemaMissingError(advProbe.error)) {
+    console.warn(
+      `\n[BoilerIndy] Advertiser portal: table advertisers not found. Run ${ADVERTISER_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
 })
