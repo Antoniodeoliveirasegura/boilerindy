@@ -9,6 +9,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      // Allow importing repo-root shared modules (e.g. dashboardLayout.mjs,
+      // shared verbatim with the server). The local pnpm-workspace.yaml makes
+      // Vite treat this folder as the workspace root, so the parent must be
+      // allowed explicitly or the dev server 403s on those imports.
+      fs: { allow: ['..'] },
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true },
         // Only Purdue server routes — do not proxy /auth/callback (React + Supabase email/OAuth).

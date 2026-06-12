@@ -1,4 +1,5 @@
 import { test as base, expect } from '@playwright/test'
+import { defaultLayout, normalizeLayout } from '../../dashboardLayout.mjs'
 
 // Stateful, in-memory mock of the BoilerIndy backend. Each test gets a fresh
 // `mockApi` controller that intercepts every `/api/**` call (and the Supabase
@@ -69,6 +70,8 @@ export const test = base.extend({
       manualTasks: [],
       completions: [],
       feedUrl: null,
+      // null === never customized; the GET handler then returns the default.
+      dashboardLayout: null,
     }
 
     const json = (route, status, body) =>
@@ -178,6 +181,18 @@ export const test = base.extend({
           state.completions = state.completions.filter((c) => c.calendar_item_id !== calendarItemId)
         }
         return json(route, 200, { ok: true })
+      }
+
+      // Customizable home dashboard layout (issue #52). Mirrors server.mjs:
+      // GET returns the saved layout (or default), PUT sanitizes + stores it so
+      // the change survives a page reload within the test.
+      if (pathname === '/api/me/dashboard' && method === 'GET') {
+        const layout = state.dashboardLayout == null ? defaultLayout() : normalizeLayout(state.dashboardLayout)
+        return json(route, 200, { layout })
+      }
+      if (pathname === '/api/me/dashboard' && method === 'PUT') {
+        state.dashboardLayout = normalizeLayout(bodyOf().layout)
+        return json(route, 200, { layout: state.dashboardLayout })
       }
 
       if (pathname === '/api/me/calendar-feed' && method === 'GET') {
