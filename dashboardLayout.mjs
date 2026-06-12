@@ -20,6 +20,7 @@ export const WIDGET_IDS = [
   'dining',
   'board',
   'calendar-feed',
+  'sponsored',
 ]
 
 const WIDGET_ID_SET = new Set(WIDGET_IDS)
@@ -39,6 +40,7 @@ export const DEFAULT_LAYOUT = [
   { id: 'live-shuttles', size: 'normal', visible: true },
   { id: 'dining', size: 'normal', visible: true },
   { id: 'board', size: 'normal', visible: true },
+  { id: 'sponsored', size: 'normal', visible: true },
   { id: 'calendar-feed', size: 'normal', visible: false },
 ]
 

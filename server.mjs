@@ -29,7 +29,14 @@ import {
   normalizeCampaignInput,
   normalizeCampaignPatch,
   mapCampaignRow,
+  CAMPAIGN_PLACEMENTS,
 } from './advertiserCampaign.mjs'
+import {
+  isValidAdEventKind,
+  selectServableCampaign,
+  toServedAd,
+  summarizeAdEvents,
+} from './adServing.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -136,6 +143,15 @@ const lostFoundWriteRateLimit = createRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 30,
   message: 'You are posting too quickly. Take a short break and try again.',
+})
+// Sponsored ad impression/tap logging (advertiser-portal M3). Per-user budget —
+// generous because a student scrolling the dashboard legitimately fires several
+// impressions, but capped to blunt automated inflation of an advertiser's stats.
+const adEventRateLimit = createRateLimiter({
+  name: 'ad-event',
+  windowMs: 5 * 60 * 1000,
+  max: 200,
+  message: 'Too many ad events. Please slow down.',
 })
 
 function nowIso() {
@@ -2669,6 +2685,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 
 const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
 const ADVERTISER_CAMPAIGNS_SQL_FILE = 'supabase-advertiser-campaigns.sql'
+const ADVERTISER_AD_EVENTS_SQL_FILE = 'supabase-advertiser-ad-events.sql'
 
 function isAdvertiserSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -2908,6 +2925,69 @@ app.patch('/api/advertiser/campaigns/:id', requireAdvertiserAuth, async (req, re
   res.json({ campaign: mapCampaignRow(data) })
 })
 
+// Aggregate impression/tap stats for one of the advertiser's own campaigns (M3).
+app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req, res) => {
+  const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
+  if (lookupError) return respondAdvertiserDbError(res, lookupError)
+  if (!campaign) {
+    return res.status(404).json({ error: { message: 'Campaign not found.', status: 404 } })
+  }
+
+  const [impRes, tapRes] = await Promise.all([
+    supabase.from('ad_events').select('*', { count: 'exact', head: true }).eq('campaign_id', campaign.id).eq('kind', 'impression'),
+    supabase.from('ad_events').select('*', { count: 'exact', head: true }).eq('campaign_id', campaign.id).eq('kind', 'tap'),
+  ])
+  if (impRes.error) return respondAdvertiserDbError(res, impRes.error)
+  if (tapRes.error) return respondAdvertiserDbError(res, tapRes.error)
+
+  const impressions = impRes.count || 0
+  const taps = tapRes.count || 0
+  res.json({ stats: { impressions, taps, ctr: impressions > 0 ? taps / impressions : 0 } })
+})
+
+// ── Ad serving + tracking (M3) ───────────────────────────────────────────────
+// Student-session routes (requireAuth), NOT advertiser-gated. They serve a single
+// approved, in-window campaign into the student home dashboard and log aggregate
+// impression/tap events (no student PII — see supabase-advertiser-ad-events.sql).
+
+app.get('/api/ads/active', requireAuth, async (req, res) => {
+  const placement = CAMPAIGN_PLACEMENTS.includes(req.query.placement) ? req.query.placement : 'home-widget'
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('id, placement, status, starts_on, ends_on, creative')
+    .eq('placement', placement)
+    .eq('status', 'active')
+  // Ads are non-critical: never break the dashboard if the table is missing or a
+  // query fails — just serve nothing.
+  if (error) {
+    console.error('[/api/ads/active] query failed:', error?.message || error)
+    return res.json({ ad: null })
+  }
+  const today = nowIso().slice(0, 10)
+  const selected = selectServableCampaign(data, today)
+  res.json({ ad: toServedAd(selected) })
+})
+
+app.post('/api/ads/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
+  const kind = req.body?.kind
+  if (!isValidAdEventKind(kind)) {
+    return res.status(400).json({ error: { message: 'Invalid ad event kind.', status: 400 } })
+  }
+  const { error } = await supabase.from('ad_events').insert({
+    id: makeId(),
+    campaign_id: req.params.campaignId,
+    kind,
+    occurred_at: nowIso(),
+  })
+  // Best-effort logging: an invalid campaign id or missing table shouldn't surface
+  // to the student. Log and accept.
+  if (error) {
+    console.error('[/api/ads/event] insert failed:', error?.message || error)
+    return res.status(202).json({ ok: false })
+  }
+  res.status(204).end()
+})
+
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
@@ -2928,6 +3008,12 @@ app.listen(port, host, async () => {
   if (campaignProbe.error && isAdvertiserSchemaMissingError(campaignProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table campaigns not found. Run ${ADVERTISER_CAMPAIGNS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const adEventProbe = await supabase.from('ad_events').select('id').limit(1)
+  if (adEventProbe.error && isAdvertiserSchemaMissingError(adEventProbe.error)) {
+    console.warn(
+      `\n[BoilerIndy] Advertiser portal: table ad_events not found. Run ${ADVERTISER_AD_EVENTS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
 })

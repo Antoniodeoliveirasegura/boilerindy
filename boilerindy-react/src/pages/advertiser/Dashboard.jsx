@@ -6,8 +6,12 @@ import {
   listCampaigns,
   createCampaign,
   updateCampaign,
+  getCampaignStats,
   advertiserSignOut,
 } from '../../lib/advertiserApi'
+
+// Campaigns that have been live (or are) have stats worth showing.
+const STATS_STATUSES = new Set(['active', 'paused', 'ended'])
 
 // Advertiser campaigns dashboard (M2). Create, list, and edit campaigns.
 // Activation is owner-gated: advertisers submit for review, they don't go live
@@ -156,6 +160,26 @@ function CampaignForm({ initial, submitting, onSubmit, onCancel, title, submitLa
 
 function CampaignCard({ campaign, busy, onEdit, onStatus }) {
   const { status } = campaign
+  const showStats = STATS_STATUSES.has(status)
+  const [stats, setStats] = useState(null)
+
+  // Load aggregate impression/tap stats once a campaign has been live; re-fetch
+  // when its status changes (updatedAt moves) so newly-approved ones show data.
+  useEffect(() => {
+    if (!showStats) return undefined
+    let active = true
+    getCampaignStats(campaign.id)
+      .then((data) => {
+        if (active) setStats(data.stats)
+      })
+      .catch(() => {
+        /* stats are non-critical */
+      })
+    return () => {
+      active = false
+    }
+  }, [campaign.id, showStats, campaign.updatedAt])
+
   const dateLabel = campaign.startsOn
     ? `${campaign.startsOn}${campaign.endsOn ? ` → ${campaign.endsOn}` : ''}`
     : 'No dates set'
@@ -188,6 +212,14 @@ function CampaignCard({ campaign, busy, onEdit, onStatus }) {
         <Icon name="calendar" size={13} />
         {dateLabel}
       </div>
+
+      {showStats && stats && (
+        <div className="flex items-center gap-4 text-[12px] text-[var(--color-txt-2)] mt-3 pt-3 border-t border-[var(--color-border)]">
+          <span><strong className="text-[var(--color-txt-0)] font-semibold">{stats.impressions.toLocaleString()}</strong> impressions</span>
+          <span><strong className="text-[var(--color-txt-0)] font-semibold">{stats.taps.toLocaleString()}</strong> taps</span>
+          <span><strong className="text-[var(--color-txt-0)] font-semibold">{(stats.ctr * 100).toFixed(1)}%</strong> CTR</span>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 mt-4">
         {canEdit && (

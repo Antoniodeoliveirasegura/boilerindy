@@ -81,3 +81,8 @@ export function updateCampaign(id, patch) {
     body: JSON.stringify(patch),
   })
 }
+
+/** @returns {Promise<{ stats: { impressions: number, taps: number, ctr: number } }>} */
+export function getCampaignStats(id) {
+  return advertiserRequest(`/api/advertiser/campaigns/${id}/stats`)
+}
