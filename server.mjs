@@ -19,6 +19,7 @@ import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
+import { normalizeAnalyticsBatch } from './analytics.mjs'
 import { verifyPassword } from './passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
 import {
@@ -154,6 +155,15 @@ const adEventRateLimit = createRateLimiter({
   max: 200,
   message: 'Too many ad events. Please slow down.',
 })
+// First-party analytics ingestion (issue #51). The client flushes a batch at
+// most every 10s, so 60 requests per 5 minutes leaves ample headroom while
+// capping abuse.
+const analyticsRateLimit = createRateLimiter({
+  name: 'analytics',
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  message: 'Too many analytics requests. Please slow down.',
+})
 
 function nowIso() {
   return new Date().toISOString()
@@ -219,7 +229,7 @@ async function getUserByEmail(email) {
   return data
 }
 
-async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword }) {
+async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut }) {
   const user = await getUserById(userId)
   if (!user) throw new Error('User not found.')
 
@@ -272,6 +282,8 @@ async function updateUserProfile(userId, { email, displayName, currentPassword, 
       // After a password change Supabase Auth holds the password, so the
       // legacy scrypt mirror is dropped; otherwise leave it for migration.
       password_hash: wantsPasswordChange ? '' : user.password_hash,
+      // Analytics opt-out (issue #51): only touch it when the request says so.
+      ...(typeof analyticsOptOut === 'boolean' ? { analytics_opt_out: analyticsOptOut } : {}),
       updated_at: nowIso()
     })
     .eq('id', userId)
@@ -409,6 +421,7 @@ async function buildSessionPayload(user, req) {
       purdueEmail: user.purdue_email,
       purdueUsername: user.purdue_username,
       hasPurdueLinked: Boolean(user.purdue_email),
+      analyticsOptOut: Boolean(user.analytics_opt_out),
     },
     onboarding: summary,
   }
@@ -1101,6 +1114,7 @@ app.patch('/api/me/profile', requireAuth, async (req, res) => {
       displayName: req.body.name,
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
+      analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
     })
     const payload = await buildSessionPayload(user, req)
     res.json({ user: payload.user })
@@ -2972,6 +2986,53 @@ app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, asyn
   res.status(204).end()
 })
 
+// ── First-party product analytics (issue #51) ───────────────────────────────
+// Signed-in students only; events live in our own Supabase (analytics_events,
+// service-role only — see supabase-analytics.sql). The server re-checks the
+// opt-out so a stale or misbehaving client can never record an opted-out user.
+// Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
+// JSON parse fallback.
+
+app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
+  if (req.currentUser.analytics_opt_out) {
+    return res.status(204).end()
+  }
+
+  let body = req.body
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body)
+    } catch {
+      return res.status(400).json({ error: { message: 'Invalid analytics payload.', status: 400 } })
+    }
+  }
+
+  let rows
+  try {
+    rows = normalizeAnalyticsBatch(body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const timestamp = nowIso()
+  const { error } = await supabase.from('analytics_events').insert(
+    rows.map((row) => ({
+      id: makeId(),
+      user_id: req.currentUser.id,
+      ...row,
+      created_at: timestamp,
+    })),
+  )
+
+  // Best-effort: analytics must never surface errors to students (e.g. table
+  // not created yet). Log and accept.
+  if (error) {
+    console.error('[/api/analytics/events] insert failed:', error?.message || error)
+    return res.status(202).json({ ok: false })
+  }
+  res.status(204).end()
+})
+
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
@@ -2998,6 +3059,12 @@ app.listen(port, host, async () => {
   if (adEventProbe.error && isAdvertiserSchemaMissingError(adEventProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table ad_events not found. Run ${ADVERTISER_AD_EVENTS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const analyticsProbe = await supabase.from('analytics_events').select('id').limit(1)
+  if (analyticsProbe.error && isAdvertiserSchemaMissingError(analyticsProbe.error)) {
+    console.warn(
+      '\n[BoilerIndy] Analytics: table analytics_events not found. Run supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )
   }
 })

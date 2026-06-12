@@ -358,6 +358,18 @@ export default function Login() {
               <Icon name={isSignup ? 'sparkles' : 'mail'} size={16} />
               {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
             </button>
+
+            {isSignup && (
+              <p className="text-[11px] text-[var(--color-txt-3)] leading-relaxed">
+                By creating an account you agree to basic usage analytics that help improve
+                BoilerIndy — stored in our own database, no third-party trackers, opt out anytime
+                in Settings.{' '}
+                <Link to="/privacy" className="text-[var(--color-accent)] hover:underline">
+                  Privacy policy
+                </Link>
+                .
+              </p>
+            )}
           </form>
           )}
 

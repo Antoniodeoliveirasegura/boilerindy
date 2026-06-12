@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Icon from '../components/Icons'
+import { track } from '../lib/analytics'
 
 const STATIC_LOCATIONS = []
 
@@ -97,6 +98,10 @@ function StationCard({ station, index }) {
 }
 
 export default function Dining() {
+  useEffect(() => {
+    track('dining_viewed')
+  }, [])
+
   const [live, setLive] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)

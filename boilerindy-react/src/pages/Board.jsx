@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { authRequest } from '../lib/authApi'
+import { track } from '../lib/analytics'
 import Icon from '../components/Icons'
 
 export default function Board() {
@@ -255,6 +256,7 @@ export default function Board() {
         method: 'POST',
         body: JSON.stringify({ title: newTitle.trim(), body: newBody.trim(), anon: isAnon }),
       })
+      track('board_post_created')
       setNewTitle('')
       setNewBody('')
       saveBoardDraft('', '')

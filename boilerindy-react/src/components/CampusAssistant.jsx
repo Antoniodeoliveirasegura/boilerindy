@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { track } from '../lib/analytics'
 import Icon from './Icons'
 
 const quickQuestions = [
@@ -70,6 +71,8 @@ export default function CampusAssistant() {
     setMessages(nextMessages)
     setInput('')
     setIsTyping(true)
+    // Event only — the message text itself is never recorded (issue #51).
+    track('assistant_message_sent')
 
     try {
       const res = await fetch('/api/assistant', {
