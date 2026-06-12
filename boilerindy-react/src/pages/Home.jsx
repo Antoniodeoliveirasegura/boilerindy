@@ -26,6 +26,7 @@ import { useDashboardLayout } from '../hooks/useDashboardLayout'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import DashboardWidget from '../components/dashboard/DashboardWidget'
 import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
+import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -1450,6 +1451,12 @@ export default function Home() {
           </Link>
         </div>
       ),
+    },
+    'sponsored': {
+      title: 'Sponsored',
+      // Self-contained: fetches its own active ad and logs impression/tap.
+      // Renders nothing when no ad is active, so the slot collapses cleanly.
+      render: () => <SponsoredWidget />,
     },
   }
 

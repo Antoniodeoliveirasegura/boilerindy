@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { parseNextPath, registerSupabaseUser } from '../lib/authApi'
-import { signInWithEmail } from '../lib/supabase'
+import { sendPasswordResetEmail, signInWithEmail } from '../lib/supabase'
 import Icon from '../components/Icons'
 
 const asideFeatures = [
@@ -20,6 +20,7 @@ export default function Login() {
   const navigate = useNavigate()
 
   const [tab, setTab] = useState('signin')
+  const [forgotMode, setForgotMode] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -54,6 +55,25 @@ export default function Login() {
     setBanner('')
     setSuccessBanner('')
     setFieldErr({})
+  }
+
+  async function handleForgotSubmit(e) {
+    e.preventDefault()
+    clearErrors()
+    if (!email.trim() || !email.includes('@')) {
+      setFieldErr({ email: 'Please enter a valid email.' })
+      return
+    }
+    setSubmitting(true)
+    try {
+      await sendPasswordResetEmail(email.trim())
+      // Supabase succeeds for unknown emails too, so this never leaks accounts.
+      setSuccessBanner('If an account exists for that email, a reset link is on the way. Check your inbox.')
+    } catch (error) {
+      setBanner(error.message || 'Could not send a reset link. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   async function handleSubmit(e) {
@@ -218,13 +238,17 @@ export default function Login() {
           </div>
 
           <h1 className="text-[1.6rem] font-bold tracking-tight mb-1.5">
-            {isSignup ? 'Create your account' : 'Welcome back'}
+            {forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}
           </h1>
           <p className="text-[13px] text-[var(--color-txt-2)] mb-6">
-            {isSignup ? 'Create your account to get started.' : 'Sign in to continue to BoilerIndy.'}
+            {forgotMode
+              ? 'Enter your account email and we will send you a reset link.'
+              : isSignup
+                ? 'Create your account to get started.'
+                : 'Sign in to continue to BoilerIndy.'}
           </p>
 
-          <div className="flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5">
+          <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode ? 'hidden' : ''}`}>
             <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${!isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-sm' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
               Sign in
             </button>
@@ -247,6 +271,30 @@ export default function Login() {
             </div>
           )}
 
+          {forgotMode ? (
+            <form onSubmit={handleForgotSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Email address</label>
+                <input id="email" type="email" className={`${inputBase} ${fieldErr.email ? 'border-[var(--color-error)]' : ''}`} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+                {fieldErr.email && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.email}</p>}
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60"
+              >
+                <Icon name="mail" size={16} />
+                {submitting ? 'Sending…' : 'Email me a reset link'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setForgotMode(false); clearErrors() }}
+                className="w-full text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] bg-transparent border-0 cursor-pointer py-1"
+              >
+                Back to sign in
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignup && (
               <div>
@@ -292,7 +340,11 @@ export default function Login() {
                 <span className="text-[13px] text-[var(--color-txt-1)]">Remember me</span>
               </label>
               {!isSignup && (
-                <button type="button" className="text-[13px] text-[var(--color-accent)] hover:underline">
+                <button
+                  type="button"
+                  onClick={() => { setForgotMode(true); clearErrors() }}
+                  className="text-[13px] text-[var(--color-accent)] hover:underline"
+                >
                   Forgot password?
                 </button>
               )}
@@ -306,7 +358,20 @@ export default function Login() {
               <Icon name={isSignup ? 'sparkles' : 'mail'} size={16} />
               {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
             </button>
+
+            {isSignup && (
+              <p className="text-[11px] text-[var(--color-txt-3)] leading-relaxed">
+                By creating an account you agree to basic usage analytics that help improve
+                BoilerIndy — stored in our own database, no third-party trackers, opt out anytime
+                in Settings.{' '}
+                <Link to="/privacy" className="text-[var(--color-accent)] hover:underline">
+                  Privacy policy
+                </Link>
+                .
+              </p>
+            )}
           </form>
+          )}
 
           <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
             Want to advertise on BoilerIndy?{' '}

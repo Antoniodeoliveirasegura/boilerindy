@@ -23,6 +23,29 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
+  test('sends a reset link from the forgot-password view', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/login')
+
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible()
+
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByRole('button', { name: 'Email me a reset link' }).click()
+
+    await expect(page.getByText('a reset link is on the way', { exact: false })).toBeVisible()
+  })
+
+  test('returns from the forgot-password view to sign in', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/login')
+
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await page.getByRole('button', { name: 'Back to sign in' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  })
+
   test('signs in with valid credentials and lands inside the app', async ({ page, mockApi }) => {
     mockApi.logout()
     await page.goto('/login')

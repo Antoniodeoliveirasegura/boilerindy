@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, setSkipSetup } from '../lib/authApi'
+import { track } from '../lib/analytics'
 import Icon from '../components/Icons'
 
 const sourceConfigs = {
@@ -102,6 +103,7 @@ export default function ConnectSchedule() {
         body: JSON.stringify({ icsUrl: nextUrl, label: config.label }),
       })
       setIcsUrl('')
+      track('source_synced', { kind: 'connect', sourceType })
       await refreshSession()
       await loadData()
       
@@ -139,6 +141,7 @@ export default function ConnectSchedule() {
     setBanner('Syncing...')
     try {
       const response = await authRequest(`/api/sync/${sourceId}`, { method: 'POST' })
+      track('source_synced', { kind: 'manual' })
       await refreshSession()
       await loadData()
       
@@ -180,6 +183,9 @@ export default function ConnectSchedule() {
       }
     }
 
+    if (failures.length < sources.length) {
+      track('source_synced', { kind: 'sync_all', sourceCount: sources.length - failures.length })
+    }
     await refreshSession()
     await loadData()
 

@@ -4,10 +4,15 @@ import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import AppLayout from './components/AppLayout'
 import RequireAuth from './components/RequireAuth'
+import RequireAdvertiser from './components/RequireAdvertiser'
 import Landing from './pages/Landing'
 import AdvertiserLogin from './pages/AdvertiserLogin'
+import AdvertiserDashboard from './pages/advertiser/Dashboard'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
+import Privacy from './pages/Privacy'
 import AuthCallback from './pages/AuthCallback'
+import AnalyticsListener from './components/AnalyticsListener'
 import Home from './pages/Home'
 import Map from './pages/Map'
 import Schedule from './pages/Schedule'
@@ -27,12 +32,23 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
+          <AnalyticsListener />
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/advertise" element={<AdvertiserLogin />} />
+            <Route
+              path="/advertise/dashboard"
+              element={
+                <RequireAdvertiser>
+                  <AdvertiserDashboard />
+                </RequireAdvertiser>
+              }
+            />
             {/* /demo was the old marketing preview; advertisers land on the portal now. */}
             <Route path="/demo" element={<Navigate to="/advertise" replace />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/privacy" element={<Privacy />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route element={<AppLayout />}>
               <Route

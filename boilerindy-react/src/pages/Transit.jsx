@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Icon from '../components/Icons'
+import { track } from '../lib/analytics'
 import {
   routes,
   TRANLOC_ROUTE_ALIASES,
@@ -471,6 +472,10 @@ function loadMyStopForRoute(routeId) {
 }
 
 export default function Transit() {
+  useEffect(() => {
+    track('transit_viewed')
+  }, [])
+
   const [rawVehicles, setRawVehicles] = useState([])
   const [stops, setStops] = useState([])
   const [selectedRoute, setSelectedRoute] = useState(null)

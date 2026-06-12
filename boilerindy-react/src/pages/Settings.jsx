@@ -29,6 +29,7 @@ export default function Settings() {
   })
   const [status, setStatus] = useState('')
   const [saving, setSaving] = useState(false)
+  const [analyticsSaving, setAnalyticsSaving] = useState(false)
 
   // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
   const [feedUrl, setFeedUrl] = useState(null)
@@ -71,6 +72,27 @@ export default function Settings() {
       setBanner(error.message || 'Could not generate a calendar link.')
     } finally {
       setFeedBusy(false)
+    }
+  }
+
+  // Analytics opt-out (issue #51): saved immediately on toggle; AnalyticsListener
+  // reacts to the refreshed session, so opting out stops sending right away.
+  async function handleAnalyticsToggle(e) {
+    const nextEnabled = e.target.checked
+    setAnalyticsSaving(true)
+    setBanner('')
+    setStatus('')
+    try {
+      await authRequest('/api/me/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ analyticsOptOut: !nextEnabled }),
+      })
+      await refreshSession()
+      setStatus(nextEnabled ? 'Usage analytics turned on.' : 'Usage analytics turned off.')
+    } catch (error) {
+      setBanner(error.message || 'Could not update your analytics preference.')
+    } finally {
+      setAnalyticsSaving(false)
     }
   }
 
@@ -330,6 +352,31 @@ export default function Settings() {
                 {feedBusy ? 'Creating…' : 'Create calendar link'}
               </button>
             )}
+          </div>
+
+          <div className="card p-5">
+            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
+              Privacy
+            </div>
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!user?.analyticsOptOut}
+                onChange={handleAnalyticsToggle}
+                disabled={analyticsSaving}
+                className="w-4 h-4 mt-0.5 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
+              />
+              <span>
+                <span className="block text-[13px] font-medium text-[var(--color-txt-0)]">Share usage analytics</span>
+                <span className="block text-[12px] text-[var(--color-txt-2)] mt-0.5 leading-relaxed">
+                  Help prioritize features by sharing which pages and features you use. Stored only in
+                  BoilerIndy&apos;s own database — no third-party trackers, deleted with your account.
+                </span>
+              </span>
+            </label>
+            <Link to="/privacy" className="inline-block text-[12px] text-[var(--color-accent)] hover:underline mt-3">
+              Read the privacy policy
+            </Link>
           </div>
 
           <div className="card p-5">

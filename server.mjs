@@ -2,6 +2,22 @@ import 'dotenv/config'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import * as Sentry from '@sentry/node'
+import { scrubSentryEvent } from './sentryScrub.mjs'
+
+// Error tracking (issue #50). Plain error capture only (no auto-tracing, which
+// would need a pre-import hook). A missing DSN means Sentry is fully disabled —
+// zero events in local dev; the human step is setting SENTRY_DSN on the host.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    sendDefaultPii: false,
+    tracesSampleRate: 0, // errors only — keeps the free tier roomy
+    beforeSend: scrubSentryEvent,
+  })
+}
+
 import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
@@ -19,6 +35,26 @@ import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
+import { normalizeAnalyticsBatch } from './analytics.mjs'
+import { verifyPassword } from './passwordHash.mjs'
+import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
+import {
+  normalizeAdvertiserSignIn,
+  normalizeLeadInput,
+  toAdvertiserProfile,
+} from './advertiserAuth.mjs'
+import {
+  normalizeCampaignInput,
+  normalizeCampaignPatch,
+  mapCampaignRow,
+  CAMPAIGN_PLACEMENTS,
+} from './advertiserCampaign.mjs'
+import {
+  isValidAdEventKind,
+  selectServableCampaign,
+  toServedAd,
+  summarizeAdEvents,
+} from './adServing.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -126,6 +162,24 @@ const lostFoundWriteRateLimit = createRateLimiter({
   max: 30,
   message: 'You are posting too quickly. Take a short break and try again.',
 })
+// Sponsored ad impression/tap logging (advertiser-portal M3). Per-user budget —
+// generous because a student scrolling the dashboard legitimately fires several
+// impressions, but capped to blunt automated inflation of an advertiser's stats.
+const adEventRateLimit = createRateLimiter({
+  name: 'ad-event',
+  windowMs: 5 * 60 * 1000,
+  max: 200,
+  message: 'Too many ad events. Please slow down.',
+})
+// First-party analytics ingestion (issue #51). The client flushes a batch at
+// most every 10s, so 60 requests per 5 minutes leaves ample headroom while
+// capping abuse.
+const analyticsRateLimit = createRateLimiter({
+  name: 'analytics',
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  message: 'Too many analytics requests. Please slow down.',
+})
 
 function nowIso() {
   return new Date().toISOString()
@@ -170,19 +224,6 @@ function deriveDisplayName(email, providedName = '') {
     .join(' ')
 }
 
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex')
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return `${salt}:${hash}`
-}
-
-function verifyPassword(password, storedHash) {
-  const [salt, expectedHash] = String(storedHash || '').split(':')
-  if (!salt || !expectedHash) return false
-  const actualHash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return crypto.timingSafeEqual(Buffer.from(actualHash, 'hex'), Buffer.from(expectedHash, 'hex'))
-}
-
 async function getUserById(userId) {
   if (!userId) return null
   const { data, error } = await supabase
@@ -204,50 +245,7 @@ async function getUserByEmail(email) {
   return data
 }
 
-async function createLocalUser({ email, password, displayName }) {
-  const normalizedEmail = normalizeEmail(email)
-  if (!normalizedEmail || !normalizedEmail.includes('@')) {
-    throw new Error('Please enter a valid email address.')
-  }
-  if (!password || password.length < 8) {
-    throw new Error('Password must be at least 8 characters.')
-  }
-  
-  const existing = await getUserByEmail(normalizedEmail)
-  if (existing) {
-    throw new Error('An account with that email already exists.')
-  }
-
-  const timestamp = nowIso()
-  const id = makeId()
-  
-  const { data, error } = await supabase
-    .from('users')
-    .insert({
-      id,
-      email: normalizedEmail,
-      password_hash: hashPassword(password),
-      display_name: deriveDisplayName(normalizedEmail, displayName),
-      auth_provider: 'local',
-      created_at: timestamp,
-      updated_at: timestamp
-    })
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  return data
-}
-
-async function authenticateLocalUser({ email, password }) {
-  const user = await getUserByEmail(email)
-  if (!user || !verifyPassword(password, user.password_hash)) {
-    throw new Error('Invalid email or password.')
-  }
-  return user
-}
-
-async function updateLocalUserProfile(userId, { email, displayName, currentPassword, newPassword }) {
+async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut }) {
   const user = await getUserById(userId)
   if (!user) throw new Error('User not found.')
 
@@ -261,28 +259,48 @@ async function updateLocalUserProfile(userId, { email, displayName, currentPassw
     throw new Error('That email address is already in use.')
   }
 
-  let passwordHash = user.password_hash
   const wantsPasswordChange = Boolean((currentPassword && currentPassword.trim()) || (newPassword && newPassword.trim()))
   if (wantsPasswordChange) {
-    if (!verifyPassword(currentPassword || '', user.password_hash)) {
-      throw new Error('Current password is incorrect.')
+    await applyPasswordChange(
+      {
+        verifySupabasePassword,
+        setSupabasePassword: async (authUserId, password) => {
+          const { error } = await supabase.auth.admin.updateUserById(authUserId, { password })
+          if (error) throw new Error(error.message || 'Could not update your password.')
+        },
+        migrateLegacyUser: migrateLegacyUserToSupabaseAuth,
+      },
+      user,
+      currentPassword,
+      newPassword,
+    )
+  }
+
+  // Keep the Supabase Auth email in sync so password sign-in keeps working.
+  // user_not_found = legacy row that has not been migrated into Auth yet.
+  if (normalizedEmail !== normalizeEmail(user.email)) {
+    const { error: emailError } = await supabase.auth.admin.updateUserById(userId, {
+      email: normalizedEmail,
+      email_confirm: true,
+    })
+    if (emailError && emailError.code !== 'user_not_found') {
+      throw new Error(emailError.message || 'Could not update your email.')
     }
-    if (!newPassword || newPassword.length < 8) {
-      throw new Error('New password must be at least 8 characters.')
-    }
-    passwordHash = hashPassword(newPassword)
   }
 
   const nextDisplayName = deriveDisplayName(normalizedEmail, displayName || user.display_name)
-  const timestamp = nowIso()
-  
+
   const { data, error } = await supabase
     .from('users')
     .update({
       email: normalizedEmail,
       display_name: nextDisplayName,
-      password_hash: passwordHash,
-      updated_at: timestamp
+      // After a password change Supabase Auth holds the password, so the
+      // legacy scrypt mirror is dropped; otherwise leave it for migration.
+      password_hash: wantsPasswordChange ? '' : user.password_hash,
+      // Analytics opt-out (issue #51): only touch it when the request says so.
+      ...(typeof analyticsOptOut === 'boolean' ? { analytics_opt_out: analyticsOptOut } : {}),
+      updated_at: nowIso()
     })
     .eq('id', userId)
     .select()
@@ -419,6 +437,7 @@ async function buildSessionPayload(user, req) {
       purdueEmail: user.purdue_email,
       purdueUsername: user.purdue_username,
       hasPurdueLinked: Boolean(user.purdue_email),
+      analyticsOptOut: Boolean(user.analytics_opt_out),
     },
     onboarding: summary,
   }
@@ -789,7 +808,9 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       .insert({
         id: authUser.id,
         email: normalizedEmail,
-        password_hash: hashPassword(password),
+        // Supabase Auth (created above) is the only password store; the
+        // password_hash column is a legacy migration artifact and stays empty.
+        password_hash: '',
         display_name: deriveDisplayName(normalizedEmail, displayName),
         auth_provider: 'email',
         created_at: timestamp,
@@ -820,27 +841,6 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
   }
 })
 
-app.post('/api/auth/sign-up', accountCreateRateLimit, async (req, res) => {
-  try {
-    const user = await createLocalUser({
-      email: req.body.email,
-      password: req.body.password,
-      displayName: req.body.name,
-    })
-    req.session.regenerate(async (err) => {
-      if (err) {
-        return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
-      }
-      req.session.userId = user.id
-      req.session.save(async () => {
-        res.status(201).json({ session: await buildSessionPayload(user, req) })
-      })
-    })
-  } catch (error) {
-    res.status(400).json({ error: { message: error.message || 'Could not create account.', status: 400 } })
-  }
-})
-
 async function verifySupabasePassword(email, password) {
   const gotrue = `${supabaseUrl}/auth/v1/token?grant_type=password`
   const anonKey = process.env.SUPABASE_ANON_KEY || supabaseServiceKey
@@ -855,6 +855,35 @@ async function verifySupabasePassword(email, password) {
   if (!resp.ok) return null
   const data = await resp.json()
   return data?.user ?? null
+}
+
+// Move a pre-Supabase account (scrypt hash in public.users only) into Supabase
+// Auth. Returns false when the email already exists there — in that case
+// Supabase's password verdict is authoritative and the caller must reject.
+async function migrateLegacyUserToSupabaseAuth(userRow, password) {
+  const { error } = await supabase.auth.admin.createUser({
+    email: userRow.email,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: userRow.display_name || deriveDisplayName(userRow.email, ''),
+    },
+  })
+  if (!error) return true
+  if (error.code === 'email_exists' || /already\s+(registered|exists)/i.test(error.message || '')) {
+    return false
+  }
+  throw new Error(error.message || 'Could not verify your credentials.')
+}
+
+// Once Supabase Auth holds the account's password, the legacy scrypt mirror
+// must go away so an old password can never be replayed against it.
+async function clearLegacyPasswordHash(userRow) {
+  if (!hasLegacyHash(userRow)) return
+  await supabase
+    .from('users')
+    .update({ password_hash: '', updated_at: nowIso() })
+    .eq('id', userRow.id)
 }
 
 async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
@@ -912,34 +941,29 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
 app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
   try {
     const normalizedEmail = normalizeEmail(req.body.email)
-    const password = req.body.password
+    const password = typeof req.body.password === 'string' ? req.body.password : ''
     const rememberMe = req.body.rememberMe === true
     const cookieMaxAge = rememberMe ? 1000 * 60 * 60 * 24 * 30 : undefined
 
-    let user = await getUserByEmail(normalizedEmail)
+    // Supabase Auth decides; the legacy scrypt hash only matters for accounts
+    // that predate it (see studentPasswordAuth.mjs for the full policy).
+    const result = await resolveSignIn(
+      {
+        verifySupabasePassword,
+        getUserByEmail,
+        ensureUserRow: ensureUserRowForSupabaseAuth,
+        migrateLegacyUser: migrateLegacyUserToSupabaseAuth,
+      },
+      normalizedEmail,
+      password,
+    )
 
-    // Always allow Supabase Auth to be the source of truth if the local profile row/hash is missing or stale.
-    let supabaseUser = null
-    const hasLocalHash = user?.password_hash && user.password_hash.includes(':')
-    const localPasswordMatches = hasLocalHash ? verifyPassword(password, user.password_hash) : false
-
-    if (!localPasswordMatches) {
-      supabaseUser = await verifySupabasePassword(normalizedEmail, password)
-      if (!supabaseUser) {
-        return res.status(401).json({ error: { message: 'Invalid email or password.', status: 401 } })
-      }
-
-      user = await ensureUserRowForSupabaseAuth(supabaseUser, normalizedEmail)
-
-      await supabase
-        .from('users')
-        .update({ password_hash: hashPassword(password), updated_at: nowIso() })
-        .eq('id', user.id)
-    }
-
-    if (!user) {
+    if (!result.ok) {
       return res.status(401).json({ error: { message: 'Invalid email or password.', status: 401 } })
     }
+
+    const user = result.user
+    await clearLegacyPasswordHash(user)
 
     req.session.regenerate(async (err) => {
       if (err) {
@@ -1101,11 +1125,12 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
 
 app.patch('/api/me/profile', requireAuth, async (req, res) => {
   try {
-    const user = await updateLocalUserProfile(req.currentUser.id, {
+    const user = await updateUserProfile(req.currentUser.id, {
       email: req.body.email,
       displayName: req.body.name,
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
+      analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
     })
     const payload = await buildSessionPayload(user, req)
     res.json({ user: payload.user })
@@ -2658,6 +2683,378 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
   res.status(204).end()
 })
 
+// ============================================================
+// Advertiser portal (separate from student auth — see
+// supabase-advertiser-portal.sql and docs/advertiser-portal.md).
+//
+// Isolation is the whole point: advertisers authenticate against the
+// `advertisers` table and are tracked by req.session.advertiserId — NEVER
+// req.session.userId. Sign-in regenerates the session, so a browser is either a
+// student session or an advertiser session, never both. requireAdvertiserAuth
+// gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
+// ============================================================
+
+const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
+const ADVERTISER_CAMPAIGNS_SQL_FILE = 'supabase-advertiser-campaigns.sql'
+const ADVERTISER_AD_EVENTS_SQL_FILE = 'supabase-advertiser-ad-events.sql'
+
+function isAdvertiserSchemaMissingError(err) {
+  const m = String(err?.message || '')
+  const c = String(err?.code || '')
+  return (
+    m.includes('schema cache') ||
+    m.includes('Could not find the table') ||
+    (m.includes('does not exist') && m.includes('advertiser')) ||
+    c === 'PGRST205' ||
+    c === '42P01'
+  )
+}
+
+function respondAdvertiserDbError(res, err) {
+  console.error('Advertiser DB error:', err?.message || err, err?.code, err?.details)
+  if (isAdvertiserSchemaMissingError(err)) {
+    return res.status(503).json({
+      error: {
+        message: `Advertiser tables are missing in Supabase. In the dashboard: SQL Editor → run ${ADVERTISER_SQL_FILE} and ${ADVERTISER_CAMPAIGNS_SQL_FILE} from this repo → Run, then try again.`,
+        code: 'advertiser_schema_missing',
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: err?.message || 'Database error', status: 500 } })
+}
+
+async function getAdvertiserById(advertiserId) {
+  if (!advertiserId) return null
+  const { data, error } = await supabase
+    .from('advertisers')
+    .select('*')
+    .eq('id', advertiserId)
+    .single()
+  if (error || !data) return null
+  return data
+}
+
+async function getAdvertiserByEmail(email) {
+  const { data, error } = await supabase
+    .from('advertisers')
+    .select('*')
+    .eq('email', email)
+    .single()
+  // A "no rows" result is an expected miss, not a schema error — surface other
+  // errors (e.g. table missing) to the caller.
+  if (error) {
+    if (error.code === 'PGRST116') return { advertiser: null, error: null }
+    return { advertiser: null, error }
+  }
+  return { advertiser: data || null, error: null }
+}
+
+function buildAdvertiserSessionPayload(advertiser, req) {
+  if (!advertiser) return null
+  const cookieExpires = req?.session?.cookie?.expires
+  return {
+    expiresAt: cookieExpires ? new Date(cookieExpires).toISOString() : null,
+    advertiser: toAdvertiserProfile(advertiser),
+  }
+}
+
+// Mirrors requireAuth, but reads the advertiser session key. An advertiser
+// session grants zero access to student (/api/me/*) routes and vice versa.
+async function requireAdvertiserAuth(req, res, next) {
+  const advertiser = await getAdvertiserById(req.session.advertiserId)
+  if (!advertiser) {
+    return res.status(401).json({ error: { message: 'You must sign in to the advertiser portal.', status: 401 } })
+  }
+  if (advertiser.status !== 'active') {
+    return res.status(403).json({ error: { message: 'This advertiser account is suspended.', status: 403 } })
+  }
+  req.currentAdvertiser = advertiser
+  next()
+}
+
+app.post('/api/advertiser/sign-in', signInRateLimit, async (req, res) => {
+  let credentials
+  try {
+    credentials = normalizeAdvertiserSignIn(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { advertiser, error } = await getAdvertiserByEmail(credentials.email)
+  if (error) return respondAdvertiserDbError(res, error)
+
+  // Uniform message + always run verify against a real-ish hash shape to avoid
+  // leaking which emails exist via response timing/content.
+  const storedHash = advertiser?.password_hash || 'x:x'
+  const passwordOk = verifyPassword(credentials.password, storedHash)
+  if (!advertiser || !passwordOk) {
+    return res.status(401).json({ error: { message: 'Invalid email or password.', status: 401 } })
+  }
+  if (advertiser.status !== 'active') {
+    return res.status(403).json({ error: { message: 'This advertiser account is suspended.', status: 403 } })
+  }
+
+  // Regenerate wipes any prior session (including a student userId), enforcing
+  // the student/advertiser split on a shared browser.
+  req.session.regenerate((regenErr) => {
+    if (regenErr) {
+      return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
+    }
+    req.session.advertiserId = advertiser.id
+    req.session.save(() => {
+      res.json({ session: buildAdvertiserSessionPayload(advertiser, req) })
+    })
+  })
+})
+
+app.post('/api/advertiser/sign-out', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('pih.sid')
+    res.json({ ok: true })
+  })
+})
+
+app.get('/api/advertiser/me', requireAdvertiserAuth, (req, res) => {
+  res.json({ session: buildAdvertiserSessionPayload(req.currentAdvertiser, req) })
+})
+
+// Public (no auth): "Request advertiser access" from /advertise. Stores a lead
+// row reviewed manually for invite-only onboarding. Reuses the account-create
+// IP rate limiter to blunt spam.
+app.post('/api/advertiser/request-access', accountCreateRateLimit, async (req, res) => {
+  let lead
+  try {
+    lead = normalizeLeadInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { error } = await supabase.from('advertiser_leads').insert({
+    id: makeId(),
+    email: lead.email,
+    company_name: lead.companyName,
+    message: lead.message,
+    created_at: nowIso(),
+  })
+  if (error) return respondAdvertiserDbError(res, error)
+
+  res.status(201).json({ ok: true })
+})
+
+// ── Campaigns (M2) ───────────────────────────────────────────────────────────
+// All campaign routes are gated by requireAdvertiserAuth and scoped to the
+// signed-in advertiser. Validation/approval-flow rules live in
+// advertiserCampaign.mjs. New campaigns start 'draft'; advertisers submit for
+// review but cannot self-activate (owner approves via scripts/review-campaign.mjs).
+
+// Translate the camelCase fields from advertiserCampaign.mjs into DB columns.
+function campaignFieldsToColumns(fields) {
+  const columns = {}
+  if (fields.name !== undefined) columns.name = fields.name
+  if (fields.placement !== undefined) columns.placement = fields.placement
+  if (fields.startsOn !== undefined) columns.starts_on = fields.startsOn
+  if (fields.endsOn !== undefined) columns.ends_on = fields.endsOn
+  if (fields.creative !== undefined) columns.creative = fields.creative
+  if (fields.status !== undefined) columns.status = fields.status
+  return columns
+}
+
+async function getCampaignForAdvertiser(campaignId, advertiserId) {
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .eq('advertiser_id', advertiserId)
+    .single()
+  if (error) {
+    if (error.code === 'PGRST116') return { campaign: null, error: null }
+    return { campaign: null, error }
+  }
+  return { campaign: data || null, error: null }
+}
+
+app.get('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('advertiser_id', req.currentAdvertiser.id)
+    .order('created_at', { ascending: false })
+  if (error) return respondAdvertiserDbError(res, error)
+  res.json({ campaigns: (data || []).map(mapCampaignRow) })
+})
+
+app.post('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => {
+  let fields
+  try {
+    fields = normalizeCampaignInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const timestamp = nowIso()
+  const { data, error } = await supabase
+    .from('campaigns')
+    .insert({
+      id: makeId(),
+      advertiser_id: req.currentAdvertiser.id,
+      ...campaignFieldsToColumns(fields),
+      status: 'draft',
+      created_at: timestamp,
+      updated_at: timestamp,
+    })
+    .select()
+    .single()
+  if (error) return respondAdvertiserDbError(res, error)
+
+  res.status(201).json({ campaign: mapCampaignRow(data) })
+})
+
+app.patch('/api/advertiser/campaigns/:id', requireAdvertiserAuth, async (req, res) => {
+  const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
+  if (lookupError) return respondAdvertiserDbError(res, lookupError)
+  if (!campaign) {
+    return res.status(404).json({ error: { message: 'Campaign not found.', status: 404 } })
+  }
+
+  let patch
+  try {
+    patch = normalizeCampaignPatch(req.body, campaign)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('campaigns')
+    .update({ ...campaignFieldsToColumns(patch), updated_at: nowIso() })
+    .eq('id', campaign.id)
+    .eq('advertiser_id', req.currentAdvertiser.id)
+    .select()
+    .single()
+  if (error) return respondAdvertiserDbError(res, error)
+
+  res.json({ campaign: mapCampaignRow(data) })
+})
+
+// Aggregate impression/tap stats for one of the advertiser's own campaigns (M3).
+app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req, res) => {
+  const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
+  if (lookupError) return respondAdvertiserDbError(res, lookupError)
+  if (!campaign) {
+    return res.status(404).json({ error: { message: 'Campaign not found.', status: 404 } })
+  }
+
+  const [impRes, tapRes] = await Promise.all([
+    supabase.from('ad_events').select('*', { count: 'exact', head: true }).eq('campaign_id', campaign.id).eq('kind', 'impression'),
+    supabase.from('ad_events').select('*', { count: 'exact', head: true }).eq('campaign_id', campaign.id).eq('kind', 'tap'),
+  ])
+  if (impRes.error) return respondAdvertiserDbError(res, impRes.error)
+  if (tapRes.error) return respondAdvertiserDbError(res, tapRes.error)
+
+  const impressions = impRes.count || 0
+  const taps = tapRes.count || 0
+  res.json({ stats: { impressions, taps, ctr: impressions > 0 ? taps / impressions : 0 } })
+})
+
+// ── Ad serving + tracking (M3) ───────────────────────────────────────────────
+// Student-session routes (requireAuth), NOT advertiser-gated. They serve a single
+// approved, in-window campaign into the student home dashboard and log aggregate
+// impression/tap events (no student PII — see supabase-advertiser-ad-events.sql).
+// Routed as /api/spotlight/* (not /api/ads/*) because ad-blocker filter lists
+// match the ads keyword and silently block the requests for students running
+// blockers. Client counterpart: boilerindy-react/src/lib/spotlightApi.js.
+
+app.get('/api/spotlight/active', requireAuth, async (req, res) => {
+  const placement = CAMPAIGN_PLACEMENTS.includes(req.query.placement) ? req.query.placement : 'home-widget'
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('id, placement, status, starts_on, ends_on, creative')
+    .eq('placement', placement)
+    .eq('status', 'active')
+  // Ads are non-critical: never break the dashboard if the table is missing or a
+  // query fails — just serve nothing.
+  if (error) {
+    console.error('[/api/spotlight/active] query failed:', error?.message || error)
+    return res.json({ ad: null })
+  }
+  const today = nowIso().slice(0, 10)
+  const selected = selectServableCampaign(data, today)
+  res.json({ ad: toServedAd(selected) })
+})
+
+app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
+  const kind = req.body?.kind
+  if (!isValidAdEventKind(kind)) {
+    return res.status(400).json({ error: { message: 'Invalid ad event kind.', status: 400 } })
+  }
+  const { error } = await supabase.from('ad_events').insert({
+    id: makeId(),
+    campaign_id: req.params.campaignId,
+    kind,
+    occurred_at: nowIso(),
+  })
+  // Best-effort logging: an invalid campaign id or missing table shouldn't surface
+  // to the student. Log and accept.
+  if (error) {
+    console.error('[/api/spotlight/event] insert failed:', error?.message || error)
+    return res.status(202).json({ ok: false })
+  }
+  res.status(204).end()
+})
+
+// ── First-party product analytics (issue #51) ───────────────────────────────
+// Signed-in students only; events live in our own Supabase (analytics_events,
+// service-role only — see supabase-analytics.sql). The server re-checks the
+// opt-out so a stale or misbehaving client can never record an opted-out user.
+// Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
+// JSON parse fallback.
+
+app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
+  if (req.currentUser.analytics_opt_out) {
+    return res.status(204).end()
+  }
+
+  let body = req.body
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body)
+    } catch {
+      return res.status(400).json({ error: { message: 'Invalid analytics payload.', status: 400 } })
+    }
+  }
+
+  let rows
+  try {
+    rows = normalizeAnalyticsBatch(body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const timestamp = nowIso()
+  const { error } = await supabase.from('analytics_events').insert(
+    rows.map((row) => ({
+      id: makeId(),
+      user_id: req.currentUser.id,
+      ...row,
+      created_at: timestamp,
+    })),
+  )
+
+  // Best-effort: analytics must never surface errors to students (e.g. table
+  // not created yet). Log and accept.
+  if (error) {
+    console.error('[/api/analytics/events] insert failed:', error?.message || error)
+    return res.status(202).json({ ok: false })
+  }
+  res.status(204).end()
+})
+
+// Capture anything that escapes a route handler. Registered after all routes
+// (Express error-middleware ordering); no-op without a DSN.
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app)
+}
+
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
@@ -2666,6 +3063,30 @@ app.listen(port, host, async () => {
   if (probe.error && isBoardSchemaMissingError(probe.error)) {
     console.warn(
       `\n[BoilerIndy] Campus board: table board_posts not found. Run ${BOARD_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const advProbe = await supabase.from('advertisers').select('id').limit(1)
+  if (advProbe.error && isAdvertiserSchemaMissingError(advProbe.error)) {
+    console.warn(
+      `\n[BoilerIndy] Advertiser portal: table advertisers not found. Run ${ADVERTISER_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const campaignProbe = await supabase.from('campaigns').select('id').limit(1)
+  if (campaignProbe.error && isAdvertiserSchemaMissingError(campaignProbe.error)) {
+    console.warn(
+      `\n[BoilerIndy] Advertiser portal: table campaigns not found. Run ${ADVERTISER_CAMPAIGNS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const adEventProbe = await supabase.from('ad_events').select('id').limit(1)
+  if (adEventProbe.error && isAdvertiserSchemaMissingError(adEventProbe.error)) {
+    console.warn(
+      `\n[BoilerIndy] Advertiser portal: table ad_events not found. Run ${ADVERTISER_AD_EVENTS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const analyticsProbe = await supabase.from('analytics_events').select('id').limit(1)
+  if (analyticsProbe.error && isAdvertiserSchemaMissingError(analyticsProbe.error)) {
+    console.warn(
+      '\n[BoilerIndy] Analytics: table analytics_events not found. Run supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )
   }
 })

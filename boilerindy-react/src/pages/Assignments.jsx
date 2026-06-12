@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
+import { track } from '../lib/analytics'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
@@ -411,6 +412,7 @@ export default function Assignments() {
           body: JSON.stringify({ calendarItemId: item.id, completed: nextDone }),
         })
       }
+      if (nextDone) track('task_completed')
       await loadTaskMeta()
     } catch (err) {
       console.error(err)

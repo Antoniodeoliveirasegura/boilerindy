@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "boilerindy-react"],
       "port": 5173
+    },
+    {
+      "name": "boilerindy-backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.mjs"],
+      "port": 3000
     }
   ]
 }
