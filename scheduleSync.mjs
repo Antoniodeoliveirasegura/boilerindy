@@ -11,14 +11,26 @@
 
 const DEFAULT_TZ = 'America/Indiana/Indianapolis'
 
+// node-ical returns most text properties as plain strings, but when a property
+// carries parameters (e.g. SUMMARY;LANGUAGE=en-US:…) it instead yields an
+// object of shape { params, val }. Reading `.toLowerCase()` or `String(...)` on
+// that object crashes the sync or silently stores "[object Object]". Coerce any
+// iCal text property to its underlying string before use.
+function icalText(value) {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'object' && typeof value.val === 'string') return value.val
+  return String(value)
+}
+
 // ── Categorization ──────────────────────────────────────────────────────────
 
 function normalizeCategory(sourceType, event) {
   if (sourceType === 'purdue_schedule_ical') return 'class'
 
-  const summary = (event.summary || '').toLowerCase()
-  const rawSummary = event.summary || ''
-  const location = (event.location || '').toLowerCase()
+  const rawSummary = icalText(event.summary)
+  const summary = rawSummary.toLowerCase()
+  const location = icalText(event.location).toLowerCase()
 
   // FIRST: Check for resources/available items (solutions, posted materials)
   // These should NOT be categorized as exams/assignments even if they contain those words
@@ -216,7 +228,7 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
     try {
       dates = event.rrule.between(rangeStart, rangeEnd, true /* inclusive */)
     } catch (rruleError) {
-      console.warn(`[scheduleSync] RRULE expansion failed for "${event.summary}":`, rruleError?.message || rruleError)
+      console.warn(`[scheduleSync] RRULE expansion failed for "${icalText(event.summary)}":`, rruleError?.message || rruleError)
       const dedupeKey = `${event.uid}:${startDate.toISOString()}`
       if (!seenKeys.has(dedupeKey)) {
         seenKeys.add(dedupeKey)
@@ -384,18 +396,22 @@ export function planSync(eventsByKey, source) {
   let duplicateCount = 0
 
   for (const event of events) {
+    const summaryText = icalText(event.summary)
+    const locationText = icalText(event.location)
+    const descriptionText = icalText(event.description)
+
     // Validate start time
     let startTime
     let startDate
     try {
       startDate = event.start instanceof Date ? event.start : new Date(event.start)
       if (Number.isNaN(startDate.getTime())) {
-        skippedItems.push({ summary: event.summary, reason: 'invalid start date' })
+        skippedItems.push({ summary: summaryText, reason: 'invalid start date' })
         continue
       }
       startTime = startDate.toISOString()
     } catch {
-      skippedItems.push({ summary: event.summary, reason: 'unparseable start date' })
+      skippedItems.push({ summary: summaryText, reason: 'unparseable start date' })
       continue
     }
 
@@ -412,7 +428,7 @@ export function planSync(eventsByKey, source) {
       }
     }
 
-    const uid = String(event.uid || `${sourceId}:${event.summary}:${startTime}`)
+    const uid = String(event.uid || `${sourceId}:${summaryText}:${startTime}`)
     const category = normalizeCategory(source.source_type, event)
 
     // Skip resources for Brightspace
@@ -424,7 +440,7 @@ export function planSync(eventsByKey, source) {
     // same day at different times survive; true duplicates collapse).
     const dateOnly = startTime.slice(0, 10)
     const hourOnly = startTime.slice(11, 13)
-    const dedupeKey = `${event.summary}:${dateOnly}:${hourOnly}:${event.location || ''}`
+    const dedupeKey = `${summaryText}:${dateOnly}:${hourOnly}:${locationText}`
 
     if (seenItemKeys.has(dedupeKey)) {
       duplicateCount++
@@ -436,15 +452,15 @@ export function planSync(eventsByKey, source) {
       user_id: userId,
       source_id: sourceId,
       source_type: source.source_type,
-      title: String(event.summary || 'Untitled item').slice(0, 500),
-      description: event.description ? String(event.description).slice(0, 5000) : null,
+      title: (summaryText || 'Untitled item').slice(0, 500),
+      description: descriptionText ? descriptionText.slice(0, 5000) : null,
       start_time: startTime,
       end_time: endTime,
-      location: event.location ? String(event.location).slice(0, 500) : null,
+      location: locationText ? locationText.slice(0, 500) : null,
       category,
       external_uid: uid.slice(0, 500),
       all_day: event.datetype === 'date',
-      raw_json: { uid, summary: event.summary, description: event.description, location: event.location },
+      raw_json: { uid, summary: summaryText, description: descriptionText, location: locationText },
     })
   }
 

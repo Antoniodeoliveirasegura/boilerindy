@@ -15,25 +15,85 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [banner, setBanner] = useState('')
-  const [status, setStatus] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    setName(user?.name || '')
-    setEmail(user?.email || '')
-  }, [user?.name, user?.email])
-
-  useEffect(() => {
+  // Seed the banner from the redirect URL once at mount (CAS redirect), reading
+  // it in the initializer rather than a setState-in-effect.
+  const [banner, setBanner] = useState(() => {
     const error = searchParams.get('error')
-    if (!error) return
+    if (!error) return ''
     const messages = {
       'cas-config': 'Purdue CAS is not configured yet on the backend.',
       'missing-ticket': 'Purdue CAS did not return a ticket. Try linking again.',
       'cas-validation': 'Purdue CAS could not validate your identity. Try again.',
     }
-    setBanner(messages[error] || 'Could not complete Purdue linking.')
-  }, [searchParams])
+    return messages[error] || 'Could not complete Purdue linking.'
+  })
+  const [status, setStatus] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
+  const [feedUrl, setFeedUrl] = useState(null)
+  const [feedLoaded, setFeedLoaded] = useState(false)
+  const [feedBusy, setFeedBusy] = useState(false)
+  const [feedCopied, setFeedCopied] = useState(false)
+
+  // Load the current feed URL once on mount — a genuine external read, so an
+  // effect is the right tool here (unlike the derived state handled in render).
+  useEffect(() => {
+    let active = true
+    authRequest('/api/me/calendar-feed')
+      .then((data) => {
+        if (active) setFeedUrl(data?.feedUrl || null)
+      })
+      .catch(() => {
+        /* feed link is optional UI; ignore load failures */
+      })
+      .finally(() => {
+        if (active) setFeedLoaded(true)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  async function handleGenerateFeed() {
+    if (feedUrl && !window.confirm('Regenerate the calendar link? The old URL will stop working immediately.')) {
+      return
+    }
+    setFeedBusy(true)
+    setBanner('')
+    setStatus('')
+    try {
+      const data = await authRequest('/api/me/calendar-feed/token', { method: 'POST' })
+      setFeedUrl(data.feedUrl)
+      setFeedCopied(false)
+      setStatus(feedUrl ? 'Calendar link regenerated. Update your calendar subscription.' : 'Calendar link created.')
+    } catch (error) {
+      setBanner(error.message || 'Could not generate a calendar link.')
+    } finally {
+      setFeedBusy(false)
+    }
+  }
+
+  async function handleCopyFeed() {
+    if (!feedUrl) return
+    try {
+      await navigator.clipboard.writeText(feedUrl)
+      setFeedCopied(true)
+      window.setTimeout(() => setFeedCopied(false), 2000)
+    } catch {
+      setBanner('Could not copy automatically — select and copy the URL manually.')
+    }
+  }
+
+  // Keep the editable name/email fields in sync when the authenticated user
+  // changes (e.g. after refreshSession). Adjusting during render instead of in
+  // an effect avoids the cascading-render lint warning.
+  const [prevUser, setPrevUser] = useState(user)
+  if (user !== prevUser) {
+    setPrevUser(user)
+    setName(user?.name || '')
+    setEmail(user?.email || '')
+  }
 
   async function handleSave(e) {
     e.preventDefault()
@@ -220,6 +280,56 @@ export default function Settings() {
                 View schedule
               </Link>
             </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
+              Calendar feed
+            </div>
+            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+              Subscribe to your classes and tasks from Google or Apple Calendar with a private link.
+              Treat it like a password — anyone with the link can see your schedule.
+            </p>
+            {feedUrl ? (
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={feedUrl}
+                    onFocus={(e) => e.target.select()}
+                    aria-label="Calendar feed URL"
+                    className="input flex-1 px-3 py-2 text-[12px] font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyFeed}
+                    className="btn btn-secondary text-[13px] px-3 py-2 shrink-0"
+                  >
+                    <Icon name={feedCopied ? 'check' : 'copy'} size={14} />
+                    {feedCopied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerateFeed}
+                  disabled={feedBusy}
+                  className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-error)] underline disabled:opacity-50"
+                >
+                  {feedBusy ? 'Regenerating…' : 'Regenerate link (invalidates the old one)'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleGenerateFeed}
+                disabled={feedBusy || !feedLoaded}
+                className="btn btn-primary text-[13px] px-4 py-2 mt-4 disabled:opacity-50"
+              >
+                <Icon name="calendar" size={14} />
+                {feedBusy ? 'Creating…' : 'Create calendar link'}
+              </button>
+            )}
           </div>
 
           <div className="card p-5">

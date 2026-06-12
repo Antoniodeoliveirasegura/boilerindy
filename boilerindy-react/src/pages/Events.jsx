@@ -78,6 +78,7 @@ export default function Events() {
   const [selectedCategories, setSelectedCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [showPast, setShowPast] = useState(false)
+  const [freeFoodOnly, setFreeFoodOnly] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
 
   const [eventRecs, setEventRecs] = useState(() => {
@@ -136,9 +137,13 @@ export default function Events() {
     if (!showPast) {
       filtered = filtered.filter(item => !isPast(item.startTime))
     }
-    
+
+    if (freeFoodOnly) {
+      filtered = filtered.filter(item => item.freeFood)
+    }
+
     return filtered.sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
-  }, [items, selectedCategories, showPast])
+  }, [items, selectedCategories, showPast, freeFoodOnly])
 
   const groupedItems = useMemo(() => {
     const groups = {}
@@ -182,10 +187,20 @@ export default function Events() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setFreeFoodOnly((v) => !v)}
+            aria-pressed={freeFoodOnly}
+            className={`pill whitespace-nowrap inline-flex items-center gap-1.5 ${freeFoodOnly ? 'pill-active' : ''}`}
+            title="Show only events with free food"
+          >
+            <span aria-hidden="true">🍕</span>
+            Free food
+          </button>
           <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
-            <input 
-              type="checkbox" 
-              checked={showPast} 
+            <input
+              type="checkbox"
+              checked={showPast}
               onChange={(e) => setShowPast(e.target.checked)}
               className="w-4 h-4 rounded border-[var(--color-border-2)]"
             />
@@ -320,9 +335,20 @@ export default function Events() {
                               <div className="font-medium text-[var(--color-txt-0)] text-[14px] line-clamp-2">
                                 {item.title}
                               </div>
-                              <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${config.bg} ${config.text}`}>
-                                {config.label}
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {item.freeFood && (
+                                  <span
+                                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 inline-flex items-center gap-1"
+                                    title="This event mentions free food"
+                                  >
+                                    <span aria-hidden="true">🍕</span>
+                                    Free food
+                                  </span>
+                                )}
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full ${config.bg} ${config.text}`}>
+                                  {config.label}
+                                </span>
+                              </div>
                             </div>
                             <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[var(--color-txt-2)]">
                               <span className="flex items-center gap-1">

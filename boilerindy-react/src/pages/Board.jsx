@@ -80,7 +80,15 @@ export default function Board() {
     }
   }, [sort])
 
-  useEffect(() => { fetchPosts() }, [fetchPosts])
+  useEffect(() => {
+    // fetchPosts performs its setState after an await; wrap it in an IIFE so the
+    // effect body has no synchronous setState call. `loading` already starts true
+    // for the initial load; on sort changes fetchPosts re-runs and shows the
+    // loading state, which is intended.
+    void (async () => {
+      await fetchPosts()
+    })()
+  }, [fetchPosts])
 
   useEffect(() => {
     saveBoardDraft(newTitle, newBody)
@@ -89,6 +97,10 @@ export default function Board() {
   // ── Live AI suggestions (debounced) while composing ─────────────────────
   useEffect(() => {
     let cancelled = false
+    /* eslint-disable react-hooks/set-state-in-effect --
+       Intentional synchronous UI sync: clear stale AI compose suggestions the
+       moment the composer closes or the draft becomes too short, and flag loading
+       before the debounced request. These are cleanup resets, not derived state. */
     if (!showForm) {
       setLiveCompose(null)
       setLiveComposeLoading(false)
@@ -103,6 +115,7 @@ export default function Board() {
     }
     const ac = new AbortController()
     setLiveComposeLoading(true)
+    /* eslint-enable react-hooks/set-state-in-effect */
     const timer = setTimeout(async () => {
       try {
         const res = await fetch('/api/board/ai-suggestions', {
@@ -910,6 +923,10 @@ function ReplyInput({ onSubmit, threadTitle = '', threadBody = '' }) {
 
   useEffect(() => {
     let cancelled = false
+    /* eslint-disable react-hooks/set-state-in-effect --
+       Intentional synchronous UI sync: clear a stale AI reply tip the moment the
+       draft becomes too short, and flag loading before the debounced request.
+       These are cleanup resets, not derived state. */
     const d = text.trim()
     if (d.length < 8) {
       setReplyTip(null)
@@ -918,6 +935,7 @@ function ReplyInput({ onSubmit, threadTitle = '', threadBody = '' }) {
     }
     const ac = new AbortController()
     setReplyTipLoading(true)
+    /* eslint-enable react-hooks/set-state-in-effect */
     const timer = setTimeout(async () => {
       try {
         const res = await fetch('/api/board/ai-suggestions', {

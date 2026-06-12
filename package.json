@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "test": "node --test \"*.test.mjs\" && pnpm -C boilerindy-react test",
-    "test:backend": "node --test \"*.test.mjs\"",
+    "test": "node --test \"*.test.mjs\" \"test/**/*.test.mjs\" && pnpm -C boilerindy-react test",
+    "test:backend": "node --test \"*.test.mjs\" \"test/**/*.test.mjs\"",
+    "test:e2e": "playwright test",
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
@@ -18,5 +19,8 @@
     "express-session": "^1.19.0",
     "node-ical": "^0.20.1",
     "playwright": "^1.58.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
   }
 }

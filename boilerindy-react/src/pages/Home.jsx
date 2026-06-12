@@ -22,6 +22,10 @@ import {
   isOnlineMeetingNoise,
   shouldExcludeFromSchedule,
 } from '../lib/scheduleFilters'
+import { useDashboardLayout } from '../hooks/useDashboardLayout'
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
+import DashboardWidget from '../components/dashboard/DashboardWidget'
+import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -415,8 +419,10 @@ function buildSuggestions({ freeMinutes, nextClass, currentClass, diningStatus, 
 }
 
 export default function Home() {
-  const { getFirstName, onboarding } = useAuth()
+  const { getFirstName, onboarding, user } = useAuth()
   const firstName = getFirstName()
+  const reducedMotion = usePrefersReducedMotion()
+  const { layout, editing, setEditing, move, reorder, setVisible, reset } = useDashboardLayout(user?.id)
   const [now, setNow] = useState(() => new Date())
   const [classes, setClasses] = useState([])
   const [classLoadError, setClassLoadError] = useState('')
@@ -456,18 +462,26 @@ export default function Home() {
     return `ai-week-ahead-${monday.toISOString().slice(0, 10)}`
   }
 
-  const [weekAheadText, setWeekAheadText] = useState(() => {
+  function readCachedWeekDigest() {
     try {
       const raw = JSON.parse(localStorage.getItem(getWeekDigestStorageKey()))
       return typeof raw === 'string' && raw.trim() ? raw : null
     } catch {
       return null
     }
-  })
-  const [weekAheadLoading, setWeekAheadLoading] = useState(false)
+  }
 
-  const generateWeekAheadSummary = () => {
-    setWeekAheadLoading(true)
+  const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
+  // Start loading when there is no cached digest: the mount effect will fetch
+  // one. Deriving the initial value here means the effect never has to flip the
+  // flag synchronously (which trips react-hooks/set-state-in-effect).
+  const [weekAheadLoading, setWeekAheadLoading] = useState(() => !readCachedWeekDigest())
+
+  // Fetches and stores the digest. Does NOT raise the loading flag on entry —
+  // the mount path starts with it already true, and the Refresh button raises it
+  // via generateWeekAheadSummary. The only setState calls here run inside async
+  // promise callbacks, so this is safe to call directly from an effect.
+  const fetchWeekAheadSummary = () => {
     fetch('/api/assistant', {
       method: 'POST',
       credentials: 'include',
@@ -492,8 +506,13 @@ export default function Home() {
       .finally(() => setWeekAheadLoading(false))
   }
 
+  const generateWeekAheadSummary = () => {
+    setWeekAheadLoading(true)
+    fetchWeekAheadSummary()
+  }
+
   useEffect(() => {
-    if (!weekAheadText) generateWeekAheadSummary()
+    if (!weekAheadText) fetchWeekAheadSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -796,57 +815,32 @@ export default function Home() {
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass
 
-  return (
-    <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
-      <div className="mb-6 sm:mb-8 transition-all duration-700 opacity-100 translate-y-0">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-[var(--color-txt-0)]">
-              {getGreeting(now)}, {firstName}
-            </h1>
-            <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-1 sm:mt-2">
-              Here's what's happening on campus today.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-sm self-start sm:self-auto">
-            <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
-            {getCurrentDate(now)}
-          </div>
-        </div>
-      </div>
+  const tasksDuePreview = (cleanCalendarItems || [])
+    .filter(
+      (item) =>
+        item?.startTime &&
+        !['campus_event', 'event', 'activity', 'class'].includes(item.category) &&
+        new Date(item.startTime).getTime() >= now.getTime(),
+    )
+    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+    .slice(0, 5)
 
-      {showSetupBanner && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 transition-all duration-700 delay-75 opacity-100 translate-y-0">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
-                Finish Setup
-              </div>
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
-                {needsPurdueConnection ? 'Link your Purdue account next' : 'Your Purdue schedule is not connected yet'}
-              </div>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
-                {needsPurdueConnection
-                  ? 'Your BoilerIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
-                  : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
-              </p>
-            </div>
-            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
-              <Icon name={needsPurdueConnection ? 'graduation' : 'calendar'} size={15} />
-              {needsPurdueConnection ? 'Link Purdue' : 'Connect schedule'}
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* Week ahead — Gemini summary (calendar context is attached server-side on /api/assistant) */}
-      <div
-        className={`card p-4 sm:p-5 mb-6 overflow-hidden transition-all duration-700 delay-75 opacity-100 translate-y-0 ${
-          now.getDay() === 1
-            ? 'border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5 ring-1 ring-[var(--color-gold)]/15'
-            : 'border-[var(--color-gold)]/20'
-        }`}
-      >
+  // Registry: widget id → display title + a renderer that closes over the
+  // already-computed state above. Each renderer returns the section's existing
+  // card JSX verbatim (or null when it has nothing to show, e.g. smart alerts).
+  // Only ids present here are rendered; unknown ids in a saved layout are
+  // ignored. The saved layout drives order, size, and visibility.
+  const widgetRegistry = {
+    'week-ahead': {
+      title: 'Week ahead',
+      render: () => (
+        <div
+          className={`card p-4 sm:p-5 overflow-hidden transition-all duration-700 opacity-100 translate-y-0 ${
+            now.getDay() === 1
+              ? 'border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5 ring-1 ring-[var(--color-gold)]/15'
+              : 'border-[var(--color-gold)]/20'
+          }`}
+        >
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-1">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
@@ -887,10 +881,13 @@ export default function Home() {
           ) : null}
         </div>
       </div>
-
-      {/* Smart Alerts */}
-      {smartAlerts.length > 0 && (
-        <div className="card p-4 mb-4 border-[var(--color-border)] transition-all duration-700 delay-75 opacity-100 translate-y-0">
+        ),
+    },
+    'smart-alerts': {
+      title: 'Heads up',
+      render: () =>
+        smartAlerts.length === 0 ? null : (
+        <div className="card p-4 border-[var(--color-border)] transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center gap-2 mb-3">
             <Icon name="alert" size={14} className="text-[var(--color-txt-2)]" />
             <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Heads Up</span>
@@ -904,9 +901,12 @@ export default function Home() {
             ))}
           </div>
         </div>
-      )}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 mb-5 sm:mb-6 transition-all duration-700 delay-100 opacity-100 translate-y-0">
+        ),
+    },
+    'quick-actions': {
+      title: 'Quick actions',
+      render: () => (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 transition-all duration-700 opacity-100 translate-y-0">
         {quickActions.map(({ path, label, sub, icon, color }, idx) => (
           <Link
             key={path}
@@ -927,10 +927,13 @@ export default function Home() {
             <Icon name="arrowUpRight" size={14} className="text-[var(--color-txt-3)] group-hover:text-[var(--color-accent)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all hidden sm:block" />
           </Link>
         ))}
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
-        <div className="card p-4 sm:p-5 transition-all duration-700 delay-200 opacity-100 translate-y-0">
+        </div>
+      ),
+    },
+    'next-class': {
+      title: 'Next class',
+      render: () => (
+        <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
             <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               {scheduleState.cardLabel}
@@ -983,8 +986,12 @@ export default function Home() {
             </Link>
           </div>
         </div>
-
-        <div className="card p-5 transition-all duration-700 delay-300 opacity-100 translate-y-0">
+      ),
+    },
+    'free-time': {
+      title: 'Free time',
+      render: () => (
+        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
             <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               Free Time
@@ -1089,10 +1096,12 @@ export default function Home() {
             </ul>
           </div>
         </div>
-      </div>
-
-      <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-4 mb-4">
-        <div className="card p-5 transition-all duration-700 delay-[400ms] opacity-100 translate-y-0">
+      ),
+    },
+    'todays-events': {
+      title: "Today's events",
+      render: () => (
+        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
             <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Today's Events</span>
             <Link to="/events" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
@@ -1159,8 +1168,12 @@ export default function Home() {
             )}
           </div>
         </div>
-
-        <div className="card p-5 transition-all duration-700 delay-[500ms] opacity-100 translate-y-0">
+      ),
+    },
+    'live-shuttles': {
+      title: 'Live shuttles',
+      render: () => (
+        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4 gap-2">
             <div>
               <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Live shuttles</span>
@@ -1237,10 +1250,12 @@ export default function Home() {
             ) : null}
           </div>
         </div>
-      </div>
-
-      <div className="grid lg:grid-cols-[0.95fr_1.05fr] gap-4">
-        <div className="card p-5 transition-all duration-700 delay-[600ms] opacity-100 translate-y-0">
+      ),
+    },
+    'dining': {
+      title: 'Dining snapshot',
+      render: () => (
+        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-3">
             <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Dining Snapshot</span>
             <Link to="/dining" className="text-[12px] text-[var(--color-accent)] hover:underline">Open dining</Link>
@@ -1265,8 +1280,12 @@ export default function Home() {
             ))}
           </div>
         </div>
-
-        <div className="card p-0 overflow-hidden transition-all duration-700 delay-[700ms] opacity-100 translate-y-0 shadow-[var(--shadow-sm)]">
+      ),
+    },
+    'board': {
+      title: 'Student board',
+      render: () => (
+        <div className="card p-0 overflow-hidden transition-all duration-700 opacity-100 translate-y-0 shadow-[var(--shadow-sm)]">
           <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4 border-b border-[var(--color-border)] bg-gradient-to-r from-[var(--color-accent-bg)]/35 via-transparent to-[var(--color-gold)]/8">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-sm)] flex items-center justify-center shrink-0">
@@ -1370,7 +1389,183 @@ export default function Home() {
             </div>
           </div>
         </div>
+      ),
+    },
+    'tasks-due': {
+      title: 'Tasks due',
+      render: () => (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Tasks Due</span>
+            <Link to="/assignments" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
+          </div>
+          {calendarLoading ? (
+            <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
+              Loading your tasks…
+            </div>
+          ) : tasksDuePreview.length === 0 ? (
+            <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
+              Nothing due right now. Add assignments on the{' '}
+              <Link to="/assignments" className="text-[var(--color-accent)] hover:underline">assignments page</Link>.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {tasksDuePreview.map((item) => (
+                <Link
+                  key={item.id}
+                  to="/assignments"
+                  className="block rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:border-[var(--color-accent)]/35 transition-colors no-underline"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-[14px] font-medium text-[var(--color-txt-0)] leading-snug">{item.title}</div>
+                    <Icon name="arrowUpRight" size={14} className="text-[var(--color-txt-3)] shrink-0" />
+                  </div>
+                  <div className="text-[12px] text-[var(--color-txt-2)] mt-1.5 flex items-center gap-1.5">
+                    <Icon name="clock" size={12} className="shrink-0" />
+                    {formatDashboardEventTime(item.startTime, item.endTime)}
+                    {' · '}
+                    {new Date(item.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    'calendar-feed': {
+      title: 'Calendar feed',
+      render: () => (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
+            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Calendar Feed</span>
+          </div>
+          <p className="text-[13px] text-[var(--color-txt-2)] mb-3">
+            Subscribe to your BoilerIndy schedule and events in Google Calendar, Apple Calendar, or Outlook.
+          </p>
+          <Link to="/settings" className="btn btn-secondary text-[12px] px-4 py-2 w-fit">
+            <Icon name="external" size={14} />
+            Manage feed
+          </Link>
+        </div>
+      ),
+    },
+  }
+
+  const visibleWidgets = layout.filter((w) => w.visible && widgetRegistry[w.id])
+  const hiddenWidgets = layout
+    .filter((w) => !w.visible && widgetRegistry[w.id])
+    .map((w) => ({ id: w.id, title: widgetRegistry[w.id].title }))
+
+  return (
+    <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <div className="mb-6 sm:mb-8 transition-all duration-700 opacity-100 translate-y-0">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-[var(--color-txt-0)]">
+              {getGreeting(now)}, {firstName}
+            </h1>
+            <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-1 sm:mt-2">
+              Here's what's happening on campus today.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-sm self-start sm:self-auto">
+            <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
+            {getCurrentDate(now)}
+          </div>
+        </div>
       </div>
+
+      {showSetupBanner && (
+        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 transition-all duration-700 delay-75 opacity-100 translate-y-0">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
+                Finish Setup
+              </div>
+              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
+                {needsPurdueConnection ? 'Link your Purdue account next' : 'Your Purdue schedule is not connected yet'}
+              </div>
+              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
+                {needsPurdueConnection
+                  ? 'Your BoilerIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
+                  : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
+              </p>
+            </div>
+            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
+              <Icon name={needsPurdueConnection ? 'graduation' : 'calendar'} size={15} />
+              {needsPurdueConnection ? 'Link Purdue' : 'Connect schedule'}
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Customize toolbar — fixed chrome that toggles widget edit mode. */}
+      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
+        <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
+          {editing
+            ? 'Drag a card or use the arrows to reorder. Hide with ×; add hidden widgets below.'
+            : ''}
+        </p>
+        <div className="flex items-center gap-2 shrink-0">
+          {editing && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Reset your dashboard to the default layout?')) reset()
+              }}
+              className="btn btn-secondary text-[12px] px-4 py-2"
+            >
+              <Icon name="refresh" size={14} />
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditing(!editing)}
+            aria-pressed={editing}
+            className={`btn text-[12px] px-4 py-2 ${editing ? 'btn-primary' : 'btn-secondary'}`}
+          >
+            <Icon name={editing ? 'check' : 'settings'} size={14} />
+            {editing ? 'Done' : 'Customize'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+        {visibleWidgets.map((w, idx) => {
+          const def = widgetRegistry[w.id]
+          const content = def.render()
+          // Outside edit mode, a widget with nothing to show takes no space.
+          if (!editing && !content) return null
+          return (
+            <DashboardWidget
+              key={w.id}
+              id={w.id}
+              title={def.title}
+              editing={editing}
+              isWide={w.size === 'wide'}
+              canMoveUp={idx > 0}
+              canMoveDown={idx < visibleWidgets.length - 1}
+              onMove={move}
+              onHide={(id) => setVisible(id, false)}
+              onDropReorder={reorder}
+              reducedMotion={reducedMotion}
+            >
+              {content || (
+                <div className="card p-5 text-[13px] text-[var(--color-txt-2)]">
+                  Nothing to show right now — this widget appears when it has something for you.
+                </div>
+              )}
+            </DashboardWidget>
+          )
+        })}
+      </div>
+
+      {editing && (
+        <AddWidgetPicker hiddenWidgets={hiddenWidgets} onAdd={(id) => setVisible(id, true)} />
+      )}
     </div>
   )
 }

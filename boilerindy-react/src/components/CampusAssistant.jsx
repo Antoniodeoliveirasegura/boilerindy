@@ -38,12 +38,17 @@ export default function CampusAssistant() {
     return () => window.removeEventListener('open-campus-assistant', handler)
   }, [])
 
-  // Fire pending message once the panel is open and messages state is fresh
+  // Fire pending message once the panel is open and messages state is fresh.
+  // Clearing the trigger inside the timeout (rather than synchronously) keeps the
+  // effect body free of a synchronous setState call.
   useEffect(() => {
-    if (pendingMessage) {
+    if (!pendingMessage) return
+    const message = pendingMessage
+    const timer = setTimeout(() => {
       setPendingMessage(null)
-      setTimeout(() => handleSend(pendingMessage), 200)
-    }
+      handleSend(message)
+    }, 200)
+    return () => clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingMessage])
 

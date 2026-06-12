@@ -172,7 +172,7 @@ export default function Assignments() {
 
   const [taskMeta, setTaskMeta] = useState({ completions: [], manualTasks: [] })
   const [hideCompleted, setHideCompleted] = useState(false)
-  const [priorities, setPriorities] = useState({})
+  const [priorities, setPriorities] = useState(() => (user?.id ? loadPriorities(user.id) : {}))
   const [priorityFilter, setPriorityFilter] = useState(null)
   const [sortByPriority, setSortByPriority] = useState(false)
   const [newTitle, setNewTitle] = useState('')
@@ -254,16 +254,30 @@ export default function Assignments() {
   }
 
   useEffect(() => {
-    loadData()
+    // loadData performs its setState after an await; calling it inside an IIFE
+    // keeps the effect body free of a synchronous setState call. loadData is a
+    // freshly-created function each render, so it stays out of the dep array.
+    void (async () => {
+      await loadData()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (user?.id) loadTaskMeta()
+    if (!user?.id) return
+    void (async () => {
+      await loadTaskMeta()
+    })()
   }, [user?.id, loadTaskMeta])
 
-  useEffect(() => {
+  // Reload stored priorities when the signed-in user changes. Adjusting during
+  // render (guarded by a user-id check) avoids the setState-in-effect warning;
+  // the initial value is seeded in the useState initializer above.
+  const [prevPriorityUid, setPrevPriorityUid] = useState(user?.id)
+  if (user?.id !== prevPriorityUid) {
+    setPrevPriorityUid(user?.id)
     setPriorities(user?.id ? loadPriorities(user.id) : {})
-  }, [user?.id])
+  }
 
   function setItemPriority(item, priority) {
     const uid = user?.id

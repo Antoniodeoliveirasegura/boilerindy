@@ -29,8 +29,17 @@ importers:
       playwright:
         specifier: ^1.58.2
         version: 1.60.0
+    devDependencies:
+      '@playwright/test':
+        specifier: 1.60.0
+        version: 1.60.0
 
 packages:
+
+  '@playwright/test@1.60.0':
+    resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@supabase/auth-js@2.108.1':
     resolution: {integrity: sha512-Lle5rKU8f9LF3K5dDd8Or8mkkG+ptzRZZWKPVMm9B9UuovH65Ss2+iFnQqRsCqaGouvJEcTWyl0cj2riNrrDLQ==}
@@ -446,6 +455,10 @@ packages:
     engines: {node: '>= 0.8'}
 
 snapshots:
+
+  '@playwright/test@1.60.0':
+    dependencies:
+      playwright: 1.60.0
 
   '@supabase/auth-js@2.108.1':
     dependencies:

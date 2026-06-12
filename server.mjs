@@ -16,6 +16,9 @@ import {
 import { createRateLimiter } from './rateLimiter.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents } from './scheduleSync.mjs'
 import { createCalendarItemStore } from './calendarItemStore.mjs'
+import { buildCalendarFeed } from './icsFeed.mjs'
+import { hasFreeFood } from './freeFood.mjs'
+import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -105,6 +108,23 @@ const sourceSyncRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 30,
   message: 'Too many sync requests. Please wait a few minutes before syncing again.',
+})
+// The .ics feed is unauthenticated (calendar apps cannot log in), so it is
+// keyed by IP. Calendar clients poll every 15–60 min; this budget tolerates
+// that while blunting token-guessing sweeps.
+const calendarFeedRateLimit = createRateLimiter({
+  name: 'calendar-feed',
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyBy: 'ip',
+  message: 'Too many calendar feed requests. Please try again shortly.',
+})
+// Lost & Found posting (issue #47): per-user budget on creates/edits.
+const lostFoundWriteRateLimit = createRateLimiter({
+  name: 'lost-found-write',
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  message: 'You are posting too quickly. Take a short break and try again.',
 })
 
 function nowIso() {
@@ -571,7 +591,10 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
     location: row.location,
     category: row.category,
     externalUid: row.external_uid,
-    sourceType: row.source_type
+    sourceType: row.source_type,
+    // Flag events that advertise free food (issue #46). Cheap per-row regex;
+    // only meaningful for event categories but harmless elsewhere.
+    freeFood: hasFreeFood(row.title, row.description),
   }))
 }
 
@@ -1521,6 +1544,285 @@ app.get('/api/me/classes', requireAuth, async (req, res) => {
 app.get('/api/me/events', requireAuth, async (req, res) => {
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
   res.json({ items: await listCalendarItems(req.currentUser.id, { category: 'event', limit, order: 'asc' }) })
+})
+
+// ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
+// The token IS the only credential on the public feed URL, so it must be a
+// UUID v4, is never logged, and is regenerable (regenerating invalidates the
+// old link). See supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
+
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const FEED_HORIZON_MONTHS = 6
+
+function feedUrlForToken(token) {
+  return `${publicBaseUrl}/feeds/calendar/${token}.ics`
+}
+
+app.get('/api/me/calendar-feed', requireAuth, (req, res) => {
+  const token = req.currentUser.calendar_feed_token
+  res.json({ feedUrl: token ? feedUrlForToken(token) : null })
+})
+
+app.post('/api/me/calendar-feed/token', requireAuth, async (req, res) => {
+  const token = crypto.randomUUID()
+  const { error } = await supabase
+    .from('users')
+    .update({ calendar_feed_token: token })
+    .eq('id', req.currentUser.id)
+  if (error) {
+    console.error('POST /api/me/calendar-feed/token:', error.message)
+    return res.status(500).json({ error: { message: 'Could not generate a calendar feed link. Please try again.', status: 500 } })
+  }
+  res.json({ feedUrl: feedUrlForToken(token) })
+})
+
+app.get('/feeds/calendar/:file', calendarFeedRateLimit, async (req, res) => {
+  const file = String(req.params.file || '')
+  if (!file.toLowerCase().endsWith('.ics')) {
+    return res.status(404).type('text/plain').send('Not found')
+  }
+  const token = file.slice(0, -'.ics'.length)
+  if (!UUID_V4_RE.test(token)) {
+    return res.status(404).type('text/plain').send('Not found')
+  }
+
+  // Look the user up by token only — never logged, never reflected back.
+  const { data: user, error: userErr } = await supabase
+    .from('users')
+    .select('id')
+    .eq('calendar_feed_token', token)
+    .maybeSingle()
+  if (userErr || !user) {
+    return res.status(404).type('text/plain').send('Not found')
+  }
+
+  const now = new Date()
+  const horizon = new Date(now)
+  horizon.setMonth(horizon.getMonth() + FEED_HORIZON_MONTHS)
+
+  const [itemsRes, tasksRes] = await Promise.all([
+    supabase
+      .from('calendar_items')
+      .select('id, title, description, start_time, end_time, location')
+      .eq('user_id', user.id)
+      .gte('start_time', now.toISOString())
+      .lte('start_time', horizon.toISOString())
+      .order('start_time', { ascending: true }),
+    supabase
+      .from('user_manual_tasks')
+      .select('id, title, due_at')
+      .eq('user_id', user.id)
+      .is('completed_at', null)
+      .order('due_at', { ascending: true }),
+  ])
+
+  if (itemsRes.error || tasksRes.error) {
+    console.error('GET /feeds/calendar:', itemsRes.error?.message || tasksRes.error?.message)
+    return res.status(500).type('text/plain').send('Calendar feed temporarily unavailable')
+  }
+
+  const events = []
+  for (const row of itemsRes.data || []) {
+    events.push({
+      uid: row.id,
+      summary: row.title || 'Untitled',
+      description: row.description || undefined,
+      location: row.location || undefined,
+      start: new Date(row.start_time),
+      end: row.end_time ? new Date(row.end_time) : undefined,
+    })
+  }
+  for (const task of tasksRes.data || []) {
+    events.push({
+      uid: `manual-${task.id}`,
+      summary: task.title || 'Task',
+      start: new Date(task.due_at),
+      allDay: true,
+    })
+  }
+
+  const ics = buildCalendarFeed({ events, now })
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8')
+  res.setHeader('Content-Disposition', 'inline; filename="boilerindy.ics"')
+  res.setHeader('Cache-Control', 'private, max-age=900')
+  res.send(ics)
+})
+
+// ── Lost & Found: standalone feature, independent of the board (issue #47) ────
+
+const LOST_FOUND_TYPES = new Set(['lost', 'found'])
+
+function mapLostFoundRow(row, userId) {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    location: row.location,
+    contact: row.contact,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    isOwner: row.user_id === userId,
+  }
+}
+
+function cleanField(value, max) {
+  const trimmed = String(value ?? '').trim()
+  return trimmed ? trimmed.slice(0, max) : null
+}
+
+app.get('/api/lost-found', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const type = typeof req.query.type === 'string' && LOST_FOUND_TYPES.has(req.query.type) ? req.query.type : null
+  const status = req.query.status === 'resolved' || req.query.status === 'open' ? req.query.status : null
+  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : ''
+
+  let query = supabase
+    .from('lost_found_items')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (type) query = query.eq('type', type)
+  if (status) query = query.eq('status', status)
+  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,location.ilike.%${search}%`)
+
+  const { data, error } = await query
+  if (error) {
+    console.error('GET /api/lost-found:', error.message)
+    return res.json({ items: [], unavailable: true })
+  }
+  res.json({ items: (data || []).map((row) => mapLostFoundRow(row, userId)) })
+})
+
+app.post('/api/lost-found', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const type = String(req.body?.type || '').trim()
+  if (!LOST_FOUND_TYPES.has(type)) {
+    return res.status(400).json({ error: { message: 'Type must be "lost" or "found".', status: 400 } })
+  }
+  const title = cleanField(req.body?.title, 200)
+  if (!title) {
+    return res.status(400).json({ error: { message: 'A short title is required.', status: 400 } })
+  }
+  const description = cleanField(req.body?.description, 2000)
+  const location = cleanField(req.body?.location, 200)
+  const contact = cleanField(req.body?.contact, 200)
+
+  // Reuse the campus board's profanity policy so all user text is moderated.
+  const policy = assertBoardPostTextAllowed(title, `${description || ''}\n${location || ''}`)
+  if (!policy.ok) {
+    return res.status(400).json({ error: { message: policy.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('lost_found_items')
+    .insert({ user_id: userId, type, title, description, location, contact, status: 'open' })
+    .select()
+    .single()
+  if (error) {
+    console.error('POST /api/lost-found:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your post. Please try again.', status: 500 } })
+  }
+  res.status(201).json({ item: mapLostFoundRow(data, userId) })
+})
+
+app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+
+  const { data: existing, error: findErr } = await supabase
+    .from('lost_found_items')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (findErr || !existing) {
+    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+  }
+  if (existing.user_id !== userId) {
+    return res.status(403).json({ error: { message: 'You can only edit your own posts.', status: 403 } })
+  }
+
+  const patch = {}
+  if (req.body?.status === 'resolved' || req.body?.status === 'open') patch.status = req.body.status
+  if (req.body?.title !== undefined) {
+    const title = cleanField(req.body.title, 200)
+    if (!title) return res.status(400).json({ error: { message: 'Title cannot be empty.', status: 400 } })
+    patch.title = title
+  }
+  if (req.body?.description !== undefined) patch.description = cleanField(req.body.description, 2000)
+  if (req.body?.location !== undefined) patch.location = cleanField(req.body.location, 200)
+  if (req.body?.contact !== undefined) patch.contact = cleanField(req.body.contact, 200)
+
+  if (Object.keys(patch).length === 0) {
+    return res.status(400).json({ error: { message: 'Nothing to update.', status: 400 } })
+  }
+
+  const nextTitle = patch.title ?? existing.title
+  const nextDesc = patch.description ?? existing.description
+  const nextLoc = patch.location ?? existing.location
+  const policy = assertBoardPostTextAllowed(nextTitle, `${nextDesc || ''}\n${nextLoc || ''}`)
+  if (!policy.ok) {
+    return res.status(400).json({ error: { message: policy.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('lost_found_items')
+    .update(patch)
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select()
+    .single()
+  if (error) {
+    console.error('PATCH /api/lost-found/:id:', error.message)
+    return res.status(500).json({ error: { message: 'Could not update the post.', status: 500 } })
+  }
+  res.json({ item: mapLostFoundRow(data, userId) })
+})
+
+app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+  const { data, error } = await supabase
+    .from('lost_found_items')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select('id')
+  if (error) {
+    console.error('DELETE /api/lost-found/:id:', error.message)
+    return res.status(500).json({ error: { message: 'Could not delete the post.', status: 500 } })
+  }
+  if (!data || data.length === 0) {
+    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+  }
+  res.json({ ok: true })
+})
+
+// ── Customizable home dashboard layout (issue #52) ───────────────────────────
+// Per-user widget order/size/visibility, stored as JSONB on users. NULL means
+// the user has never customized, so the client applies the default layout.
+
+app.get('/api/me/dashboard', requireAuth, async (req, res) => {
+  const stored = req.currentUser.dashboard_layout
+  // Never customized → return the default so the client always has a layout.
+  const layout = stored == null ? defaultLayout() : normalizeLayout(stored)
+  res.json({ layout })
+})
+
+app.put('/api/me/dashboard', requireAuth, async (req, res) => {
+  // Sanitize untrusted client input against the widget allowlist before storing.
+  const layout = normalizeLayout(req.body?.layout)
+  const { error } = await supabase
+    .from('users')
+    .update({ dashboard_layout: layout })
+    .eq('id', req.currentUser.id)
+  if (error) {
+    console.error('PUT /api/me/dashboard:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your dashboard layout.', status: 500 } })
+  }
+  res.json({ layout })
 })
 
 app.get('/', (_req, res) => {
