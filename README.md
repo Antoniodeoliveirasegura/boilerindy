@@ -287,6 +287,9 @@ because `node-ical` is parse-only.
 # From repo root
 npm install          # Install backend dependencies
 npm run dev          # Start backend on :3000
+npm run test:backend # Run backend unit tests (node:test)
+npm run test:e2e     # Run Playwright E2E suite (builds + previews the frontend,
+                     # mocks the backend — no Supabase creds needed)
 
 # From boilerindy-react/
 npm install          # Install frontend dependencies
