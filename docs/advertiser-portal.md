@@ -1,16 +1,25 @@
 # Advertiser Portal — Scope & Architecture
 
-Status: **M1 shipped — advertiser auth + leads backend wired; login un-stubbed.**
+Status: **M1 + M2 shipped — auth, leads, and campaigns dashboard wired.**
 Last updated: 2026-06-12
 
-> **M1 done (this session):** `supabase-advertiser-portal.sql` (`advertisers` +
-> `advertiser_leads`), `requireAdvertiserAuth` + sign-in/out/request-access/me
-> endpoints in `server.mjs`, shared `passwordHash.mjs`, pure `advertiserAuth.mjs`
-> (+ `advertiserAuth.test.mjs`), `scripts/create-advertiser.mjs` seed script,
-> `lib/advertiserApi.js`, and a real `AdvertiserLogin.jsx` (sign-in + lead form).
-> **Manual step before it works live:** run `supabase-advertiser-portal.sql` in
-> the Supabase SQL Editor, then seed an account with `node scripts/create-advertiser.mjs`.
-> Campaigns table + dashboard are **M2**.
+> **M1 done:** `supabase-advertiser-portal.sql` (`advertisers` + `advertiser_leads`),
+> `requireAdvertiserAuth` + sign-in/out/request-access/me endpoints, shared
+> `passwordHash.mjs`, pure `advertiserAuth.mjs` (+ tests),
+> `scripts/create-advertiser.mjs`, `lib/advertiserApi.js`, real `AdvertiserLogin.jsx`.
+>
+> **M2 done (this session):** `supabase-advertiser-campaigns.sql` (`campaigns`),
+> pure `advertiserCampaign.mjs` (+ tests) with the approval-flow transition map,
+> `GET/POST/PATCH /api/advertiser/campaigns` (ownership-scoped), owner approval
+> via `scripts/review-campaign.mjs`, `RequireAdvertiser` guard, and
+> `pages/advertiser/Dashboard.jsx` at `/advertise/dashboard` (create/list/edit +
+> submit-for-review). **Approval is owner-gated**: advertisers submit for review;
+> only the owner sets `active` (via the review script).
+> **Manual step before campaigns work live:** run `supabase-advertiser-campaigns.sql`
+> in the Supabase SQL Editor.
+>
+> **Next = M3:** ad serving via the #52 widget registry in `pages/Home.jsx` +
+> `ad_events` impression/tap logging + a stats view.
 
 The advertiser portal lets local businesses/marketers run ads inside BoilerIndy,
 separate from the student app. The marketing front page (`/`) and the advertiser

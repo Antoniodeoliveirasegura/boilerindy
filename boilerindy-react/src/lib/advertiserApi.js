@@ -58,3 +58,26 @@ export function requestAdvertiserAccess({ email, companyName, message }) {
     body: JSON.stringify({ email, companyName, message }),
   })
 }
+
+// ── Campaigns (M2) ───────────────────────────────────────────────────────────
+
+/** @returns {Promise<{ campaigns: Array<object> }>} */
+export function listCampaigns() {
+  return advertiserRequest('/api/advertiser/campaigns')
+}
+
+/** @param {{ name, placement, startsOn?, endsOn?, creative? }} payload */
+export function createCampaign(payload) {
+  return advertiserRequest('/api/advertiser/campaigns', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** @param {string} id @param {object} patch partial fields incl. optional status */
+export function updateCampaign(id, patch) {
+  return advertiserRequest(`/api/advertiser/campaigns/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}

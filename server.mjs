@@ -25,6 +25,11 @@ import {
   normalizeLeadInput,
   toAdvertiserProfile,
 } from './advertiserAuth.mjs'
+import {
+  normalizeCampaignInput,
+  normalizeCampaignPatch,
+  mapCampaignRow,
+} from './advertiserCampaign.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -2663,6 +2668,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 // ============================================================
 
 const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
+const ADVERTISER_CAMPAIGNS_SQL_FILE = 'supabase-advertiser-campaigns.sql'
 
 function isAdvertiserSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -2681,7 +2687,7 @@ function respondAdvertiserDbError(res, err) {
   if (isAdvertiserSchemaMissingError(err)) {
     return res.status(503).json({
       error: {
-        message: `Advertiser tables are missing in Supabase. In the dashboard: SQL Editor → paste and run ${ADVERTISER_SQL_FILE} from this repo → Run, then try again.`,
+        message: `Advertiser tables are missing in Supabase. In the dashboard: SQL Editor → run ${ADVERTISER_SQL_FILE} and ${ADVERTISER_CAMPAIGNS_SQL_FILE} from this repo → Run, then try again.`,
         code: 'advertiser_schema_missing',
         status: 503,
       },
@@ -2808,6 +2814,100 @@ app.post('/api/advertiser/request-access', accountCreateRateLimit, async (req, r
   res.status(201).json({ ok: true })
 })
 
+// ── Campaigns (M2) ───────────────────────────────────────────────────────────
+// All campaign routes are gated by requireAdvertiserAuth and scoped to the
+// signed-in advertiser. Validation/approval-flow rules live in
+// advertiserCampaign.mjs. New campaigns start 'draft'; advertisers submit for
+// review but cannot self-activate (owner approves via scripts/review-campaign.mjs).
+
+// Translate the camelCase fields from advertiserCampaign.mjs into DB columns.
+function campaignFieldsToColumns(fields) {
+  const columns = {}
+  if (fields.name !== undefined) columns.name = fields.name
+  if (fields.placement !== undefined) columns.placement = fields.placement
+  if (fields.startsOn !== undefined) columns.starts_on = fields.startsOn
+  if (fields.endsOn !== undefined) columns.ends_on = fields.endsOn
+  if (fields.creative !== undefined) columns.creative = fields.creative
+  if (fields.status !== undefined) columns.status = fields.status
+  return columns
+}
+
+async function getCampaignForAdvertiser(campaignId, advertiserId) {
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .eq('advertiser_id', advertiserId)
+    .single()
+  if (error) {
+    if (error.code === 'PGRST116') return { campaign: null, error: null }
+    return { campaign: null, error }
+  }
+  return { campaign: data || null, error: null }
+}
+
+app.get('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('advertiser_id', req.currentAdvertiser.id)
+    .order('created_at', { ascending: false })
+  if (error) return respondAdvertiserDbError(res, error)
+  res.json({ campaigns: (data || []).map(mapCampaignRow) })
+})
+
+app.post('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => {
+  let fields
+  try {
+    fields = normalizeCampaignInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const timestamp = nowIso()
+  const { data, error } = await supabase
+    .from('campaigns')
+    .insert({
+      id: makeId(),
+      advertiser_id: req.currentAdvertiser.id,
+      ...campaignFieldsToColumns(fields),
+      status: 'draft',
+      created_at: timestamp,
+      updated_at: timestamp,
+    })
+    .select()
+    .single()
+  if (error) return respondAdvertiserDbError(res, error)
+
+  res.status(201).json({ campaign: mapCampaignRow(data) })
+})
+
+app.patch('/api/advertiser/campaigns/:id', requireAdvertiserAuth, async (req, res) => {
+  const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
+  if (lookupError) return respondAdvertiserDbError(res, lookupError)
+  if (!campaign) {
+    return res.status(404).json({ error: { message: 'Campaign not found.', status: 404 } })
+  }
+
+  let patch
+  try {
+    patch = normalizeCampaignPatch(req.body, campaign)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('campaigns')
+    .update({ ...campaignFieldsToColumns(patch), updated_at: nowIso() })
+    .eq('id', campaign.id)
+    .eq('advertiser_id', req.currentAdvertiser.id)
+    .select()
+    .single()
+  if (error) return respondAdvertiserDbError(res, error)
+
+  res.json({ campaign: mapCampaignRow(data) })
+})
+
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
@@ -2822,6 +2922,12 @@ app.listen(port, host, async () => {
   if (advProbe.error && isAdvertiserSchemaMissingError(advProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table advertisers not found. Run ${ADVERTISER_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
+    )
+  }
+  const campaignProbe = await supabase.from('campaigns').select('id').limit(1)
+  if (campaignProbe.error && isAdvertiserSchemaMissingError(campaignProbe.error)) {
+    console.warn(
+      `\n[BoilerIndy] Advertiser portal: table campaigns not found. Run ${ADVERTISER_CAMPAIGNS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
 })

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import Icon from '../components/Icons'
 import {
   advertiserSignIn,
-  advertiserSignOut,
   getAdvertiserSession,
   requestAdvertiserAccess,
 } from '../lib/advertiserApi'
@@ -13,8 +12,7 @@ import {
 // businesses and marketers who want to run ads on BoilerIndy. Wired to the
 // isolated /api/advertiser/* backend: sign-in establishes an advertiser-only
 // session (never a student session), and "Request access" persists a lead.
-// The campaigns dashboard lands in M2; for now a successful sign-in shows an
-// authenticated panel here.
+// A successful sign-in (or an existing session) routes to /advertise/dashboard.
 
 const ADVERTISER_PERKS = [
   { icon: 'users', title: 'Reach the whole campus', desc: 'Get in front of Purdue Indianapolis students where they already plan their day.' },
@@ -25,11 +23,11 @@ const ADVERTISER_PERKS = [
 
 export default function AdvertiserLogin() {
   const { dark, toggleTheme } = useTheme()
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [notice, setNotice] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [advertiser, setAdvertiser] = useState(null)
 
   // Request-access (lead) form — invite-only, so this is how new advertisers
   // raise their hand. Hidden until "Request access" is clicked.
@@ -40,12 +38,12 @@ export default function AdvertiserLogin() {
   const [reqSubmitting, setReqSubmitting] = useState(false)
   const [reqDone, setReqDone] = useState(false)
 
-  // Reflect an existing advertiser session (e.g. after a refresh).
+  // Already signed in (e.g. after a refresh)? Skip the form, go to the dashboard.
   useEffect(() => {
     let active = true
     getAdvertiserSession()
       .then((profile) => {
-        if (active && profile) setAdvertiser(profile)
+        if (active && profile) navigate('/advertise/dashboard', { replace: true })
       })
       .catch(() => {
         /* not signed in / backend unavailable — show the form */
@@ -53,7 +51,7 @@ export default function AdvertiserLogin() {
     return () => {
       active = false
     }
-  }, [])
+  }, [navigate])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -64,24 +62,14 @@ export default function AdvertiserLogin() {
     setSubmitting(true)
     setNotice(null)
     try {
-      const { session } = await advertiserSignIn(email.trim(), password)
-      setAdvertiser(session?.advertiser || null)
+      await advertiserSignIn(email.trim(), password)
       setPassword('')
+      navigate('/advertise/dashboard')
     } catch (error) {
       setNotice({ type: 'error', text: error.message || 'Could not sign in. Please try again.' })
     } finally {
       setSubmitting(false)
     }
-  }
-
-  const handleSignOut = async () => {
-    try {
-      await advertiserSignOut()
-    } catch {
-      /* ignore — clear the UI either way */
-    }
-    setAdvertiser(null)
-    setNotice(null)
   }
 
   const handleRequestAccess = async (e) => {
@@ -197,32 +185,7 @@ export default function AdvertiserLogin() {
             </div>
           )}
 
-          {advertiser ? (
-            /* Signed-in panel. The campaigns dashboard arrives in M2; for now this
-               confirms the isolated advertiser session works end to end. */
-            <div role="status">
-              <div className="inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3 py-1 mb-5 w-fit">
-                <Icon name="check" size={12} />
-                Signed in
-              </div>
-              <h2 className="text-[1.6rem] font-bold tracking-tight mb-1.5">
-                Welcome, {advertiser.companyName}
-              </h2>
-              <p className="text-[13px] text-[var(--color-txt-2)] mb-7">
-                You’re signed in to the advertiser portal as {advertiser.email}. The campaigns dashboard is coming soon.
-              </p>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-txt-0)] px-5 py-3 rounded-xl border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] cursor-pointer transition-colors"
-              >
-                <Icon name="close" size={15} />
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <>
-              <h2 className="text-[1.6rem] font-bold tracking-tight mb-1.5">Advertiser sign in</h2>
+          <h2 className="text-[1.6rem] font-bold tracking-tight mb-1.5">Advertiser sign in</h2>
               <p className="text-[13px] text-[var(--color-txt-2)] mb-7">
                 Manage your campaigns and placements on BoilerIndy.
               </p>
@@ -339,8 +302,6 @@ export default function AdvertiserLogin() {
                 Looking for the student app?{' '}
                 <Link to="/login" className="text-[var(--color-accent)] hover:underline">Sign in here</Link>.
               </p>
-            </>
-          )}
         </div>
 
         <p className="text-[11px] text-[var(--color-txt-3)] text-center">

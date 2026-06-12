@@ -4,8 +4,10 @@ import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import AppLayout from './components/AppLayout'
 import RequireAuth from './components/RequireAuth'
+import RequireAdvertiser from './components/RequireAdvertiser'
 import Landing from './pages/Landing'
 import AdvertiserLogin from './pages/AdvertiserLogin'
+import AdvertiserDashboard from './pages/advertiser/Dashboard'
 import Login from './pages/Login'
 import AuthCallback from './pages/AuthCallback'
 import Home from './pages/Home'
@@ -30,6 +32,14 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/advertise" element={<AdvertiserLogin />} />
+            <Route
+              path="/advertise/dashboard"
+              element={
+                <RequireAdvertiser>
+                  <AdvertiserDashboard />
+                </RequireAdvertiser>
+              }
+            />
             {/* /demo was the old marketing preview; advertisers land on the portal now. */}
             <Route path="/demo" element={<Navigate to="/advertise" replace />} />
             <Route path="/login" element={<Login />} />
