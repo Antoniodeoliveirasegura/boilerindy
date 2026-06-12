@@ -9,6 +9,7 @@ import Landing from './pages/Landing'
 import AdvertiserLogin from './pages/AdvertiserLogin'
 import AdvertiserDashboard from './pages/advertiser/Dashboard'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 import AuthCallback from './pages/AuthCallback'
 import Home from './pages/Home'
 import Map from './pages/Map'
@@ -43,6 +44,7 @@ export default function App() {
             {/* /demo was the old marketing preview; advertisers land on the portal now. */}
             <Route path="/demo" element={<Navigate to="/advertise" replace />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route element={<AppLayout />}>
               <Route

@@ -19,7 +19,8 @@ import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
-import { hashPassword, verifyPassword } from './passwordHash.mjs'
+import { verifyPassword } from './passwordHash.mjs'
+import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
@@ -218,50 +219,7 @@ async function getUserByEmail(email) {
   return data
 }
 
-async function createLocalUser({ email, password, displayName }) {
-  const normalizedEmail = normalizeEmail(email)
-  if (!normalizedEmail || !normalizedEmail.includes('@')) {
-    throw new Error('Please enter a valid email address.')
-  }
-  if (!password || password.length < 8) {
-    throw new Error('Password must be at least 8 characters.')
-  }
-  
-  const existing = await getUserByEmail(normalizedEmail)
-  if (existing) {
-    throw new Error('An account with that email already exists.')
-  }
-
-  const timestamp = nowIso()
-  const id = makeId()
-  
-  const { data, error } = await supabase
-    .from('users')
-    .insert({
-      id,
-      email: normalizedEmail,
-      password_hash: hashPassword(password),
-      display_name: deriveDisplayName(normalizedEmail, displayName),
-      auth_provider: 'local',
-      created_at: timestamp,
-      updated_at: timestamp
-    })
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  return data
-}
-
-async function authenticateLocalUser({ email, password }) {
-  const user = await getUserByEmail(email)
-  if (!user || !verifyPassword(password, user.password_hash)) {
-    throw new Error('Invalid email or password.')
-  }
-  return user
-}
-
-async function updateLocalUserProfile(userId, { email, displayName, currentPassword, newPassword }) {
+async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword }) {
   const user = await getUserById(userId)
   if (!user) throw new Error('User not found.')
 
@@ -275,28 +233,46 @@ async function updateLocalUserProfile(userId, { email, displayName, currentPassw
     throw new Error('That email address is already in use.')
   }
 
-  let passwordHash = user.password_hash
   const wantsPasswordChange = Boolean((currentPassword && currentPassword.trim()) || (newPassword && newPassword.trim()))
   if (wantsPasswordChange) {
-    if (!verifyPassword(currentPassword || '', user.password_hash)) {
-      throw new Error('Current password is incorrect.')
+    await applyPasswordChange(
+      {
+        verifySupabasePassword,
+        setSupabasePassword: async (authUserId, password) => {
+          const { error } = await supabase.auth.admin.updateUserById(authUserId, { password })
+          if (error) throw new Error(error.message || 'Could not update your password.')
+        },
+        migrateLegacyUser: migrateLegacyUserToSupabaseAuth,
+      },
+      user,
+      currentPassword,
+      newPassword,
+    )
+  }
+
+  // Keep the Supabase Auth email in sync so password sign-in keeps working.
+  // user_not_found = legacy row that has not been migrated into Auth yet.
+  if (normalizedEmail !== normalizeEmail(user.email)) {
+    const { error: emailError } = await supabase.auth.admin.updateUserById(userId, {
+      email: normalizedEmail,
+      email_confirm: true,
+    })
+    if (emailError && emailError.code !== 'user_not_found') {
+      throw new Error(emailError.message || 'Could not update your email.')
     }
-    if (!newPassword || newPassword.length < 8) {
-      throw new Error('New password must be at least 8 characters.')
-    }
-    passwordHash = hashPassword(newPassword)
   }
 
   const nextDisplayName = deriveDisplayName(normalizedEmail, displayName || user.display_name)
-  const timestamp = nowIso()
-  
+
   const { data, error } = await supabase
     .from('users')
     .update({
       email: normalizedEmail,
       display_name: nextDisplayName,
-      password_hash: passwordHash,
-      updated_at: timestamp
+      // After a password change Supabase Auth holds the password, so the
+      // legacy scrypt mirror is dropped; otherwise leave it for migration.
+      password_hash: wantsPasswordChange ? '' : user.password_hash,
+      updated_at: nowIso()
     })
     .eq('id', userId)
     .select()
@@ -803,7 +779,9 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       .insert({
         id: authUser.id,
         email: normalizedEmail,
-        password_hash: hashPassword(password),
+        // Supabase Auth (created above) is the only password store; the
+        // password_hash column is a legacy migration artifact and stays empty.
+        password_hash: '',
         display_name: deriveDisplayName(normalizedEmail, displayName),
         auth_provider: 'email',
         created_at: timestamp,
@@ -834,27 +812,6 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
   }
 })
 
-app.post('/api/auth/sign-up', accountCreateRateLimit, async (req, res) => {
-  try {
-    const user = await createLocalUser({
-      email: req.body.email,
-      password: req.body.password,
-      displayName: req.body.name,
-    })
-    req.session.regenerate(async (err) => {
-      if (err) {
-        return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
-      }
-      req.session.userId = user.id
-      req.session.save(async () => {
-        res.status(201).json({ session: await buildSessionPayload(user, req) })
-      })
-    })
-  } catch (error) {
-    res.status(400).json({ error: { message: error.message || 'Could not create account.', status: 400 } })
-  }
-})
-
 async function verifySupabasePassword(email, password) {
   const gotrue = `${supabaseUrl}/auth/v1/token?grant_type=password`
   const anonKey = process.env.SUPABASE_ANON_KEY || supabaseServiceKey
@@ -869,6 +826,35 @@ async function verifySupabasePassword(email, password) {
   if (!resp.ok) return null
   const data = await resp.json()
   return data?.user ?? null
+}
+
+// Move a pre-Supabase account (scrypt hash in public.users only) into Supabase
+// Auth. Returns false when the email already exists there — in that case
+// Supabase's password verdict is authoritative and the caller must reject.
+async function migrateLegacyUserToSupabaseAuth(userRow, password) {
+  const { error } = await supabase.auth.admin.createUser({
+    email: userRow.email,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: userRow.display_name || deriveDisplayName(userRow.email, ''),
+    },
+  })
+  if (!error) return true
+  if (error.code === 'email_exists' || /already\s+(registered|exists)/i.test(error.message || '')) {
+    return false
+  }
+  throw new Error(error.message || 'Could not verify your credentials.')
+}
+
+// Once Supabase Auth holds the account's password, the legacy scrypt mirror
+// must go away so an old password can never be replayed against it.
+async function clearLegacyPasswordHash(userRow) {
+  if (!hasLegacyHash(userRow)) return
+  await supabase
+    .from('users')
+    .update({ password_hash: '', updated_at: nowIso() })
+    .eq('id', userRow.id)
 }
 
 async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
@@ -926,34 +912,29 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
 app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
   try {
     const normalizedEmail = normalizeEmail(req.body.email)
-    const password = req.body.password
+    const password = typeof req.body.password === 'string' ? req.body.password : ''
     const rememberMe = req.body.rememberMe === true
     const cookieMaxAge = rememberMe ? 1000 * 60 * 60 * 24 * 30 : undefined
 
-    let user = await getUserByEmail(normalizedEmail)
+    // Supabase Auth decides; the legacy scrypt hash only matters for accounts
+    // that predate it (see studentPasswordAuth.mjs for the full policy).
+    const result = await resolveSignIn(
+      {
+        verifySupabasePassword,
+        getUserByEmail,
+        ensureUserRow: ensureUserRowForSupabaseAuth,
+        migrateLegacyUser: migrateLegacyUserToSupabaseAuth,
+      },
+      normalizedEmail,
+      password,
+    )
 
-    // Always allow Supabase Auth to be the source of truth if the local profile row/hash is missing or stale.
-    let supabaseUser = null
-    const hasLocalHash = user?.password_hash && user.password_hash.includes(':')
-    const localPasswordMatches = hasLocalHash ? verifyPassword(password, user.password_hash) : false
-
-    if (!localPasswordMatches) {
-      supabaseUser = await verifySupabasePassword(normalizedEmail, password)
-      if (!supabaseUser) {
-        return res.status(401).json({ error: { message: 'Invalid email or password.', status: 401 } })
-      }
-
-      user = await ensureUserRowForSupabaseAuth(supabaseUser, normalizedEmail)
-
-      await supabase
-        .from('users')
-        .update({ password_hash: hashPassword(password), updated_at: nowIso() })
-        .eq('id', user.id)
-    }
-
-    if (!user) {
+    if (!result.ok) {
       return res.status(401).json({ error: { message: 'Invalid email or password.', status: 401 } })
     }
+
+    const user = result.user
+    await clearLegacyPasswordHash(user)
 
     req.session.regenerate(async (err) => {
       if (err) {
@@ -1115,7 +1096,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
 
 app.patch('/api/me/profile', requireAuth, async (req, res) => {
   try {
-    const user = await updateLocalUserProfile(req.currentUser.id, {
+    const user = await updateUserProfile(req.currentUser.id, {
       email: req.body.email,
       displayName: req.body.name,
       currentPassword: req.body.currentPassword,

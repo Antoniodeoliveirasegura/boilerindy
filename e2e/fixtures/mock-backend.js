@@ -79,9 +79,15 @@ export const test = base.extend({
 
     // Supabase JS SDK token/refresh calls — kept offline so getSession() and the
     // non-blocking signInWithEmail() in Login.jsx resolve fast and predictably.
-    await context.route('**/auth/v1/**', (route) =>
-      json(route, 400, { error: 'supabase-disabled-in-e2e' }),
-    )
+    // /recover (resetPasswordForEmail) succeeds so the forgot-password flow is
+    // testable; everything else stays disabled.
+    await context.route('**/auth/v1/**', (route) => {
+      const { pathname } = new URL(route.request().url())
+      if (pathname.endsWith('/auth/v1/recover')) {
+        return json(route, 200, {})
+      }
+      return json(route, 400, { error: 'supabase-disabled-in-e2e' })
+    })
 
     await context.route('**/api/**', async (route) => {
       const req = route.request()

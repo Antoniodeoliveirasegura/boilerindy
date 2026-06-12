@@ -1,17 +1,66 @@
-import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { authRequest } from '../lib/authApi'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { supabase, updateUserPassword } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import { parseNextPath } from '../lib/authApi'
+
+// Landing page for Supabase password-recovery links (sent from the Login
+// "Forgot password?" form). The emailed link signs the user into a recovery
+// session — supabase-js exchanges the ?code in the URL automatically — and
+// once that session exists the new password is set via auth.updateUser.
+// Signed-in users who navigate here directly can also set a new password.
+
+const LINK_CHECK_TIMEOUT_MS = 6000
+
+function readRecoveryError() {
+  // Supabase reports dead links in the URL hash, e.g.
+  // #error=access_denied&error_code=otp_expired&error_description=...
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const queryParams = new URLSearchParams(window.location.search)
+  return (
+    hashParams.get('error_description') ||
+    queryParams.get('error_description') ||
+    hashParams.get('error') ||
+    queryParams.get('error')
+  )
+}
 
 export default function ResetPassword() {
-  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const token = searchParams.get('token')
-  const err = searchParams.get('error')
+  const { refreshSession } = useAuth()
 
+  // 'checking' until the recovery session arrives, 'ready' to accept a new
+  // password, 'invalid' when the link is expired/used or no session shows up.
+  const [linkState, setLinkState] = useState(() => (readRecoveryError() ? 'invalid' : 'checking'))
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (linkState !== 'checking') return undefined
+    let active = true
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (active && data?.session) setLinkState('ready')
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active && session) setLinkState('ready')
+    })
+
+    // No session ever arriving means the code exchange failed quietly
+    // (used/expired link) — give it a few seconds before declaring it dead.
+    const timer = window.setTimeout(() => {
+      if (active) setLinkState((state) => (state === 'checking' ? 'invalid' : state))
+    }, LINK_CHECK_TIMEOUT_MS)
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
+      window.clearTimeout(timer)
+    }
+  }, [linkState])
 
   const inputBase =
     'w-full py-2.5 px-3.5 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-bg-0)] dark:bg-[var(--color-bg-2)] text-[var(--color-txt-0)] text-sm outline-none focus:border-[var(--color-gold)] focus:shadow-[var(--shadow-glow)]'
@@ -19,10 +68,6 @@ export default function ResetPassword() {
   async function handleSubmit(e) {
     e.preventDefault()
     setMessage('')
-    if (!token) {
-      setMessage('Missing reset token. Open the link from your email again.')
-      return
-    }
     if (password.length < 8) {
       setMessage('Password must be at least 8 characters.')
       return
@@ -33,28 +78,39 @@ export default function ResetPassword() {
     }
     setSubmitting(true)
     try {
-      await authRequest('/api/auth/reset-password', {
-        method: 'POST',
-        body: JSON.stringify({ token, newPassword: password }),
-      })
-      navigate('/login', { replace: true })
-    } catch (e) {
-      setMessage(e.message || 'Could not reset password.')
+      await updateUserPassword(password)
+      // The recovery session is a full Supabase session; sync the backend
+      // session and drop the user straight into the app.
+      await refreshSession()
+      navigate(parseNextPath(''), { replace: true })
+    } catch (error) {
+      setMessage(error.message || 'Could not reset the password. Request a new link and try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  if (err === 'INVALID_TOKEN') {
+  if (linkState === 'invalid') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)] text-center">
         <h1 className="text-xl font-semibold text-[var(--color-txt-0)] mb-2">Link expired or invalid</h1>
         <p className="text-sm text-[var(--color-txt-1)] mb-6 max-w-sm">
-          Request a new reset link from the sign-in page.
+          Reset links only work once and expire after a short while. Request a new one from the sign-in page.
         </p>
         <Link to="/login" className="text-[var(--color-accent)] font-medium">
           Back to sign in
         </Link>
+      </div>
+    )
+  }
+
+  if (linkState === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-1)]">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="text-[var(--color-txt-1)]">Checking your reset link…</div>
+        </div>
       </div>
     )
   }
@@ -100,7 +156,7 @@ export default function ResetPassword() {
           </div>
           <button
             type="submit"
-            disabled={submitting || !token}
+            disabled={submitting}
             className="w-full py-3 rounded-[10px] border-0 bg-[var(--color-gold-dark)] text-[var(--color-gold)] text-sm font-semibold hover:brightness-110 disabled:opacity-60"
           >
             {submitting ? 'Saving…' : 'Update password'}

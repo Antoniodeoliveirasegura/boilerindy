@@ -68,6 +68,23 @@ export const signInWithDiscord = async () => {
   return data
 }
 
+// Sends the Supabase recovery email; the link signs the user into a recovery
+// session on /reset-password (see ResetPassword.jsx). Succeeds quietly for
+// unknown emails so account existence is never revealed.
+export const sendPasswordResetEmail = async (email) => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  })
+  if (error) throw error
+}
+
+// Requires an active (recovery or regular) Supabase session.
+export const updateUserPassword = async (newPassword) => {
+  const { data, error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw error
+  return data
+}
+
 export const signInWithEmail = async (email, password) => {
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
