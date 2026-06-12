@@ -16,6 +16,7 @@ import {
 import { createRateLimiter } from './rateLimiter.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents } from './scheduleSync.mjs'
 import { createCalendarItemStore } from './calendarItemStore.mjs'
+import { buildCalendarFeed } from './icsFeed.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -105,6 +106,16 @@ const sourceSyncRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 30,
   message: 'Too many sync requests. Please wait a few minutes before syncing again.',
+})
+// The .ics feed is unauthenticated (calendar apps cannot log in), so it is
+// keyed by IP. Calendar clients poll every 15–60 min; this budget tolerates
+// that while blunting token-guessing sweeps.
+const calendarFeedRateLimit = createRateLimiter({
+  name: 'calendar-feed',
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyBy: 'ip',
+  message: 'Too many calendar feed requests. Please try again shortly.',
 })
 
 function nowIso() {
@@ -1521,6 +1532,108 @@ app.get('/api/me/classes', requireAuth, async (req, res) => {
 app.get('/api/me/events', requireAuth, async (req, res) => {
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
   res.json({ items: await listCalendarItems(req.currentUser.id, { category: 'event', limit, order: 'asc' }) })
+})
+
+// ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
+// The token IS the only credential on the public feed URL, so it must be a
+// UUID v4, is never logged, and is regenerable (regenerating invalidates the
+// old link). See supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
+
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const FEED_HORIZON_MONTHS = 6
+
+function feedUrlForToken(token) {
+  return `${publicBaseUrl}/feeds/calendar/${token}.ics`
+}
+
+app.get('/api/me/calendar-feed', requireAuth, (req, res) => {
+  const token = req.currentUser.calendar_feed_token
+  res.json({ feedUrl: token ? feedUrlForToken(token) : null })
+})
+
+app.post('/api/me/calendar-feed/token', requireAuth, async (req, res) => {
+  const token = crypto.randomUUID()
+  const { error } = await supabase
+    .from('users')
+    .update({ calendar_feed_token: token })
+    .eq('id', req.currentUser.id)
+  if (error) {
+    console.error('POST /api/me/calendar-feed/token:', error.message)
+    return res.status(500).json({ error: { message: 'Could not generate a calendar feed link. Please try again.', status: 500 } })
+  }
+  res.json({ feedUrl: feedUrlForToken(token) })
+})
+
+app.get('/feeds/calendar/:file', calendarFeedRateLimit, async (req, res) => {
+  const file = String(req.params.file || '')
+  if (!file.toLowerCase().endsWith('.ics')) {
+    return res.status(404).type('text/plain').send('Not found')
+  }
+  const token = file.slice(0, -'.ics'.length)
+  if (!UUID_V4_RE.test(token)) {
+    return res.status(404).type('text/plain').send('Not found')
+  }
+
+  // Look the user up by token only — never logged, never reflected back.
+  const { data: user, error: userErr } = await supabase
+    .from('users')
+    .select('id')
+    .eq('calendar_feed_token', token)
+    .maybeSingle()
+  if (userErr || !user) {
+    return res.status(404).type('text/plain').send('Not found')
+  }
+
+  const now = new Date()
+  const horizon = new Date(now)
+  horizon.setMonth(horizon.getMonth() + FEED_HORIZON_MONTHS)
+
+  const [itemsRes, tasksRes] = await Promise.all([
+    supabase
+      .from('calendar_items')
+      .select('id, title, description, start_time, end_time, location')
+      .eq('user_id', user.id)
+      .gte('start_time', now.toISOString())
+      .lte('start_time', horizon.toISOString())
+      .order('start_time', { ascending: true }),
+    supabase
+      .from('user_manual_tasks')
+      .select('id, title, due_at')
+      .eq('user_id', user.id)
+      .is('completed_at', null)
+      .order('due_at', { ascending: true }),
+  ])
+
+  if (itemsRes.error || tasksRes.error) {
+    console.error('GET /feeds/calendar:', itemsRes.error?.message || tasksRes.error?.message)
+    return res.status(500).type('text/plain').send('Calendar feed temporarily unavailable')
+  }
+
+  const events = []
+  for (const row of itemsRes.data || []) {
+    events.push({
+      uid: row.id,
+      summary: row.title || 'Untitled',
+      description: row.description || undefined,
+      location: row.location || undefined,
+      start: new Date(row.start_time),
+      end: row.end_time ? new Date(row.end_time) : undefined,
+    })
+  }
+  for (const task of tasksRes.data || []) {
+    events.push({
+      uid: `manual-${task.id}`,
+      summary: task.title || 'Task',
+      start: new Date(task.due_at),
+      allDay: true,
+    })
+  }
+
+  const ics = buildCalendarFeed({ events, now })
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8')
+  res.setHeader('Content-Disposition', 'inline; filename="boilerindy.ics"')
+  res.setHeader('Cache-Control', 'private, max-age=900')
+  res.send(ics)
 })
 
 app.get('/', (_req, res) => {
