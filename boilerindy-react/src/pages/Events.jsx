@@ -103,7 +103,7 @@ export default function Events() {
         if (d.reply) {
           const clean = cleanAiText(d.reply)
           setEventRecs(clean)
-          try { localStorage.setItem(getRecsCacheKey(), JSON.stringify(clean)) } catch {}
+          try { localStorage.setItem(getRecsCacheKey(), JSON.stringify(clean)) } catch { /* ignore */ }
         }
       })
       .catch(() => {})

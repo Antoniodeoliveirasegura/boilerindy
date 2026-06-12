@@ -33,12 +33,11 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: boilerindy-react
 
-      # Lint is informational for now — the repo has pre-existing lint debt
-      # that is unrelated to the tests. It reports issues without blocking.
+      # Lint must pass: the source is error-clean. A couple of pre-existing
+      # exhaustive-deps warnings remain informational (warnings don't fail eslint).
       - name: Lint frontend
         run: pnpm run lint
         working-directory: boilerindy-react
-        continue-on-error: true
 
       - name: Run tests (backend + frontend)
         run: pnpm test

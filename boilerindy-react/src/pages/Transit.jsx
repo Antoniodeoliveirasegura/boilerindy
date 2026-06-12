@@ -455,6 +455,21 @@ function myStopStorageKey(routeId) {
   return `transit-my-stop-${routeId}`
 }
 
+/** Load the saved "my stop" id for a route from localStorage, or null. */
+function loadMyStopForRoute(routeId) {
+  if (!routeId) return null
+  try {
+    const raw = localStorage.getItem(myStopStorageKey(routeId))
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return typeof parsed === 'string' ? parsed : null
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 export default function Transit() {
   const [rawVehicles, setRawVehicles] = useState([])
   const [stops, setStops] = useState([])
@@ -463,11 +478,24 @@ export default function Transit() {
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [visitedStopIds, setVisitedStopIds] = useState(() => new Set())
-  const [hereStopId, setHereStopId] = useState(null)
+  // Last bus position folded into visitedStopIds — see the accumulation block below.
+  const [lastBusPos, setLastBusPos] = useState(null)
   /** One “my stop” per route — chime fires when bus reaches the stop before this one */
   const [myStopId, setMyStopId] = useState(null)
   const chimePlayedRef = useRef(false)
   const [routeIdToCanonical, setRouteIdToCanonical] = useState(() => ({ ...TRANLOC_ROUTE_ALIASES }))
+
+  // Reset per-route tracking state when the selected route changes. Done during
+  // render (React's "adjust state on prop change" pattern) rather than in an
+  // effect, so it never calls setState synchronously inside an effect body.
+  const currentRouteId = selectedRoute?.id ?? null
+  const [trackedRouteId, setTrackedRouteId] = useState(currentRouteId)
+  if (trackedRouteId !== currentRouteId) {
+    setTrackedRouteId(currentRouteId)
+    setVisitedStopIds(new Set())
+    setLastBusPos(null)
+    setMyStopId(loadMyStopForRoute(currentRouteId))
+  }
 
   const canonicalRouteId = useCallback(
     (routeId) => canonicalFromMap(routeIdToCanonical, routeId),
@@ -553,26 +581,11 @@ export default function Transit() {
     return onRoute[0]
   }, [vehicles, selectedRoute, selectedBus, canonicalRouteId])
 
+  // A fresh chime can fire for the newly selected route. Ref-only write (no
+  // setState) keeps this safe to run inside an effect.
   useEffect(() => {
-    setVisitedStopIds(new Set())
-    setHereStopId(null)
     chimePlayedRef.current = false
-    if (!selectedRoute) {
-      setMyStopId(null)
-      return
-    }
-    try {
-      const raw = localStorage.getItem(myStopStorageKey(selectedRoute.id))
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        setMyStopId(typeof parsed === 'string' ? parsed : null)
-      } else {
-        setMyStopId(null)
-      }
-    } catch {
-      setMyStopId(null)
-    }
-  }, [selectedRoute?.id])
+  }, [currentRouteId])
 
   const toggleMyStop = useCallback(
     (stopId) => {
@@ -590,7 +603,7 @@ export default function Transit() {
         return next
       })
     },
-    [selectedRoute?.id],
+    [selectedRoute],
   )
 
   const stopBeforeMyStop = useMemo(() => {
@@ -600,11 +613,10 @@ export default function Transit() {
     return orderedStops[idx - 1]
   }, [myStopId, orderedStops])
 
-  useEffect(() => {
-    if (!trackingBus || !orderedStops.length) {
-      setHereStopId(null)
-      return
-    }
+  // The stop the bus is currently "at" is pure-derived from the bus position,
+  // so compute it during render instead of mirroring it into effect-set state.
+  const hereStopId = useMemo(() => {
+    if (!trackingBus || !orderedStops.length) return null
 
     let nearest = null
     let nearestD = Infinity
@@ -619,17 +631,28 @@ export default function Transit() {
       }
     })
 
-    setHereStopId(nearest && nearestD <= HERE_METERS ? nearest.id : null)
-
-    setVisitedStopIds((prev) => {
-      const next = new Set(prev)
-      orderedStops.forEach((s) => {
-        const d = haversineMeters(lat, lon, s.lat, s.lon)
-        if (d <= VISITED_METERS) next.add(s.id)
-      })
-      return next
-    })
+    return nearest && nearestD <= HERE_METERS ? nearest.id : null
   }, [trackingBus, orderedStops])
+
+  // Visited stops accumulate as the bus moves. We fold each new bus position in
+  // during render (adjusting state from the previously-processed position)
+  // rather than in an effect, so no setState runs synchronously in an effect.
+  const busPosKey = trackingBus ? `${trackingBus.Latitude},${trackingBus.Longitude}` : null
+  if (busPosKey && busPosKey !== lastBusPos && orderedStops.length) {
+    setLastBusPos(busPosKey)
+    const lat = trackingBus.Latitude
+    const lon = trackingBus.Longitude
+    const newlyVisited = orderedStops.filter(
+      (s) => !visitedStopIds.has(s.id) && haversineMeters(lat, lon, s.lat, s.lon) <= VISITED_METERS,
+    )
+    if (newlyVisited.length) {
+      setVisitedStopIds((prev) => {
+        const next = new Set(prev)
+        newlyVisited.forEach((s) => next.add(s.id))
+        return next
+      })
+    }
+  }
 
   useEffect(() => {
     if (!trackingBus || !stopBeforeMyStop) return

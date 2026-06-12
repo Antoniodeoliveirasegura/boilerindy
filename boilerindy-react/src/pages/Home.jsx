@@ -30,12 +30,6 @@ const quickActionTemplates = [
   { path: '/events', label: 'Events', sub: '', icon: 'calendar', color: 'events' },
 ]
 
-const fallbackSuggestions = [
-  { icon: 'coffee', text: 'Grab coffee at the Union', time: '5 min walk' },
-  { icon: 'book', text: 'Study at Cavanaugh Hall', time: 'Quiet hours' },
-  { icon: 'dining', text: 'Lunch at Tower Dining', time: 'Opens 11 AM' },
-]
-
 /** Broader fetch for Home: dues + events (today's event strip still filters to event-like categories). */
 const HOME_CALENDAR_CATEGORIES =
   'campus_event,event,deadline,activity,assignment,task,homework,submission,quiz,project,exam,lab,midterm,paper,presentation'
@@ -210,11 +204,6 @@ function deriveScheduleState(items, now) {
     cardLabel,
     cardMeta,
   }
-}
-
-function formatNearDistance(meters) {
-  if (meters < 1000) return `${Math.round(meters)}m`
-  return `${(meters / 1000).toFixed(1)} km`
 }
 
 const AVG_STOP_MINUTES = 2
