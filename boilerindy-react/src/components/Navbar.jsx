@@ -152,8 +152,8 @@ export default function Navbar() {
                       className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] no-underline"
                       onClick={() => setMenuOpen(false)}
                     >
-                      <Icon name="home" size={14} />
-                      Marketing site
+                      <Icon name="briefcase" size={14} />
+                      Advertiser portal
                     </Link>
                     <button
                       type="button"
