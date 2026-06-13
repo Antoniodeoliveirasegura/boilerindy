@@ -45,16 +45,33 @@ function safeServeUrl(url) {
   }
 }
 
+/** Return up to `limit` servable campaigns, shuffled for fair rotation. */
+export function listServableCampaigns(campaigns, today, limit = 8, rng = Math.random) {
+  const eligible = (campaigns || []).filter((c) => isCampaignServable(c, today))
+  if (eligible.length === 0) return []
+  const shuffled = [...eligible]
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled.slice(0, Math.max(1, limit))
+}
+
 /** Shape a campaign into the minimal, safe creative payload served to students. */
 export function toServedAd(campaign) {
   if (!campaign) return null
   const creative = campaign.creative || {}
+  const rawUrls = Array.isArray(creative.imageUrls) ? creative.imageUrls : []
+  const imageUrls = rawUrls.map((url) => safeServeUrl(url)).filter(Boolean)
+  const legacyImage = safeServeUrl(creative.imageUrl)
+  if (imageUrls.length === 0 && legacyImage) imageUrls.push(legacyImage)
   return {
     campaignId: campaign.id,
     placement: campaign.placement,
     headline: creative.headline || null,
     body: creative.body || null,
-    imageUrl: safeServeUrl(creative.imageUrl),
+    imageUrl: imageUrls[0] || null,
+    imageUrls,
     ctaLabel: creative.ctaLabel || null,
     ctaUrl: safeServeUrl(creative.ctaUrl),
   }

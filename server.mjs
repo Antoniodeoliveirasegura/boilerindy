@@ -36,11 +36,12 @@ import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
 import { normalizeAnalyticsBatch } from './analytics.mjs'
-import { verifyPassword } from './passwordHash.mjs'
+import { verifyPassword, hashPassword } from './passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
+  normalizeAdvertiserAccountInput,
   toAdvertiserProfile,
 } from './advertiserAuth.mjs'
 import {
@@ -48,18 +49,32 @@ import {
   normalizeCampaignPatch,
   mapCampaignRow,
   CAMPAIGN_PLACEMENTS,
+  CAMPAIGN_STATUSES,
 } from './advertiserCampaign.mjs'
 import {
   isValidAdEventKind,
+  isCampaignServable,
   selectServableCampaign,
+  listServableCampaigns,
   toServedAd,
   summarizeAdEvents,
 } from './adServing.mjs'
+import { assertSafeHttpUrl } from './urlSafety.mjs'
+import {
+  LEAD_STATUSES,
+  mapLeadRow,
+  mapAdminAdvertiserRow,
+  mapAdminCampaignRow,
+  normalizeLeadStatusInput,
+  normalizeAdminCampaignStatusInput,
+  parseAdminListFilter,
+} from './adminPortal.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const TERM_ORDER = { spring: 1, summer: 2, fall: 3 }
+const isProduction = process.env.NODE_ENV === 'production'
 
 const app = express()
 const port = Number(process.env.PORT || 3000)
@@ -68,6 +83,16 @@ const publicBaseUrl = (process.env.BACKEND_PUBLIC_URL || process.env.BETTER_AUTH
 const clientAppUrl = (process.env.CLIENT_APP_URL || 'http://localhost:5173').replace(/\/$/, '')
 const purdueAuthMode = (process.env.PURDUE_AUTH_MODE || 'mock').toLowerCase()
 const defaultNextPath = '/setup'
+const adminEmails = new Set(
+  (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+)
+
+if (isProduction || process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1)
+}
 
 // Supabase configuration
 const supabaseUrl = process.env.SUPABASE_URL
@@ -88,12 +113,30 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   }
 })
 
+const sessionSecret = process.env.SESSION_SECRET || process.env.BETTER_AUTH_SECRET
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
+
+if (isProduction) {
+  if (!sessionSecret) {
+    console.error('ERROR: SESSION_SECRET is required in production')
+    process.exit(1)
+  }
+  if (!supabaseAnonKey) {
+    console.error('ERROR: SUPABASE_ANON_KEY is required in production')
+    process.exit(1)
+  }
+  if (purdueAuthMode === 'mock') {
+    console.error('ERROR: PURDUE_AUTH_MODE=mock is not allowed in production')
+    process.exit(1)
+  }
+}
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(
   session({
     name: 'pih.sid',
-    secret: process.env.SESSION_SECRET || process.env.BETTER_AUTH_SECRET || 'dev-session-secret',
+    secret: sessionSecret || 'dev-session-secret',
     resave: false,
     saveUninitialized: false,
     // Refresh the cookie on every response so active users are never logged
@@ -102,12 +145,11 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,
+      secure: isProduction,
       maxAge: 1000 * 60 * 60 * 24 * 14,
     },
   }),
 )
-app.use(express.static(__dirname))
 
 // ── Abuse protection (issue #22) ────────────────────────────────────────────
 // Per-user buckets when signed in, per-IP otherwise. Tunable via
@@ -174,11 +216,24 @@ const adEventRateLimit = createRateLimiter({
 // First-party analytics ingestion (issue #51). The client flushes a batch at
 // most every 10s, so 60 requests per 5 minutes leaves ample headroom while
 // capping abuse.
+const publicReadRateLimit = createRateLimiter({
+  name: 'public-read',
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  keyBy: 'ip',
+  message: 'Too many requests. Please try again shortly.',
+})
 const analyticsRateLimit = createRateLimiter({
   name: 'analytics',
   windowMs: 5 * 60 * 1000,
   max: 60,
   message: 'Too many analytics requests. Please slow down.',
+})
+const adminWriteRateLimit = createRateLimiter({
+  name: 'admin-write',
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: 'Too many admin actions. Please slow down.',
 })
 
 function nowIso() {
@@ -310,6 +365,37 @@ async function updateUserProfile(userId, { email, displayName, currentPassword, 
   return data
 }
 
+async function verifyUserPasswordForDeletion(userRow, password) {
+  if (!password) {
+    throw new Error('Please enter your password to confirm deletion.')
+  }
+  const authUser = await verifySupabasePassword(userRow.email, password)
+  if (authUser) return
+  if (hasLegacyHash(userRow) && verifyPassword(password, userRow.password_hash)) return
+  throw new Error('Password is incorrect.')
+}
+
+async function deleteUserAccount(userRow, { password, confirmation }) {
+  if (confirmation !== 'DELETE') {
+    throw new Error('Type DELETE in the confirmation box to permanently delete your account.')
+  }
+  await verifyUserPasswordForDeletion(userRow, password)
+
+  const userId = userRow.id
+
+  const { error: authError } = await supabase.auth.admin.deleteUser(userId)
+  if (authError && authError.code !== 'user_not_found') {
+    console.error('[deleteUserAccount] Supabase Auth delete failed:', authError.message)
+    throw new Error('Could not delete your authentication account. Try again or contact support.')
+  }
+
+  const { error: dbError } = await supabase.from('users').delete().eq('id', userId)
+  if (dbError) {
+    console.error('[deleteUserAccount] public.users delete failed:', dbError.message)
+    throw new Error('Could not delete your profile data.')
+  }
+}
+
 function getAcademicTerm(dateValue) {
   const date = new Date(dateValue)
   if (Number.isNaN(date.getTime())) return null
@@ -438,9 +524,16 @@ async function buildSessionPayload(user, req) {
       purdueUsername: user.purdue_username,
       hasPurdueLinked: Boolean(user.purdue_email),
       analyticsOptOut: Boolean(user.analytics_opt_out),
+      isAdmin: isUserAdmin(user),
     },
     onboarding: summary,
   }
+}
+
+function isUserAdmin(user) {
+  if (!user?.email) return false
+  if (user.is_admin) return true
+  return adminEmails.has(String(user.email).trim().toLowerCase())
 }
 
 async function requireAuth(req, res, next) {
@@ -449,6 +542,13 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: { message: 'You must sign in to access this resource.', status: 401 } })
   }
   req.currentUser = user
+  next()
+}
+
+function requireAdmin(req, res, next) {
+  if (!isUserAdmin(req.currentUser)) {
+    return res.status(403).json({ error: { message: 'Admin access required.', status: 403 } })
+  }
   next()
 }
 
@@ -498,15 +598,7 @@ async function getSourceForUser(sourceId, userId) {
 }
 
 function validateSourceUrl(sourceUrl) {
-  try {
-    const parsed = new URL(sourceUrl)
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new Error('Only http and https URLs are supported.')
-    }
-    return parsed.toString()
-  } catch {
-    throw new Error('Please enter a valid iCalendar URL.')
-  }
+  return assertSafeHttpUrl(sourceUrl)
 }
 
 // ── Schedule sync (imperative shell) ─────────────────────────────────────────
@@ -520,6 +612,7 @@ async function runScheduleSync(source) {
 
   let eventsByKey
   try {
+    await assertSafeHttpUrl(source.source_url)
     eventsByKey = await ical.async.fromURL(source.source_url)
   } catch (fetchError) {
     const classified = classifyFetchError(fetchError)
@@ -556,7 +649,7 @@ async function runScheduleSync(source) {
 }
 
 async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdue_schedule_ical' }) {
-  const sourceUrl = validateSourceUrl(icsUrl)
+  const sourceUrl = await validateSourceUrl(icsUrl)
   const timestamp = nowIso()
   const id = makeId()
 
@@ -657,21 +750,60 @@ async function getClassItemsForUser(userId, { limit = 20, term = 'auto', mode = 
   }
 }
 
+async function authUserExists(userId) {
+  if (!userId) return false
+  const { data, error } = await supabase.auth.admin.getUserById(userId)
+  return Boolean(data?.user) && !error
+}
+
+async function clearPurdueLinkOnUser(userId) {
+  const { error } = await supabase
+    .from('users')
+    .update({
+      purdue_email: null,
+      purdue_username: null,
+      purdue_linked_at: null,
+      updated_at: nowIso(),
+    })
+    .eq('id', userId)
+  if (error) throw new Error(error.message)
+}
+
 async function linkPurdueIdentity(userId, { email }) {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail || !normalizedEmail.endsWith('@purdue.edu')) {
     throw new Error('Please use a valid @purdue.edu account.')
   }
 
-  const { data: existing } = await supabase
+  const currentUser = await getUserById(userId)
+  if (normalizeEmail(currentUser?.purdue_email) === normalizedEmail) {
+    return currentUser
+  }
+
+  const { data: existingRows } = await supabase
     .from('users')
-    .select('id')
+    .select('id, email')
     .eq('purdue_email', normalizedEmail)
     .neq('id', userId)
-    .single()
 
+  const existing = existingRows?.[0]
   if (existing) {
-    throw new Error('That Purdue account is already linked to another user.')
+    const holderEmail = normalizeEmail(existing.email)
+    const currentEmail = normalizeEmail(currentUser?.email)
+
+    // Account recovery: Supabase Auth was reset but public.users still holds the
+    // Purdue link on an older profile row for the same login email.
+    if (holderEmail && currentEmail && holderEmail === currentEmail) {
+      await clearPurdueLinkOnUser(existing.id)
+    } else if (!(await authUserExists(existing.id))) {
+      // Orphan profile row (Auth user deleted, public.users row left behind).
+      await clearPurdueLinkOnUser(existing.id)
+    } else {
+      throw new Error(
+        'That Purdue account is already linked to another BoilerIndy profile. '
+        + 'Sign in with the email you used before, or contact support to release the link.',
+      )
+    }
   }
 
   const username = normalizedEmail.split('@')[0]
@@ -689,7 +821,14 @@ async function linkPurdueIdentity(userId, { email }) {
     .select()
     .single()
 
-  if (error) throw new Error(error.message)
+  if (error) {
+    if (String(error.message || '').includes('users_purdue_email_key') || error.code === '23505') {
+      throw new Error(
+        'That Purdue email is already linked to another account. Contact support if you recently reset your profile.',
+      )
+    }
+    throw new Error(error.message)
+  }
   return data
 }
 
@@ -822,7 +961,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
     if (insertError) {
       console.error('register-supabase: public.users insert failed:', insertError)
       return res.status(500).json({
-        error: { message: insertError.message || 'Could not create your profile.', status: 500 },
+        error: { message: 'Could not create your profile.', status: 500 },
       })
     }
 
@@ -843,7 +982,10 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
 
 async function verifySupabasePassword(email, password) {
   const gotrue = `${supabaseUrl}/auth/v1/token?grant_type=password`
-  const anonKey = process.env.SUPABASE_ANON_KEY || supabaseServiceKey
+  const anonKey = supabaseAnonKey || (isProduction ? null : supabaseServiceKey)
+  if (!anonKey) {
+    throw new Error('Supabase auth is not configured.')
+  }
   const resp = await fetch(gotrue, {
     method: 'POST',
     headers: {
@@ -989,16 +1131,35 @@ app.post('/api/sign-out', (req, res) => {
 
 app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
   try {
-    const { supabaseUserId, email, name, avatarUrl, provider, accessToken } = req.body
-    
+    const authHeader = req.headers.authorization || ''
+    const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+    const accessToken = bearerToken || req.body?.accessToken
+
+    if (!accessToken || typeof accessToken !== 'string') {
+      return res.status(401).json({ error: { message: 'Missing access token.', status: 401 } })
+    }
+
+    const { data: tokenData, error: tokenError } = await supabase.auth.getUser(accessToken)
+    if (tokenError || !tokenData?.user) {
+      return res.status(401).json({ error: { message: 'Invalid or expired access token.', status: 401 } })
+    }
+
+    const tokenUser = tokenData.user
+    const { supabaseUserId, email, name, avatarUrl, provider } = req.body
+
     if (!supabaseUserId || !email) {
       return res.status(400).json({ error: { message: 'Missing required fields', status: 400 } })
     }
 
     const normalizedEmail = normalizeEmail(email)
-    
+    const tokenEmail = normalizeEmail(tokenUser.email)
+
+    if (tokenUser.id !== supabaseUserId || tokenEmail !== normalizedEmail) {
+      return res.status(401).json({ error: { message: 'Token does not match the requested user.', status: 401 } })
+    }
+
     let user = await getUserByEmail(normalizedEmail)
-    
+
     if (!user) {
       const timestamp = nowIso()
       const { data, error } = await supabase
@@ -1049,13 +1210,19 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
       return res.status(500).json({ error: { message: 'Could not sync user profile.', status: 500 } })
     }
 
-    req.session.userId = user.id
-
-    const session = await buildSessionPayload(user, req)
-    res.json({ session })
+    req.session.regenerate((err) => {
+      if (err) {
+        return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
+      }
+      req.session.userId = user.id
+      req.session.save(async () => {
+        const session = await buildSessionPayload(user, req)
+        res.json({ session })
+      })
+    })
   } catch (error) {
     console.error('Supabase sync error:', error)
-    res.status(500).json({ error: { message: error.message || 'Could not sync user.', status: 500 } })
+    res.status(500).json({ error: { message: 'Could not sync user.', status: 500 } })
   }
 })
 
@@ -1113,8 +1280,9 @@ app.get('/auth/purdue/callback', requireAuth, async (req, res) => {
     await linkPurdueIdentity(req.currentUser.id, identity)
     res.redirect(`${clientAppUrl}${nextPath}`)
   } catch (error) {
-    console.error(error)
-    res.redirect(`${clientAppUrl}/settings?error=cas-validation`)
+    console.error('[auth/purdue/callback]', error)
+    const message = encodeURIComponent(error.message || 'Could not link Purdue account.')
+    res.redirect(`${clientAppUrl}/setup?error=purdue-link&message=${message}`)
   }
 })
 
@@ -1139,18 +1307,38 @@ app.patch('/api/me/profile', requireAuth, async (req, res) => {
   }
 })
 
+app.post('/api/me/delete-account', signInRateLimit, requireAuth, async (req, res) => {
+  try {
+    await deleteUserAccount(req.currentUser, {
+      password: req.body?.password,
+      confirmation: req.body?.confirmation,
+    })
+    req.session.destroy(() => {
+      res.clearCookie('pih.sid')
+      res.json({ ok: true })
+    })
+  } catch (error) {
+    res.status(400).json({ error: { message: error.message || 'Could not delete account.', status: 400 } })
+  }
+})
+
 app.get('/api/me/sources', requireAuth, async (req, res) => {
   res.json({ sources: await listSourcesForUser(req.currentUser.id) })
 })
 
-// Debug endpoint to diagnose calendar import issues
+// Debug endpoint to diagnose calendar import issues (disabled in production)
 app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
+  if (isProduction) {
+    return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
+  }
+
   const source = await getSourceForUser(req.params.sourceId, req.currentUser.id)
   if (!source) {
     return res.status(404).json({ error: { message: 'Source not found.', status: 404 } })
   }
 
   try {
+    await assertSafeHttpUrl(source.source_url)
     const eventsByKey = await ical.async.fromURL(source.source_url)
     const rawEvents = Object.values(eventsByKey).filter((item) => item?.type === 'VEVENT')
     const detectedTimezone = detectTimezoneFromFeed(eventsByKey)
@@ -1186,9 +1374,9 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
       sampleExpandedEvents: sampleExpanded,
     })
   } catch (error) {
-    res.status(500).json({ 
+    console.error('[/api/debug/source] failed:', error)
+    res.status(500).json({
       error: { message: error.message || 'Debug failed', status: 500 },
-      stack: error.stack?.slice(0, 500),
     })
   }
 })
@@ -2065,7 +2253,7 @@ function buildAssistantCalendarContext(calendarData, now) {
   return parts.join('\n\n')
 }
 
-app.post('/api/assistant', async (req, res) => {
+app.post('/api/assistant', requireAuth, async (req, res) => {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({ error: 'Assistant not configured.' })
   }
@@ -2078,6 +2266,14 @@ app.post('/api/assistant', async (req, res) => {
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })
+  }
+  if (messages.length > 30) {
+    return res.status(400).json({ error: 'Too many messages in one request.' })
+  }
+  for (const message of messages) {
+    if (typeof message?.content === 'string' && message.content.length > 4000) {
+      return res.status(400).json({ error: 'A message is too long.' })
+    }
   }
 
   const now = new Date()
@@ -2170,9 +2366,9 @@ app.post('/api/assistant', async (req, res) => {
 
 // TransLoc API proxy endpoints (to avoid CORS issues)
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
-const TRANSLOC_API_KEY = '8882812681'
+const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY || '8882812681'
 
-app.get('/api/transit/vehicles', async (_req, res) => {
+app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
   try {
     const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
     const data = await response.json()
@@ -2183,7 +2379,7 @@ app.get('/api/transit/vehicles', async (_req, res) => {
   }
 })
 
-app.get('/api/transit/stops', async (_req, res) => {
+app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
   try {
     const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
     const data = await response.json()
@@ -2194,7 +2390,7 @@ app.get('/api/transit/stops', async (_req, res) => {
   }
 })
 
-app.get('/api/transit/routes', async (_req, res) => {
+app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   try {
     const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
     const data = await response.json()
@@ -2205,7 +2401,7 @@ app.get('/api/transit/routes', async (_req, res) => {
   }
 })
 
-app.get('/api/dining', async (req, res) => {
+app.get('/api/dining', publicReadRateLimit, async (req, res) => {
   try {
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true'
     const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined
@@ -2247,7 +2443,7 @@ function respondBoardDbError(res, err) {
     })
   }
   return res.status(500).json({
-    error: { message: err?.message || 'Database error', status: 500 },
+    error: { message: 'Something went wrong. Please try again.', status: 500 },
   })
 }
 
@@ -2966,20 +3162,24 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 
 app.get('/api/spotlight/active', requireAuth, async (req, res) => {
   const placement = CAMPAIGN_PLACEMENTS.includes(req.query.placement) ? req.query.placement : 'home-widget'
+  const limit = Math.min(Math.max(Number(req.query.limit) || 1, 1), 12)
   const { data, error } = await supabase
     .from('campaigns')
     .select('id, placement, status, starts_on, ends_on, creative')
     .eq('placement', placement)
     .eq('status', 'active')
-  // Ads are non-critical: never break the dashboard if the table is missing or a
-  // query fails — just serve nothing.
   if (error) {
     console.error('[/api/spotlight/active] query failed:', error?.message || error)
-    return res.json({ ad: null })
+    return res.json({ ad: null, ads: [] })
   }
   const today = nowIso().slice(0, 10)
+  if (limit > 1) {
+    const ads = listServableCampaigns(data, today, limit).map(toServedAd).filter(Boolean)
+    return res.json({ ads, ad: ads[0] || null })
+  }
   const selected = selectServableCampaign(data, today)
-  res.json({ ad: toServedAd(selected) })
+  const ad = toServedAd(selected)
+  res.json({ ad, ads: ad ? [ad] : [] })
 })
 
 app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
@@ -2987,6 +3187,23 @@ app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, asyn
   if (!isValidAdEventKind(kind)) {
     return res.status(400).json({ error: { message: 'Invalid ad event kind.', status: 400 } })
   }
+
+  const { data: campaign, error: campaignError } = await supabase
+    .from('campaigns')
+    .select('id, status, starts_on, ends_on')
+    .eq('id', req.params.campaignId)
+    .maybeSingle()
+
+  if (campaignError) {
+    console.error('[/api/spotlight/event] campaign lookup failed:', campaignError?.message || campaignError)
+    return res.status(202).json({ ok: false })
+  }
+
+  const today = nowIso().slice(0, 10)
+  if (!isCampaignServable(campaign, today)) {
+    return res.status(400).json({ error: { message: 'Campaign is not active.', status: 400 } })
+  }
+
   const { error } = await supabase.from('ad_events').insert({
     id: makeId(),
     campaign_id: req.params.campaignId,
@@ -3000,6 +3217,241 @@ app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, asyn
     return res.status(202).json({ ok: false })
   }
   res.status(204).end()
+})
+
+// ============================================================
+// Platform admin (student session + isAdmin / ADMIN_EMAILS)
+// ============================================================
+
+async function countTableRows(table, filters = []) {
+  let query = supabase.from(table).select('*', { count: 'exact', head: true })
+  for (const [column, value] of filters) {
+    query = query.eq(column, value)
+  }
+  const { count, error } = await query
+  if (error) throw error
+  return count || 0
+}
+
+app.get('/api/admin/overview', requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const [newLeads, pendingCampaigns, activeCampaigns, advertisers] = await Promise.all([
+      countTableRows('advertiser_leads', [['status', 'new']]),
+      countTableRows('campaigns', [['status', 'pending_review']]),
+      countTableRows('campaigns', [['status', 'active']]),
+      countTableRows('advertisers'),
+    ])
+    res.json({
+      overview: {
+        newLeads,
+        pendingCampaigns,
+        activeCampaigns,
+        advertisers,
+      },
+    })
+  } catch (error) {
+    return respondAdvertiserDbError(res, error)
+  }
+})
+
+app.get('/api/admin/leads', requireAuth, requireAdmin, async (req, res) => {
+  let statusFilter
+  try {
+    statusFilter = parseAdminListFilter(req.query.status, LEAD_STATUSES)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  let query = supabase
+    .from('advertiser_leads')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (statusFilter) query = query.eq('status', statusFilter)
+
+  const { data, error } = await query
+  if (error) return respondAdvertiserDbError(res, error)
+  res.json({ leads: (data || []).map(mapLeadRow) })
+})
+
+app.patch('/api/admin/leads/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  let status
+  try {
+    status = normalizeLeadStatusInput(req.body?.status)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('advertiser_leads')
+    .update({ status })
+    .eq('id', req.params.id)
+    .select('*')
+    .maybeSingle()
+  if (error) return respondAdvertiserDbError(res, error)
+  if (!data) {
+    return res.status(404).json({ error: { message: 'Lead not found.', status: 404 } })
+  }
+  res.json({ lead: mapLeadRow(data) })
+})
+
+app.get('/api/admin/campaigns', requireAuth, requireAdmin, async (req, res) => {
+  let statusFilter
+  try {
+    statusFilter = parseAdminListFilter(req.query.status, CAMPAIGN_STATUSES)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  let query = supabase
+    .from('campaigns')
+    .select('*, advertisers ( email, company_name )')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (statusFilter) query = query.eq('status', statusFilter)
+
+  const { data, error } = await query
+  if (error) return respondAdvertiserDbError(res, error)
+  res.json({ campaigns: (data || []).map(mapAdminCampaignRow) })
+})
+
+app.patch('/api/admin/campaigns/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  const { data: current, error: lookupError } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('id', req.params.id)
+    .maybeSingle()
+  if (lookupError) return respondAdvertiserDbError(res, lookupError)
+  if (!current) {
+    return res.status(404).json({ error: { message: 'Campaign not found.', status: 404 } })
+  }
+
+  let status
+  try {
+    status = normalizeAdminCampaignStatusInput(current.status, req.body?.status)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { data, error } = await supabase
+    .from('campaigns')
+    .update({ status, updated_at: nowIso() })
+    .eq('id', current.id)
+    .select('*, advertisers ( email, company_name )')
+    .single()
+  if (error) return respondAdvertiserDbError(res, error)
+  res.json({ campaign: mapAdminCampaignRow(data) })
+})
+
+app.get('/api/admin/advertisers', requireAuth, requireAdmin, async (_req, res) => {
+  const { data, error } = await supabase
+    .from('advertisers')
+    .select('id, email, company_name, contact_name, status, created_at')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (error) return respondAdvertiserDbError(res, error)
+  res.json({ advertisers: (data || []).map(mapAdminAdvertiserRow) })
+})
+
+app.post('/api/admin/advertisers', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  let account
+  try {
+    account = normalizeAdvertiserAccountInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const leadId = typeof req.body?.leadId === 'string' ? req.body.leadId.trim() : ''
+  const passwordHash = hashPassword(account.password)
+  const timestamp = nowIso()
+
+  const { data: existing } = await supabase
+    .from('advertisers')
+    .select('id')
+    .eq('email', account.email)
+    .maybeSingle()
+
+  let row
+  if (existing?.id) {
+    const { data, error } = await supabase
+      .from('advertisers')
+      .update({
+        password_hash: passwordHash,
+        company_name: account.companyName,
+        contact_name: account.contactName,
+        status: 'active',
+        updated_at: timestamp,
+      })
+      .eq('id', existing.id)
+      .select('id, email, company_name, contact_name, status, created_at')
+      .single()
+    if (error) return respondAdvertiserDbError(res, error)
+    row = data
+  } else {
+    const { data, error } = await supabase
+      .from('advertisers')
+      .insert({
+        id: makeId(),
+        email: account.email,
+        password_hash: passwordHash,
+        company_name: account.companyName,
+        contact_name: account.contactName,
+        status: 'active',
+        created_at: timestamp,
+        updated_at: timestamp,
+      })
+      .select('id, email, company_name, contact_name, status, created_at')
+      .single()
+    if (error) return respondAdvertiserDbError(res, error)
+    row = data
+  }
+
+  if (leadId) {
+    await supabase
+      .from('advertiser_leads')
+      .update({ status: 'closed' })
+      .eq('id', leadId)
+      .eq('email', account.email)
+  }
+
+  res.status(existing?.id ? 200 : 201).json({ advertiser: mapAdminAdvertiserRow(row) })
+})
+
+// Release a stale Purdue link (e.g. after account reset). Body: { purdueEmail } or { userId }.
+app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  const purdueEmail = normalizeEmail(req.body?.purdueEmail || '')
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : ''
+
+  if (!purdueEmail && !userId) {
+    return res.status(400).json({
+      error: { message: 'Provide purdueEmail or userId to clear a Purdue link.', status: 400 },
+    })
+  }
+
+  let query = supabase.from('users').select('id, email, purdue_email')
+  if (userId) query = query.eq('id', userId)
+  else query = query.eq('purdue_email', purdueEmail)
+
+  const { data: rows, error: lookupError } = await query
+  if (lookupError) {
+    return res.status(500).json({ error: { message: lookupError.message, status: 500 } })
+  }
+  if (!rows?.length) {
+    return res.status(404).json({ error: { message: 'No matching user profile found.', status: 404 } })
+  }
+
+  const cleared = []
+  for (const row of rows) {
+    if (!row.purdue_email) continue
+    await clearPurdueLinkOnUser(row.id)
+    cleared.push({ id: row.id, email: row.email, purdueEmail: row.purdue_email })
+  }
+
+  if (!cleared.length) {
+    return res.status(404).json({ error: { message: 'Profile has no Purdue link to clear.', status: 404 } })
+  }
+
+  res.json({ ok: true, cleared })
 })
 
 // ── First-party product analytics (issue #51) ───────────────────────────────

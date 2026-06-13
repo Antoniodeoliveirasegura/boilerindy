@@ -26,6 +26,12 @@ import Services from './pages/Services'
 import Board from './pages/Board'
 import ConnectSchedule from './pages/ConnectSchedule'
 import Settings from './pages/Settings'
+import RequireAdmin from './components/RequireAdmin'
+import AdminLayout from './pages/admin/AdminLayout'
+import AdminOverview from './pages/admin/AdminOverview'
+import AdminLeads from './pages/admin/AdminLeads'
+import AdminCampaigns from './pages/admin/AdminCampaigns'
+import AdminAdvertisers from './pages/admin/AdminAdvertisers'
 
 export default function App() {
   return (
@@ -155,6 +161,21 @@ export default function App() {
                   </RequireAuth>
                 }
               />
+              <Route
+                path="/admin"
+                element={
+                  <RequireAuth>
+                    <RequireAdmin>
+                      <AdminLayout />
+                    </RequireAdmin>
+                  </RequireAuth>
+                }
+              >
+                <Route index element={<AdminOverview />} />
+                <Route path="leads" element={<AdminLeads />} />
+                <Route path="campaigns" element={<AdminCampaigns />} />
+                <Route path="advertisers" element={<AdminAdvertisers />} />
+              </Route>
             </Route>
           </Routes>
         </AuthProvider>

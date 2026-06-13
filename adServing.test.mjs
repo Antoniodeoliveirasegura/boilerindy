@@ -4,6 +4,7 @@ import {
   isValidAdEventKind,
   isCampaignServable,
   selectServableCampaign,
+  listServableCampaigns,
   toServedAd,
   summarizeAdEvents,
 } from './adServing.mjs'
@@ -63,6 +64,7 @@ test('toServedAd shapes creative and drops unsafe URLs', () => {
       ctaLabel: 'Order',
       ctaUrl: 'https://acme.example.com/x',
       imageUrl: 'javascript:alert(1)',
+      imageUrls: ['https://img.example/a.jpg', 'javascript:alert(1)'],
     },
   })
   assert.deepEqual(ad, {
@@ -70,11 +72,24 @@ test('toServedAd shapes creative and drops unsafe URLs', () => {
     placement: 'home-widget',
     headline: 'Free cold brew',
     body: 'Today only',
-    imageUrl: null, // unsafe scheme dropped
+    imageUrl: 'https://img.example/a.jpg',
+    imageUrls: ['https://img.example/a.jpg'],
     ctaLabel: 'Order',
     ctaUrl: 'https://acme.example.com/x',
   })
   assert.equal(toServedAd(null), null)
+})
+
+test('listServableCampaigns returns shuffled eligible campaigns capped by limit', () => {
+  const campaigns = [
+    { id: 'a', status: 'active' },
+    { id: 'b', status: 'draft' },
+    { id: 'c', status: 'active' },
+    { id: 'd', status: 'active' },
+  ]
+  const list = listServableCampaigns(campaigns, TODAY, 2, () => 0.5)
+  assert.equal(list.length, 2)
+  assert.ok(list.every((c) => c.status === 'active'))
 })
 
 test('summarizeAdEvents counts impressions/taps and computes ctr', () => {

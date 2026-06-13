@@ -137,6 +137,17 @@ export default function Navbar() {
                       <Icon name="settings" size={14} />
                       Settings
                     </Link>
+                    {user?.isAdmin && (
+                      <Link
+                        to="/admin"
+                        role="menuitem"
+                        className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] no-underline"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Icon name="shield" size={14} />
+                        Admin console
+                      </Link>
+                    )}
                     <Link
                       to="/setup"
                       role="menuitem"

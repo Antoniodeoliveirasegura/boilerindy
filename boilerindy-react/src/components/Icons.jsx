@@ -313,6 +313,15 @@ const icons = {
       <path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/>
     </>
   ),
+  shield: (
+    <path d="M12 2l8 4v6c0 5.25-3.5 9.74-8 10-4.5-.26-8-4.75-8-10V6l8-4z"/>
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="2"/>
+      <path d="M8 11V8a4 4 0 018 0v3"/>
+    </>
+  ),
   health: (
     <>
       <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>

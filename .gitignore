@@ -4,11 +4,13 @@ data/
 
 # Environment variables (sensitive - never commit)
 .env
-.env.local
-.env.*.local
-
-# Keep the example file
+.env.*
 !.env.example
+
+# Credentials
+*.pem
+credentials.json
+**/secrets/**
 
 # Database files
 *.db
