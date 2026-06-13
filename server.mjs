@@ -91,6 +91,11 @@ const host = process.env.HOST || '127.0.0.1'
 const publicBaseUrl = (process.env.BACKEND_PUBLIC_URL || process.env.BETTER_AUTH_URL || `http://${host}:${port}`).replace(/\/$/, '')
 const clientAppUrl = (process.env.CLIENT_APP_URL || 'http://localhost:5173').replace(/\/$/, '')
 const purdueAuthMode = (process.env.PURDUE_AUTH_MODE || 'mock').toLowerCase()
+// 'off' disables Purdue identity linking entirely (e.g. before CAS is wired):
+// the connect UI is hidden, onboarding stops prompting a link, and calendar
+// sources (Brightspace / Purdue timetable iCal) no longer require a linked
+// Purdue identity. 'mock' = dev email-link; 'cas' = real Purdue CAS.
+const purdueLinkingEnabled = purdueAuthMode !== 'off'
 const defaultNextPath = '/setup'
 const adminEmails = new Set(
   (process.env.ADMIN_EMAILS || '')
@@ -517,8 +522,10 @@ async function getUserSummary(userId) {
     linkedSourceCount: linkedSourceCount || 0,
     classCount: classCount || 0,
     hasPurdueLinked,
-    needsPurdueConnection: !hasPurdueLinked,
-    needsScheduleSource: hasPurdueLinked && (linkedSourceCount || 0) === 0,
+    // When Purdue linking is off, never prompt a link and let users attach
+    // calendar sources directly (no identity link required).
+    needsPurdueConnection: purdueLinkingEnabled ? !hasPurdueLinked : false,
+    needsScheduleSource: (purdueLinkingEnabled ? hasPurdueLinked : true) && (linkedSourceCount || 0) === 0,
   }
 }
 
@@ -571,6 +578,8 @@ function requireAdmin(req, res, next) {
 }
 
 function requirePurdueLinked(req, res, next) {
+  // Linking off: calendar sources don't require a linked Purdue identity.
+  if (!purdueLinkingEnabled) return next()
   if (!req.currentUser?.purdue_email) {
     return res.status(400).json({
       error: {
@@ -907,7 +916,7 @@ app.get('/api/auth-config', (_req, res) => {
   res.json({
     authProvider: 'local',
     purdueAuthMode,
-    supportsPurdueLink: true,
+    supportsPurdueLink: purdueLinkingEnabled,
     supportedSources: ['purdue_schedule_ical'],
   })
 })
@@ -1246,6 +1255,9 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
 
 app.get('/auth/purdue/connect', requireAuth, (req, res) => {
   const nextPath = sanitizeNext(req.query.next)
+  if (!purdueLinkingEnabled) {
+    return res.redirect(`${clientAppUrl}/settings`)
+  }
   if (purdueAuthMode === 'cas') {
     const loginUrl = process.env.PURDUE_CAS_LOGIN_URL
     const validateUrl = process.env.PURDUE_CAS_VALIDATE_URL
@@ -1261,6 +1273,9 @@ app.get('/auth/purdue/connect', requireAuth, (req, res) => {
 
 app.post('/auth/purdue/dev/link', requireAuth, async (req, res) => {
   const nextPath = sanitizeNext(req.body.next)
+  if (!purdueLinkingEnabled) {
+    return res.status(404).send('Purdue linking is currently disabled.')
+  }
   if (purdueAuthMode === 'cas') {
     return res.status(404).send('Mock Purdue linking is disabled while CAS mode is active.')
   }
@@ -1275,6 +1290,9 @@ app.post('/auth/purdue/dev/link', requireAuth, async (req, res) => {
 })
 
 app.post('/api/purdue/mock-link', requireAuth, async (req, res) => {
+  if (!purdueLinkingEnabled) {
+    return res.status(400).json({ error: { message: 'Purdue linking is currently disabled.', status: 400 } })
+  }
   if (purdueAuthMode === 'cas') {
     return res.status(400).json({ error: { message: 'Mock Purdue linking is disabled while CAS mode is active.', status: 400 } })
   }

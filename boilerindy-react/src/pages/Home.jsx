@@ -420,7 +420,7 @@ function buildSuggestions({ freeMinutes, nextClass, currentClass, diningStatus, 
 }
 
 export default function Home() {
-  const { getFirstName, onboarding, user } = useAuth()
+  const { getFirstName, onboarding, user, authConfig } = useAuth()
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const { layout, editing, setEditing, move, reorder, setVisible, reset } = useDashboardLayout(user?.id)
@@ -812,6 +812,7 @@ export default function Home() {
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const needsScheduleSource = onboarding?.needsScheduleSource
+  const purdueLinkingOff = authConfig?.supportsPurdueLink === false
   const showSetupBanner = (needsPurdueConnection || needsScheduleSource) && !shouldSkipSetup()
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass
@@ -1492,12 +1493,18 @@ export default function Home() {
                 Finish Setup
               </div>
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
-                {needsPurdueConnection ? 'Link your Purdue account next' : 'Your Purdue schedule is not connected yet'}
+                {needsPurdueConnection
+                  ? 'Link your Purdue account next'
+                  : purdueLinkingOff
+                    ? 'Connect your class schedule'
+                    : 'Your Purdue schedule is not connected yet'}
               </div>
               <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
                 {needsPurdueConnection
                   ? 'Your BoilerIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
-                  : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
+                  : purdueLinkingOff
+                    ? 'Import your class schedule and assignments by attaching your Brightspace or Purdue Timetabling iCalendar export.'
+                    : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
               </p>
             </div>
             <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
