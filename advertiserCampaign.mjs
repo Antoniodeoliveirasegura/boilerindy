@@ -3,8 +3,10 @@
 // that goes into the `campaigns` table (see supabase-advertiser-campaigns.sql)
 // and enforces the approval flow via a status-transition map.
 
-export const CAMPAIGN_PLACEMENTS = ['home-widget', 'dining', 'transit', 'events']
+export const CAMPAIGN_PLACEMENTS = ['home-widget', 'side-rail', 'dining', 'transit', 'events']
 export const CAMPAIGN_STATUSES = ['draft', 'pending_review', 'active', 'paused', 'ended']
+export const MIN_BANNER_PHOTOS = 3
+export const MAX_BANNER_PHOTOS = 8
 
 export const CAMPAIGN_NAME_MAX = 200
 const CREATIVE_LIMITS = {
@@ -13,6 +15,7 @@ const CREATIVE_LIMITS = {
   ctaLabel: 40,
   imageUrl: 500,
   ctaUrl: 500,
+  imageUrls: 500,
 }
 
 // Transitions an ADVERTISER may perform. Activating a campaign (-> 'active' from
@@ -87,11 +90,46 @@ export function normalizeCreative(input = {}) {
       if (val.length > CREATIVE_LIMITS[field]) {
         throw new Error(`${field} must be ${CREATIVE_LIMITS[field]} characters or fewer.`)
       }
-      creative[field] = safeHttpUrl(val, field)
+      creative[field] = safeHttpUrl(val, field === 'ctaUrl' ? 'Website URL' : field)
     }
   }
 
+  if (input.imageUrls != null) {
+    if (!Array.isArray(input.imageUrls)) {
+      throw new Error('imageUrls must be an array of photo URLs.')
+    }
+    const urls = input.imageUrls
+      .map((url) => cleanString(url))
+      .filter(Boolean)
+      .map((url) => {
+        if (url.length > CREATIVE_LIMITS.imageUrls) {
+          throw new Error(`Each photo URL must be ${CREATIVE_LIMITS.imageUrls} characters or fewer.`)
+        }
+        return safeHttpUrl(url, 'Photo URL')
+      })
+    if (urls.length > MAX_BANNER_PHOTOS) {
+      throw new Error(`At most ${MAX_BANNER_PHOTOS} photo URLs are allowed.`)
+    }
+    if (urls.length > 0) {
+      creative.imageUrls = urls
+      creative.imageUrl = urls[0]
+    }
+  } else if (creative.imageUrl && !creative.imageUrls) {
+    creative.imageUrls = [creative.imageUrl]
+  }
+
   return creative
+}
+
+export function assertBannerCreative(creative, placement) {
+  if (!['home-widget', 'side-rail'].includes(placement)) return
+  const urls = creative?.imageUrls || (creative?.imageUrl ? [creative.imageUrl] : [])
+  if (urls.length < MIN_BANNER_PHOTOS) {
+    throw new Error(`Banner campaigns need at least ${MIN_BANNER_PHOTOS} photo URLs.`)
+  }
+  if (!creative?.ctaUrl) {
+    throw new Error('Banner campaigns require a website URL (https://…).')
+  }
 }
 
 function assertDateOrder(startsOn, endsOn) {
@@ -155,7 +193,9 @@ export function normalizeCampaignPatch(input = {}, currentRow = {}) {
   const effectiveEnds = patch.endsOn !== undefined ? patch.endsOn : (currentRow.ends_on || null)
   assertDateOrder(effectiveStarts, effectiveEnds)
 
-  if (input.creative !== undefined) patch.creative = normalizeCreative(input.creative || {})
+  if (input.creative !== undefined) {
+    patch.creative = normalizeCreative(input.creative || {})
+  }
 
   if (input.status !== undefined) {
     const next = cleanString(input.status)
@@ -170,6 +210,11 @@ export function normalizeCampaignPatch(input = {}, currentRow = {}) {
           throw new Error('A campaign must be approved before it can go live. Submit it for review instead.')
         }
         throw new Error(`You can't change a campaign from "${current}" to "${next}".`)
+      }
+      if (next === 'pending_review') {
+        const effectiveCreative = patch.creative || currentRow.creative || {}
+        const effectivePlacement = patch.placement !== undefined ? patch.placement : currentRow.placement
+        assertBannerCreative(effectiveCreative, effectivePlacement)
       }
     }
     patch.status = next

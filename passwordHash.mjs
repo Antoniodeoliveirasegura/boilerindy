@@ -13,6 +13,8 @@ export function hashPassword(password) {
 export function verifyPassword(password, storedHash) {
   const [salt, expectedHash] = String(storedHash || '').split(':')
   if (!salt || !expectedHash) return false
-  const actualHash = crypto.scryptSync(password, salt, 64).toString('hex')
-  return crypto.timingSafeEqual(Buffer.from(actualHash, 'hex'), Buffer.from(expectedHash, 'hex'))
+  const actualBuf = crypto.scryptSync(password, salt, 64)
+  const expectedBuf = Buffer.from(expectedHash, 'hex')
+  if (expectedBuf.length !== actualBuf.length) return false
+  return crypto.timingSafeEqual(actualBuf, expectedBuf)
 }

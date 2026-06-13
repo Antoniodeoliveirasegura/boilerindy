@@ -27,7 +27,7 @@ export async function authRequest(url, options = {}) {
     if (response.status === 401 && !url.includes('/api/session') && !url.includes('/api/auth/')) {
       const current = window.location.pathname + window.location.search
       const next = encodeURIComponent(current)
-      window.location.replace(`/login?next=${next}&message=${encodeURIComponent('Your session expired. Please sign in again.')}`)
+      window.location.replace(`/login?next=${next}&message=session-expired`)
       await new Promise(() => {})
     }
     const message =

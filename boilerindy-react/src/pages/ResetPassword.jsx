@@ -5,16 +5,12 @@ import { useAuth } from '../context/AuthContext'
 import { parseNextPath } from '../lib/authApi'
 
 // Landing page for Supabase password-recovery links (sent from the Login
-// "Forgot password?" form). The emailed link signs the user into a recovery
-// session — supabase-js exchanges the ?code in the URL automatically — and
-// once that session exists the new password is set via auth.updateUser.
-// Signed-in users who navigate here directly can also set a new password.
+// "Forgot password?" form). Only PASSWORD_RECOVERY sessions may set a new
+// password here — a normal signed-in session is redirected to Settings.
 
 const LINK_CHECK_TIMEOUT_MS = 6000
 
 function readRecoveryError() {
-  // Supabase reports dead links in the URL hash, e.g.
-  // #error=access_denied&error_code=otp_expired&error_description=...
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
   const queryParams = new URLSearchParams(window.location.search)
   return (
@@ -29,8 +25,6 @@ export default function ResetPassword() {
   const navigate = useNavigate()
   const { refreshSession } = useAuth()
 
-  // 'checking' until the recovery session arrives, 'ready' to accept a new
-  // password, 'invalid' when the link is expired/used or no session shows up.
   const [linkState, setLinkState] = useState(() => (readRecoveryError() ? 'invalid' : 'checking'))
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -40,19 +34,20 @@ export default function ResetPassword() {
   useEffect(() => {
     if (linkState !== 'checking') return undefined
     let active = true
+    let sawRecovery = false
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (active && data?.session) setLinkState('ready')
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return
+      if (event === 'PASSWORD_RECOVERY' && session) {
+        sawRecovery = true
+        setLinkState('ready')
+      }
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active && session) setLinkState('ready')
-    })
-
-    // No session ever arriving means the code exchange failed quietly
-    // (used/expired link) — give it a few seconds before declaring it dead.
     const timer = window.setTimeout(() => {
-      if (active) setLinkState((state) => (state === 'checking' ? 'invalid' : state))
+      if (active && !sawRecovery) {
+        setLinkState((state) => (state === 'checking' ? 'invalid' : state))
+      }
     }, LINK_CHECK_TIMEOUT_MS)
 
     return () => {
@@ -79,8 +74,6 @@ export default function ResetPassword() {
     setSubmitting(true)
     try {
       await updateUserPassword(password)
-      // The recovery session is a full Supabase session; sync the backend
-      // session and drop the user straight into the app.
       await refreshSession()
       navigate(parseNextPath(''), { replace: true })
     } catch (error) {

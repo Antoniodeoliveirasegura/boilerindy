@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { parseNextPath, registerSupabaseUser } from '../lib/authApi'
-import { sendPasswordResetEmail, signInWithEmail } from '../lib/supabase'
+import { sendPasswordResetEmail, signInWithEmail, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 
 const asideFeatures = [
@@ -41,7 +41,16 @@ export default function Login() {
     }
     return messages[error] || 'Authentication could not be completed.'
   })
-  const [successBanner, setSuccessBanner] = useState(() => searchParams.get('message') || '')
+  const [successBanner, setSuccessBanner] = useState(() => {
+    const message = searchParams.get('message')
+    if (!message) return ''
+    const allowed = {
+      'password-reset-sent': 'If an account exists for that email, a reset link is on the way. Check your inbox.',
+      'signed-out': 'You have been signed out.',
+      'session-expired': 'Your session expired. Please sign in again.',
+    }
+    return allowed[message] || ''
+  })
   const [fieldErr, setFieldErr] = useState({})
 
   useEffect(() => {
@@ -118,6 +127,10 @@ export default function Login() {
 
     setSubmitting(true)
     try {
+      // Clear any stale Supabase session so a failed client sign-in cannot
+      // overwrite the fresh backend session on shared devices.
+      await supabase.auth.signOut().catch(() => {})
+
       if (tab === 'signup') {
         await registerSupabaseUser(email.trim(), password, name.trim(), rememberMe)
         try {

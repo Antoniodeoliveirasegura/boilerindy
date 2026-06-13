@@ -18,6 +18,7 @@ const STATS_STATUSES = new Set(['active', 'paused', 'ended'])
 // on their own. Analytics (impressions/taps) arrive in M3.
 
 const PLACEMENTS = [
+  { value: 'side-rail', label: 'Desktop side banners (recommended)' },
   { value: 'home-widget', label: 'Home dashboard widget' },
   { value: 'dining', label: 'Dining' },
   { value: 'transit', label: 'Transit' },
@@ -33,15 +34,19 @@ const STATUS_META = {
   ended: { label: 'Ended', cls: 'text-[var(--color-txt-3)] bg-[var(--color-bg-2)] border-[var(--color-border)]' },
 }
 
+const MIN_PHOTOS = 3
+const MAX_PHOTOS = 8
+
 const EMPTY_FORM = {
   name: '',
-  placement: 'home-widget',
+  placement: 'side-rail',
   startsOn: '',
   endsOn: '',
   headline: '',
   body: '',
-  ctaLabel: '',
+  ctaLabel: 'Visit website',
   ctaUrl: '',
+  photoUrls: ['', '', ''],
 }
 
 function StatusBadge({ status }) {
@@ -60,6 +65,8 @@ function formToPayload(form) {
   if (form.body.trim()) creative.body = form.body.trim()
   if (form.ctaLabel.trim()) creative.ctaLabel = form.ctaLabel.trim()
   if (form.ctaUrl.trim()) creative.ctaUrl = form.ctaUrl.trim()
+  const imageUrls = (form.photoUrls || []).map((u) => u.trim()).filter(Boolean)
+  if (imageUrls.length > 0) creative.imageUrls = imageUrls
   return {
     name: form.name.trim(),
     placement: form.placement,
@@ -70,15 +77,20 @@ function formToPayload(form) {
 }
 
 function campaignToForm(c) {
+  const urls = c.creative?.imageUrls?.length
+    ? [...c.creative.imageUrls]
+    : (c.creative?.imageUrl ? [c.creative.imageUrl] : [])
+  while (urls.length < MIN_PHOTOS) urls.push('')
   return {
     name: c.name || '',
-    placement: c.placement || 'home-widget',
+    placement: c.placement || 'side-rail',
     startsOn: c.startsOn || '',
     endsOn: c.endsOn || '',
     headline: c.creative?.headline || '',
     body: c.creative?.body || '',
-    ctaLabel: c.creative?.ctaLabel || '',
+    ctaLabel: c.creative?.ctaLabel || 'Visit website',
     ctaUrl: c.creative?.ctaUrl || '',
+    photoUrls: urls.slice(0, MAX_PHOTOS),
   }
 }
 
@@ -89,6 +101,21 @@ const labelCls = 'block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1
 function CampaignForm({ initial, submitting, onSubmit, onCancel, title, submitLabel }) {
   const [form, setForm] = useState(initial)
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  const setPhoto = (index) => (e) => setForm((f) => {
+    const photoUrls = [...(f.photoUrls || [])]
+    photoUrls[index] = e.target.value
+    return { ...f, photoUrls }
+  })
+  const addPhotoSlot = () => {
+    setForm((f) => {
+      const photoUrls = [...(f.photoUrls || [])]
+      if (photoUrls.length >= MAX_PHOTOS) return f
+      return { ...f, photoUrls: [...photoUrls, ''] }
+    })
+  }
+
+  const isBannerPlacement = form.placement === 'side-rail' || form.placement === 'home-widget'
+  const filledPhotos = (form.photoUrls || []).filter((u) => u.trim()).length
 
   return (
     <form
@@ -127,14 +154,53 @@ function CampaignForm({ initial, submitting, onSubmit, onCancel, title, submitLa
       </div>
 
       <div className="pt-1">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-txt-3)] mb-2">Creative</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-txt-3)] mb-2">Banner creative</div>
         <div className="space-y-3">
-          <input className={inputCls} value={form.headline} onChange={set('headline')} placeholder="Headline" aria-label="Headline" />
-          <textarea className={`${inputCls} resize-none`} rows={2} value={form.body} onChange={set('body')} placeholder="Body text" aria-label="Body" />
-          <div className="grid sm:grid-cols-2 gap-3">
-            <input className={inputCls} value={form.ctaLabel} onChange={set('ctaLabel')} placeholder="Button label (e.g. Order now)" aria-label="Button label" />
-            <input className={inputCls} value={form.ctaUrl} onChange={set('ctaUrl')} placeholder="https://your-link.com" aria-label="Button URL" />
+          <input className={inputCls} value={form.headline} onChange={set('headline')} placeholder="Headline (your business name)" aria-label="Headline" />
+          <textarea className={`${inputCls} resize-none`} rows={2} value={form.body} onChange={set('body')} placeholder="Short description students will see" aria-label="Body" />
+
+          <div>
+            <label className={labelCls} htmlFor="cmp-website">Website URL</label>
+            <input id="cmp-website" className={inputCls} value={form.ctaUrl} onChange={set('ctaUrl')} placeholder="https://yourbusiness.com" aria-label="Website URL" />
+            <p className="text-[11px] text-[var(--color-txt-3)] mt-1">Students tap the banner to open this link.</p>
           </div>
+
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className={labelCls.replace('mb-1.5', 'mb-0')}>Photos (min {MIN_PHOTOS})</span>
+              {isBannerPlacement && (
+                <span className={`text-[11px] font-medium ${filledPhotos >= MIN_PHOTOS ? 'text-emerald-600' : 'text-[var(--color-txt-3)]'}`}>
+                  {filledPhotos}/{MIN_PHOTOS}+ added
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-[var(--color-txt-3)] mb-2">
+              Paste direct image links (https://…). Side banners rotate through these photos.
+            </p>
+            <div className="space-y-2">
+              {(form.photoUrls || []).map((url, index) => (
+                <input
+                  key={index}
+                  className={inputCls}
+                  value={url}
+                  onChange={setPhoto(index)}
+                  placeholder={`Photo ${index + 1} URL${index < MIN_PHOTOS ? ' (required for review)' : ''}`}
+                  aria-label={`Photo ${index + 1} URL`}
+                />
+              ))}
+            </div>
+            {(form.photoUrls || []).length < MAX_PHOTOS && (
+              <button
+                type="button"
+                onClick={addPhotoSlot}
+                className="mt-2 text-[12px] font-semibold text-[var(--color-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0"
+              >
+                + Add another photo
+              </button>
+            )}
+          </div>
+
+          <input className={inputCls} value={form.ctaLabel} onChange={set('ctaLabel')} placeholder="Link label (e.g. Visit website)" aria-label="Link label" />
         </div>
       </div>
 
@@ -373,7 +439,7 @@ export default function AdvertiserDashboard({ advertiser }) {
           <div>
             <h1 className="text-[1.7rem] font-bold tracking-tight">Campaigns</h1>
             <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
-              Create campaigns and submit them for review. Our team approves what goes live.
+              Build a banner with at least 3 photos and your website. Submit for review when ready.
             </p>
           </div>
           {!creating && !editingId && (

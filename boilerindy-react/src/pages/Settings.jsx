@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
+import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 
 export default function Settings() {
@@ -30,6 +31,9 @@ export default function Settings() {
   const [status, setStatus] = useState('')
   const [saving, setSaving] = useState(false)
   const [analyticsSaving, setAnalyticsSaving] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
   const [feedUrl, setFeedUrl] = useState(null)
@@ -147,6 +151,45 @@ export default function Settings() {
       setBanner(error.message || 'Could not update settings.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleDeleteAccount(e) {
+    e.preventDefault()
+    setBanner('')
+    setStatus('')
+
+    if (deleteConfirm !== 'DELETE') {
+      setBanner('Type DELETE in the confirmation box to permanently delete your account.')
+      return
+    }
+    if (!deletePassword) {
+      setBanner('Enter your password to confirm deletion.')
+      return
+    }
+    if (!window.confirm('This permanently deletes your BoilerIndy account, schedule data, and posts. This cannot be undone. Continue?')) {
+      return
+    }
+
+    setDeleting(true)
+    try {
+      await authRequest('/api/me/delete-account', {
+        method: 'POST',
+        body: JSON.stringify({
+          password: deletePassword,
+          confirmation: deleteConfirm,
+        }),
+      })
+      try {
+        await supabase.auth.signOut()
+      } catch {
+        /* session may already be gone */
+      }
+      window.location.replace('/')
+    } catch (error) {
+      setBanner(error.message || 'Could not delete your account.')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -404,6 +447,54 @@ export default function Settings() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="card p-5 border border-[var(--color-error)]/25">
+            <div className="text-[11px] font-semibold text-[var(--color-error)] uppercase tracking-wider mb-4">
+              Delete account
+            </div>
+            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+              Permanently remove your BoilerIndy account, calendar data, board posts, and analytics.
+              Your Purdue link and calendar feed URL will stop working immediately.
+            </p>
+            <form onSubmit={handleDeleteAccount} className="mt-4 space-y-3">
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5" htmlFor="delete-password">
+                  Password
+                </label>
+                <input
+                  id="delete-password"
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  className="input w-full px-4 py-3 text-[14px]"
+                  placeholder="Your current password"
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5" htmlFor="delete-confirm">
+                  Type DELETE to confirm
+                </label>
+                <input
+                  id="delete-confirm"
+                  type="text"
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  className="input w-full px-4 py-3 text-[14px]"
+                  placeholder="DELETE"
+                  autoComplete="off"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={deleting}
+                className="inline-flex items-center gap-2 text-[13px] font-semibold px-4 py-2.5 rounded-lg border border-[var(--color-error)]/40 text-[var(--color-error)] bg-[var(--color-error)]/8 hover:bg-[var(--color-error)]/12 disabled:opacity-50 cursor-pointer transition-colors"
+              >
+                <Icon name="close" size={14} />
+                {deleting ? 'Deleting…' : 'Delete my account'}
+              </button>
+            </form>
           </div>
 
           <div className="card p-5">

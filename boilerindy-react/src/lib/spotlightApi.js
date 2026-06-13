@@ -22,6 +22,24 @@ export async function getActiveAd(placement = 'home-widget') {
   }
 }
 
+/** Fetch multiple active ads for rotation (side rails, etc.). Never throws. */
+export async function getActiveAds(placement = 'side-rail', limit = 8) {
+  try {
+    const params = new URLSearchParams({
+      placement,
+      limit: String(limit),
+    })
+    const res = await fetch(`/api/spotlight/active?${params}`, {
+      credentials: 'include',
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data?.ads) ? data.ads.filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
 /**
  * Log an impression or tap for a served ad. Fire-and-forget — resolves to a
  * boolean but callers can ignore it.

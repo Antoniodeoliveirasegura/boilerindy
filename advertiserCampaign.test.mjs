@@ -4,6 +4,7 @@ import {
   normalizeCampaignInput,
   normalizeCampaignPatch,
   normalizeCreative,
+  assertBannerCreative,
   safeHttpUrl,
   mapCampaignRow,
   isValidPlacement,
@@ -12,6 +13,7 @@ import {
 
 test('isValidPlacement accepts known placements and rejects others', () => {
   assert.equal(isValidPlacement('home-widget'), true)
+  assert.equal(isValidPlacement('side-rail'), true)
   assert.equal(isValidPlacement('billboard'), false)
 })
 
@@ -55,6 +57,33 @@ test('normalizeCampaignInput rejects end-before-start and bad date format', () =
 test('normalizeCreative caps length and rejects unsafe cta url', () => {
   assert.throws(() => normalizeCreative({ headline: 'x'.repeat(121) }), /headline must be/)
   assert.throws(() => normalizeCreative({ ctaUrl: 'javascript:alert(1)' }), /http/)
+})
+
+test('normalizeCreative accepts imageUrls array and syncs imageUrl', () => {
+  const c = normalizeCreative({
+    imageUrls: [
+      'https://img.example/1.jpg',
+      'https://img.example/2.jpg',
+      'https://img.example/3.jpg',
+    ],
+    ctaUrl: 'https://acme.com',
+  })
+  assert.equal(c.imageUrl, 'https://img.example/1.jpg')
+  assert.equal(c.imageUrls.length, 3)
+  assert.equal(c.ctaUrl, 'https://acme.com/')
+})
+
+test('assertBannerCreative requires 3 photos and website for banner placements', () => {
+  assert.throws(
+    () => assertBannerCreative({ imageUrls: ['https://a.com/1.jpg'] }, 'side-rail'),
+    /at least 3 photo/,
+  )
+  assert.throws(
+    () => assertBannerCreative({
+      imageUrls: ['https://a.com/1.jpg', 'https://a.com/2.jpg', 'https://a.com/3.jpg'],
+    }, 'side-rail'),
+    /website URL/,
+  )
 })
 
 test('normalizeCreative drops unknown keys and blank fields', () => {
