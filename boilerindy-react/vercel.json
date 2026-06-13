@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://boilerindy-api.onrender.com/api/:path*" },
-    { "source": "/auth/purdue/:path*", "destination": "https://boilerindy-api.onrender.com/auth/purdue/:path*" }
+    { "source": "/auth/purdue/:path*", "destination": "https://boilerindy-api.onrender.com/auth/purdue/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
