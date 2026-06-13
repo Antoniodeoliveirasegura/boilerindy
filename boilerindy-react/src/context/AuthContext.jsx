@@ -23,6 +23,9 @@ export function AuthProvider({ children }) {
     try {
       const response = await authRequest('/api/auth/supabase-sync', {
         method: 'POST',
+        headers: {
+          Authorization: `Bearer ${supabaseSession.access_token}`,
+        },
         body: JSON.stringify({
           supabaseUserId: supabaseSession.user.id,
           email: supabaseSession.user.email,
@@ -31,7 +34,6 @@ export function AuthProvider({ children }) {
                 supabaseSession.user.email?.split('@')[0],
           avatarUrl: supabaseSession.user.user_metadata?.avatar_url,
           provider: supabaseSession.user.app_metadata?.provider || 'email',
-          accessToken: supabaseSession.access_token,
         }),
       })
       return response.session
@@ -70,31 +72,24 @@ export function AuthProvider({ children }) {
 
     const initAuth = async () => {
       try {
-        // Get Supabase session first
         const { data: { session: supabaseSession } } = await supabase.auth.getSession()
         
         if (cancelled) return
 
+        let backendSession = null
         if (supabaseSession) {
           setSupabaseUser(supabaseSession.user)
-          const backendSession = await syncUserToBackend(supabaseSession)
-          if (backendSession) {
-            setSession(backendSession)
-          }
+          backendSession = await syncUserToBackend(supabaseSession)
         }
 
-        // Also check backend session
         const [sessionData, config] = await Promise.all([
           authRequest('/api/session'),
           authRequest('/api/auth-config'),
         ])
         
         if (cancelled) return
-        
-        // Prefer Supabase session if available
-        if (!supabaseSession) {
-          setSession(sessionData.session ?? null)
-        }
+
+        setSession(backendSession ?? sessionData.session ?? null)
         setAuthConfig(config)
       } catch {
         if (!cancelled) {

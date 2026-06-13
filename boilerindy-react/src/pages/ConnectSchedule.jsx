@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { authRequest, setSkipSetup } from '../lib/authApi'
+import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
 import { track } from '../lib/analytics'
 import Icon from '../components/Icons'
 
@@ -24,7 +24,9 @@ const sourceConfigs = {
 
 export default function ConnectSchedule() {
   const navigate = useNavigate()
-  const { onboarding, refreshSession, user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { onboarding, refreshSession, user, authConfig, startPurdueLink: startPurdueFromAuth } = useAuth()
+  const usesCasPurdue = authConfig?.purdueAuthMode === 'cas'
 
   const [purdueEmail, setPurdueEmail] = useState('')
   const [linking, setLinking] = useState(false)
@@ -34,12 +36,25 @@ export default function ConnectSchedule() {
   const [sources, setSources] = useState([])
   const [saving, setSaving] = useState(false)
 
-  const [banner, setBanner] = useState('')
-  const [bannerType, setBannerType] = useState('info')
+  const [banner, setBanner] = useState(() => {
+    if (searchParams.get('error') === 'purdue-link') {
+      return searchParams.get('message') || 'Could not link your Purdue account.'
+    }
+    return ''
+  })
+  const [bannerType, setBannerType] = useState(() => (
+    searchParams.get('error') === 'purdue-link' ? 'error' : 'info'
+  ))
   const [syncingAll, setSyncingAll] = useState(false)
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const config = sourceConfigs[sourceType]
+
+  useEffect(() => {
+    if (searchParams.get('error') === 'purdue-link') {
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const loadData = useCallback(async () => {
     try {
@@ -271,28 +286,44 @@ export default function ConnectSchedule() {
         {bannerEl}
 
         <div className="card p-4 sm:p-6">
-          <form onSubmit={handleLinkPurdue}>
-            <label htmlFor="purdue-email" className="block text-[13px] font-medium text-[var(--color-txt-1)] mb-2">
-              Purdue email address
-            </label>
-            <input
-              id="purdue-email"
-              type="email"
-              value={purdueEmail}
-              onChange={(e) => setPurdueEmail(e.target.value)}
-              placeholder="you@purdue.edu"
-              className="input w-full px-4 py-3 text-[16px] sm:text-[14px] mb-4 rounded-xl"
-              autoFocus
-            />
-            <button
-              type="submit"
-              disabled={linking || !purdueEmail.trim()}
-              className="btn btn-primary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center disabled:opacity-50 rounded-xl"
-            >
-              <Icon name="graduation" size={16} />
-              {linking ? 'Linking…' : 'Link Purdue Account'}
-            </button>
-          </form>
+          {usesCasPurdue ? (
+            <div className="space-y-4">
+              <p className="text-[13px] text-[var(--color-txt-2)] leading-relaxed">
+                On boilerindy.app you sign in with official Purdue CAS — we never ask you to type your Purdue password into this app.
+              </p>
+              <button
+                type="button"
+                onClick={() => (startPurdueFromAuth || startPurdueLink)('/setup')}
+                className="btn btn-primary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center rounded-xl"
+              >
+                <Icon name="graduation" size={16} />
+                Sign in with Purdue
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleLinkPurdue}>
+              <label htmlFor="purdue-email" className="block text-[13px] font-medium text-[var(--color-txt-1)] mb-2">
+                Purdue email address
+              </label>
+              <input
+                id="purdue-email"
+                type="email"
+                value={purdueEmail}
+                onChange={(e) => setPurdueEmail(e.target.value)}
+                placeholder="you@purdue.edu"
+                className="input w-full px-4 py-3 text-[16px] sm:text-[14px] mb-4 rounded-xl"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={linking || !purdueEmail.trim()}
+                className="btn btn-primary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center disabled:opacity-50 rounded-xl"
+              >
+                <Icon name="graduation" size={16} />
+                {linking ? 'Linking…' : 'Link Purdue Account'}
+              </button>
+            </form>
+          )}
         </div>
 
         <p className="text-center text-[12px] text-[var(--color-txt-3)] mt-4 px-4">
