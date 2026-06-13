@@ -283,6 +283,7 @@ export default function Settings() {
         </form>
 
         <div className="space-y-4">
+          {authConfig?.supportsPurdueLink !== false && (
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
               Purdue account
@@ -316,6 +317,7 @@ export default function Settings() {
               </>
             )}
           </div>
+          )}
 
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">

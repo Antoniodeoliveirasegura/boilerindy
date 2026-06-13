@@ -7,6 +7,7 @@ import RequireAuth from './components/RequireAuth'
 import RequireAdvertiser from './components/RequireAdvertiser'
 import Landing from './pages/Landing'
 import AdvertiserLogin from './pages/AdvertiserLogin'
+import AdvertiserResetPassword from './pages/AdvertiserResetPassword'
 import AdvertiserDashboard from './pages/advertiser/Dashboard'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
@@ -42,6 +43,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/advertise" element={<AdvertiserLogin />} />
+            <Route path="/advertise/reset-password" element={<AdvertiserResetPassword />} />
             <Route
               path="/advertise/dashboard"
               element={

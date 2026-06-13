@@ -59,6 +59,24 @@ export function requestAdvertiserAccess({ email, companyName, message }) {
   })
 }
 
+// ── Password reset (forgot-password) ─────────────────────────────────────────
+
+/** Request a reset link. Resolves the same way whether or not the email exists. */
+export function requestAdvertiserPasswordReset(email) {
+  return advertiserRequest('/api/advertiser/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+/** Set a new password using the token from the emailed reset link. */
+export function resetAdvertiserPassword(token, password) {
+  return advertiserRequest('/api/advertiser/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  })
+}
+
 // ── Campaigns (M2) ───────────────────────────────────────────────────────────
 
 /** @returns {Promise<{ campaigns: Array<object> }>} */

@@ -6,6 +6,7 @@ import {
   advertiserSignIn,
   getAdvertiserSession,
   requestAdvertiserAccess,
+  requestAdvertiserPasswordReset,
 } from '../lib/advertiserApi'
 
 // Advertiser portal sign-in — a SEPARATE login from the student /login flow, for
@@ -38,6 +39,13 @@ export default function AdvertiserLogin() {
   const [reqSubmitting, setReqSubmitting] = useState(false)
   const [reqDone, setReqDone] = useState(false)
 
+  // Forgot-password: clicking "Forgot?" swaps the sign-in form for an email
+  // form. Success is intentionally vague — the backend never reveals whether an
+  // account exists, so neither do we.
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotSubmitting, setForgotSubmitting] = useState(false)
+  const [forgotDone, setForgotDone] = useState(false)
+
   // Already signed in (e.g. after a refresh)? Skip the form, go to the dashboard.
   useEffect(() => {
     let active = true
@@ -69,6 +77,24 @@ export default function AdvertiserLogin() {
       setNotice({ type: 'error', text: error.message || 'Could not sign in. Please try again.' })
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleForgot = async (e) => {
+    e.preventDefault()
+    if (!email.trim()) {
+      setNotice({ type: 'error', text: 'Enter your business email to get a reset link.' })
+      return
+    }
+    setForgotSubmitting(true)
+    setNotice(null)
+    try {
+      await requestAdvertiserPasswordReset(email.trim())
+      setForgotDone(true)
+    } catch (error) {
+      setNotice({ type: 'error', text: error.message || 'Could not send a reset link. Please try again.' })
+    } finally {
+      setForgotSubmitting(false)
     }
   }
 
@@ -185,18 +211,31 @@ export default function AdvertiserLogin() {
             </div>
           )}
 
-          <h2 className="text-[1.6rem] font-bold tracking-tight mb-1.5">Advertiser sign in</h2>
-              <p className="text-[13px] text-[var(--color-txt-2)] mb-7">
-                Manage your campaigns and placements on BoilerIndy.
-              </p>
+          <h2 className="text-[1.6rem] font-bold tracking-tight mb-1.5">
+            {showForgot ? 'Reset your password' : 'Advertiser sign in'}
+          </h2>
+          <p className="text-[13px] text-[var(--color-txt-2)] mb-7">
+            {showForgot
+              ? 'Enter your business email and we’ll send you a reset link.'
+              : 'Manage your campaigns and placements on BoilerIndy.'}
+          </p>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+          {showForgot ? (
+            forgotDone ? (
+              <div
+                role="status"
+                className="rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 p-3.5 text-[13px] leading-relaxed text-[var(--color-txt-1)]"
+              >
+                If an advertiser account exists for that email, we’ve sent a reset link. Check your inbox — it expires in 1 hour.
+              </div>
+            ) : (
+              <form onSubmit={handleForgot} className="space-y-4">
                 <div>
-                  <label htmlFor="adv-email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">
+                  <label htmlFor="adv-forgot-email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">
                     Business email
                   </label>
                   <input
-                    id="adv-email"
+                    id="adv-forgot-email"
                     type="email"
                     autoComplete="email"
                     value={email}
@@ -205,36 +244,85 @@ export default function AdvertiserLogin() {
                     className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
                   />
                 </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label htmlFor="adv-password" className="text-[12px] font-semibold text-[var(--color-txt-1)]">
-                      Password
-                    </label>
-                    <button type="button" className="text-[11px] text-[var(--color-accent)] hover:underline bg-transparent border-0 p-0 cursor-pointer">
-                      Forgot?
-                    </button>
-                  </div>
-                  <input
-                    id="adv-password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
-                  />
-                </div>
-
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={forgotSubmitting}
                   className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Icon name="briefcase" size={15} />
-                  {submitting ? 'Signing in…' : 'Sign in to portal'}
+                  <Icon name="send" size={15} />
+                  {forgotSubmitting ? 'Sending…' : 'Send reset link'}
                 </button>
               </form>
+            )
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="adv-email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">
+                  Business email
+                </label>
+                <input
+                  id="adv-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="adv-password" className="text-[12px] font-semibold text-[var(--color-txt-1)]">
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgot(true)
+                      setNotice(null)
+                    }}
+                    className="text-[11px] text-[var(--color-accent)] hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                  >
+                    Forgot?
+                  </button>
+                </div>
+                <input
+                  id="adv-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                />
+              </div>
 
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Icon name="briefcase" size={15} />
+                {submitting ? 'Signing in…' : 'Sign in to portal'}
+              </button>
+            </form>
+          )}
+
+          {showForgot ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowForgot(false)
+                setForgotDone(false)
+                setNotice(null)
+              }}
+              className="mt-6 inline-flex items-center gap-1.5 text-[13px] text-[var(--color-accent)] hover:underline bg-transparent border-0 p-0 cursor-pointer"
+            >
+              <Icon name="arrowUpRight" size={13} className="rotate-[225deg]" />
+              Back to sign in
+            </button>
+          ) : (
+            <>
               <div className="flex items-center gap-3 my-6">
                 <div className="flex-1 h-px bg-[var(--color-border)]" />
                 <span className="text-[11px] text-[var(--color-txt-3)] uppercase tracking-wider">New here</span>
@@ -297,11 +385,13 @@ export default function AdvertiserLogin() {
                   Request advertiser access
                 </button>
               )}
+            </>
+          )}
 
-              <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
-                Looking for the student app?{' '}
-                <Link to="/login" className="text-[var(--color-accent)] hover:underline">Sign in here</Link>.
-              </p>
+          <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
+            Looking for the student app?{' '}
+            <Link to="/login" className="text-[var(--color-accent)] hover:underline">Sign in here</Link>.
+          </p>
         </div>
 
         <p className="text-[11px] text-[var(--color-txt-3)] text-center">

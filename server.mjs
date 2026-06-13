@@ -69,6 +69,15 @@ import {
   normalizeAdminCampaignStatusInput,
   parseAdminListFilter,
 } from './adminPortal.mjs'
+import {
+  normalizeForgotPasswordInput,
+  normalizeResetPasswordInput,
+  generateResetToken,
+  hashResetToken,
+  resetTokenExpiry,
+  isResetTokenExpired,
+} from './advertiserPasswordReset.mjs'
+import { sendAdvertiserPasswordResetEmail } from './email.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -82,6 +91,11 @@ const host = process.env.HOST || '127.0.0.1'
 const publicBaseUrl = (process.env.BACKEND_PUBLIC_URL || process.env.BETTER_AUTH_URL || `http://${host}:${port}`).replace(/\/$/, '')
 const clientAppUrl = (process.env.CLIENT_APP_URL || 'http://localhost:5173').replace(/\/$/, '')
 const purdueAuthMode = (process.env.PURDUE_AUTH_MODE || 'mock').toLowerCase()
+// 'off' disables Purdue identity linking entirely (e.g. before CAS is wired):
+// the connect UI is hidden, onboarding stops prompting a link, and calendar
+// sources (Brightspace / Purdue timetable iCal) no longer require a linked
+// Purdue identity. 'mock' = dev email-link; 'cas' = real Purdue CAS.
+const purdueLinkingEnabled = purdueAuthMode !== 'off'
 const defaultNextPath = '/setup'
 const adminEmails = new Set(
   (process.env.ADMIN_EMAILS || '')
@@ -167,6 +181,15 @@ const accountCreateRateLimit = createRateLimiter({
   max: 10,
   keyBy: 'ip',
   message: 'Too many account requests from this network. Please try again in an hour.',
+})
+// Advertiser forgot/reset password. Per-IP, generous enough for a fat-fingered
+// retry but tight enough to blunt token-guessing and email-spam abuse.
+const passwordResetRateLimit = createRateLimiter({
+  name: 'password-reset',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyBy: 'ip',
+  message: 'Too many password reset requests. Please try again in an hour.',
 })
 const sessionSyncRateLimit = createRateLimiter({
   name: 'session-sync',
@@ -499,8 +522,10 @@ async function getUserSummary(userId) {
     linkedSourceCount: linkedSourceCount || 0,
     classCount: classCount || 0,
     hasPurdueLinked,
-    needsPurdueConnection: !hasPurdueLinked,
-    needsScheduleSource: hasPurdueLinked && (linkedSourceCount || 0) === 0,
+    // When Purdue linking is off, never prompt a link and let users attach
+    // calendar sources directly (no identity link required).
+    needsPurdueConnection: purdueLinkingEnabled ? !hasPurdueLinked : false,
+    needsScheduleSource: (purdueLinkingEnabled ? hasPurdueLinked : true) && (linkedSourceCount || 0) === 0,
   }
 }
 
@@ -553,6 +578,8 @@ function requireAdmin(req, res, next) {
 }
 
 function requirePurdueLinked(req, res, next) {
+  // Linking off: calendar sources don't require a linked Purdue identity.
+  if (!purdueLinkingEnabled) return next()
   if (!req.currentUser?.purdue_email) {
     return res.status(400).json({
       error: {
@@ -889,7 +916,7 @@ app.get('/api/auth-config', (_req, res) => {
   res.json({
     authProvider: 'local',
     purdueAuthMode,
-    supportsPurdueLink: true,
+    supportsPurdueLink: purdueLinkingEnabled,
     supportedSources: ['purdue_schedule_ical'],
   })
 })
@@ -1228,6 +1255,9 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
 
 app.get('/auth/purdue/connect', requireAuth, (req, res) => {
   const nextPath = sanitizeNext(req.query.next)
+  if (!purdueLinkingEnabled) {
+    return res.redirect(`${clientAppUrl}/settings`)
+  }
   if (purdueAuthMode === 'cas') {
     const loginUrl = process.env.PURDUE_CAS_LOGIN_URL
     const validateUrl = process.env.PURDUE_CAS_VALIDATE_URL
@@ -1243,6 +1273,9 @@ app.get('/auth/purdue/connect', requireAuth, (req, res) => {
 
 app.post('/auth/purdue/dev/link', requireAuth, async (req, res) => {
   const nextPath = sanitizeNext(req.body.next)
+  if (!purdueLinkingEnabled) {
+    return res.status(404).send('Purdue linking is currently disabled.')
+  }
   if (purdueAuthMode === 'cas') {
     return res.status(404).send('Mock Purdue linking is disabled while CAS mode is active.')
   }
@@ -1257,6 +1290,9 @@ app.post('/auth/purdue/dev/link', requireAuth, async (req, res) => {
 })
 
 app.post('/api/purdue/mock-link', requireAuth, async (req, res) => {
+  if (!purdueLinkingEnabled) {
+    return res.status(400).json({ error: { message: 'Purdue linking is currently disabled.', status: 400 } })
+  }
   if (purdueAuthMode === 'cas') {
     return res.status(400).json({ error: { message: 'Mock Purdue linking is disabled while CAS mode is active.', status: 400 } })
   }
@@ -2892,6 +2928,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 
 const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
 const ADVERTISER_CAMPAIGNS_SQL_FILE = 'supabase-advertiser-campaigns.sql'
+const ADVERTISER_RESETS_SQL_FILE = 'supabase-advertiser-password-resets.sql'
 const ADVERTISER_AD_EVENTS_SQL_FILE = 'supabase-advertiser-ad-events.sql'
 
 function isAdvertiserSchemaMissingError(err) {
@@ -3036,6 +3073,114 @@ app.post('/api/advertiser/request-access', accountCreateRateLimit, async (req, r
   if (error) return respondAdvertiserDbError(res, error)
 
   res.status(201).json({ ok: true })
+})
+
+// ── Password reset (forgot-password) ─────────────────────────────────────────
+// Self-serve, isolated from student auth. forgot-password ALWAYS responds 200
+// (never reveals whether an email has an account); reset-password validates a
+// single-use, 1h token whose SHA-256 hash is stored in advertiser_password_resets.
+
+async function createAdvertiserResetToken(advertiserId) {
+  const { token, tokenHash } = generateResetToken()
+  const { error } = await supabase.from('advertiser_password_resets').insert({
+    id: makeId(),
+    advertiser_id: advertiserId,
+    token_hash: tokenHash,
+    expires_at: resetTokenExpiry(),
+    created_at: nowIso(),
+  })
+  if (error) throw error
+  return token
+}
+
+async function findAdvertiserResetByToken(token) {
+  const { data, error } = await supabase
+    .from('advertiser_password_resets')
+    .select('*')
+    .eq('token_hash', hashResetToken(token))
+    .is('used_at', null)
+    .single()
+  if (error) {
+    if (error.code === 'PGRST116') return { reset: null, error: null } // no matching/unused row
+    return { reset: null, error }
+  }
+  return { reset: data || null, error: null }
+}
+
+app.post('/api/advertiser/forgot-password', passwordResetRateLimit, async (req, res) => {
+  let input
+  try {
+    input = normalizeForgotPasswordInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { advertiser, error } = await getAdvertiserByEmail(input.email)
+  if (error) return respondAdvertiserDbError(res, error)
+
+  // Only mint + email a token for an existing, active account — but never tell
+  // the client either way (uniform 200) so the endpoint can't enumerate emails.
+  if (advertiser && advertiser.status === 'active') {
+    try {
+      const token = await createAdvertiserResetToken(advertiser.id)
+      const resetUrl = `${clientAppUrl}/advertise/reset-password?token=${encodeURIComponent(token)}`
+      const result = await sendAdvertiserPasswordResetEmail({
+        to: advertiser.email,
+        resetUrl,
+        companyName: advertiser.company_name,
+      })
+      // Email not configured (dev): surface the link in the server log so the
+      // flow is testable without a provider (mirrors Sentry-disabled wiring).
+      if (result?.skipped) {
+        console.warn(`[advertiser reset] email disabled — reset link for ${advertiser.email}: ${resetUrl}`)
+      }
+    } catch (sendErr) {
+      if (isAdvertiserSchemaMissingError(sendErr)) {
+        return res.status(503).json({
+          error: {
+            message: `Advertiser reset table is missing. In Supabase: SQL Editor → run ${ADVERTISER_RESETS_SQL_FILE} → Run, then try again.`,
+            code: 'advertiser_schema_missing',
+            status: 503,
+          },
+        })
+      }
+      console.error('Advertiser forgot-password failed:', sendErr?.message || sendErr)
+      return res.status(500).json({ error: { message: 'Could not send the reset email. Please try again.', status: 500 } })
+    }
+  }
+
+  res.json({ ok: true })
+})
+
+app.post('/api/advertiser/reset-password', passwordResetRateLimit, async (req, res) => {
+  let input
+  try {
+    input = normalizeResetPasswordInput(req.body)
+  } catch (error) {
+    return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { reset, error } = await findAdvertiserResetByToken(input.token)
+  if (error) return respondAdvertiserDbError(res, error)
+  if (!reset || isResetTokenExpired(reset.expires_at)) {
+    return res.status(400).json({ error: { message: 'This reset link is invalid or has expired.', status: 400 } })
+  }
+
+  const { error: updateErr } = await supabase
+    .from('advertisers')
+    .update({ password_hash: hashPassword(input.password), updated_at: nowIso() })
+    .eq('id', reset.advertiser_id)
+  if (updateErr) return respondAdvertiserDbError(res, updateErr)
+
+  // Burn this token AND any other outstanding tokens for the advertiser, so a
+  // reset link can't be replayed and stale links stop working.
+  await supabase
+    .from('advertiser_password_resets')
+    .update({ used_at: nowIso() })
+    .eq('advertiser_id', reset.advertiser_id)
+    .is('used_at', null)
+
+  res.json({ ok: true })
 })
 
 // ── Campaigns (M2) ───────────────────────────────────────────────────────────
