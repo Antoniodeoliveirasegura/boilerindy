@@ -16,7 +16,7 @@ const DEFAULT_TZ = 'America/Indiana/Indianapolis'
 // object of shape { params, val }. Reading `.toLowerCase()` or `String(...)` on
 // that object crashes the sync or silently stores "[object Object]". Coerce any
 // iCal text property to its underlying string before use.
-function icalText(value) {
+export function icalText(value) {
   if (value == null) return ''
   if (typeof value === 'string') return value
   if (typeof value === 'object' && typeof value.val === 'string') return value.val

@@ -30,7 +30,7 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './boardProfanity.mjs'
 import { createRateLimiter } from './rateLimiter.mjs'
-import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents } from './scheduleSync.mjs'
+import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './scheduleSync.mjs'
 import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
@@ -1390,7 +1390,9 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
     
     // Get first 5 raw events with their key properties
     const sampleEvents = rawEvents.slice(0, 5).map(e => ({
-      summary: e.summary,
+      // Coerce node-ical's object-shaped text (SUMMARY;LANGUAGE=…) so the debug
+      // output shows the title the sync would actually store, not "[object Object]".
+      summary: icalText(e.summary),
       start: e.start,
       startType: typeof e.start,
       startTz: e.start?.tz,
@@ -1403,7 +1405,7 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
     // Expand and get first 10 expanded events
     const expanded = expandRecurringEvents(rawEvents.slice(0, 10), detectedTimezone)
     const sampleExpanded = expanded.slice(0, 10).map(e => ({
-      summary: e.summary,
+      summary: icalText(e.summary),
       start: e.start?.toISOString?.(),
       end: e.end?.toISOString?.(),
       uid: e.uid?.slice(0, 50),
