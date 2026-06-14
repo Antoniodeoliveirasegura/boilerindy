@@ -109,7 +109,17 @@ export function useDashboardLayout(userId) {
     [layout, commit],
   )
 
+  // Set a widget's display width ('quarter' | 'half' | 'three-quarter' | 'full').
+  // normalizeLayout (inside commit) clamps anything unexpected, so the UI can
+  // pass a stepped-up/down value without re-validating here.
+  const setSize = useCallback(
+    (id, size) => {
+      commit(layout.map((w) => (w.id === id ? { ...w, size } : w)))
+    },
+    [layout, commit],
+  )
+
   const reset = useCallback(() => commit(defaultLayout()), [commit])
 
-  return { layout, editing, setEditing, move, reorder, setVisible, reset }
+  return { layout, editing, setEditing, move, reorder, setVisible, setSize, reset }
 }

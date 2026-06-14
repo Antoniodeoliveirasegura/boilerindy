@@ -8,6 +8,7 @@ import {
   WIDGET_IDS,
   normalizeLayout,
   defaultLayout,
+  allowedSizesFor,
   DEFAULT_LAYOUT,
 } from '../dashboardLayout.mjs'
 
@@ -19,17 +20,47 @@ test('normalizeLayout drops unknown widget ids', () => {
 
 test('normalizeLayout de-duplicates by id (first wins)', () => {
   const out = normalizeLayout([
-    { id: 'dining', size: 'wide' },
-    { id: 'dining', size: 'normal' },
+    { id: 'dining', size: 'full' },
+    { id: 'dining', size: 'quarter' },
   ])
   const dining = out.filter((w) => w.id === 'dining')
   assert.equal(dining.length, 1)
-  assert.equal(dining[0].size, 'wide')
+  assert.equal(dining[0].size, 'full')
 })
 
-test('normalizeLayout clamps invalid sizes to "normal"', () => {
+test('normalizeLayout clamps invalid sizes to "half"', () => {
   const out = normalizeLayout([{ id: 'board', size: 'gigantic' }])
-  assert.equal(out.find((w) => w.id === 'board').size, 'normal')
+  assert.equal(out.find((w) => w.id === 'board').size, 'half')
+})
+
+test('allowedSizesFor: most widgets are half..full, quick-actions is quarter..full', () => {
+  assert.deepEqual(allowedSizesFor('board'), ['half', 'three-quarter', 'full'])
+  assert.deepEqual(allowedSizesFor('next-class'), ['half', 'three-quarter', 'full'])
+  assert.deepEqual(allowedSizesFor('quick-actions'), [
+    'quarter',
+    'half',
+    'three-quarter',
+    'full',
+  ])
+})
+
+test('normalizeLayout clamps below-min quarter up to half for ordinary widgets', () => {
+  const out = normalizeLayout([{ id: 'board', size: 'quarter' }])
+  assert.equal(out.find((w) => w.id === 'board').size, 'half')
+})
+
+test('normalizeLayout keeps quarter for quick-actions (its vertical width)', () => {
+  const out = normalizeLayout([{ id: 'quick-actions', size: 'quarter' }])
+  assert.equal(out.find((w) => w.id === 'quick-actions').size, 'quarter')
+})
+
+test('normalizeLayout migrates legacy sizes (normal -> half, wide -> full)', () => {
+  const out = normalizeLayout([
+    { id: 'board', size: 'normal' },
+    { id: 'week-ahead', size: 'wide' },
+  ])
+  assert.equal(out.find((w) => w.id === 'board').size, 'half')
+  assert.equal(out.find((w) => w.id === 'week-ahead').size, 'full')
 })
 
 test('normalizeLayout preserves caller order then appends missing widgets hidden', () => {

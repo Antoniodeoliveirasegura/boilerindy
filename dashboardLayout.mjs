@@ -24,32 +24,79 @@ export const WIDGET_IDS = [
 ]
 
 const WIDGET_ID_SET = new Set(WIDGET_IDS)
-export const WIDGET_SIZES = ['normal', 'wide']
+
+// Widget widths, ordered narrowest -> widest. They map to column spans on the
+// 4-column desktop dashboard grid: quarter=1, half=2, three-quarter=3, full=4.
+// The order matters: the edit UI steps a widget up/down through this list.
+export const WIDGET_SIZES = ['quarter', 'half', 'three-quarter', 'full']
 const SIZE_SET = new Set(WIDGET_SIZES)
+const DEFAULT_SIZE = 'half'
+
+// Per-widget width range. Most widgets read poorly squeezed below half width, so
+// their minimum is `half` (max stays `full`). Quick actions is the exception: it
+// is a grid of icon buttons that collapses cleanly into a narrow vertical strip,
+// so it keeps the full quarter..full range.
+const DEFAULT_ALLOWED_SIZES = WIDGET_SIZES.slice(WIDGET_SIZES.indexOf('half')) // half -> full
+const WIDGET_ALLOWED_SIZES = {
+  'quick-actions': WIDGET_SIZES, // quarter -> full (quarter renders as a vertical stack)
+}
+
+/** The ordered list of widths a given widget may take (narrowest -> widest). */
+export function allowedSizesFor(id) {
+  return WIDGET_ALLOWED_SIZES[id] || DEFAULT_ALLOWED_SIZES
+}
+
+// Clamp a canonical size into the widget's allowed range, snapping to the nearest
+// end. Lets a layout saved under the old wider range (e.g. a quarter-width
+// non-quick-actions widget) migrate up to that widget's new minimum.
+function clampSizeForWidget(id, size) {
+  const allowed = allowedSizesFor(id)
+  if (allowed.includes(size)) return size
+  const idx = WIDGET_SIZES.indexOf(size)
+  const minSize = allowed[0]
+  const maxSize = allowed[allowed.length - 1]
+  if (idx > WIDGET_SIZES.indexOf(maxSize)) return maxSize
+  return minSize
+}
+
+// Back-compat: the dashboard originally had only normal/wide. Map those onto the
+// new scale so saved layouts keep their look (normal was 1-of-2 columns = half,
+// wide was 2-of-2 = full).
+const LEGACY_SIZE_ALIASES = { normal: 'half', wide: 'full' }
 
 // Shown to a brand-new user (or after a reset). Order/visibility mirrors the
 // current dashboard's most useful sections.
 export const DEFAULT_LAYOUT = [
-  { id: 'week-ahead', size: 'wide', visible: true },
-  { id: 'smart-alerts', size: 'wide', visible: true },
-  { id: 'quick-actions', size: 'wide', visible: true },
-  { id: 'next-class', size: 'normal', visible: true },
-  { id: 'free-time', size: 'normal', visible: true },
-  { id: 'todays-events', size: 'normal', visible: true },
-  { id: 'tasks-due', size: 'normal', visible: true },
-  { id: 'live-shuttles', size: 'normal', visible: true },
-  { id: 'dining', size: 'normal', visible: true },
-  { id: 'board', size: 'normal', visible: true },
-  { id: 'sponsored', size: 'normal', visible: true },
-  { id: 'calendar-feed', size: 'normal', visible: false },
+  { id: 'week-ahead', size: 'full', visible: true },
+  { id: 'smart-alerts', size: 'full', visible: true },
+  { id: 'quick-actions', size: 'full', visible: true },
+  { id: 'next-class', size: 'half', visible: true },
+  { id: 'free-time', size: 'half', visible: true },
+  { id: 'todays-events', size: 'half', visible: true },
+  { id: 'tasks-due', size: 'half', visible: true },
+  { id: 'live-shuttles', size: 'half', visible: true },
+  { id: 'dining', size: 'half', visible: true },
+  { id: 'board', size: 'half', visible: true },
+  { id: 'sponsored', size: 'half', visible: true },
+  { id: 'calendar-feed', size: 'half', visible: false },
 ]
+
+// Clamp an arbitrary size to the allowed set, migrating legacy names and
+// falling back to DEFAULT_SIZE for anything unrecognised.
+function normalizeSize(size) {
+  if (SIZE_SET.has(size)) return size
+  if (Object.prototype.hasOwnProperty.call(LEGACY_SIZE_ALIASES, size)) {
+    return LEGACY_SIZE_ALIASES[size]
+  }
+  return DEFAULT_SIZE
+}
 
 function normalizeEntry(entry) {
   if (!entry || typeof entry !== 'object') return null
   if (!WIDGET_ID_SET.has(entry.id)) return null
   return {
     id: entry.id,
-    size: SIZE_SET.has(entry.size) ? entry.size : 'normal',
+    size: clampSizeForWidget(entry.id, normalizeSize(entry.size)),
     // Default to visible unless explicitly disabled.
     visible: entry.visible !== false,
   }
@@ -59,7 +106,7 @@ function normalizeEntry(entry) {
  * Sanitize an arbitrary value into a valid layout array:
  * - drops non-objects and unknown widget ids
  * - de-duplicates by id (first occurrence wins)
- * - clamps size to the allowed set
+ * - clamps size to the allowed set (migrating legacy normal/wide)
  * - appends any catalogue widgets missing from the input (hidden), so newly
  *   added widgets surface for existing users without wiping their order
  *
@@ -83,7 +130,7 @@ export function normalizeLayout(input) {
   for (const id of WIDGET_IDS) {
     if (!seen.has(id)) {
       const fallback = DEFAULT_LAYOUT.find((w) => w.id === id)
-      result.push({ id, size: fallback?.size || 'normal', visible: false })
+      result.push({ id, size: fallback?.size || DEFAULT_SIZE, visible: false })
     }
   }
 

@@ -147,6 +147,12 @@ const icons = {
   chevronDown: (
     <path d="M6 9l6 6 6-6"/>
   ),
+  chevronLeft: (
+    <path d="M15 18l-6-6 6-6"/>
+  ),
+  chevronRight: (
+    <path d="M9 18l6-6-6-6"/>
+  ),
   plus: (
     <>
       <line x1="12" y1="5" x2="12" y2="19"/>

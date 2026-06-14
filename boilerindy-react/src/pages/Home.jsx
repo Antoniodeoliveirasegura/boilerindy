@@ -35,6 +35,19 @@ const quickActionTemplates = [
   { path: '/events', label: 'Events', sub: '', icon: 'calendar', color: 'events' },
 ]
 
+// Quick actions widget width -> internal grid columns. At quarter width the
+// actions stack into a single vertical column; wider widths fan them out. Full
+// class strings keep Tailwind's scanner happy (it can't read computed names).
+const QUICK_ACTIONS_GRID_CLASS = {
+  quarter: 'grid-cols-1',
+  half: 'grid-cols-2',
+  'three-quarter': 'grid-cols-2 lg:grid-cols-3',
+  full: 'grid-cols-2 lg:grid-cols-4',
+}
+function quickActionsGridClass(size) {
+  return QUICK_ACTIONS_GRID_CLASS[size] || QUICK_ACTIONS_GRID_CLASS.full
+}
+
 /** Broader fetch for Home: dues + events (today's event strip still filters to event-like categories). */
 const HOME_CALENDAR_CATEGORIES =
   'campus_event,event,deadline,activity,assignment,task,homework,submission,quiz,project,exam,lab,midterm,paper,presentation'
@@ -423,7 +436,7 @@ export default function Home() {
   const { getFirstName, onboarding, user, authConfig } = useAuth()
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
-  const { layout, editing, setEditing, move, reorder, setVisible, reset } = useDashboardLayout(user?.id)
+  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(user?.id)
   const [now, setNow] = useState(() => new Date())
   const [classes, setClasses] = useState([])
   const [classLoadError, setClassLoadError] = useState('')
@@ -907,8 +920,12 @@ export default function Home() {
     },
     'quick-actions': {
       title: 'Quick actions',
-      render: () => (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 transition-all duration-700 opacity-100 translate-y-0">
+      // Column count follows the widget's width so a narrow widget stacks its
+      // actions vertically instead of squashing them. Full class strings are
+      // written out so Tailwind's scanner emits them.
+      render: (size) => (
+        <div className={`grid gap-2.5 sm:gap-3 transition-all duration-700 opacity-100 translate-y-0 ${quickActionsGridClass(size)}`}>
+
         {quickActions.map(({ path, label, sub, icon, color }, idx) => (
           <Link
             key={path}
@@ -1547,10 +1564,19 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+      <div
+        className={
+          editing
+            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'
+            : // View mode: 1px row tracks + dense flow turn the grid into a
+              // masonry layout so short widgets don't leave vertical holes.
+              // Column spans still apply; row spans are set per-widget.
+              'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 sm:gap-x-4 items-start [grid-auto-rows:1px] [grid-auto-flow:row_dense]'
+        }
+      >
         {visibleWidgets.map((w, idx) => {
           const def = widgetRegistry[w.id]
-          const content = def.render()
+          const content = def.render(w.size)
           // Outside edit mode, a widget with nothing to show takes no space.
           if (!editing && !content) return null
           return (
@@ -1559,10 +1585,11 @@ export default function Home() {
               id={w.id}
               title={def.title}
               editing={editing}
-              isWide={w.size === 'wide'}
+              size={w.size}
               canMoveUp={idx > 0}
               canMoveDown={idx < visibleWidgets.length - 1}
               onMove={move}
+              onResize={setSize}
               onHide={(id) => setVisible(id, false)}
               onDropReorder={reorder}
               reducedMotion={reducedMotion}
