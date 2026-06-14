@@ -32,8 +32,28 @@ invalid `GEMINI_API_KEY` (still open — check Week Ahead).
 |---|---|---|
 | #35 | Interactive landing background | Frontend-only design work (CSS/canvas aurora, grid, or map motif) |
 | #34 | Campus safety layer | Mostly static data + existing Leaflet map overlay |
-| #10 | Grade tracker | Self-contained CRUD + GPA math; needs one new Supabase table (or localStorage MVP) |
-| #16 | Club calendar sync | Reuses existing ICS sync pipeline once club feed URLs are collected |
+| #10 | Grade tracker | ✅ **DONE** (2026-06-13) — `user_grades` + `/api/me/grades` + GPA dashboard widget |
+| #16 | Club calendar sync | ⚠️ **STASHED — blocked on a usable event feed** (2026-06-14). See note below. |
+
+**#16 Club calendar sync — investigation (2026-06-14, stashed, no code shipped):**
+BoilerLink runs on Anthology Engage. Findings from probing its public endpoints:
+- ✅ The **organizations directory IS a public JSON API**:
+  `https://boilerlink.purdue.edu/api/discovery/search/organizations` returns all
+  ~1,262 orgs with `Name`, `Description`, `CategoryNames`, `ProfilePicture`,
+  `WebsiteKey`. An in-app club directory (browse/search → deep-link to each org's
+  BoilerLink page) is buildable from this today.
+- ❌ **Event feeds are not reachable by us.** The events discovery endpoint serves
+  the SPA HTML shell (`/api/discovery/event/search/events`) or 404s
+  (`/api/discovery/search/events`); per-org **iCal feeds exist but are
+  admin-generated** (a student can't mint a per-org `.ics` URL); and the official
+  Engage API needs **OAuth keys only a Purdue Engage admin can issue**
+  (`/keymanagement`). So syncing club *events* into the Events feed is blocked on
+  a feed we can't access — not a code problem.
+
+Unblock paths when revisited: (a) ship the **club directory** from the public
+orgs API + deep-link to BoilerLink for events; (b) a **paste-a-URL** ICS subscribe
+(reuses the existing sync pipeline) for any club feed a student already has;
+(c) get campus Engage API OAuth keys for the real events integration.
 
 ### B. Platform/infra projects
 
