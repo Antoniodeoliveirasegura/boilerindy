@@ -11,7 +11,8 @@
       "name": "boilerindy-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "boilerindy-react"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": false
     },
     {
       "name": "boilerindy-backend",
