@@ -14,9 +14,17 @@ import {
   DEFAULT_LAYOUT,
   normalizeLayout,
   defaultLayout,
+  allowedSizesFor,
 } from '../../../dashboardLayout.mjs'
 
-export { WIDGET_IDS, WIDGET_SIZES, DEFAULT_LAYOUT, normalizeLayout, defaultLayout }
+export {
+  WIDGET_IDS,
+  WIDGET_SIZES,
+  DEFAULT_LAYOUT,
+  normalizeLayout,
+  defaultLayout,
+  allowedSizesFor,
+}
 
 function storageKey(userId) {
   return `boilerindy-dashboard-layout-v1-${userId}`

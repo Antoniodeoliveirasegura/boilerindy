@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useLayoutEffect } from 'react'
 import Icon from '../Icons'
-import { WIDGET_SIZES } from '../../lib/dashboardLayoutStore'
+import { allowedSizesFor } from '../../lib/dashboardLayoutStore'
 
 /**
  * One slot in the customizable home dashboard grid (issue #52).
@@ -28,6 +28,40 @@ const SPAN_CLASS = {
   full: 'sm:col-span-2 lg:col-span-4',
 }
 
+// View-mode masonry: the parent grid uses 1px row tracks (see Home.jsx), so a
+// widget consumes only as many rows as its content height + the inter-widget
+// gap. With grid-auto-flow:dense this lets a short widget's neighbour rise into
+// the leftover space instead of leaving a hole. Disabled while editing, where a
+// uniform grid keeps drag-and-drop predictable.
+const MASONRY_GAP_PX = 16
+
+function useMasonrySpan(enabled) {
+  const ref = useRef(null)
+  const [span, setSpan] = useState(null)
+  useLayoutEffect(() => {
+    // While editing the span is unused (uniform grid), so skip work entirely —
+    // the stale value is simply ignored until view mode re-measures.
+    if (!enabled) return undefined
+    const el = ref.current
+    if (!el) return undefined
+    const measure = () => {
+      // align-self:start keeps the widget at its natural content height, so its
+      // measured height never depends on the row span we set — no feedback loop.
+      const h = el.getBoundingClientRect().height
+      if (h) setSpan(Math.max(1, Math.ceil(h + MASONRY_GAP_PX)))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [enabled])
+  return [ref, span]
+}
+
 export default function DashboardWidget({
   id,
   title,
@@ -43,12 +77,18 @@ export default function DashboardWidget({
   children,
 }) {
   const [dragOver, setDragOver] = useState(false)
+  const [masonryRef, masonrySpan] = useMasonrySpan(!editing)
 
   const spanClass = SPAN_CLASS[size] || SPAN_CLASS.half
 
   if (!editing) {
     return (
-      <div className={spanClass} data-widget-id={id}>
+      <div
+        ref={masonryRef}
+        className={`${spanClass} self-start`}
+        style={masonrySpan ? { gridRowEnd: `span ${masonrySpan}` } : undefined}
+        data-widget-id={id}
+      >
         {children}
       </div>
     )
@@ -56,12 +96,15 @@ export default function DashboardWidget({
 
   const motionClass = reducedMotion ? '' : 'transition-shadow'
 
-  // Step the widget through WIDGET_SIZES (ordered narrowest -> widest).
-  const sizeIdx = WIDGET_SIZES.indexOf(size)
+  // Step the widget through its own allowed widths (ordered narrowest -> widest).
+  // Most widgets are clamped to half..full; quick-actions can go quarter (a
+  // narrow vertical strip).
+  const sizes = allowedSizesFor(id)
+  const sizeIdx = sizes.indexOf(size)
   const canShrink = sizeIdx > 0
-  const canGrow = sizeIdx >= 0 && sizeIdx < WIDGET_SIZES.length - 1
+  const canGrow = sizeIdx >= 0 && sizeIdx < sizes.length - 1
   const resize = (dir) => {
-    const next = WIDGET_SIZES[sizeIdx + dir]
+    const next = sizes[sizeIdx + dir]
     if (next) onResize(id, next)
   }
 

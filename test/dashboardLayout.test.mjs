@@ -8,6 +8,7 @@ import {
   WIDGET_IDS,
   normalizeLayout,
   defaultLayout,
+  allowedSizesFor,
   DEFAULT_LAYOUT,
 } from '../dashboardLayout.mjs'
 
@@ -30,6 +31,27 @@ test('normalizeLayout de-duplicates by id (first wins)', () => {
 test('normalizeLayout clamps invalid sizes to "half"', () => {
   const out = normalizeLayout([{ id: 'board', size: 'gigantic' }])
   assert.equal(out.find((w) => w.id === 'board').size, 'half')
+})
+
+test('allowedSizesFor: most widgets are half..full, quick-actions is quarter..full', () => {
+  assert.deepEqual(allowedSizesFor('board'), ['half', 'three-quarter', 'full'])
+  assert.deepEqual(allowedSizesFor('next-class'), ['half', 'three-quarter', 'full'])
+  assert.deepEqual(allowedSizesFor('quick-actions'), [
+    'quarter',
+    'half',
+    'three-quarter',
+    'full',
+  ])
+})
+
+test('normalizeLayout clamps below-min quarter up to half for ordinary widgets', () => {
+  const out = normalizeLayout([{ id: 'board', size: 'quarter' }])
+  assert.equal(out.find((w) => w.id === 'board').size, 'half')
+})
+
+test('normalizeLayout keeps quarter for quick-actions (its vertical width)', () => {
+  const out = normalizeLayout([{ id: 'quick-actions', size: 'quarter' }])
+  assert.equal(out.find((w) => w.id === 'quick-actions').size, 'quarter')
 })
 
 test('normalizeLayout migrates legacy sizes (normal -> half, wide -> full)', () => {
