@@ -18,8 +18,11 @@ Live on `main` as `c02fcad` (backend) + `be50592` (frontend).
 
 Follow-ups from that session: run the `edited_at` migration; delete test accounts
 `claude.verify.20260611@example.com` / `claude.verify2.20260611@example.com`; pre-existing
-bugs found — ICS sync crashes on object-valued `summary` (node-ical), missing
-`VITE_SUPABASE_*` env for the frontend client in dev, invalid `GEMINI_API_KEY`.
+bugs found — ~~ICS sync crashes on object-valued `summary` (node-ical)~~ **FIXED**
+(`icalText` coercion in `scheduleSync.mjs`, commit b63c013 + regression tests; the
+dev `/api/debug/source` endpoint was also hardened), ~~missing `VITE_SUPABASE_*`
+env for the frontend client in dev~~ **RESOLVED** (frontend `.env` recreated),
+invalid `GEMINI_API_KEY` (still open — check Week Ahead).
 
 ## Deferred (25 issues), grouped
 

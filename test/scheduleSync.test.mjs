@@ -10,6 +10,7 @@ import {
   classifyFetchError,
   expandRecurringEvents,
   detectTimezoneFromFeed,
+  icalText,
 } from '../scheduleSync.mjs'
 
 const TZ = 'America/Indiana/Indianapolis'
@@ -111,6 +112,15 @@ test('planSync categorizes academic items from the summary', () => {
 test('planSync treats posted solutions as resources', () => {
   // generic feed keeps resources; the category is still computed.
   assert.equal(categoryOf('Exam 1 Solutions posted'), 'resource')
+})
+
+test('icalText coerces node-ical string, object-shaped, and empty values', () => {
+  assert.equal(icalText('Plain title'), 'Plain title')
+  assert.equal(icalText({ params: { LANGUAGE: 'en-US' }, val: 'Tagged title' }), 'Tagged title')
+  assert.equal(icalText(null), '')
+  assert.equal(icalText(undefined), '')
+  // Defensive fallback for an unexpected non-string val.
+  assert.equal(icalText({ params: {}, val: 42 }), '[object Object]')
 })
 
 test('planSync handles node-ical object-shaped text properties (SUMMARY;LANGUAGE=…)', () => {
