@@ -18,6 +18,7 @@ import Home from './pages/Home'
 import Map from './pages/Map'
 import Schedule from './pages/Schedule'
 import Assignments from './pages/Assignments'
+import GradeTracker from './pages/GradeTracker'
 import Events from './pages/Events'
 import FreeFood from './pages/FreeFood'
 import LostFound from './pages/LostFound'
@@ -104,6 +105,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Assignments />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/grade-tracker"
+                element={
+                  <RequireAuth>
+                    <GradeTracker />
                   </RequireAuth>
                 }
               />

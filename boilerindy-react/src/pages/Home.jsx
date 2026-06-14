@@ -23,6 +23,7 @@ import {
   shouldExcludeFromSchedule,
 } from '../lib/scheduleFilters'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
+import { useGradeTracker } from '../hooks/useGradeTracker'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import DashboardWidget from '../components/dashboard/DashboardWidget'
 import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
@@ -437,6 +438,7 @@ export default function Home() {
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(user?.id)
+  const { summary: gpaSummary } = useGradeTracker(user?.id)
   const [now, setNow] = useState(() => new Date())
   const [classes, setClasses] = useState([])
   const [classLoadError, setClassLoadError] = useState('')
@@ -948,6 +950,48 @@ export default function Home() {
         ))}
         </div>
       ),
+    },
+    gpa: {
+      title: 'GPA',
+      render: () => {
+        const gpa = gpaSummary.gpa
+        const tone =
+          gpa == null
+            ? 'text-[var(--color-txt-2)]'
+            : gpa >= 3.5
+              ? 'text-[var(--color-success)]'
+              : gpa >= 2.5
+                ? 'text-[var(--color-gold)]'
+                : 'text-[var(--color-error)]'
+        return (
+          <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+                Cumulative GPA
+              </span>
+              <Link
+                to="/grade-tracker"
+                className="text-[11px] text-[var(--color-accent)] hover:underline"
+              >
+                {gpa == null ? 'Add grades' : 'View all'}
+              </Link>
+            </div>
+            {gpa == null ? (
+              <div className="text-[13px] text-[var(--color-txt-2)]">
+                Track your courses to see your GPA here.
+              </div>
+            ) : (
+              <div className="flex items-baseline gap-3">
+                <span className={`text-4xl font-semibold ${tone}`}>{gpa.toFixed(2)}</span>
+                <span className="text-[12px] text-[var(--color-txt-2)]">
+                  {gpaSummary.credits} credits · {gpaSummary.terms.length} term
+                  {gpaSummary.terms.length === 1 ? '' : 's'}
+                </span>
+              </div>
+            )}
+          </div>
+        )
+      },
     },
     'next-class': {
       title: 'Next class',
