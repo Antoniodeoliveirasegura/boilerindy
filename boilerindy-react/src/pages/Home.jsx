@@ -423,7 +423,7 @@ export default function Home() {
   const { getFirstName, onboarding, user, authConfig } = useAuth()
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
-  const { layout, editing, setEditing, move, reorder, setVisible, reset } = useDashboardLayout(user?.id)
+  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(user?.id)
   const [now, setNow] = useState(() => new Date())
   const [classes, setClasses] = useState([])
   const [classLoadError, setClassLoadError] = useState('')
@@ -1547,7 +1547,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {visibleWidgets.map((w, idx) => {
           const def = widgetRegistry[w.id]
           const content = def.render()
@@ -1559,10 +1559,11 @@ export default function Home() {
               id={w.id}
               title={def.title}
               editing={editing}
-              isWide={w.size === 'wide'}
+              size={w.size}
               canMoveUp={idx > 0}
               canMoveDown={idx < visibleWidgets.length - 1}
               onMove={move}
+              onResize={setSize}
               onHide={(id) => setVisible(id, false)}
               onDropReorder={reorder}
               reducedMotion={reducedMotion}
