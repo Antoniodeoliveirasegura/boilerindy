@@ -147,9 +147,15 @@ export default function Login() {
           credentials: 'include',
           body: JSON.stringify({ email: email.trim(), password, rememberMe }),
         })
-        const data = await response.json()
+        // A down/unreachable backend makes the proxy return an empty body, so
+        // guard the parse instead of throwing a cryptic
+        // "Unexpected end of JSON input" at the user.
+        const data = await response.json().catch(() => null)
         if (!response.ok) {
-          throw new Error(data.error?.message || 'Invalid email or password.')
+          throw new Error(
+            data?.error?.message ||
+              'Could not reach the server. Please try again in a moment.',
+          )
         }
 
         // Also sign in on the client Supabase (non-blocking — only needed for OAuth features)
