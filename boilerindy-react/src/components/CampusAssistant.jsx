@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { track } from '../lib/analytics'
+import { track } from '../lib/usageStats'
 import Icon from './Icons'
 
 const quickQuestions = [

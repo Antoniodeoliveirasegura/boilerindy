@@ -11,9 +11,9 @@ accurate data disclosure required for app-store listing (issue #26).
 |---|---|---|
 | `db/supabase-analytics.sql` | `db/` | Creates `analytics_events` (RLS, service-role only) and `users.analytics_opt_out`. Run once in the Supabase SQL Editor. |
 | `src/analytics.mjs` | `src/` | Pure validation: event-name allowlist, batch cap (20), page/props size caps. Unit-tested in `test/analytics.test.mjs`. |
-| `POST /api/analytics/events` | server.mjs | `requireAuth` + rate-limited. Re-checks the opt-out server-side, then inserts the batch with the service-role client. Accepts `text/plain` so `sendBeacon` flushes parse too. Fail-soft (202) if the table is missing. |
-| `src/lib/analytics.js` | frontend | `track(eventName, props)` queue; flushes every 10s, at 20 queued events, and on `pagehide` via `navigator.sendBeacon`. Disabled (and queue dropped) when signed out or opted out. |
-| `AnalyticsListener.jsx` | frontend | Enables tracking only for signed-in, non-opted-out users; records `page_view` on every route change. |
+| `POST /api/usage/events` | server.mjs | `requireAuth` + rate-limited. Re-checks the opt-out server-side, then inserts the batch with the service-role client. Accepts `text/plain` so `sendBeacon` flushes parse too. Fail-soft (202) if the table is missing. Path is `/usage` (not `/analytics`) so ad blockers don't block it. |
+| `src/lib/usageStats.js` | frontend | `track(eventName, props)` queue; flushes every 10s, at 20 queued events, and on `pagehide` via `navigator.sendBeacon`. Disabled (and queue dropped) when signed out or opted out. Named `usageStats` (not `analytics`) so ad-blocker filter lists don't block the module. |
+| `UsageListener.jsx` | frontend | Enables tracking only for signed-in, non-opted-out users; records `page_view` on every route change. |
 | Settings → Privacy | frontend | Opt-out toggle (writes `analyticsOptOut` via `PATCH /api/me/profile`) + link to `/privacy`. |
 
 ## Event allowlist

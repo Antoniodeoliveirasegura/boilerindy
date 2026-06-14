@@ -3794,7 +3794,7 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 // Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
 // JSON parse fallback.
 
-app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
+app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
   if (req.currentUser.analytics_opt_out) {
     return res.status(204).end()
   }
@@ -3828,7 +3828,7 @@ app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text(
   // Best-effort: analytics must never surface errors to students (e.g. table
   // not created yet). Log and accept.
   if (error) {
-    console.error('[/api/analytics/events] insert failed:', error?.message || error)
+    console.error('[/api/usage/events] insert failed:', error?.message || error)
     return res.status(202).json({ ok: false })
   }
   res.status(204).end()

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { configureAnalytics, track, flush } from './analytics'
+import { configureAnalytics, track, flush } from './usageStats'
 
 function lastFetchPayload(fetchMock) {
   const [, init] = fetchMock.mock.calls.at(-1)

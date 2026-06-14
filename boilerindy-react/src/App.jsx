@@ -5,9 +5,8 @@ import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import AppLayout from './components/AppLayout'
 import RequireAuth from './components/RequireAuth'
-import RequireAdvertiser from './components/RequireAdvertiser'
 import RequireAdmin from './components/RequireAdmin'
-import AnalyticsListener from './components/AnalyticsListener'
+import UsageListener from './components/UsageListener'
 import PageLoader from './components/PageLoader'
 
 // Entry points stay eagerly bundled so the first paint never waits on a chunk.
@@ -16,6 +15,7 @@ import Login from './pages/Login'
 
 // Every other route is code-split and fetched on demand — Map (Leaflet), the
 // admin/advertiser areas, and the feature pages no longer ship in the initial load.
+const RequireAdvertiser = lazy(() => import('./components/RequireAdvertiser'))
 const AdvertiserLogin = lazy(() => import('./pages/AdvertiserLogin'))
 const AdvertiserResetPassword = lazy(() => import('./pages/AdvertiserResetPassword'))
 const AdvertiserDashboard = lazy(() => import('./pages/advertiser/Dashboard'))
@@ -47,7 +47,7 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <AnalyticsListener />
+          <UsageListener />
           <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Landing />} />

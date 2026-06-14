@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
-import { track } from '../lib/analytics'
+import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 
 const sourceConfigs = {

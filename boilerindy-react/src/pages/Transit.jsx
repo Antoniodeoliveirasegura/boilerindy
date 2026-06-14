@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Icon from '../components/Icons'
-import { track } from '../lib/analytics'
+import { track } from '../lib/usageStats'
 import {
   routes,
   TRANLOC_ROUTE_ALIASES,

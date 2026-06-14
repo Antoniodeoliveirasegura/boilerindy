@@ -4,7 +4,7 @@
 // signed-out visitors or users who opted out (their queue is dropped too).
 // Fails soft everywhere: analytics must never break or slow the app.
 
-const ENDPOINT = '/api/analytics/events'
+const ENDPOINT = '/api/usage/events'
 const FLUSH_INTERVAL_MS = 10_000
 const BATCH_MAX = 20
 

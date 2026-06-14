@@ -30,6 +30,13 @@ export default defineConfig(({ mode }) => {
       sourcemap: uploadSourceMaps ? 'hidden' : false,
       rollupOptions: {
         output: {
+          // Opaque, hash-only filenames. Readable names like "GradeTracker"
+          // ("track"), "AdminAdvertisers" ("advert") or "analytics" match
+          // ad-blocker filter lists, which block the request (ERR_BLOCKED_BY_CLIENT)
+          // and blank the page for the ~many students who run ad blockers.
+          entryFileNames: 'assets/[hash].js',
+          chunkFileNames: 'assets/[hash].js',
+          assetFileNames: 'assets/[hash][extname]',
           // Split stable vendor libs into their own long-cached chunks so an app
           // code change doesn't force users to re-download React/Supabase/etc.
           // (Leaflet already isolates itself via the lazy /map route.)

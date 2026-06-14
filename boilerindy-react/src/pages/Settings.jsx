@@ -79,7 +79,7 @@ export default function Settings() {
     }
   }
 
-  // Analytics opt-out (issue #51): saved immediately on toggle; AnalyticsListener
+  // Analytics opt-out (issue #51): saved immediately on toggle; UsageListener
   // reacts to the refreshed session, so opting out stops sending right away.
   async function handleAnalyticsToggle(e) {
     const nextEnabled = e.target.checked
