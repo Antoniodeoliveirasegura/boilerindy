@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { authRequest } from '../lib/authApi'
 
 /**
@@ -37,19 +37,23 @@ function writeCache(userId, major) {
 export function useMajor(userId) {
   const [major, setMajorState] = useState(() => readCache(userId))
   const [loading, setLoading] = useState(true)
+  // Set once the user picks a major, so a slower initial GET can't clobber a
+  // selection they made mid-load. Reset per userId.
+  const userChosenRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
+    userChosenRef.current = false
     ;(async () => {
       setLoading(true)
       try {
         const data = await authRequest('/api/me/degree')
-        if (cancelled) return
+        if (cancelled || userChosenRef.current) return
         const next = data?.major ?? null
         setMajorState(next)
         writeCache(userId, next)
       } catch {
-        if (!cancelled) setMajorState(readCache(userId))
+        if (!cancelled && !userChosenRef.current) setMajorState(readCache(userId))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -62,6 +66,7 @@ export function useMajor(userId) {
   const setMajor = useCallback(
     (value) => {
       const next = value || null
+      userChosenRef.current = true
       setMajorState(next)
       writeCache(userId, next)
       authRequest('/api/me/degree', {

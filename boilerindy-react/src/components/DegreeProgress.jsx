@@ -92,7 +92,12 @@ export default function DegreeProgress({ major, onChangeMajor, grades }) {
                 {g.courses.length > 0 ? (
                   <div className="space-y-1">
                     {g.courses.map((c) => (
-                      <div key={c.code} className="flex items-center gap-2.5 text-[13px]">
+                      <div
+                        key={c.code}
+                        data-req-code={c.code}
+                        data-done={c.done}
+                        className="flex items-center gap-2.5 text-[13px]"
+                      >
                         <span
                           className={`inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 ${
                             c.done

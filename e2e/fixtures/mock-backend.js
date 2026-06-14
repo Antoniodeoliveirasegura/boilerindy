@@ -72,6 +72,10 @@ export const test = base.extend({
       feedUrl: null,
       // null === never customized; the GET handler then returns the default.
       dashboardLayout: null,
+      // Grade tracker (#10) + degree planner (#18).
+      grades: [],
+      gradeSeq: 0,
+      major: null,
     }
 
     const json = (route, status, body) =>
@@ -201,6 +205,48 @@ export const test = base.extend({
         return json(route, 200, { layout: state.dashboardLayout })
       }
 
+      // Grade tracker (#10): user-scoped course CRUD. Shapes mirror
+      // server.mjs mapGradeRow / parseGradeBody.
+      if (pathname === '/api/me/grades' && method === 'GET') {
+        return json(route, 200, { grades: state.grades })
+      }
+      if (pathname === '/api/me/grades' && method === 'POST') {
+        const b = bodyOf()
+        const grade = {
+          id: `grade-${++state.gradeSeq}`,
+          courseName: String(b.courseName || '').trim(),
+          term: String(b.term || '').trim() || 'Other',
+          creditHours: Number(b.creditHours ?? 3),
+          letterGrade: String(b.letterGrade || ''),
+        }
+        state.grades.push(grade)
+        return json(route, 200, { grade })
+      }
+      const gradeMatch = pathname.match(/^\/api\/me\/grades\/(.+)$/)
+      if (gradeMatch && method === 'PATCH') {
+        const grade = state.grades.find((g) => g.id === gradeMatch[1])
+        if (!grade) return json(route, 404, { error: { message: 'Course not found' } })
+        const b = bodyOf()
+        if (b.courseName != null) grade.courseName = String(b.courseName).trim()
+        if (b.term != null) grade.term = String(b.term).trim() || 'Other'
+        if (b.creditHours != null) grade.creditHours = Number(b.creditHours)
+        if (b.letterGrade != null) grade.letterGrade = String(b.letterGrade)
+        return json(route, 200, { grade })
+      }
+      if (gradeMatch && method === 'DELETE') {
+        state.grades = state.grades.filter((g) => g.id !== gradeMatch[1])
+        return json(route, 200, { ok: true })
+      }
+
+      // Degree planner (#18): selected major.
+      if (pathname === '/api/me/degree' && method === 'GET') {
+        return json(route, 200, { major: state.major })
+      }
+      if (pathname === '/api/me/degree' && method === 'PUT') {
+        state.major = bodyOf().major || null
+        return json(route, 200, { major: state.major })
+      }
+
       if (pathname === '/api/me/calendar-feed' && method === 'GET') {
         return json(route, 200, { feedUrl: state.feedUrl })
       }
@@ -234,6 +280,19 @@ export const test = base.extend({
       },
       seedCalendarItems(items) {
         state.calendarItems = items
+      },
+      seedGrades(items) {
+        state.grades = items.map((g, i) => ({
+          id: g.id || `grade-seed-${i + 1}`,
+          courseName: g.courseName,
+          term: g.term || 'Other',
+          creditHours: Number(g.creditHours ?? 3),
+          letterGrade: g.letterGrade,
+        }))
+        state.gradeSeq = state.grades.length
+      },
+      setMajor(major) {
+        state.major = major || null
       },
     }
 
