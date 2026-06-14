@@ -8,30 +8,33 @@ BoilerIndy is a campus services web application for Purdue University Indianapol
 
 ```
 boilerindy/
-├── server.mjs                     # Express backend entry point
-├── auth.mjs                       # Auth helpers
-├── boardProfanity.mjs             # Board content moderation
-├── nutrisliceDining.mjs           # Dining data (Nutrislice API)
-├── purdueCalendarAutomation.mjs   # Purdue calendar capture
-├── scripts/
-│   └── seed-test-user.mjs         # Seed a test user
-├── supabase-schema.sql            # Core DB schema (run once in Supabase)
-├── supabase-board-only.sql        # Board tables schema
-├── supabase-user-tasks.sql        # User tasks schema
-├── supabase-calendar-feed.sql     # Calendar feed token column (issue #48)
-├── supabase-lost-found.sql        # Lost & Found items table (issue #47)
-├── supabase-dashboard-layout.sql  # Home dashboard layout column (issue #52)
-├── freeFood.mjs                   # Free-food keyword matcher (issue #46)
-├── dashboardLayout.mjs            # Dashboard layout validator (issue #52)
-├── .env.example                   # Backend env template — copy to .env
-├── boilerindy-react/                # React + Vite frontend
-│   ├── src/
-│   │   ├── pages/                 # Route-level page components
-│   │   ├── components/            # Layout, navbar, auth guards
-│   │   ├── context/               # Auth and theme context
-│   │   └── lib/                   # API helpers, Supabase client, utilities
-│   ├── vite.config.js             # Vite config with dev proxy
-│   └── .env.example               # Frontend env template — copy to .env
+├── server.mjs                  # Express backend entry point
+├── src/                        # Backend modules imported by server.mjs
+│   ├── scheduleSync.mjs            # Purdue schedule import + recurrence expansion
+│   ├── icsFeed.mjs                 # Subscribable .ics calendar feed builder
+│   ├── nutrisliceDining.mjs        # Dining data (Nutrislice API)
+│   ├── boardProfanity.mjs          # Board content moderation
+│   ├── gradeTracker.mjs            # Grade tracker + degree planner logic
+│   ├── advertiser*.mjs             # Advertiser portal (auth, campaigns, ad serving, admin)
+│   └── …                           # analytics, rate limiting, email, password hashing, etc.
+├── test/                       # Backend unit tests (node:test) — one *.test.mjs per module
+├── e2e/                        # Playwright end-to-end tests
+├── db/                         # Supabase SQL schema/migrations (run in the SQL Editor)
+│   ├── supabase-schema.sql         # Core DB schema (run once)
+│   ├── supabase-board-only.sql     # Board tables
+│   ├── supabase-user-tasks.sql     # User tasks
+│   └── …                           # calendar feed, lost & found, dashboard, advertiser, analytics
+├── scripts/                    # Admin / maintenance CLI scripts
+├── docs/                       # Feature & ops documentation
+├── .env.example                # Backend env template — copy to .env
+└── boilerindy-react/           # React + Vite frontend
+    ├── src/
+    │   ├── pages/                  # Route-level page components
+    │   ├── components/             # Layout, navbar, auth guards
+    │   ├── context/                # Auth and theme context
+    │   └── lib/                    # API helpers, Supabase client, utilities
+    ├── vite.config.js              # Vite config with dev proxy
+    └── .env.example                # Frontend env template — copy to .env
 ```
 
 **Branches:**
@@ -46,7 +49,7 @@ This section explains how to run the full stack (frontend + backend) on your own
 
 ### Prerequisites
 
-- **Node.js 20+** — check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`.
+- **Node.js 22+** — check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22.)
 - **npm** — comes with Node.js.
 - **Supabase project** — you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
 
@@ -185,7 +188,7 @@ In development, **you never need to set a backend URL in the frontend**. Vite au
 - `/api/*` → `http://127.0.0.1:3000/api/*`
 - `/auth/purdue/*` → `http://127.0.0.1:3000/auth/purdue/*`
 
-This is configured in `boilerindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Railway backend — the frontend code never changes between environments.
+This is configured in `boilerindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Render backend — the frontend code never changes between environments.
 
 ---
 
@@ -224,20 +227,20 @@ The database schema hasn't been applied. See the [Database setup](#database-setu
 
 1. Get the Supabase credentials (URL, service role key, anon key) from the project owner.
 2. Follow steps 1–8 above.
-3. That's it — no Railway account, no Vercel account, no separate backend hosting required.
+3. That's it — no Render account, no Vercel account, no separate backend hosting required.
 
 ---
 
 ## Database setup
 
-Run these SQL files **once** in your Supabase project's SQL Editor (Supabase dashboard → SQL Editor):
+Run these SQL files (in `db/`) **once** in your Supabase project's SQL Editor (Supabase dashboard → SQL Editor):
 
-1. `supabase-schema.sql` — core tables: `users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`
-2. `supabase-user-tasks.sql` — tasks tables: `user_task_completions`, `user_manual_tasks`
-3. `supabase-calendar-feed.sql` — adds `users.calendar_feed_token` for the subscribable calendar feed
-4. `supabase-lost-found.sql` — adds the `lost_found_items` table for the Lost & Found feature
-5. `supabase-dashboard-layout.sql` — adds `users.dashboard_layout` for the customizable home dashboard
-6. `supabase-board-only.sql` — only needed if board tables are missing separately
+1. `db/supabase-schema.sql` — core tables: `users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`
+2. `db/supabase-user-tasks.sql` — tasks tables: `user_task_completions`, `user_manual_tasks`
+3. `db/supabase-calendar-feed.sql` — adds `users.calendar_feed_token` for the subscribable calendar feed
+4. `db/supabase-lost-found.sql` — adds the `lost_found_items` table for the Lost & Found feature
+5. `db/supabase-dashboard-layout.sql` — adds `users.dashboard_layout` for the customizable home dashboard
+6. `db/supabase-board-only.sql` — only needed if board tables are missing separately
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
@@ -274,14 +277,14 @@ Each user can mint a private, subscribable calendar feed of their classes
   single user, is rate-limited per IP, is never logged, and returns `404` for an
   unknown or malformed token. Treat the URL like a password.
 
-The token lives in `users.calendar_feed_token` (see `supabase-calendar-feed.sql`)
-and is minted lazily on first request. ICS is generated by hand in `icsFeed.mjs`
+The token lives in `users.calendar_feed_token` (see `db/supabase-calendar-feed.sql`)
+and is minted lazily on first request. ICS is generated by hand in `src/icsFeed.mjs`
 (RFC 5545: CRLF endings, comma/semicolon/newline escaping, 75-octet line folding)
 because `node-ical` is parse-only.
 
 ### Free Food (issue #46)
 
-`freeFood.mjs` is a pure keyword matcher (`hasFreeFood(title, description)`).
+`src/freeFood.mjs` is a pure keyword matcher (`hasFreeFood(title, description)`).
 `listCalendarItems` tags every calendar item with `freeFood: boolean`, which
 powers a 🍕 badge + filter on the Events page and a dedicated `/free-food`
 page. No schema change.
@@ -290,7 +293,7 @@ page. No schema change.
 
 A standalone feature (not a board category): the `/lost-found` page lets students
 post lost/found items, search them, and mark their own posts resolved. Backed by
-the `lost_found_items` table (`supabase-lost-found.sql`) and CRUD endpoints under
+the `lost_found_items` table (`db/supabase-lost-found.sql`) and CRUD endpoints under
 `/api/lost-found`, with author-only edit/delete and the shared board profanity
 filter applied to all text.
 
@@ -319,8 +322,11 @@ npm run build        # Production build
 npm run preview      # Preview production build locally
 npm run lint         # Run ESLint
 
-# Utilities (from repo root, backend must be running)
-node scripts/seed-test-user.mjs
+# Admin / maintenance scripts (from repo root, needs backend .env)
+node scripts/grant-admin.mjs --email=you@gmail.com      # grant/revoke platform admin
+node scripts/create-advertiser.mjs                       # mint an advertiser-portal account
+node scripts/review-campaign.mjs                         # approve a pending ad campaign
+node scripts/clear-purdue-link.mjs --email=you@gmail.com # clear a stale Purdue link
 ```
 
 ## License

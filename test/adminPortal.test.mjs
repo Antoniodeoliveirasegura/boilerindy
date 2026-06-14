@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   normalizeAdminCampaignStatusInput,
   normalizeLeadStatusInput,
-} from './adminPortal.mjs'
+} from '../src/adminPortal.mjs'
 
 test('admin can activate a pending_review campaign', () => {
   assert.equal(

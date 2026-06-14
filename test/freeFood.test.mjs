@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { hasFreeFood } from '../freeFood.mjs'
+import { hasFreeFood } from '../src/freeFood.mjs'
 
 test('matches obvious free-food phrases in the title', () => {
   assert.equal(hasFreeFood('Club fair — free pizza!', ''), true)

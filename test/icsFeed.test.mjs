@@ -11,7 +11,7 @@ import {
   formatIcsUtc,
   formatIcsDate,
   buildCalendarFeed,
-} from '../icsFeed.mjs'
+} from '../src/icsFeed.mjs'
 
 // ── escapeIcsText ────────────────────────────────────────────────────────────
 

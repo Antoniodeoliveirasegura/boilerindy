@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import * as Sentry from '@sentry/node'
-import { scrubSentryEvent } from './sentryScrub.mjs'
+import { scrubSentryEvent } from './src/sentryScrub.mjs'
 
 // Error tracking (issue #50). Plain error capture only (no auto-tracing, which
 // would need a pre-import hook). A missing DSN means Sentry is fully disabled —
@@ -22,35 +22,44 @@ import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
-import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './purdueCalendarAutomation.mjs'
-import { getDiningSnapshot } from './nutrisliceDining.mjs'
+import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
+import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
   BOARD_PROFANITY_USER_MESSAGE,
-} from './boardProfanity.mjs'
-import { createRateLimiter } from './rateLimiter.mjs'
-import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents } from './scheduleSync.mjs'
-import { createCalendarItemStore } from './calendarItemStore.mjs'
-import { buildCalendarFeed } from './icsFeed.mjs'
-import { hasFreeFood } from './freeFood.mjs'
-import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
-import { normalizeAnalyticsBatch } from './analytics.mjs'
-import { verifyPassword, hashPassword } from './passwordHash.mjs'
-import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
+} from './src/boardProfanity.mjs'
+import { createRateLimiter } from './src/rateLimiter.mjs'
+import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
+import { createCalendarItemStore } from './src/calendarItemStore.mjs'
+import { buildCalendarFeed } from './src/icsFeed.mjs'
+import { hasFreeFood } from './src/freeFood.mjs'
+import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
+import {
+  LETTER_GRADES,
+  MAX_COURSE_NAME,
+  MAX_TERM_NAME,
+  MAX_CREDIT_HOURS,
+  DEFAULT_CREDIT_HOURS,
+  DEFAULT_TERM,
+} from './src/gradeTracker.mjs'
+import { getProgram } from './src/degreePrograms.mjs'
+import { normalizeAnalyticsBatch } from './src/analytics.mjs'
+import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
+import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
   normalizeAdvertiserAccountInput,
   toAdvertiserProfile,
-} from './advertiserAuth.mjs'
+} from './src/advertiserAuth.mjs'
 import {
   normalizeCampaignInput,
   normalizeCampaignPatch,
   mapCampaignRow,
   CAMPAIGN_PLACEMENTS,
   CAMPAIGN_STATUSES,
-} from './advertiserCampaign.mjs'
+} from './src/advertiserCampaign.mjs'
 import {
   isValidAdEventKind,
   isCampaignServable,
@@ -58,8 +67,8 @@ import {
   listServableCampaigns,
   toServedAd,
   summarizeAdEvents,
-} from './adServing.mjs'
-import { assertSafeHttpUrl } from './urlSafety.mjs'
+} from './src/adServing.mjs'
+import { assertSafeHttpUrl } from './src/urlSafety.mjs'
 import {
   LEAD_STATUSES,
   mapLeadRow,
@@ -68,7 +77,7 @@ import {
   normalizeLeadStatusInput,
   normalizeAdminCampaignStatusInput,
   parseAdminListFilter,
-} from './adminPortal.mjs'
+} from './src/adminPortal.mjs'
 import {
   normalizeForgotPasswordInput,
   normalizeResetPasswordInput,
@@ -76,8 +85,8 @@ import {
   hashResetToken,
   resetTokenExpiry,
   isResetTokenExpired,
-} from './advertiserPasswordReset.mjs'
-import { sendAdvertiserPasswordResetEmail } from './email.mjs'
+} from './src/advertiserPasswordReset.mjs'
+import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -503,19 +512,25 @@ function orderClassItemsForDisplay(items) {
   return [...items].sort((a, b) => new Date(b.start_time) - new Date(a.start_time))
 }
 
-async function getUserSummary(userId) {
-  const user = await getUserById(userId)
-  
-  const { count: linkedSourceCount } = await supabase
-    .from('linked_sources')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
+// Accepts either a userId or an already-loaded user row. Callers that already
+// have the user (e.g. the session endpoint) pass the object to avoid a
+// redundant re-fetch, and the two independent counts run in parallel — turning
+// the session payload from 4 sequential Supabase round-trips into 2.
+async function getUserSummary(userOrId) {
+  const user = userOrId && typeof userOrId === 'object' ? userOrId : await getUserById(userOrId)
+  const userId = user?.id ?? userOrId
 
-  const { count: classCount } = await supabase
-    .from('calendar_items')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('category', 'class')
+  const [{ count: linkedSourceCount }, { count: classCount }] = await Promise.all([
+    supabase
+      .from('linked_sources')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId),
+    supabase
+      .from('calendar_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('category', 'class'),
+  ])
 
   const hasPurdueLinked = Boolean(user?.purdue_email)
   return {
@@ -535,7 +550,8 @@ async function getCurrentUser(req) {
 
 async function buildSessionPayload(user, req) {
   if (!user) return null
-  const summary = await getUserSummary(user.id)
+  // Pass the already-loaded user so getUserSummary skips re-fetching it.
+  const summary = await getUserSummary(user)
   // Cookie expiry lets the client warn before the session lapses (issue #23)
   const cookieExpires = req?.session?.cookie?.expires
   return {
@@ -1381,7 +1397,9 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
     
     // Get first 5 raw events with their key properties
     const sampleEvents = rawEvents.slice(0, 5).map(e => ({
-      summary: e.summary,
+      // Coerce node-ical's object-shaped text (SUMMARY;LANGUAGE=…) so the debug
+      // output shows the title the sync would actually store, not "[object Object]".
+      summary: icalText(e.summary),
       start: e.start,
       startType: typeof e.start,
       startTz: e.start?.tz,
@@ -1394,7 +1412,7 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
     // Expand and get first 10 expanded events
     const expanded = expandRecurringEvents(rawEvents.slice(0, 10), detectedTimezone)
     const sampleExpanded = expanded.slice(0, 10).map(e => ({
-      summary: e.summary,
+      summary: icalText(e.summary),
       start: e.start?.toISOString?.(),
       end: e.end?.toISOString?.(),
       uid: e.uid?.slice(0, 50),
@@ -1612,7 +1630,7 @@ app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
   res.json({ categories })
 })
 
-// ── Tasks: mark calendar rows done + user-created dated tasks (see supabase-user-tasks.sql) ──
+// ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
 
 function mapManualTaskRow(row) {
   return {
@@ -1782,6 +1800,146 @@ app.delete('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
   }
 })
 
+// ---- Grade tracker (issue #10) -------------------------------------------
+const LETTER_GRADE_SET = new Set(LETTER_GRADES)
+
+function mapGradeRow(row) {
+  return {
+    id: row.id,
+    courseName: row.course_name,
+    term: row.term,
+    creditHours: typeof row.credit_hours === 'string' ? Number(row.credit_hours) : row.credit_hours,
+    letterGrade: row.letter_grade,
+  }
+}
+
+// Validate + coerce a request body into DB columns. Returns { value } on success
+// or { error } with a user-facing message. `partial` allows missing fields
+// (PATCH); a full insert requires courseName + letterGrade.
+function parseGradeBody(body, { partial } = {}) {
+  const updates = {}
+  const has = (k) => body && Object.prototype.hasOwnProperty.call(body, k)
+
+  if (has('courseName') || !partial) {
+    const name = String(body?.courseName ?? '').trim()
+    if (!name || name.length > MAX_COURSE_NAME) {
+      return { error: `Course name is required (max ${MAX_COURSE_NAME} characters)` }
+    }
+    updates.course_name = name
+  }
+  if (has('letterGrade') || !partial) {
+    const letter = String(body?.letterGrade ?? '').trim()
+    if (!LETTER_GRADE_SET.has(letter)) {
+      return { error: 'A valid letter grade is required' }
+    }
+    updates.letter_grade = letter
+  }
+  if (has('term') || !partial) {
+    const term = String(body?.term ?? '').trim().slice(0, MAX_TERM_NAME) || DEFAULT_TERM
+    updates.term = term
+  }
+  if (has('creditHours') || !partial) {
+    const n = Number(body?.creditHours ?? DEFAULT_CREDIT_HOURS)
+    if (!Number.isFinite(n) || n < 0 || n > MAX_CREDIT_HOURS) {
+      return { error: `Credit hours must be between 0 and ${MAX_CREDIT_HOURS}` }
+    }
+    updates.credit_hours = Math.round(n * 100) / 100
+  }
+  return { value: updates }
+}
+
+app.get('/api/me/grades', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('user_grades')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+    res.json({ grades: (data || []).map(mapGradeRow) })
+  } catch (e) {
+    console.error('GET /api/me/grades:', e?.message || e)
+    res.json({ grades: [], unavailable: true })
+  }
+})
+
+app.post('/api/me/grades', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
+  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  try {
+    const { data, error } = await supabase
+      .from('user_grades')
+      .insert({ user_id: userId, ...value })
+      .select()
+      .single()
+    if (error) throw error
+    res.json({ grade: mapGradeRow(data) })
+  } catch (e) {
+    console.error('POST /api/me/grades:', e)
+    res.status(500).json({ error: { message: e.message || 'Could not save course' } })
+  }
+})
+
+app.patch('/api/me/grades/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+  const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
+  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  if (Object.keys(value).length === 0) {
+    return res.status(400).json({ error: { message: 'No valid fields to update' } })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('user_grades')
+      .update(value)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select()
+      .single()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: { message: 'Course not found' } })
+    res.json({ grade: mapGradeRow(data) })
+  } catch (e) {
+    console.error('PATCH /api/me/grades/:id:', e)
+    res.status(500).json({ error: { message: e.message || 'Could not update course' } })
+  }
+})
+
+app.delete('/api/me/grades/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+  try {
+    const { error } = await supabase.from('user_grades').delete().eq('id', id).eq('user_id', userId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('DELETE /api/me/grades/:id:', e)
+    res.status(500).json({ error: { message: e.message || 'Could not delete course' } })
+  }
+})
+
+// Selected major for the degree planner (issue #18). Validated against the
+// degreePrograms catalogue; null clears it.
+app.get('/api/me/degree', requireAuth, async (req, res) => {
+  res.json({ major: req.currentUser.major ?? null })
+})
+
+app.put('/api/me/degree', requireAuth, async (req, res) => {
+  const raw = req.body?.major
+  const major = raw == null || raw === '' ? null : String(raw)
+  if (major !== null && !getProgram(major)) {
+    return res.status(400).json({ error: { message: 'Unknown major' } })
+  }
+  const { error } = await supabase.from('users').update({ major }).eq('id', req.currentUser.id)
+  if (error) {
+    console.error('PUT /api/me/degree:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your major.' } })
+  }
+  res.json({ major })
+})
+
 app.get('/api/me/classes', requireAuth, async (req, res) => {
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
   const term = typeof req.query.term === 'string' ? req.query.term : 'auto'
@@ -1798,7 +1956,7 @@ app.get('/api/me/events', requireAuth, async (req, res) => {
 // ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
 // The token IS the only credential on the public feed URL, so it must be a
 // UUID v4, is never logged, and is regenerable (regenerating invalidates the
-// old link). See supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
+// old link). See db/supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const FEED_HORIZON_MONTHS = 6
@@ -2400,14 +2558,32 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
   }
 })
 
+// ── Tiny in-memory TTL cache for quasi-static upstream/DB reads (perf) ──────
+// Repeat calls within the TTL return instantly instead of re-hitting TransLoc /
+// Supabase on every page load. Failures are never cached. Process-local — fine
+// for a single instance; swap for Redis if the backend is ever horizontally scaled.
+const _ttlCache = new Map() // key -> { value, expiresAt }
+async function getCached(key, ttlMs, producer) {
+  const now = Date.now()
+  const hit = _ttlCache.get(key)
+  if (hit && now < hit.expiresAt) return hit.value
+  const value = await producer()
+  _ttlCache.set(key, { value, expiresAt: now + ttlMs })
+  return value
+}
+
 // TransLoc API proxy endpoints (to avoid CORS issues)
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
 const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY || '8882812681'
+const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
+const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
 
 app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
   try {
-    const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
-    const data = await response.json()
+    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, async () => {
+      const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
+      return response.json()
+    })
     res.json(data)
   } catch (error) {
     console.error('TransLoc vehicles error:', error)
@@ -2417,8 +2593,10 @@ app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
 
 app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
   try {
-    const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
-    const data = await response.json()
+    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, async () => {
+      const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
+      return response.json()
+    })
     res.json(data)
   } catch (error) {
     console.error('TransLoc stops error:', error)
@@ -2428,8 +2606,10 @@ app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
 
 app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   try {
-    const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
-    const data = await response.json()
+    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, async () => {
+      const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
+      return response.json()
+    })
     res.json(data)
   } catch (error) {
     console.error('TransLoc routes error:', error)
@@ -2453,7 +2633,7 @@ app.get('/api/dining', publicReadRateLimit, async (req, res) => {
 // Board API
 // ============================================================
 
-const BOARD_SQL_FILE = 'supabase-board-only.sql'
+const BOARD_SQL_FILE = 'db/supabase-board-only.sql'
 
 function isBoardSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -2487,7 +2667,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
 
   // select('*') keeps the board working whether or not the optional
-  // edited_at migration (supabase-board-only.sql) has been applied yet
+  // edited_at migration (db/supabase-board-only.sql) has been applied yet
   let query = supabase
     .from('board_posts')
     .select('*')
@@ -2917,7 +3097,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 
 // ============================================================
 // Advertiser portal (separate from student auth — see
-// supabase-advertiser-portal.sql and docs/advertiser-portal.md).
+// db/supabase-advertiser-portal.sql and docs/advertiser-portal.md).
 //
 // Isolation is the whole point: advertisers authenticate against the
 // `advertisers` table and are tracked by req.session.advertiserId — NEVER
@@ -2926,10 +3106,10 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 // gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
 // ============================================================
 
-const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
-const ADVERTISER_CAMPAIGNS_SQL_FILE = 'supabase-advertiser-campaigns.sql'
-const ADVERTISER_RESETS_SQL_FILE = 'supabase-advertiser-password-resets.sql'
-const ADVERTISER_AD_EVENTS_SQL_FILE = 'supabase-advertiser-ad-events.sql'
+const ADVERTISER_SQL_FILE = 'db/supabase-advertiser-portal.sql'
+const ADVERTISER_CAMPAIGNS_SQL_FILE = 'db/supabase-advertiser-campaigns.sql'
+const ADVERTISER_RESETS_SQL_FILE = 'db/supabase-advertiser-password-resets.sql'
+const ADVERTISER_AD_EVENTS_SQL_FILE = 'db/supabase-advertiser-ad-events.sql'
 
 function isAdvertiserSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -3300,7 +3480,7 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 // ── Ad serving + tracking (M3) ───────────────────────────────────────────────
 // Student-session routes (requireAuth), NOT advertiser-gated. They serve a single
 // approved, in-window campaign into the student home dashboard and log aggregate
-// impression/tap events (no student PII — see supabase-advertiser-ad-events.sql).
+// impression/tap events (no student PII — see db/supabase-advertiser-ad-events.sql).
 // Routed as /api/spotlight/* (not /api/ads/*) because ad-blocker filter lists
 // match the ads keyword and silently block the requests for students running
 // blockers. Client counterpart: boilerindy-react/src/lib/spotlightApi.js.
@@ -3308,12 +3488,20 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 app.get('/api/spotlight/active', requireAuth, async (req, res) => {
   const placement = CAMPAIGN_PLACEMENTS.includes(req.query.placement) ? req.query.placement : 'home-widget'
   const limit = Math.min(Math.max(Number(req.query.limit) || 1, 1), 12)
-  const { data, error } = await supabase
-    .from('campaigns')
-    .select('id, placement, status, starts_on, ends_on, creative')
-    .eq('placement', placement)
-    .eq('status', 'active')
-  if (error) {
+  // Active campaigns for a placement are the same for every user and change
+  // rarely, so cache the row set ~60s. Date-based serving still runs per request.
+  let data
+  try {
+    data = await getCached(`spotlight:${placement}`, 60 * 1000, async () => {
+      const { data: rows, error } = await supabase
+        .from('campaigns')
+        .select('id, placement, status, starts_on, ends_on, creative')
+        .eq('placement', placement)
+        .eq('status', 'active')
+      if (error) throw error
+      return rows || []
+    })
+  } catch (error) {
     console.error('[/api/spotlight/active] query failed:', error?.message || error)
     return res.json({ ad: null, ads: [] })
   }
@@ -3601,12 +3789,12 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 
 // ── First-party product analytics (issue #51) ───────────────────────────────
 // Signed-in students only; events live in our own Supabase (analytics_events,
-// service-role only — see supabase-analytics.sql). The server re-checks the
+// service-role only — see db/supabase-analytics.sql). The server re-checks the
 // opt-out so a stale or misbehaving client can never record an opted-out user.
 // Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
 // JSON parse fallback.
 
-app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
+app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
   if (req.currentUser.analytics_opt_out) {
     return res.status(204).end()
   }
@@ -3640,7 +3828,7 @@ app.post('/api/analytics/events', analyticsRateLimit, requireAuth, express.text(
   // Best-effort: analytics must never surface errors to students (e.g. table
   // not created yet). Log and accept.
   if (error) {
-    console.error('[/api/analytics/events] insert failed:', error?.message || error)
+    console.error('[/api/usage/events] insert failed:', error?.message || error)
     return res.status(202).json({ ok: false })
   }
   res.status(204).end()
@@ -3683,7 +3871,7 @@ app.listen(port, host, async () => {
   const analyticsProbe = await supabase.from('analytics_events').select('id').limit(1)
   if (analyticsProbe.error && isAdvertiserSchemaMissingError(analyticsProbe.error)) {
     console.warn(
-      '\n[BoilerIndy] Analytics: table analytics_events not found. Run supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
+      '\n[BoilerIndy] Analytics: table analytics_events not found. Run db/supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )
   }
 })

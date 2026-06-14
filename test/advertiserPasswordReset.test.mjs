@@ -8,7 +8,7 @@ import {
   isResetTokenExpired,
   normalizeForgotPasswordInput,
   normalizeResetPasswordInput,
-} from './advertiserPasswordReset.mjs'
+} from '../src/advertiserPasswordReset.mjs'
 
 test('hashResetToken is deterministic and not the raw token', () => {
   const hashA = hashResetToken('abc123')

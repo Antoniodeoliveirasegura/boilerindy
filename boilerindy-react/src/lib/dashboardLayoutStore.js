@@ -1,7 +1,7 @@
 /**
  * Frontend persistence + helpers for the customizable home dashboard (issue #52).
  *
- * The validation rules live in the repo-root `dashboardLayout.mjs`, which is
+ * The validation rules live in the backend `src/dashboardLayout.mjs`, which is
  * shared verbatim by the server (PUT /api/me/dashboard) and the frontend so the
  * widget catalogue can never drift between the two. This module only adds the
  * browser-side localStorage cache, keyed by backend user id (mirrors the
@@ -14,9 +14,17 @@ import {
   DEFAULT_LAYOUT,
   normalizeLayout,
   defaultLayout,
-} from '../../../dashboardLayout.mjs'
+  allowedSizesFor,
+} from '../../../src/dashboardLayout.mjs'
 
-export { WIDGET_IDS, WIDGET_SIZES, DEFAULT_LAYOUT, normalizeLayout, defaultLayout }
+export {
+  WIDGET_IDS,
+  WIDGET_SIZES,
+  DEFAULT_LAYOUT,
+  normalizeLayout,
+  defaultLayout,
+  allowedSizesFor,
+}
 
 function storageKey(userId) {
   return `boilerindy-dashboard-layout-v1-${userId}`

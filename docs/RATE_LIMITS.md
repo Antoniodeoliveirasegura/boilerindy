@@ -1,7 +1,7 @@
 # API Rate Limiting
 
 BoilerIndy protects its backend with configurable, in-memory rate limiting
-(implemented in [`rateLimiter.mjs`](../rateLimiter.mjs)). Buckets are keyed by
+(implemented in [`rateLimiter.mjs`](../src/rateLimiter.mjs)). Buckets are keyed by
 the signed-in user id when a session exists, otherwise by client IP.
 
 When a limit is hit the API responds `429` with a user-friendly message,

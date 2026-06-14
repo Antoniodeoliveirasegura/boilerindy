@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { authRequest } from '../lib/authApi'
-import { track } from '../lib/analytics'
+import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 
 export default function Board() {

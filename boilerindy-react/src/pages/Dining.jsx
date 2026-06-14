@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Icon from '../components/Icons'
-import { track } from '../lib/analytics'
+import { track } from '../lib/usageStats'
 
 const STATIC_LOCATIONS = []
 

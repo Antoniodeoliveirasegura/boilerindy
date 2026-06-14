@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { hashPassword } from './passwordHash.mjs'
-import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
+import { hashPassword } from '../src/passwordHash.mjs'
+import { hasLegacyHash, resolveSignIn, applyPasswordChange } from '../src/studentPasswordAuth.mjs'
 
 const AUTH_USER = { id: 'auth-1', email: 'student@purdue.edu' }
 const ROW = { id: 'row-1', email: 'student@purdue.edu', display_name: 'Student', password_hash: '' }

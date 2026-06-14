@@ -11,7 +11,7 @@
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
-import { CAMPAIGN_STATUSES } from '../advertiserCampaign.mjs'
+import { CAMPAIGN_STATUSES } from '../src/advertiserCampaign.mjs'
 
 function parseArgs(argv) {
   const args = {}

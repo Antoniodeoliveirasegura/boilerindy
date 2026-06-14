@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scrubSentryEvent } from './sentryScrub.mjs'
+import { scrubSentryEvent } from '../src/sentryScrub.mjs'
 
 test('redacts email addresses anywhere in string values', () => {
   const event = scrubSentryEvent({

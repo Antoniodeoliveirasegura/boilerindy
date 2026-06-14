@@ -8,7 +8,7 @@ import {
   toAdvertiserProfile,
   COMPANY_NAME_MAX_LENGTH,
   LEAD_MESSAGE_MAX_LENGTH,
-} from './advertiserAuth.mjs'
+} from '../src/advertiserAuth.mjs'
 
 test('normalizeAdvertiserEmail lowercases and trims', () => {
   assert.equal(normalizeAdvertiserEmail('  Brand@Co.COM '), 'brand@co.com')

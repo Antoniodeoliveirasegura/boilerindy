@@ -11,15 +11,18 @@ Live on `main` as `c02fcad` (backend) + `be50592` (frontend).
 | #4 | Dark/Light mode toggle | ThemeContext + navbar/Settings controls, persisted |
 | #5 | Search board posts | Title/body/tags, partial match, empty state |
 | #6 | Assignment priority labels | High/Med/Low, badges, filter, sort; localStorage per user |
-| #7 | Board post editing | Owner-only PATCH + inline UI; run `edited_at` migration in `supabase-board-only.sql` for the persistent "edited" marker |
+| #7 | Board post editing | Owner-only PATCH + inline UI; run `edited_at` migration in `db/supabase-board-only.sql` for the persistent "edited" marker |
 | #8 | Bulk sync sources | "Sync all" with progress + per-source errors |
 | #22 | Rate limiting APIs | `rateLimiter.mjs`; coverage in `docs/RATE_LIMITS.md` |
 | #23 | Session expiry UX | `expiresAt` payload, rolling sessions, warning banner, draft preservation |
 
 Follow-ups from that session: run the `edited_at` migration; delete test accounts
 `claude.verify.20260611@example.com` / `claude.verify2.20260611@example.com`; pre-existing
-bugs found — ICS sync crashes on object-valued `summary` (node-ical), missing
-`VITE_SUPABASE_*` env for the frontend client in dev, invalid `GEMINI_API_KEY`.
+bugs found — ~~ICS sync crashes on object-valued `summary` (node-ical)~~ **FIXED**
+(`icalText` coercion in `scheduleSync.mjs`, commit b63c013 + regression tests; the
+dev `/api/debug/source` endpoint was also hardened), ~~missing `VITE_SUPABASE_*`
+env for the frontend client in dev~~ **RESOLVED** (frontend `.env` recreated),
+invalid `GEMINI_API_KEY` (still open — check Week Ahead).
 
 ## Deferred (25 issues), grouped
 
@@ -29,8 +32,28 @@ bugs found — ICS sync crashes on object-valued `summary` (node-ical), missing
 |---|---|---|
 | #35 | Interactive landing background | Frontend-only design work (CSS/canvas aurora, grid, or map motif) |
 | #34 | Campus safety layer | Mostly static data + existing Leaflet map overlay |
-| #10 | Grade tracker | Self-contained CRUD + GPA math; needs one new Supabase table (or localStorage MVP) |
-| #16 | Club calendar sync | Reuses existing ICS sync pipeline once club feed URLs are collected |
+| #10 | Grade tracker | ✅ **DONE** (2026-06-13) — `user_grades` + `/api/me/grades` + GPA dashboard widget |
+| #16 | Club calendar sync | ⚠️ **STASHED — blocked on a usable event feed** (2026-06-14). See note below. |
+
+**#16 Club calendar sync — investigation (2026-06-14, stashed, no code shipped):**
+BoilerLink runs on Anthology Engage. Findings from probing its public endpoints:
+- ✅ The **organizations directory IS a public JSON API**:
+  `https://boilerlink.purdue.edu/api/discovery/search/organizations` returns all
+  ~1,262 orgs with `Name`, `Description`, `CategoryNames`, `ProfilePicture`,
+  `WebsiteKey`. An in-app club directory (browse/search → deep-link to each org's
+  BoilerLink page) is buildable from this today.
+- ❌ **Event feeds are not reachable by us.** The events discovery endpoint serves
+  the SPA HTML shell (`/api/discovery/event/search/events`) or 404s
+  (`/api/discovery/search/events`); per-org **iCal feeds exist but are
+  admin-generated** (a student can't mint a per-org `.ics` URL); and the official
+  Engage API needs **OAuth keys only a Purdue Engage admin can issue**
+  (`/keymanagement`). So syncing club *events* into the Events feed is blocked on
+  a feed we can't access — not a code problem.
+
+Unblock paths when revisited: (a) ship the **club directory** from the public
+orgs API + deep-link to BoilerLink for events; (b) a **paste-a-URL** ICS subscribe
+(reuses the existing sync pipeline) for any club feed a student already has;
+(c) get campus Engage API OAuth keys for the real events integration.
 
 ### B. Platform/infra projects
 

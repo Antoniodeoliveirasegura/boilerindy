@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRateLimiter } from './rateLimiter.mjs'
+import { createRateLimiter } from '../src/rateLimiter.mjs'
 
 // Minimal Express req/res doubles so we can exercise the middleware directly.
 function mockReqRes({ ip = '1.2.3.4', userId } = {}) {
