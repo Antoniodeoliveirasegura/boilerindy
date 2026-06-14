@@ -3,7 +3,7 @@
 //   node scripts/grant-admin.mjs --email=you@gmail.com
 //   node scripts/grant-admin.mjs --email=you@gmail.com --revoke
 //
-// If the column is missing, run supabase-admin-users.sql in Supabase SQL Editor first.
+// If the column is missing, run db/supabase-admin-users.sql in Supabase SQL Editor first.
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
@@ -47,7 +47,7 @@ const { data: user, error: lookupError } = await supabase
 
 if (lookupError) {
   if (lookupError.message?.includes('is_admin')) {
-    console.error('Column is_admin is missing. Run supabase-admin-users.sql in Supabase SQL Editor, then retry.')
+    console.error('Column is_admin is missing. Run db/supabase-admin-users.sql in Supabase SQL Editor, then retry.')
   } else {
     console.error('Lookup failed:', lookupError.message)
   }
@@ -66,7 +66,7 @@ const { error: updateError } = await supabase
 
 if (updateError) {
   if (updateError.message?.includes('is_admin')) {
-    console.error('Column is_admin is missing. Run supabase-admin-users.sql in Supabase SQL Editor, then retry.')
+    console.error('Column is_admin is missing. Run db/supabase-admin-users.sql in Supabase SQL Editor, then retry.')
   } else {
     console.error('Update failed:', updateError.message)
   }

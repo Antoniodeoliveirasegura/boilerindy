@@ -9,7 +9,7 @@ import {
   mapCampaignRow,
   isValidPlacement,
   ADVERTISER_STATUS_TRANSITIONS,
-} from './advertiserCampaign.mjs'
+} from '../src/advertiserCampaign.mjs'
 
 test('isValidPlacement accepts known placements and rejects others', () => {
   assert.equal(isValidPlacement('home-widget'), true)

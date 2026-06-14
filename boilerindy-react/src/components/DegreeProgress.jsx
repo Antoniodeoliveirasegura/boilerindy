@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import Icon from './Icons'
-import { listPrograms, getProgram, matchProgress } from '../../../degreePrograms.mjs'
+import { listPrograms, getProgram, matchProgress } from '../../../src/degreePrograms.mjs'
 
 /**
  * Degree planner view (issue #18): a major selector + the program's required

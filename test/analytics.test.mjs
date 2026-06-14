@@ -4,7 +4,7 @@ import {
   ANALYTICS_EVENTS,
   ANALYTICS_BATCH_MAX,
   normalizeAnalyticsBatch,
-} from './analytics.mjs'
+} from '../src/analytics.mjs'
 
 test('allowlist contains the issue #51 starter events', () => {
   for (const name of [

@@ -14,7 +14,7 @@ import {
   DEFAULT_CREDIT_HOURS,
   DEFAULT_TERM,
   MAX_CREDIT_HOURS,
-} from '../gradeTracker.mjs'
+} from '../src/gradeTracker.mjs'
 
 test('gradePoints maps the Purdue 4.0 scale, null for non-GPA/unknown', () => {
   assert.equal(gradePoints('A'), 4.0)

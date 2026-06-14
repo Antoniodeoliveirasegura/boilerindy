@@ -11,7 +11,7 @@ Live on `main` as `c02fcad` (backend) + `be50592` (frontend).
 | #4 | Dark/Light mode toggle | ThemeContext + navbar/Settings controls, persisted |
 | #5 | Search board posts | Title/body/tags, partial match, empty state |
 | #6 | Assignment priority labels | High/Med/Low, badges, filter, sort; localStorage per user |
-| #7 | Board post editing | Owner-only PATCH + inline UI; run `edited_at` migration in `supabase-board-only.sql` for the persistent "edited" marker |
+| #7 | Board post editing | Owner-only PATCH + inline UI; run `edited_at` migration in `db/supabase-board-only.sql` for the persistent "edited" marker |
 | #8 | Bulk sync sources | "Sync all" with progress + per-source errors |
 | #22 | Rate limiting APIs | `rateLimiter.mjs`; coverage in `docs/RATE_LIMITS.md` |
 | #23 | Session expiry UX | `expiresAt` payload, rolling sessions, warning banner, draft preservation |

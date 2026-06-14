@@ -11,7 +11,7 @@ import {
   expandRecurringEvents,
   detectTimezoneFromFeed,
   icalText,
-} from '../scheduleSync.mjs'
+} from '../src/scheduleSync.mjs'
 
 const TZ = 'America/Indiana/Indianapolis'
 

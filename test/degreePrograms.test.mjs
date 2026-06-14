@@ -11,7 +11,7 @@ import {
   extractCourseCode,
   extractCourseCodes,
   matchProgress,
-} from '../degreePrograms.mjs'
+} from '../src/degreePrograms.mjs'
 
 test('listPrograms returns id/name/degree for every program', () => {
   const list = listPrograms()

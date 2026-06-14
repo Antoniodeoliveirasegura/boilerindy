@@ -12,8 +12,8 @@
 import 'dotenv/config'
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
-import { hashPassword } from '../passwordHash.mjs'
-import { normalizeAdvertiserAccountInput } from '../advertiserAuth.mjs'
+import { hashPassword } from '../src/passwordHash.mjs'
+import { normalizeAdvertiserAccountInput } from '../src/advertiserAuth.mjs'
 
 function parseArgs(argv) {
   const args = {}
@@ -64,7 +64,7 @@ const { data: existing, error: lookupError } = await supabase
 
 if (lookupError) {
   console.error('ERROR looking up advertiser:', lookupError.message)
-  console.error('If the table is missing, run supabase-advertiser-portal.sql in the Supabase SQL Editor first.')
+  console.error('If the table is missing, run db/supabase-advertiser-portal.sql in the Supabase SQL Editor first.')
   process.exit(1)
 }
 
@@ -101,7 +101,7 @@ const { error } = await supabase.from('advertisers').insert({
 if (error) {
   console.error('ERROR creating advertiser:', error.message)
   if (/Could not find the table|schema cache|does not exist/.test(error.message)) {
-    console.error('Run supabase-advertiser-portal.sql in the Supabase SQL Editor first.')
+    console.error('Run db/supabase-advertiser-portal.sql in the Supabase SQL Editor first.')
   }
   process.exit(1)
 }

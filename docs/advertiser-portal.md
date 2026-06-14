@@ -3,19 +3,19 @@
 Status: **M1 + M2 shipped — auth, leads, and campaigns dashboard wired.**
 Last updated: 2026-06-12
 
-> **M1 done:** `supabase-advertiser-portal.sql` (`advertisers` + `advertiser_leads`),
+> **M1 done:** `db/supabase-advertiser-portal.sql` (`advertisers` + `advertiser_leads`),
 > `requireAdvertiserAuth` + sign-in/out/request-access/me endpoints, shared
 > `passwordHash.mjs`, pure `advertiserAuth.mjs` (+ tests),
 > `scripts/create-advertiser.mjs`, `lib/advertiserApi.js`, real `AdvertiserLogin.jsx`.
 >
-> **M2 done (this session):** `supabase-advertiser-campaigns.sql` (`campaigns`),
+> **M2 done (this session):** `db/supabase-advertiser-campaigns.sql` (`campaigns`),
 > pure `advertiserCampaign.mjs` (+ tests) with the approval-flow transition map,
 > `GET/POST/PATCH /api/advertiser/campaigns` (ownership-scoped), owner approval
 > via `scripts/review-campaign.mjs`, `RequireAdvertiser` guard, and
 > `pages/advertiser/Dashboard.jsx` at `/advertise/dashboard` (create/list/edit +
 > submit-for-review). **Approval is owner-gated**: advertisers submit for review;
 > only the owner sets `active` (via the review script).
-> **Manual step before campaigns work live:** run `supabase-advertiser-campaigns.sql`
+> **Manual step before campaigns work live:** run `db/supabase-advertiser-campaigns.sql`
 > in the Supabase SQL Editor.
 >
 > **Next = M3:** ad serving via the #52 widget registry in `pages/Home.jsx` +
@@ -44,7 +44,7 @@ The student app's auth is the template to mirror (but **not** entangle):
 - Sign-in (`POST /api/auth/sign-in`, ~L912) regenerates the session, sets `userId`.
 - Server uses a single service-role Supabase client (`supabase`, server-side only).
 - Migrations are plain `.sql` files run once in the Supabase SQL editor
-  (e.g. `supabase-dashboard-layout.sql`).
+  (e.g. `db/supabase-dashboard-layout.sql`).
 
 ---
 
@@ -67,7 +67,7 @@ The student app's auth is the template to mirror (but **not** entangle):
 
 ## 3. Data model (proposed — Supabase, new `.sql` migration)
 
-`supabase-advertiser-portal.sql` (idempotent, run once):
+`db/supabase-advertiser-portal.sql` (idempotent, run once):
 
 ```
 advertisers
@@ -160,7 +160,7 @@ and looks up the `advertisers` row; returns 401 otherwise.
 
 ## 6. Milestones
 
-- **M1 (next session): auth + data model.** `supabase-advertiser-portal.sql`,
+- **M1 (next session): auth + data model.** `db/supabase-advertiser-portal.sql`,
   `advertisers` + `advertiser_leads`, sign-in/out + request-access endpoints,
   `requireAdvertiserAuth`, un-stub `AdvertiserLogin.jsx`. Tests for the auth path.
 - **M2: campaigns dashboard.** Campaign CRUD endpoints + `/advertise/dashboard`

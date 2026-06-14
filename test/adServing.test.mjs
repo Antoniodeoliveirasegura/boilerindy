@@ -7,7 +7,7 @@ import {
   listServableCampaigns,
   toServedAd,
   summarizeAdEvents,
-} from './adServing.mjs'
+} from '../src/adServing.mjs'
 
 const TODAY = '2026-06-12'
 

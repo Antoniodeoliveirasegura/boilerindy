@@ -1,7 +1,7 @@
 /**
  * Frontend persistence + helpers for the grade tracker (issue #10).
  *
- * The validation/GPA rules live in the repo-root `gradeTracker.mjs`, shared
+ * The validation/GPA rules live in the backend `src/gradeTracker.mjs`, shared
  * verbatim by the server (/api/me/grades) and the frontend. This module only
  * adds the browser-side localStorage cache keyed by backend user id (mirrors
  * dashboardLayoutStore), used as an offline/optimistic fallback when the API is
@@ -19,7 +19,7 @@ import {
   normalizeGrades,
   computeGpa,
   summarizeGrades,
-} from '../../../gradeTracker.mjs'
+} from '../../../src/gradeTracker.mjs'
 
 export {
   GRADE_POINTS,

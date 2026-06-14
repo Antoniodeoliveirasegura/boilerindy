@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "test": "node --test \"*.test.mjs\" \"test/**/*.test.mjs\" && pnpm -C boilerindy-react test",
-    "test:backend": "node --test \"*.test.mjs\" \"test/**/*.test.mjs\"",
+    "test": "node --test \"test/**/*.test.mjs\" && pnpm -C boilerindy-react test",
+    "test:backend": "node --test \"test/**/*.test.mjs\"",
     "test:e2e": "playwright test",
     "playwright:install": "playwright install chromium"
   },

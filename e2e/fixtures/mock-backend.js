@@ -1,5 +1,5 @@
 import { test as base, expect } from '@playwright/test'
-import { defaultLayout, normalizeLayout } from '../../dashboardLayout.mjs'
+import { defaultLayout, normalizeLayout } from '../../src/dashboardLayout.mjs'
 
 // Stateful, in-memory mock of the BoilerIndy backend. Each test gets a fresh
 // `mockApi` controller that intercepts every `/api/**` call (and the Supabase

@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
-import { scrubSentryEvent } from '../../sentryScrub.mjs'
+import { scrubSentryEvent } from '../../src/sentryScrub.mjs'
 import CrashFallback from './components/CrashFallback.jsx'
 import './index.css'
 import App from './App.jsx'

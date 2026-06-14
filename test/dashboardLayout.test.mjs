@@ -10,7 +10,7 @@ import {
   defaultLayout,
   allowedSizesFor,
   DEFAULT_LAYOUT,
-} from '../dashboardLayout.mjs'
+} from '../src/dashboardLayout.mjs'
 
 test('normalizeLayout drops unknown widget ids', () => {
   const out = normalizeLayout([{ id: 'next-class' }, { id: 'totally-made-up' }])

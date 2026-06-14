@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import * as Sentry from '@sentry/node'
-import { scrubSentryEvent } from './sentryScrub.mjs'
+import { scrubSentryEvent } from './src/sentryScrub.mjs'
 
 // Error tracking (issue #50). Plain error capture only (no auto-tracing, which
 // would need a pre-import hook). A missing DSN means Sentry is fully disabled —
@@ -22,19 +22,19 @@ import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
-import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './purdueCalendarAutomation.mjs'
-import { getDiningSnapshot } from './nutrisliceDining.mjs'
+import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
+import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
   BOARD_PROFANITY_USER_MESSAGE,
-} from './boardProfanity.mjs'
-import { createRateLimiter } from './rateLimiter.mjs'
-import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './scheduleSync.mjs'
-import { createCalendarItemStore } from './calendarItemStore.mjs'
-import { buildCalendarFeed } from './icsFeed.mjs'
-import { hasFreeFood } from './freeFood.mjs'
-import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
+} from './src/boardProfanity.mjs'
+import { createRateLimiter } from './src/rateLimiter.mjs'
+import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
+import { createCalendarItemStore } from './src/calendarItemStore.mjs'
+import { buildCalendarFeed } from './src/icsFeed.mjs'
+import { hasFreeFood } from './src/freeFood.mjs'
+import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -42,24 +42,24 @@ import {
   MAX_CREDIT_HOURS,
   DEFAULT_CREDIT_HOURS,
   DEFAULT_TERM,
-} from './gradeTracker.mjs'
-import { getProgram } from './degreePrograms.mjs'
-import { normalizeAnalyticsBatch } from './analytics.mjs'
-import { verifyPassword, hashPassword } from './passwordHash.mjs'
-import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
+} from './src/gradeTracker.mjs'
+import { getProgram } from './src/degreePrograms.mjs'
+import { normalizeAnalyticsBatch } from './src/analytics.mjs'
+import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
+import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
   normalizeAdvertiserAccountInput,
   toAdvertiserProfile,
-} from './advertiserAuth.mjs'
+} from './src/advertiserAuth.mjs'
 import {
   normalizeCampaignInput,
   normalizeCampaignPatch,
   mapCampaignRow,
   CAMPAIGN_PLACEMENTS,
   CAMPAIGN_STATUSES,
-} from './advertiserCampaign.mjs'
+} from './src/advertiserCampaign.mjs'
 import {
   isValidAdEventKind,
   isCampaignServable,
@@ -67,8 +67,8 @@ import {
   listServableCampaigns,
   toServedAd,
   summarizeAdEvents,
-} from './adServing.mjs'
-import { assertSafeHttpUrl } from './urlSafety.mjs'
+} from './src/adServing.mjs'
+import { assertSafeHttpUrl } from './src/urlSafety.mjs'
 import {
   LEAD_STATUSES,
   mapLeadRow,
@@ -77,7 +77,7 @@ import {
   normalizeLeadStatusInput,
   normalizeAdminCampaignStatusInput,
   parseAdminListFilter,
-} from './adminPortal.mjs'
+} from './src/adminPortal.mjs'
 import {
   normalizeForgotPasswordInput,
   normalizeResetPasswordInput,
@@ -85,8 +85,8 @@ import {
   hashResetToken,
   resetTokenExpiry,
   isResetTokenExpired,
-} from './advertiserPasswordReset.mjs'
-import { sendAdvertiserPasswordResetEmail } from './email.mjs'
+} from './src/advertiserPasswordReset.mjs'
+import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1623,7 +1623,7 @@ app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
   res.json({ categories })
 })
 
-// ── Tasks: mark calendar rows done + user-created dated tasks (see supabase-user-tasks.sql) ──
+// ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
 
 function mapManualTaskRow(row) {
   return {
@@ -1949,7 +1949,7 @@ app.get('/api/me/events', requireAuth, async (req, res) => {
 // ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
 // The token IS the only credential on the public feed URL, so it must be a
 // UUID v4, is never logged, and is regenerable (regenerating invalidates the
-// old link). See supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
+// old link). See db/supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const FEED_HORIZON_MONTHS = 6
@@ -2604,7 +2604,7 @@ app.get('/api/dining', publicReadRateLimit, async (req, res) => {
 // Board API
 // ============================================================
 
-const BOARD_SQL_FILE = 'supabase-board-only.sql'
+const BOARD_SQL_FILE = 'db/supabase-board-only.sql'
 
 function isBoardSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -2638,7 +2638,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
 
   // select('*') keeps the board working whether or not the optional
-  // edited_at migration (supabase-board-only.sql) has been applied yet
+  // edited_at migration (db/supabase-board-only.sql) has been applied yet
   let query = supabase
     .from('board_posts')
     .select('*')
@@ -3068,7 +3068,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 
 // ============================================================
 // Advertiser portal (separate from student auth — see
-// supabase-advertiser-portal.sql and docs/advertiser-portal.md).
+// db/supabase-advertiser-portal.sql and docs/advertiser-portal.md).
 //
 // Isolation is the whole point: advertisers authenticate against the
 // `advertisers` table and are tracked by req.session.advertiserId — NEVER
@@ -3077,10 +3077,10 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 // gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
 // ============================================================
 
-const ADVERTISER_SQL_FILE = 'supabase-advertiser-portal.sql'
-const ADVERTISER_CAMPAIGNS_SQL_FILE = 'supabase-advertiser-campaigns.sql'
-const ADVERTISER_RESETS_SQL_FILE = 'supabase-advertiser-password-resets.sql'
-const ADVERTISER_AD_EVENTS_SQL_FILE = 'supabase-advertiser-ad-events.sql'
+const ADVERTISER_SQL_FILE = 'db/supabase-advertiser-portal.sql'
+const ADVERTISER_CAMPAIGNS_SQL_FILE = 'db/supabase-advertiser-campaigns.sql'
+const ADVERTISER_RESETS_SQL_FILE = 'db/supabase-advertiser-password-resets.sql'
+const ADVERTISER_AD_EVENTS_SQL_FILE = 'db/supabase-advertiser-ad-events.sql'
 
 function isAdvertiserSchemaMissingError(err) {
   const m = String(err?.message || '')
@@ -3451,7 +3451,7 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 // ── Ad serving + tracking (M3) ───────────────────────────────────────────────
 // Student-session routes (requireAuth), NOT advertiser-gated. They serve a single
 // approved, in-window campaign into the student home dashboard and log aggregate
-// impression/tap events (no student PII — see supabase-advertiser-ad-events.sql).
+// impression/tap events (no student PII — see db/supabase-advertiser-ad-events.sql).
 // Routed as /api/spotlight/* (not /api/ads/*) because ad-blocker filter lists
 // match the ads keyword and silently block the requests for students running
 // blockers. Client counterpart: boilerindy-react/src/lib/spotlightApi.js.
@@ -3752,7 +3752,7 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 
 // ── First-party product analytics (issue #51) ───────────────────────────────
 // Signed-in students only; events live in our own Supabase (analytics_events,
-// service-role only — see supabase-analytics.sql). The server re-checks the
+// service-role only — see db/supabase-analytics.sql). The server re-checks the
 // opt-out so a stale or misbehaving client can never record an opted-out user.
 // Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
 // JSON parse fallback.
@@ -3834,7 +3834,7 @@ app.listen(port, host, async () => {
   const analyticsProbe = await supabase.from('analytics_events').select('id').limit(1)
   if (analyticsProbe.error && isAdvertiserSchemaMissingError(analyticsProbe.error)) {
     console.warn(
-      '\n[BoilerIndy] Analytics: table analytics_events not found. Run supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
+      '\n[BoilerIndy] Analytics: table analytics_events not found. Run db/supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )
   }
 })

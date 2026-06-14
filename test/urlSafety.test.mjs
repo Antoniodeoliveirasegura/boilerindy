@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assertSafeHttpUrl } from './urlSafety.mjs'
+import { assertSafeHttpUrl } from '../src/urlSafety.mjs'
 
 test('assertSafeHttpUrl rejects localhost', async () => {
   await assert.rejects(
