@@ -512,19 +512,25 @@ function orderClassItemsForDisplay(items) {
   return [...items].sort((a, b) => new Date(b.start_time) - new Date(a.start_time))
 }
 
-async function getUserSummary(userId) {
-  const user = await getUserById(userId)
-  
-  const { count: linkedSourceCount } = await supabase
-    .from('linked_sources')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
+// Accepts either a userId or an already-loaded user row. Callers that already
+// have the user (e.g. the session endpoint) pass the object to avoid a
+// redundant re-fetch, and the two independent counts run in parallel — turning
+// the session payload from 4 sequential Supabase round-trips into 2.
+async function getUserSummary(userOrId) {
+  const user = userOrId && typeof userOrId === 'object' ? userOrId : await getUserById(userOrId)
+  const userId = user?.id ?? userOrId
 
-  const { count: classCount } = await supabase
-    .from('calendar_items')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('category', 'class')
+  const [{ count: linkedSourceCount }, { count: classCount }] = await Promise.all([
+    supabase
+      .from('linked_sources')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId),
+    supabase
+      .from('calendar_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('category', 'class'),
+  ])
 
   const hasPurdueLinked = Boolean(user?.purdue_email)
   return {
@@ -544,7 +550,8 @@ async function getCurrentUser(req) {
 
 async function buildSessionPayload(user, req) {
   if (!user) return null
-  const summary = await getUserSummary(user.id)
+  // Pass the already-loaded user so getUserSummary skips re-fetching it.
+  const summary = await getUserSummary(user)
   // Cookie expiry lets the client warn before the session lapses (issue #23)
   const cookieExpires = req?.session?.cookie?.expires
   return {
@@ -2551,14 +2558,32 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
   }
 })
 
+// ── Tiny in-memory TTL cache for quasi-static upstream/DB reads (perf) ──────
+// Repeat calls within the TTL return instantly instead of re-hitting TransLoc /
+// Supabase on every page load. Failures are never cached. Process-local — fine
+// for a single instance; swap for Redis if the backend is ever horizontally scaled.
+const _ttlCache = new Map() // key -> { value, expiresAt }
+async function getCached(key, ttlMs, producer) {
+  const now = Date.now()
+  const hit = _ttlCache.get(key)
+  if (hit && now < hit.expiresAt) return hit.value
+  const value = await producer()
+  _ttlCache.set(key, { value, expiresAt: now + ttlMs })
+  return value
+}
+
 // TransLoc API proxy endpoints (to avoid CORS issues)
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
 const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY || '8882812681'
+const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
+const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
 
 app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
   try {
-    const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
-    const data = await response.json()
+    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, async () => {
+      const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
+      return response.json()
+    })
     res.json(data)
   } catch (error) {
     console.error('TransLoc vehicles error:', error)
@@ -2568,8 +2593,10 @@ app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
 
 app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
   try {
-    const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
-    const data = await response.json()
+    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, async () => {
+      const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
+      return response.json()
+    })
     res.json(data)
   } catch (error) {
     console.error('TransLoc stops error:', error)
@@ -2579,8 +2606,10 @@ app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
 
 app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   try {
-    const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
-    const data = await response.json()
+    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, async () => {
+      const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
+      return response.json()
+    })
     res.json(data)
   } catch (error) {
     console.error('TransLoc routes error:', error)
@@ -3459,12 +3488,20 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 app.get('/api/spotlight/active', requireAuth, async (req, res) => {
   const placement = CAMPAIGN_PLACEMENTS.includes(req.query.placement) ? req.query.placement : 'home-widget'
   const limit = Math.min(Math.max(Number(req.query.limit) || 1, 1), 12)
-  const { data, error } = await supabase
-    .from('campaigns')
-    .select('id, placement, status, starts_on, ends_on, creative')
-    .eq('placement', placement)
-    .eq('status', 'active')
-  if (error) {
+  // Active campaigns for a placement are the same for every user and change
+  // rarely, so cache the row set ~60s. Date-based serving still runs per request.
+  let data
+  try {
+    data = await getCached(`spotlight:${placement}`, 60 * 1000, async () => {
+      const { data: rows, error } = await supabase
+        .from('campaigns')
+        .select('id, placement, status, starts_on, ends_on, creative')
+        .eq('placement', placement)
+        .eq('status', 'active')
+      if (error) throw error
+      return rows || []
+    })
+  } catch (error) {
     console.error('[/api/spotlight/active] query failed:', error?.message || error)
     return res.json({ ad: null, ads: [] })
   }

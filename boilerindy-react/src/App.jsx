@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
@@ -5,35 +6,41 @@ import { AuthProvider } from './context/AuthContext'
 import AppLayout from './components/AppLayout'
 import RequireAuth from './components/RequireAuth'
 import RequireAdvertiser from './components/RequireAdvertiser'
-import Landing from './pages/Landing'
-import AdvertiserLogin from './pages/AdvertiserLogin'
-import AdvertiserResetPassword from './pages/AdvertiserResetPassword'
-import AdvertiserDashboard from './pages/advertiser/Dashboard'
-import Login from './pages/Login'
-import ResetPassword from './pages/ResetPassword'
-import Privacy from './pages/Privacy'
-import AuthCallback from './pages/AuthCallback'
-import AnalyticsListener from './components/AnalyticsListener'
-import Home from './pages/Home'
-import Map from './pages/Map'
-import Schedule from './pages/Schedule'
-import Assignments from './pages/Assignments'
-import GradeTracker from './pages/GradeTracker'
-import Events from './pages/Events'
-import FreeFood from './pages/FreeFood'
-import LostFound from './pages/LostFound'
-import Dining from './pages/Dining'
-import Transit from './pages/Transit'
-import Services from './pages/Services'
-import Board from './pages/Board'
-import ConnectSchedule from './pages/ConnectSchedule'
-import Settings from './pages/Settings'
 import RequireAdmin from './components/RequireAdmin'
-import AdminLayout from './pages/admin/AdminLayout'
-import AdminOverview from './pages/admin/AdminOverview'
-import AdminLeads from './pages/admin/AdminLeads'
-import AdminCampaigns from './pages/admin/AdminCampaigns'
-import AdminAdvertisers from './pages/admin/AdminAdvertisers'
+import AnalyticsListener from './components/AnalyticsListener'
+import PageLoader from './components/PageLoader'
+
+// Entry points stay eagerly bundled so the first paint never waits on a chunk.
+import Landing from './pages/Landing'
+import Login from './pages/Login'
+
+// Every other route is code-split and fetched on demand — Map (Leaflet), the
+// admin/advertiser areas, and the feature pages no longer ship in the initial load.
+const AdvertiserLogin = lazy(() => import('./pages/AdvertiserLogin'))
+const AdvertiserResetPassword = lazy(() => import('./pages/AdvertiserResetPassword'))
+const AdvertiserDashboard = lazy(() => import('./pages/advertiser/Dashboard'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
+const Privacy = lazy(() => import('./pages/Privacy'))
+const AuthCallback = lazy(() => import('./pages/AuthCallback'))
+const Home = lazy(() => import('./pages/Home'))
+const Map = lazy(() => import('./pages/Map'))
+const Schedule = lazy(() => import('./pages/Schedule'))
+const Assignments = lazy(() => import('./pages/Assignments'))
+const GradeTracker = lazy(() => import('./pages/GradeTracker'))
+const Events = lazy(() => import('./pages/Events'))
+const FreeFood = lazy(() => import('./pages/FreeFood'))
+const LostFound = lazy(() => import('./pages/LostFound'))
+const Dining = lazy(() => import('./pages/Dining'))
+const Transit = lazy(() => import('./pages/Transit'))
+const Services = lazy(() => import('./pages/Services'))
+const Board = lazy(() => import('./pages/Board'))
+const ConnectSchedule = lazy(() => import('./pages/ConnectSchedule'))
+const Settings = lazy(() => import('./pages/Settings'))
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
+const AdminOverview = lazy(() => import('./pages/admin/AdminOverview'))
+const AdminLeads = lazy(() => import('./pages/admin/AdminLeads'))
+const AdminCampaigns = lazy(() => import('./pages/admin/AdminCampaigns'))
+const AdminAdvertisers = lazy(() => import('./pages/admin/AdminAdvertisers'))
 
 export default function App() {
   return (
@@ -41,6 +48,7 @@ export default function App() {
       <BrowserRouter>
         <AuthProvider>
           <AnalyticsListener />
+          <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/advertise" element={<AdvertiserLogin />} />
@@ -189,6 +197,7 @@ export default function App() {
               </Route>
             </Route>
           </Routes>
+          </Suspense>
         </AuthProvider>
       </BrowserRouter>
       <SpeedInsights />

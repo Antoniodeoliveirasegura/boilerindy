@@ -28,6 +28,20 @@ export default defineConfig(({ mode }) => {
     build: {
       // "hidden" emits maps for Sentry without referencing them publicly.
       sourcemap: uploadSourceMaps ? 'hidden' : false,
+      rollupOptions: {
+        output: {
+          // Split stable vendor libs into their own long-cached chunks so an app
+          // code change doesn't force users to re-download React/Supabase/etc.
+          // (Leaflet already isolates itself via the lazy /map route.)
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return
+            if (id.includes('leaflet')) return 'leaflet'
+            if (id.includes('@sentry')) return 'sentry'
+            if (id.includes('@supabase')) return 'supabase'
+            if (/[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'react-vendor'
+          },
+        },
+      },
     },
     server: {
       // Allow importing repo-root shared modules (e.g. dashboardLayout.mjs,
