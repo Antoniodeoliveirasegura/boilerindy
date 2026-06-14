@@ -35,6 +35,15 @@ import { createCalendarItemStore } from './calendarItemStore.mjs'
 import { buildCalendarFeed } from './icsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './dashboardLayout.mjs'
+import {
+  LETTER_GRADES,
+  MAX_COURSE_NAME,
+  MAX_TERM_NAME,
+  MAX_CREDIT_HOURS,
+  DEFAULT_CREDIT_HOURS,
+  DEFAULT_TERM,
+} from './gradeTracker.mjs'
+import { getProgram } from './degreePrograms.mjs'
 import { normalizeAnalyticsBatch } from './analytics.mjs'
 import { verifyPassword, hashPassword } from './passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './studentPasswordAuth.mjs'
@@ -1780,6 +1789,146 @@ app.delete('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
     console.error('DELETE /api/me/tasks/manual:', e)
     res.status(500).json({ error: { message: e.message || 'Could not delete task' } })
   }
+})
+
+// ---- Grade tracker (issue #10) -------------------------------------------
+const LETTER_GRADE_SET = new Set(LETTER_GRADES)
+
+function mapGradeRow(row) {
+  return {
+    id: row.id,
+    courseName: row.course_name,
+    term: row.term,
+    creditHours: typeof row.credit_hours === 'string' ? Number(row.credit_hours) : row.credit_hours,
+    letterGrade: row.letter_grade,
+  }
+}
+
+// Validate + coerce a request body into DB columns. Returns { value } on success
+// or { error } with a user-facing message. `partial` allows missing fields
+// (PATCH); a full insert requires courseName + letterGrade.
+function parseGradeBody(body, { partial } = {}) {
+  const updates = {}
+  const has = (k) => body && Object.prototype.hasOwnProperty.call(body, k)
+
+  if (has('courseName') || !partial) {
+    const name = String(body?.courseName ?? '').trim()
+    if (!name || name.length > MAX_COURSE_NAME) {
+      return { error: `Course name is required (max ${MAX_COURSE_NAME} characters)` }
+    }
+    updates.course_name = name
+  }
+  if (has('letterGrade') || !partial) {
+    const letter = String(body?.letterGrade ?? '').trim()
+    if (!LETTER_GRADE_SET.has(letter)) {
+      return { error: 'A valid letter grade is required' }
+    }
+    updates.letter_grade = letter
+  }
+  if (has('term') || !partial) {
+    const term = String(body?.term ?? '').trim().slice(0, MAX_TERM_NAME) || DEFAULT_TERM
+    updates.term = term
+  }
+  if (has('creditHours') || !partial) {
+    const n = Number(body?.creditHours ?? DEFAULT_CREDIT_HOURS)
+    if (!Number.isFinite(n) || n < 0 || n > MAX_CREDIT_HOURS) {
+      return { error: `Credit hours must be between 0 and ${MAX_CREDIT_HOURS}` }
+    }
+    updates.credit_hours = Math.round(n * 100) / 100
+  }
+  return { value: updates }
+}
+
+app.get('/api/me/grades', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('user_grades')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+    res.json({ grades: (data || []).map(mapGradeRow) })
+  } catch (e) {
+    console.error('GET /api/me/grades:', e?.message || e)
+    res.json({ grades: [], unavailable: true })
+  }
+})
+
+app.post('/api/me/grades', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
+  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  try {
+    const { data, error } = await supabase
+      .from('user_grades')
+      .insert({ user_id: userId, ...value })
+      .select()
+      .single()
+    if (error) throw error
+    res.json({ grade: mapGradeRow(data) })
+  } catch (e) {
+    console.error('POST /api/me/grades:', e)
+    res.status(500).json({ error: { message: e.message || 'Could not save course' } })
+  }
+})
+
+app.patch('/api/me/grades/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+  const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
+  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  if (Object.keys(value).length === 0) {
+    return res.status(400).json({ error: { message: 'No valid fields to update' } })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('user_grades')
+      .update(value)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select()
+      .single()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: { message: 'Course not found' } })
+    res.json({ grade: mapGradeRow(data) })
+  } catch (e) {
+    console.error('PATCH /api/me/grades/:id:', e)
+    res.status(500).json({ error: { message: e.message || 'Could not update course' } })
+  }
+})
+
+app.delete('/api/me/grades/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { id } = req.params
+  try {
+    const { error } = await supabase.from('user_grades').delete().eq('id', id).eq('user_id', userId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('DELETE /api/me/grades/:id:', e)
+    res.status(500).json({ error: { message: e.message || 'Could not delete course' } })
+  }
+})
+
+// Selected major for the degree planner (issue #18). Validated against the
+// degreePrograms catalogue; null clears it.
+app.get('/api/me/degree', requireAuth, async (req, res) => {
+  res.json({ major: req.currentUser.major ?? null })
+})
+
+app.put('/api/me/degree', requireAuth, async (req, res) => {
+  const raw = req.body?.major
+  const major = raw == null || raw === '' ? null : String(raw)
+  if (major !== null && !getProgram(major)) {
+    return res.status(400).json({ error: { message: 'Unknown major' } })
+  }
+  const { error } = await supabase.from('users').update({ major }).eq('id', req.currentUser.id)
+  if (error) {
+    console.error('PUT /api/me/degree:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your major.' } })
+  }
+  res.json({ major })
 })
 
 app.get('/api/me/classes', requireAuth, async (req, res) => {

@@ -212,6 +212,13 @@ export default function Services() {
               </div>
               <div className="text-[12px] text-[var(--color-txt-2)] mt-1">View imported classes and weekly meetings.</div>
             </Link>
+            <Link to="/grade-tracker" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="graduation" size={16} />
+                Grade Tracker
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Track courses and your term &amp; cumulative GPA.</div>
+            </Link>
             <Link to="/transit" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
               <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
                 <Icon name="bus" size={16} />
