@@ -6,19 +6,36 @@ import Icon from '../components/Icons'
 // campus board. Students post lost/found items, search them, and the author can
 // mark a post resolved (rendered dimmed) or delete it.
 
-const TYPE_BADGE = {
+const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   lost: { label: 'Lost', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' },
   found: { label: 'Found', cls: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' },
 }
 
-function formatWhen(dateString) {
+type LostFoundItem = {
+  id: string
+  type?: string
+  title?: string
+  description?: string
+  location?: string
+  contact?: string
+  status?: string
+  createdAt?: string
+  isOwner?: boolean
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
+function formatWhen(dateString: string | undefined) {
+  if (!dateString) return ''
   return new Date(dateString).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 const EMPTY_FORM = { type: 'lost', title: '', description: '', location: '', contact: '' }
 
 export default function LostFound() {
-  const [items, setItems] = useState([])
+  const [items, setItems] = useState<LostFoundItem[]>([])
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState(false)
   const [tab, setTab] = useState('all') // all | lost | found
@@ -32,7 +49,10 @@ export default function LostFound() {
   async function loadItems() {
     setLoading(true)
     try {
-      const res = await authRequest('/api/lost-found')
+      const res = (await authRequest('/api/lost-found')) as {
+        items?: LostFoundItem[]
+        unavailable?: boolean
+      }
       setItems(res.items || [])
       setUnavailable(Boolean(res.unavailable))
     } catch (e) {
@@ -47,7 +67,10 @@ export default function LostFound() {
     let cancelled = false
     void (async () => {
       try {
-        const res = await authRequest('/api/lost-found')
+        const res = (await authRequest('/api/lost-found')) as {
+          items?: LostFoundItem[]
+          unavailable?: boolean
+        }
         if (cancelled) return
         setItems(res.items || [])
         setUnavailable(Boolean(res.unavailable))
@@ -78,11 +101,11 @@ export default function LostFound() {
     })
   }, [items, tab, showResolved, search])
 
-  function updateForm(field, value) {
+  function updateForm(field: keyof typeof EMPTY_FORM, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
     if (!form.title.trim() || submitting) return
@@ -101,13 +124,13 @@ export default function LostFound() {
       setForm(EMPTY_FORM)
       await loadItems()
     } catch (err) {
-      setError(err.message || 'Could not post. Please try again.')
+      setError(errorText(err, 'Could not post. Please try again.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  async function toggleResolved(item) {
+  async function toggleResolved(item: LostFoundItem) {
     setError('')
     try {
       await authRequest(`/api/lost-found/${item.id}`, {
@@ -116,18 +139,18 @@ export default function LostFound() {
       })
       await loadItems()
     } catch (err) {
-      setError(err.message || 'Could not update the post.')
+      setError(errorText(err, 'Could not update the post.'))
     }
   }
 
-  async function remove(item) {
+  async function remove(item: LostFoundItem) {
     if (!window.confirm('Delete this post? This cannot be undone.')) return
     setError('')
     try {
       await authRequest(`/api/lost-found/${item.id}`, { method: 'DELETE' })
       await loadItems()
     } catch (err) {
-      setError(err.message || 'Could not delete the post.')
+      setError(errorText(err, 'Could not delete the post.'))
     }
   }
 
@@ -282,7 +305,7 @@ export default function LostFound() {
       ) : (
         <div className="space-y-2 animate-fade-in-up stagger-2">
           {filtered.map((item) => {
-            const badge = TYPE_BADGE[item.type] || TYPE_BADGE.lost
+            const badge = TYPE_BADGE[item.type || 'lost'] || TYPE_BADGE.lost
             const resolved = item.status === 'resolved'
             return (
               <div key={item.id} className={`card p-4 ${resolved ? 'opacity-60' : ''}`}>
