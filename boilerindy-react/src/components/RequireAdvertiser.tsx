@@ -1,12 +1,21 @@
-import { cloneElement, useEffect, useState } from 'react'
+import { cloneElement, useEffect, useState, type ReactElement } from 'react'
 import { Navigate } from 'react-router-dom'
 import { getAdvertiserSession } from '../lib/advertiserApi'
+
+type GuardState = {
+  status: 'loading' | 'ok' | 'unauth'
+  advertiser: unknown
+}
 
 // Route guard for the advertiser portal. Confirms an advertiser session via
 // GET /api/advertiser/me (separate from the student AuthContext), then injects
 // the advertiser profile into the wrapped page so it needn't refetch.
-export default function RequireAdvertiser({ children }) {
-  const [state, setState] = useState({ status: 'loading', advertiser: null })
+export default function RequireAdvertiser({
+  children,
+}: {
+  children: ReactElement<{ advertiser?: unknown }>
+}) {
+  const [state, setState] = useState<GuardState>({ status: 'loading', advertiser: null })
 
   useEffect(() => {
     let active = true

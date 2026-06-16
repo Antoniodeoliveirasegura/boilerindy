@@ -19,7 +19,9 @@ export default function SessionExpiryWatcher() {
   const [extending, setExtending] = useState(false)
   const [dismissedUntil, setDismissedUntil] = useState(0)
 
-  const expiresAtMs = session?.expiresAt ? new Date(session.expiresAt).getTime() : null
+  const expiresAtMs = session?.expiresAt
+    ? new Date(session.expiresAt as string).getTime()
+    : null
 
   useEffect(() => {
     if (!expiresAtMs) return undefined
