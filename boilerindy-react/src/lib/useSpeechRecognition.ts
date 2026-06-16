@@ -5,27 +5,25 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // (Safari/iOS), `supported` is false and callers simply hide the mic — typing
 // still works, and no error is surfaced.
 
-function getRecognitionCtor() {
+function getRecognitionCtor(): SpeechRecognitionCtor | null {
   if (typeof window === 'undefined') return null
   return window.SpeechRecognition || window.webkitSpeechRecognition || null
 }
 
-/**
- * @param {object} [options]
- * @param {(transcript: string) => void} [options.onResult] - fired with the live
- *   (interim + final) cumulative transcript of the current utterance.
- * @param {string} [options.lang]
- * @returns {{ supported: boolean, listening: boolean, error: string | null,
- *   start: () => void, stop: () => void, toggle: () => void }}
- */
-export function useSpeechRecognition({ onResult, lang = 'en-US' } = {}) {
+type SpeechRecognitionOptions = {
+  /** fired with the live (interim + final) cumulative transcript of the utterance */
+  onResult?: (transcript: string) => void
+  lang?: string
+}
+
+export function useSpeechRecognition({ onResult, lang = 'en-US' }: SpeechRecognitionOptions = {}) {
   const Ctor = getRecognitionCtor()
   const supported = Boolean(Ctor)
 
   const [listening, setListening] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const recognitionRef = useRef(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   // Hold the callback in a ref so the recognizer is built once, not rebuilt on
   // every render when the parent passes a fresh onResult function. Written in an
   // effect (not during render) to satisfy the rules of hooks.
@@ -35,7 +33,7 @@ export function useSpeechRecognition({ onResult, lang = 'en-US' } = {}) {
   }, [onResult])
 
   useEffect(() => {
-    if (!supported) return undefined
+    if (!Ctor) return undefined
 
     const recognition = new Ctor()
     recognition.interimResults = true
