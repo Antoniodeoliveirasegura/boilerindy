@@ -1,38 +1,21 @@
 /// <reference types="vite/client" />
 
-// Web Speech API (issue #19). Not part of lib.dom, and only implemented in
-// Chromium browsers, so we declare the minimal surface the app actually uses.
-interface SpeechRecognitionResultItem {
-  readonly transcript: string
-}
-
-interface SpeechRecognitionResultGroup {
-  readonly [index: number]: SpeechRecognitionResultItem
-}
-
-interface SpeechRecognitionResultListLike {
-  readonly length: number
-  readonly [index: number]: SpeechRecognitionResultGroup
-}
-
-interface SpeechRecognitionEventLike {
-  readonly results: SpeechRecognitionResultListLike
-}
-
-interface SpeechRecognitionErrorEventLike {
-  readonly error: string
+// Web Speech API (issue #19). Still non-standard, so it is absent from
+// lib.dom.d.ts — declare the minimal surface consumed by useSpeechRecognition.
+interface SpeechRecognitionResultLike {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>
 }
 
 interface SpeechRecognitionLike {
   interimResults: boolean
   continuous: boolean
   lang: string
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
+  onresult: ((event: SpeechRecognitionResultLike) => void) | null
+  onerror: ((event: { error?: string }) => void) | null
   onend: (() => void) | null
-  start(): void
-  stop(): void
-  abort(): void
+  start: () => void
+  stop: () => void
+  abort: () => void
 }
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike

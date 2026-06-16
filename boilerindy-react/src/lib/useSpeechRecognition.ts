@@ -3,20 +3,36 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // Push-to-talk speech-to-text for the campus assistant (issue #19). Thin wrapper
 // over the browser Web Speech API (Chrome/Android). Where the API is missing
 // (Safari/iOS), `supported` is false and callers simply hide the mic — typing
-// still works, and no error is surfaced.
+// still works, and no error is surfaced. Migrated to TypeScript (issue #20).
+// The SpeechRecognition* ambient types live in src/vite-env.d.ts.
 
 function getRecognitionCtor(): SpeechRecognitionCtor | null {
   if (typeof window === 'undefined') return null
   return window.SpeechRecognition || window.webkitSpeechRecognition || null
 }
 
-type SpeechRecognitionOptions = {
-  /** fired with the live (interim + final) cumulative transcript of the utterance */
+type UseSpeechRecognitionOptions = {
+  /**
+   * Fired with the live (interim + final) cumulative transcript of the current
+   * utterance.
+   */
   onResult?: (transcript: string) => void
   lang?: string
 }
 
-export function useSpeechRecognition({ onResult, lang = 'en-US' }: SpeechRecognitionOptions = {}) {
+type UseSpeechRecognitionResult = {
+  supported: boolean
+  listening: boolean
+  error: string | null
+  start: () => void
+  stop: () => void
+  toggle: () => void
+}
+
+export function useSpeechRecognition({
+  onResult,
+  lang = 'en-US',
+}: UseSpeechRecognitionOptions = {}): UseSpeechRecognitionResult {
   const Ctor = getRecognitionCtor()
   const supported = Boolean(Ctor)
 
@@ -66,7 +82,7 @@ export function useSpeechRecognition({ onResult, lang = 'en-US' }: SpeechRecogni
       }
       recognitionRef.current = null
     }
-  }, [supported, Ctor, lang])
+  }, [Ctor, lang])
 
   const start = useCallback(() => {
     const recognition = recognitionRef.current

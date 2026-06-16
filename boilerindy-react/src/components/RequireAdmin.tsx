@@ -1,8 +1,9 @@
 import { Link, Navigate, useLocation } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Icon from './Icons'
 
-export default function RequireAdmin({ children }) {
+export default function RequireAdmin({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
   const location = useLocation()
 

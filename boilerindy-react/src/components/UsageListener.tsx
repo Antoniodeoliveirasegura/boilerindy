@@ -11,7 +11,7 @@ export default function UsageListener() {
   const { user } = useAuth()
   const location = useLocation()
 
-  const isTrackingEnabled = Boolean(user) && !user.analyticsOptOut
+  const isTrackingEnabled = Boolean(user) && !user?.analyticsOptOut
 
   useEffect(() => {
     configureAnalytics({ enabled: isTrackingEnabled })
