@@ -1,8 +1,9 @@
-// Thin client for the advertiser portal API. Mirrors lib/authApi.js (cookie
+// Thin client for the advertiser portal API. Mirrors lib/authApi (cookie
 // session via credentials: 'include') but talks to the SEPARATE /api/advertiser/*
 // routes — advertiser sessions are isolated from the student app server-side.
+// Migrated to TypeScript (issue #20).
 
-async function advertiserRequest(url, options = {}) {
+async function advertiserRequest(url: string, options: RequestInit = {}): Promise<unknown> {
   const headers = new Headers(options.headers || {})
   if (options.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -10,17 +11,18 @@ async function advertiserRequest(url, options = {}) {
 
   const response = await fetch(url, { ...options, headers, credentials: 'include' })
   const contentType = response.headers.get('content-type') || ''
-  const payload = contentType.includes('application/json')
+  const payload: unknown = contentType.includes('application/json')
     ? await response.json()
     : await response.text()
 
   if (!response.ok) {
+    const p = payload as { error?: { message?: string }; message?: string } | string | null
     const message =
-      payload?.error?.message ||
-      payload?.message ||
-      (typeof payload === 'string' && payload) ||
+      (typeof p === 'object' && p?.error?.message) ||
+      (typeof p === 'object' && p?.message) ||
+      (typeof p === 'string' && p) ||
       'Request failed'
-    const error = new Error(message)
+    const error = new Error(message) as Error & { status?: number; payload?: unknown }
     error.status = response.status
     error.payload = payload
     throw error
@@ -29,40 +31,45 @@ async function advertiserRequest(url, options = {}) {
   return payload
 }
 
-/** @returns {Promise<{ session: { advertiser: object } }>} */
-export function advertiserSignIn(email, password) {
+export function advertiserSignIn(email: string, password: string): Promise<unknown> {
   return advertiserRequest('/api/advertiser/sign-in', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   })
 }
 
-export function advertiserSignOut() {
+export function advertiserSignOut(): Promise<unknown> {
   return advertiserRequest('/api/advertiser/sign-out', { method: 'POST' })
 }
 
 /** Resolve the current advertiser session, or null if not signed in. */
-export async function getAdvertiserSession() {
+export async function getAdvertiserSession(): Promise<unknown> {
   try {
-    const data = await advertiserRequest('/api/advertiser/me')
+    const data = (await advertiserRequest('/api/advertiser/me')) as
+      | { session?: { advertiser?: unknown } }
+      | null
     return data?.session?.advertiser || null
   } catch (error) {
-    if (error.status === 401) return null
+    if ((error as { status?: number }).status === 401) return null
     throw error
   }
 }
 
-export function requestAdvertiserAccess({ email, companyName, message }) {
+export function requestAdvertiserAccess(input: {
+  email: string
+  companyName: string
+  message?: string
+}): Promise<unknown> {
   return advertiserRequest('/api/advertiser/request-access', {
     method: 'POST',
-    body: JSON.stringify({ email, companyName, message }),
+    body: JSON.stringify(input),
   })
 }
 
 // ── Password reset (forgot-password) ─────────────────────────────────────────
 
 /** Request a reset link. Resolves the same way whether or not the email exists. */
-export function requestAdvertiserPasswordReset(email) {
+export function requestAdvertiserPasswordReset(email: string): Promise<unknown> {
   return advertiserRequest('/api/advertiser/forgot-password', {
     method: 'POST',
     body: JSON.stringify({ email }),
@@ -70,7 +77,7 @@ export function requestAdvertiserPasswordReset(email) {
 }
 
 /** Set a new password using the token from the emailed reset link. */
-export function resetAdvertiserPassword(token, password) {
+export function resetAdvertiserPassword(token: string, password: string): Promise<unknown> {
   return advertiserRequest('/api/advertiser/reset-password', {
     method: 'POST',
     body: JSON.stringify({ token, password }),
@@ -79,28 +86,24 @@ export function resetAdvertiserPassword(token, password) {
 
 // ── Campaigns (M2) ───────────────────────────────────────────────────────────
 
-/** @returns {Promise<{ campaigns: Array<object> }>} */
-export function listCampaigns() {
+export function listCampaigns(): Promise<unknown> {
   return advertiserRequest('/api/advertiser/campaigns')
 }
 
-/** @param {{ name, placement, startsOn?, endsOn?, creative? }} payload */
-export function createCampaign(payload) {
+export function createCampaign(payload: Record<string, unknown>): Promise<unknown> {
   return advertiserRequest('/api/advertiser/campaigns', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
 
-/** @param {string} id @param {object} patch partial fields incl. optional status */
-export function updateCampaign(id, patch) {
+export function updateCampaign(id: string, patch: Record<string, unknown>): Promise<unknown> {
   return advertiserRequest(`/api/advertiser/campaigns/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
 }
 
-/** @returns {Promise<{ stats: { impressions: number, taps: number, ctr: number } }>} */
-export function getCampaignStats(id) {
+export function getCampaignStats(id: string): Promise<unknown> {
   return advertiserRequest(`/api/advertiser/campaigns/${id}/stats`)
 }
