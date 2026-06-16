@@ -1,4 +1,4 @@
-import { useState, useRef, useLayoutEffect } from 'react'
+import { useState, useRef, useLayoutEffect, type ReactNode, type RefObject } from 'react'
 import Icon from '../Icons'
 import { allowedSizesFor } from '../../lib/dashboardLayoutStore'
 
@@ -21,7 +21,7 @@ import { allowedSizesFor } from '../../lib/dashboardLayoutStore'
 // 2 cols at sm, 4 cols at lg, so spans are capped per breakpoint to avoid
 // overflow. Class strings are written out in full so Tailwind's scanner emits
 // them (it cannot see dynamically-built class names).
-const SPAN_CLASS = {
+const SPAN_CLASS: Record<string, string> = {
   quarter: 'sm:col-span-1 lg:col-span-1',
   half: 'sm:col-span-1 lg:col-span-2',
   'three-quarter': 'sm:col-span-2 lg:col-span-3',
@@ -35,9 +35,9 @@ const SPAN_CLASS = {
 // uniform grid keeps drag-and-drop predictable.
 const MASONRY_GAP_PX = 16
 
-function useMasonrySpan(enabled) {
-  const ref = useRef(null)
-  const [span, setSpan] = useState(null)
+function useMasonrySpan(enabled: boolean): [RefObject<HTMLDivElement | null>, number | null] {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [span, setSpan] = useState<number | null>(null)
   useLayoutEffect(() => {
     // While editing the span is unused (uniform grid), so skip work entirely —
     // the stale value is simply ignored until view mode re-measures.
@@ -62,6 +62,21 @@ function useMasonrySpan(enabled) {
   return [ref, span]
 }
 
+type DashboardWidgetProps = {
+  id: string
+  title: string
+  editing: boolean
+  size: string
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMove: (id: string, dir: number) => void
+  onResize: (id: string, size: string) => void
+  onHide: (id: string) => void
+  onDropReorder: (fromId: string, toId: string) => void
+  reducedMotion: boolean
+  children: ReactNode
+}
+
 export default function DashboardWidget({
   id,
   title,
@@ -75,7 +90,7 @@ export default function DashboardWidget({
   onDropReorder,
   reducedMotion,
   children,
-}) {
+}: DashboardWidgetProps) {
   const [dragOver, setDragOver] = useState(false)
   const [masonryRef, masonrySpan] = useMasonrySpan(!editing)
 
@@ -103,7 +118,7 @@ export default function DashboardWidget({
   const sizeIdx = sizes.indexOf(size)
   const canShrink = sizeIdx > 0
   const canGrow = sizeIdx >= 0 && sizeIdx < sizes.length - 1
-  const resize = (dir) => {
+  const resize = (dir: number) => {
     const next = sizes[sizeIdx + dir]
     if (next) onResize(id, next)
   }
@@ -129,7 +144,7 @@ export default function DashboardWidget({
       }}
       onDragLeave={(e) => {
         // Only clear when the pointer actually leaves the widget bounds.
-        if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false)
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false)
       }}
       onDrop={(e) => {
         e.preventDefault()

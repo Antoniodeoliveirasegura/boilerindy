@@ -1,13 +1,18 @@
 import Icon from '../Icons'
 
+type HiddenWidget = { id: string; title: string }
+
+type AddWidgetPickerProps = {
+  hiddenWidgets: HiddenWidget[]
+  onAdd: (id: string) => void
+}
+
 /**
  * Edit-mode panel listing every hidden widget so it can be re-added to the home
  * dashboard (issue #52). Rendered only while customizing; hidden when there are
  * no hidden widgets left.
- *
- * @param {{ hiddenWidgets: { id: string, title: string }[], onAdd: (id: string) => void }} props
  */
-export default function AddWidgetPicker({ hiddenWidgets, onAdd }) {
+export default function AddWidgetPicker({ hiddenWidgets, onAdd }: AddWidgetPickerProps) {
   if (hiddenWidgets.length === 0) return null
 
   return (
