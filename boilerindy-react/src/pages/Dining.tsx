@@ -4,7 +4,34 @@ import { track } from '../lib/usageStats'
 import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
 
-const STATIC_LOCATIONS = []
+type MenuItem = { name: string; calories?: number | null; icons?: string[] }
+type Station = { name: string; items: MenuItem[] }
+type NutrisliceLoc = {
+  slug: string
+  name: string
+  is_open?: boolean
+  hours?: string
+  weekly_hours?: Record<string, string> | null
+  meal?: string
+  stations?: Station[]
+  warnings?: unknown
+}
+type Location = {
+  id: string
+  slug: string
+  name: string
+  source: string
+  status: string
+  hours?: string
+  weekly_hours: Record<string, string> | null
+  meal?: string
+  rating: number | null
+  stations: Station[]
+  warnings?: unknown
+}
+type LiveData = { ok?: boolean; locations?: NutrisliceLoc[]; date?: string; cached?: boolean }
+
+const STATIC_LOCATIONS: Location[] = []
 
 const GENERIC_HOURS = [
   { meal: 'Breakfast', time: '7:00 – 10:30 AM', icon: 'coffee' },
@@ -13,9 +40,9 @@ const GENERIC_HOURS = [
 ]
 
 const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const SHORT_DAY = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }
+const SHORT_DAY: Record<string, string> = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }
 
-function nutrisliceToLocation(loc) {
+function nutrisliceToLocation(loc: NutrisliceLoc): Location {
   return {
     id: loc.slug,
     slug: loc.slug,
@@ -38,7 +65,17 @@ function getTodayDayName() {
 const STATION_ICONS = ['dining', 'grid', 'star', 'coffee', 'moon', 'book', 'building', 'users', 'navigation', 'bus']
 const STATION_CAP = 10
 
-function StationCard({ station, index, favorites, onToggleFavorite }) {
+function StationCard({
+  station,
+  index,
+  favorites,
+  onToggleFavorite,
+}: {
+  station: Station
+  index: number
+  favorites: Set<string>
+  onToggleFavorite: (name: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const overflow = station.items.length > STATION_CAP
   const visible = expanded ? station.items : station.items.slice(0, STATION_CAP)
@@ -127,25 +164,26 @@ export default function Dining() {
     track('dining_viewed')
   }, [])
 
-  const [live, setLive] = useState(null)
+  const [live, setLive] = useState<LiveData | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const [aiSuggestion, setAiSuggestion] = useState(null)
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
 
   // Favorites (issue #49): a Set of normalized item names. Loaded once for the
   // signed-in user; failures leave it empty so the page still works.
-  const [favorites, setFavorites] = useState(() => new Set())
+  const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     let active = true
     authRequest('/api/me/dining/favorites')
       .then((data) => {
-        if (active && Array.isArray(data?.favorites)) {
-          setFavorites(new Set(data.favorites.map(normalizeItemName).filter(Boolean)))
+        const d = data as { favorites?: string[] }
+        if (active && Array.isArray(d?.favorites)) {
+          setFavorites(new Set(d.favorites.map(normalizeItemName).filter(Boolean)))
         }
       })
       .catch(() => {
@@ -157,7 +195,7 @@ export default function Dining() {
   }, [])
 
   const toggleFavorite = useCallback(
-    (rawName) => {
+    (rawName: string) => {
       const key = normalizeItemName(rawName)
       if (!key) return
       const adding = !favorites.has(key)
@@ -202,7 +240,7 @@ export default function Dining() {
       .finally(() => setAiLoading(false))
   }
 
-  function loadMenu(force = false) {
+  function loadMenu(force: boolean = false) {
     if (force) setRefreshing(true)
     else setLoading(true)
     setLoadError('')
@@ -254,7 +292,7 @@ export default function Dining() {
   // Default the selected location once the list loads, keeping any still-valid
   // choice. Adjusting during render (guarded by a locations identity check)
   // avoids the setState-in-effect cascading-render warning.
-  const [prevLocations, setPrevLocations] = useState(null)
+  const [prevLocations, setPrevLocations] = useState<Location[] | null>(null)
   if (locations !== prevLocations) {
     setPrevLocations(locations)
     if (locations.length) {
@@ -504,7 +542,7 @@ export default function Dining() {
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
                       {WEEKDAY_ORDER.map((day) => {
-                        const hrs = loc.weekly_hours[day] || 'N/A'
+                        const hrs = loc.weekly_hours?.[day] || 'N/A'
                         const isToday = day === today
                         const isClosed = /closed/i.test(hrs)
                         return (
