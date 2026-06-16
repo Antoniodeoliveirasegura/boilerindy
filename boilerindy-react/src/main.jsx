@@ -12,6 +12,14 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>,
 )
 
+// PWA service worker (issue #11). Registered in production only so dev assets are
+// never cached. Best-effort — a failed registration must not break the app.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+}
+
 // Error tracking (issue #50), loaded OFF the critical path: @sentry/react and the
 // scrubber are no longer in the initial bundle, and init runs after first paint.
 // Only active when VITE_SENTRY_DSN is set (prod); local dev sends zero events.

@@ -1,0 +1,19 @@
+{
+  "name": "BoilerIndy",
+  "short_name": "BoilerIndy",
+  "description": "Your Purdue Indianapolis campus companion — schedule, dining, transit, board, and more.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#100b04",
+  "theme_color": "#100b04",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
