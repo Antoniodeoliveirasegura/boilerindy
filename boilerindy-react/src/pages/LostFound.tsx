@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { authRequest } from '../lib/authApi'
 import Icon from '../components/Icons'
+import { useConfirm } from '../hooks/useConfirm'
 
 // Standalone Lost & Found (issue #47) — its own page + table, independent of the
 // campus board. Students post lost/found items, search them, and the author can
@@ -35,6 +36,7 @@ function formatWhen(dateString: string | undefined) {
 const EMPTY_FORM = { type: 'lost', title: '', description: '', location: '', contact: '' }
 
 export default function LostFound() {
+  const { confirm, confirmDialog } = useConfirm()
   const [items, setItems] = useState<LostFoundItem[]>([])
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState(false)
@@ -144,7 +146,7 @@ export default function LostFound() {
   }
 
   async function remove(item: LostFoundItem) {
-    if (!window.confirm('Delete this post? This cannot be undone.')) return
+    if (!(await confirm({ title: 'Delete this post?', message: 'This removes your post from the board.', confirmLabel: 'Delete', tone: 'danger' }))) return
     setError('')
     try {
       await authRequest(`/api/lost-found/${item.id}`, { method: 'DELETE' })
@@ -156,6 +158,7 @@ export default function LostFound() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      {confirmDialog}
       <div className="mb-6 animate-fade-in-up">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Lost &amp; Found</h1>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[680px]">

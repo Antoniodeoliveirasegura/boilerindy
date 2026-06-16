@@ -1,8 +1,34 @@
-import Icon from '../components/Icons'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import Icon from '../components/Icons'
+import { useAuth } from '../context/AuthContext'
+import { useServicesLayout } from '../hooks/useServicesLayout'
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
+import { allowedSizesFor } from '../lib/servicesLayoutStore'
+import DashboardWidget from '../components/dashboard/DashboardWidget'
+import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
+import ConfirmDialog from '../components/ConfirmDialog'
 
-const resourceGroups = [
+type ResourceItem = {
+  name: string
+  desc: string
+  icon: string
+  href?: string
+  link?: string
+}
+
+type ResourceGroup = {
+  // Stable widget id used by the Services layout catalogue (servicesLayout.mjs).
+  id: string
+  category: string
+  icon: string
+  color: string
+  items: ResourceItem[]
+}
+
+const resourceGroups: ResourceGroup[] = [
   {
+    id: 'academic-support',
     category: 'Academic Support',
     icon: 'graduation',
     color: 'map',
@@ -17,6 +43,7 @@ const resourceGroups = [
     ],
   },
   {
+    id: 'transit-and-dining',
     category: 'Transit And Dining',
     icon: 'bus',
     color: 'bus',
@@ -30,6 +57,7 @@ const resourceGroups = [
     ],
   },
   {
+    id: 'campus-life-and-careers',
     category: 'Campus Life And Careers',
     icon: 'users',
     color: 'events',
@@ -43,6 +71,7 @@ const resourceGroups = [
     ],
   },
   {
+    id: 'health-and-wellness',
     category: 'Health And Wellness',
     icon: 'heart',
     color: 'dining',
@@ -60,11 +89,52 @@ const quickLinks = [
   { name: 'Career Support', desc: 'Purdue Indianapolis CCO', icon: 'rocket', href: 'https://www.cco.purdue.edu/PurdueIndianapolis', color: 'dining' },
 ]
 
+// In-App Shortcuts: the navigational tiles that lead into other app pages. Data
+// driven so the card can lay them out in a size-aware grid (more columns when
+// the widget is widened), mirroring the home dashboard's quick-actions widget.
+type Shortcut = { to: string; label: string; desc: string; icon?: string; emoji?: string }
+
+const shortcuts: Shortcut[] = [
+  { to: '/schedule', icon: 'schedule', label: 'Schedule', desc: 'View imported classes and weekly meetings.' },
+  { to: '/grade-tracker', icon: 'graduation', label: 'Grade Tracker', desc: 'Track courses and your term & cumulative GPA.' },
+  { to: '/transit', icon: 'bus', label: 'Transit', desc: 'Open campus movement tools and shuttle info.' },
+  { to: '/dining', icon: 'dining', label: 'Dining', desc: 'Check menus, hours, and dining context.' },
+  { to: '/free-food', emoji: '🍕', label: 'Free Food', desc: 'Upcoming events serving free food on campus.' },
+  { to: '/lost-found', icon: 'search', label: 'Lost & Found', desc: 'Report or find lost items around campus.' },
+  { to: '/guide', icon: 'mapPin', label: 'Neighborhood Guide', desc: 'Student tips for food, study spots, parking, and safety.' },
+  { to: '/study-groups', icon: 'users', label: 'Study Groups', desc: 'Find classmates and form study groups by course.' },
+  { to: '/perks', icon: 'sparkles', label: 'Campus Perks', desc: 'Local deals and discounts for students.' },
+  { to: '/marketplace', icon: 'grid', label: 'Marketplace', desc: 'Buy and sell textbooks, furniture, and more.' },
+  { to: '/friends', icon: 'users', label: 'People', desc: 'Meet classmates who share your courses.' },
+  { to: '/settings', icon: 'settings', label: 'Settings', desc: 'Manage account, Purdue link, and source setup.' },
+]
+
 const colorConfig: Record<string, { bg: string; text: string }> = {
   map: { bg: 'bg-[var(--color-map-bg)]', text: 'text-[var(--color-map-color)]' },
   events: { bg: 'bg-[var(--color-events-bg)]', text: 'text-[var(--color-events-color)]' },
   bus: { bg: 'bg-[var(--color-bus-bg)]', text: 'text-[var(--color-bus-title)]' },
   dining: { bg: 'bg-[var(--color-dining-bg)]', text: 'text-[var(--color-dining-color)]' },
+}
+
+// Internal grid columns by widget width. Full class strings keep Tailwind's
+// scanner happy (it cannot read computed names). Services widgets are clamped to
+// half..full, so only those keys are needed (with a sensible fallback).
+const SHORTCUTS_GRID_CLASS: Record<string, string> = {
+  half: 'sm:grid-cols-2',
+  'three-quarter': 'sm:grid-cols-2 lg:grid-cols-3',
+  full: 'sm:grid-cols-2 lg:grid-cols-4',
+}
+function shortcutsGridClass(size: string) {
+  return SHORTCUTS_GRID_CLASS[size] || SHORTCUTS_GRID_CLASS.full
+}
+
+const RESOURCE_ITEMS_GRID_CLASS: Record<string, string> = {
+  half: 'grid-cols-1',
+  'three-quarter': 'grid-cols-1 lg:grid-cols-2',
+  full: 'grid-cols-1 sm:grid-cols-2',
+}
+function resourceItemsGridClass(size: string) {
+  return RESOURCE_ITEMS_GRID_CLASS[size] || RESOURCE_ITEMS_GRID_CLASS.half
 }
 
 function openCampusAssistantForResources() {
@@ -76,14 +146,6 @@ function openCampusAssistantForResources() {
       },
     }),
   )
-}
-
-type ResourceItem = {
-  name: string
-  desc: string
-  icon: string
-  href?: string
-  link?: string
 }
 
 function ResourceCard({ item }: { item: ResourceItem }) {
@@ -117,7 +179,86 @@ function ResourceCard({ item }: { item: ResourceItem }) {
   return <div key={item.name}>{content}</div>
 }
 
+// One resource group rendered as a customizable widget body. Item columns grow
+// with the widget's width so a widened card fills its space instead of leaving a
+// tall single column.
+function ResourceGroupCard({ group, size }: { group: ResourceGroup; size: string }) {
+  const config = colorConfig[group.color]
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-3 mb-4">
+        <div className={`w-8 h-8 rounded-lg ${config.bg} flex items-center justify-center`}>
+          <Icon name={group.icon} size={16} className={config.text} />
+        </div>
+        <span className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+          {group.category}
+        </span>
+      </div>
+      <div className={`grid gap-x-4 gap-y-0.5 ${resourceItemsGridClass(size)}`}>
+        {group.items.map((item) => (
+          <ResourceCard key={item.name} item={item} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// In-App Shortcuts widget body. Tile columns follow the widget width so a
+// full-width card spreads the shortcuts out instead of squeezing them.
+function InAppShortcutsCard({ size }: { size: string }) {
+  return (
+    <div className="card p-5 sm:p-6">
+      <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
+        In-App Shortcuts
+      </div>
+      <div className={`grid gap-3 ${shortcutsGridClass(size)}`}>
+        {shortcuts.map((s) => (
+          <Link
+            key={s.to}
+            to={s.to}
+            className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline"
+          >
+            <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+              {s.emoji ? <span aria-hidden="true">{s.emoji}</span> : <Icon name={s.icon as string} size={16} />}
+              {s.label}
+            </div>
+            <div className="text-[12px] text-[var(--color-txt-2)] mt-1">{s.desc}</div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+type ServicesWidgetDef = { title: string; render: (size: string) => ReactNode }
+
+const groupById: Record<string, ResourceGroup> = Object.fromEntries(
+  resourceGroups.map((g) => [g.id, g]),
+)
+
+// Registry: widget id -> display title + renderer. Only ids present here render;
+// unknown ids in a saved layout are ignored. The saved layout drives order,
+// size, and visibility (servicesLayout.mjs is the shared catalogue / validator).
+const servicesWidgets: Record<string, ServicesWidgetDef> = {
+  'in-app-shortcuts': { title: 'In-App Shortcuts', render: (size) => <InAppShortcutsCard size={size} /> },
+  'academic-support': { title: 'Academic Support', render: (size) => <ResourceGroupCard group={groupById['academic-support']} size={size} /> },
+  'transit-and-dining': { title: 'Transit And Dining', render: (size) => <ResourceGroupCard group={groupById['transit-and-dining']} size={size} /> },
+  'campus-life-and-careers': { title: 'Campus Life And Careers', render: (size) => <ResourceGroupCard group={groupById['campus-life-and-careers']} size={size} /> },
+  'health-and-wellness': { title: 'Health And Wellness', render: (size) => <ResourceGroupCard group={groupById['health-and-wellness']} size={size} /> },
+}
+
 export default function Services() {
+  const { user } = useAuth()
+  const userId = user?.id as string | undefined
+  const reducedMotion = usePrefersReducedMotion()
+  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useServicesLayout(userId)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  const visibleWidgets = layout.filter((w) => w.visible && servicesWidgets[w.id])
+  const hiddenWidgets = layout
+    .filter((w) => !w.visible && servicesWidgets[w.id])
+    .map((w) => ({ id: w.id, title: servicesWidgets[w.id].title }))
+
   return (
     <div className="max-w-[1080px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
       <div className="mb-6 animate-fade-in-up">
@@ -154,152 +295,111 @@ export default function Services() {
         })}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4 mb-8">
-        {resourceGroups.map((category, catIdx) => {
-          const config = colorConfig[category.color]
-          return (
-            <div
-              key={category.category}
-              className="card p-5 animate-fade-in-up"
-              style={{ animationDelay: `${catIdx * 0.08 + 0.15}s` }}
+      {/* Customize toolbar — toggles widget edit mode for the resource board. */}
+      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
+        <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
+          {editing
+            ? 'Drag a card or use the arrows to reorder. Resize with − / +, hide with ×; add hidden cards below.'
+            : ''}
+        </p>
+        <div className="flex items-center gap-2 shrink-0">
+          {editing && (
+            <button
+              type="button"
+              onClick={() => setShowResetConfirm(true)}
+              className="btn btn-secondary text-[12px] px-4 py-2"
             >
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`w-8 h-8 rounded-lg ${config.bg} flex items-center justify-center`}>
-                  <Icon name={category.icon} size={16} className={config.text} />
-                </div>
-                <span className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-                  {category.category}
-                </span>
-              </div>
+              <Icon name="refresh" size={14} />
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditing(!editing)}
+            aria-pressed={editing}
+            className={`btn text-[12px] px-4 py-2 ${editing ? 'btn-primary' : 'btn-secondary'}`}
+          >
+            <Icon name={editing ? 'check' : 'settings'} size={14} />
+            {editing ? 'Done' : 'Customize'}
+          </button>
+        </div>
+      </div>
 
-              <div className="space-y-1">
-                {category.items.map((item) => (
-                  <ResourceCard key={item.name} item={item} />
-                ))}
-              </div>
-            </div>
+      <div
+        className={
+          editing
+            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'
+            : // View mode: 1px row tracks + dense flow turn the grid into a
+              // masonry layout so short cards don't leave vertical holes.
+              'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 sm:gap-x-4 items-start [grid-auto-rows:1px] [grid-auto-flow:row_dense]'
+        }
+      >
+        {visibleWidgets.map((w, idx) => {
+          const def = servicesWidgets[w.id]
+          return (
+            <DashboardWidget
+              key={w.id}
+              id={w.id}
+              title={def.title}
+              editing={editing}
+              size={w.size}
+              allowedSizes={allowedSizesFor(w.id)}
+              canMoveUp={idx > 0}
+              canMoveDown={idx < visibleWidgets.length - 1}
+              onMove={move}
+              onResize={setSize}
+              onHide={(id) => setVisible(id, false)}
+              onDropReorder={reorder}
+              reducedMotion={reducedMotion}
+            >
+              {def.render(w.size)}
+            </DashboardWidget>
           )
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-4">
-        <div className="card p-5 sm:p-6 bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] border-[var(--color-gold)]/20 animate-fade-in-up stagger-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
-            <div className="w-14 h-14 rounded-2xl bg-[var(--color-gold)]/20 flex items-center justify-center shrink-0 mx-auto sm:mx-0">
-              <Icon name="sparkles" size={28} className="text-[var(--color-gold)]" />
-            </div>
-            <div className="flex-1 min-w-0 text-center sm:text-left">
-              <div className="text-[15px] sm:text-[16px] font-semibold text-[var(--color-gold)] leading-snug">
-                Need help finding something?
-              </div>
-              <p className="text-[13px] sm:text-[14px] text-[var(--color-gold)]/75 mt-1.5 leading-relaxed max-w-xl mx-auto sm:mx-0">
-                Open the Campus Assistant to get directed to official Purdue and Indianapolis resources—writing, advising,
-                health, transit, dining, careers, and more.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={openCampusAssistantForResources}
-              className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-gold)] text-[var(--color-gold-dark)] border border-[var(--color-gold)]/30 text-[13px] sm:text-[14px] px-5 py-3 sm:py-2.5 font-semibold hover:bg-[var(--color-gold-light)] active:scale-[0.98] transition-all min-h-[44px] sm:min-h-0"
-            >
-              <Icon name="sparkles" size={16} className="text-[var(--color-gold-dark)]" />
-              Open Campus Assistant
-            </button>
-          </div>
-        </div>
+      {editing && (
+        <AddWidgetPicker hiddenWidgets={hiddenWidgets} onAdd={(id) => setVisible(id, true)} />
+      )}
 
-        <div className="card p-6 animate-fade-in-up">
-          <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-            In-App Shortcuts
+      <div className="card p-5 sm:p-6 mt-8 bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] border-[var(--color-gold)]/20 animate-fade-in-up">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
+          <div className="w-14 h-14 rounded-2xl bg-[var(--color-gold)]/20 flex items-center justify-center shrink-0 mx-auto sm:mx-0">
+            <Icon name="sparkles" size={28} className="text-[var(--color-gold)]" />
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Link to="/schedule" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="schedule" size={16} />
-                Schedule
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">View imported classes and weekly meetings.</div>
-            </Link>
-            <Link to="/grade-tracker" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="graduation" size={16} />
-                Grade Tracker
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Track courses and your term &amp; cumulative GPA.</div>
-            </Link>
-            <Link to="/transit" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="bus" size={16} />
-                Transit
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Open campus movement tools and shuttle info.</div>
-            </Link>
-            <Link to="/dining" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="dining" size={16} />
-                Dining
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Check menus, hours, and dining context.</div>
-            </Link>
-            <Link to="/free-food" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <span aria-hidden="true">🍕</span>
-                Free Food
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Upcoming events serving free food on campus.</div>
-            </Link>
-            <Link to="/lost-found" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="search" size={16} />
-                Lost &amp; Found
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Report or find lost items around campus.</div>
-            </Link>
-            <Link to="/guide" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="mapPin" size={16} />
-                Neighborhood Guide
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Student tips for food, study spots, parking, and safety.</div>
-            </Link>
-            <Link to="/study-groups" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="users" size={16} />
-                Study Groups
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Find classmates and form study groups by course.</div>
-            </Link>
-            <Link to="/perks" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="sparkles" size={16} />
-                Campus Perks
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Local deals and discounts for students.</div>
-            </Link>
-            <Link to="/marketplace" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="grid" size={16} />
-                Marketplace
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Buy and sell textbooks, furniture, and more.</div>
-            </Link>
-            <Link to="/friends" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="users" size={16} />
-                People
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Meet classmates who share your courses.</div>
-            </Link>
-            <Link to="/settings" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
-              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-                <Icon name="settings" size={16} />
-                Settings
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Manage account, Purdue link, and source setup.</div>
-            </Link>
+          <div className="flex-1 min-w-0 text-center sm:text-left">
+            <div className="text-[15px] sm:text-[16px] font-semibold text-[var(--color-gold)] leading-snug">
+              Need help finding something?
+            </div>
+            <p className="text-[13px] sm:text-[14px] text-[var(--color-gold)]/75 mt-1.5 leading-relaxed max-w-xl mx-auto sm:mx-0">
+              Open the Campus Assistant to get directed to official Purdue and Indianapolis resources—writing, advising,
+              health, transit, dining, careers, and more.
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={openCampusAssistantForResources}
+            className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-gold)] text-[var(--color-gold-dark)] border border-[var(--color-gold)]/30 text-[13px] sm:text-[14px] px-5 py-3 sm:py-2.5 font-semibold hover:bg-[var(--color-gold-light)] active:scale-[0.98] transition-all min-h-[44px] sm:min-h-0"
+          >
+            <Icon name="sparkles" size={16} className="text-[var(--color-gold-dark)]" />
+            Open Campus Assistant
+          </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        icon="refresh"
+        title="Reset Services layout?"
+        message="This restores the default cards, order, and sizes. Your current layout will be lost."
+        confirmLabel="Reset"
+        tone="danger"
+        onConfirm={() => {
+          reset()
+          setShowResetConfirm(false)
+        }}
+        onCancel={() => setShowResetConfirm(false)}
+      />
     </div>
   )
 }

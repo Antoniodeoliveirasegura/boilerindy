@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
+import { useConfirm } from '../hooks/useConfirm'
 
 type Reply = { id?: string; user?: string; body?: string; time?: string; [key: string]: unknown }
 type Post = {
@@ -27,6 +28,7 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 export default function Board() {
+  const { confirm, confirmDialog } = useConfirm()
   const [posts, setPosts] = useState<Post[]>([])
   const [sort, setSort] = useState('recent')
   const [loading, setLoading] = useState(true)
@@ -201,9 +203,12 @@ export default function Board() {
 
   const handleDeletePost = async (id: string) => {
     if (
-      !window.confirm(
-        'Delete this post and all of its replies? This cannot be undone.',
-      )
+      !(await confirm({
+        title: 'Delete this post?',
+        message: 'This removes your post and its replies from the board.',
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      }))
     ) {
       return
     }
@@ -374,6 +379,7 @@ export default function Board() {
 
   return (
     <div className="max-w-[42rem] mx-auto px-4 sm:px-6 py-8 pb-28">
+      {confirmDialog}
       {/* Hero */}
       <header className="relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] mb-8">
         <div className="absolute inset-0 bg-gradient-to-br from-[var(--color-accent-bg)]/90 via-[var(--color-gold)]/6 to-transparent pointer-events-none" />

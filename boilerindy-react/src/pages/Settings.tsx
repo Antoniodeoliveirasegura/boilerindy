@@ -5,11 +5,13 @@ import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
+import { useConfirm } from '../hooks/useConfirm'
 
 export default function Settings() {
   const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
   const { theme, setTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
+  const { confirm, confirmDialog } = useConfirm()
   const [searchParams] = useSearchParams()
   const [name, setName] = useState(user?.name || '')
   const [email, setEmail] = useState(user?.email || '')
@@ -62,7 +64,15 @@ export default function Settings() {
   }, [])
 
   async function handleGenerateFeed() {
-    if (feedUrl && !window.confirm('Regenerate the calendar link? The old URL will stop working immediately.')) {
+    if (
+      feedUrl &&
+      !(await confirm({
+        title: 'Regenerate the calendar link?',
+        message: 'The old URL will stop working immediately.',
+        confirmLabel: 'Regenerate',
+        tone: 'danger',
+      }))
+    ) {
       return
     }
     setFeedBusy(true)
@@ -168,7 +178,14 @@ export default function Settings() {
       setBanner('Enter your password to confirm deletion.')
       return
     }
-    if (!window.confirm('This permanently deletes your BoilerIndy account, schedule data, and posts. This cannot be undone. Continue?')) {
+    if (
+      !(await confirm({
+        title: 'Delete your account?',
+        message: 'This permanently deletes your BoilerIndy account, schedule data, and posts. This cannot be undone.',
+        confirmLabel: 'Delete account',
+        tone: 'danger',
+      }))
+    ) {
       return
     }
 
@@ -196,6 +213,7 @@ export default function Settings() {
 
   return (
     <div className="max-w-[960px] mx-auto px-6 py-8 pb-24">
+      {confirmDialog}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Settings</h1>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[720px]">

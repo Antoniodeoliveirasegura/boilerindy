@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { useConfirm } from '../hooks/useConfirm'
 
 // Student Marketplace (issue #32, Phase 1). No payments / no messaging — contact
 // is the seller's name + Purdue email, shown on the detail panel.
@@ -33,6 +34,7 @@ function priceLabel(cents: number | null | undefined) {
 }
 
 export default function Marketplace() {
+  const { confirm, confirmDialog } = useConfirm()
   const [tab, setTab] = useState('browse') // 'browse' | 'mine'
   const [listings, setListings] = useState<Listing[]>([])
   const [mine, setMine] = useState<Listing[]>([])
@@ -167,7 +169,7 @@ export default function Marketplace() {
   }
 
   async function deleteListing(listing: Listing) {
-    if (!window.confirm(`Delete "${listing.title}"?`)) return
+    if (!(await confirm({ title: `Delete "${listing.title}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
     setMine((prev) => prev.filter((l) => l.id !== listing.id))
     await authRequest(`/api/marketplace/${listing.id}`, { method: 'DELETE' }).catch(() => loadMine())
     loadBrowse({})
@@ -208,6 +210,7 @@ export default function Marketplace() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24">
+      {confirmDialog}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Marketplace</h1>

@@ -24,11 +24,14 @@ import {
   shouldExcludeFromSchedule,
 } from '../lib/scheduleFilters'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
+import { allowedSizesFor } from '../lib/dashboardLayoutStore'
 import { useGradeTracker } from '../hooks/useGradeTracker'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import DashboardWidget from '../components/dashboard/DashboardWidget'
 import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import SponsoredWidget from '../components/dashboard/SponsoredWidget'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useUserLocation } from '../hooks/useUserLocation'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -462,6 +465,7 @@ export default function Home() {
   const reducedMotion = usePrefersReducedMotion()
   const userId = user?.id as string | undefined
   const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(userId)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
   const { summary: gpaSummary } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
   const [classes, setClasses] = useState<any[]>([])
@@ -476,16 +480,10 @@ export default function Home() {
   const [transitLoading, setTransitLoading] = useState(true)
   const [transitError, setTransitError] = useState('')
   const [transitUpdated, setTransitUpdated] = useState<Date | null>(null)
-  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null) // { lat, lon }
-
-  useEffect(() => {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 },
-    )
-  }, [])
+  // Cached, prompt-frugal location: paints the last known position instantly and
+  // asks for permission at most once (see useUserLocation) instead of nagging on
+  // every login. { lat, lon }
+  const userLocation = useUserLocation({ autoPrompt: true })
 
   const [diningPreview, setDiningPreview] = useState<{ items: string[] } | null>(null)
   const [diningStatus, setDiningStatus] = useState<any>(null) // { name, is_open, hours, weekly_hours }
@@ -1612,9 +1610,7 @@ export default function Home() {
           {editing && (
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Reset your dashboard to the default layout?')) reset()
-              }}
+              onClick={() => setShowResetConfirm(true)}
               className="btn btn-secondary text-[12px] px-4 py-2"
             >
               <Icon name="refresh" size={14} />
@@ -1655,6 +1651,7 @@ export default function Home() {
               title={def.title}
               editing={editing}
               size={w.size}
+              allowedSizes={allowedSizesFor(w.id)}
               canMoveUp={idx > 0}
               canMoveDown={idx < visibleWidgets.length - 1}
               onMove={move}
@@ -1676,6 +1673,20 @@ export default function Home() {
       {editing && (
         <AddWidgetPicker hiddenWidgets={hiddenWidgets} onAdd={(id) => setVisible(id, true)} />
       )}
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        icon="refresh"
+        title="Reset dashboard?"
+        message="This restores the default widgets, order, and sizes. Your current layout will be lost."
+        confirmLabel="Reset"
+        tone="danger"
+        onConfirm={() => {
+          reset()
+          setShowResetConfirm(false)
+        }}
+        onCancel={() => setShowResetConfirm(false)}
+      />
     </div>
   )
 }

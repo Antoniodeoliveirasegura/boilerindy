@@ -56,3 +56,23 @@ export function clearAdminPurdueLink(input: {
     body: JSON.stringify(input),
   })
 }
+
+// Soft-delete moderation: list content users soft-deleted, then restore it or
+// permanently (hard) delete it. `type` must match the server whitelist.
+export type DeletedContentType = 'board' | 'marketplace' | 'lost-found' | 'guide' | 'deals'
+
+export function listDeletedItems(type: DeletedContentType): Promise<unknown> {
+  return authRequest(`/api/admin/deleted/${type}`)
+}
+
+export function restoreDeletedItem(type: DeletedContentType, id: string): Promise<unknown> {
+  return authRequest(`/api/admin/deleted/${type}/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+  })
+}
+
+export function hardDeleteItem(type: DeletedContentType, id: string): Promise<unknown> {
+  return authRequest(`/api/admin/deleted/${type}/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}

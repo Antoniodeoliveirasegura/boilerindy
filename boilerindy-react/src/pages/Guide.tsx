@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { useConfirm } from '../hooks/useConfirm'
 
 // Neighborhood Guide (issue #31): student-submitted local recommendations.
 const CAMPUS_CENTER: [number, number] = [39.774, -86.172]
@@ -44,6 +45,7 @@ const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
 const EMPTY_FORM = { category: 'food', title: '', body: '', placeName: '', lat: '', lng: '' }
 
 export default function Guide() {
+  const { confirm, confirmDialog } = useConfirm()
   const { user } = useAuth()
   const { dark } = useTheme()
   const isAdmin = Boolean(user?.isAdmin)
@@ -152,7 +154,7 @@ export default function Guide() {
   }
 
   async function handleDelete(rec: Rec) {
-    if (!window.confirm('Delete this recommendation?')) return
+    if (!(await confirm({ title: 'Delete this recommendation?', confirmLabel: 'Delete', tone: 'danger' }))) return
     setRecs((prev) => prev.filter((r) => r.id !== rec.id))
     try {
       await authRequest(`/api/guide/${rec.id}`, { method: 'DELETE' })
@@ -174,6 +176,7 @@ export default function Guide() {
 
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
+      {confirmDialog}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Neighborhood Guide</h1>

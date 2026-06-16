@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { getAdminOverview, clearAdminPurdueLink } from '../../lib/adminApi'
 import { AlertBanner, PageHeader } from './adminShared'
+import { useConfirm } from '../../hooks/useConfirm'
 
 type Overview = {
   newLeads?: number
@@ -42,6 +43,7 @@ function StatCard({
 }
 
 export default function AdminOverview() {
+  const { confirm, confirmDialog } = useConfirm()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -71,7 +73,7 @@ export default function AdminOverview() {
     e.preventDefault()
     const email = purdueReleaseEmail.trim().toLowerCase()
     if (!email) return
-    if (!window.confirm(`Release Purdue link for ${email}? The student can link again after signing out/in.`)) return
+    if (!(await confirm({ title: `Release Purdue link for ${email}?`, message: 'The student can link again after signing out/in.', confirmLabel: 'Release', tone: 'danger' }))) return
     setReleasing(true)
     setError('')
     setSuccess('')
@@ -90,6 +92,7 @@ export default function AdminOverview() {
 
   return (
     <div>
+      {confirmDialog}
       <PageHeader
         title="Overview"
         description="Monitor advertiser onboarding, campaign approvals, and platform health at a glance."

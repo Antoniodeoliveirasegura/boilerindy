@@ -1,6 +1,5 @@
 import { useState, useRef, useLayoutEffect, type ReactNode, type RefObject } from 'react'
 import Icon from '../Icons'
-import { allowedSizesFor } from '../../lib/dashboardLayoutStore'
 
 /**
  * One slot in the customizable home dashboard grid (issue #52).
@@ -67,6 +66,8 @@ type DashboardWidgetProps = {
   title: string
   editing: boolean
   size: string
+  /** This widget's allowed widths, narrowest -> widest, from the parent board. */
+  allowedSizes: string[]
   canMoveUp: boolean
   canMoveDown: boolean
   onMove: (id: string, dir: number) => void
@@ -82,6 +83,7 @@ export default function DashboardWidget({
   title,
   editing,
   size,
+  allowedSizes,
   canMoveUp,
   canMoveDown,
   onMove,
@@ -111,10 +113,10 @@ export default function DashboardWidget({
 
   const motionClass = reducedMotion ? '' : 'transition-shadow'
 
-  // Step the widget through its own allowed widths (ordered narrowest -> widest).
-  // Most widgets are clamped to half..full; quick-actions can go quarter (a
-  // narrow vertical strip).
-  const sizes = allowedSizesFor(id)
+  // Step the widget through its own allowed widths (ordered narrowest -> widest),
+  // supplied by the parent board so this component works for any catalogue (the
+  // home dashboard and the Services board pass their own ranges).
+  const sizes = allowedSizes
   const sizeIdx = sizes.indexOf(size)
   const canShrink = sizeIdx > 0
   const canGrow = sizeIdx >= 0 && sizeIdx < sizes.length - 1
@@ -182,7 +184,7 @@ export default function DashboardWidget({
             title="Narrower"
             className={ctrlClass}
           >
-            <Icon name="chevronLeft" size={14} />
+            <Icon name="minus" size={14} />
           </button>
           <button
             type="button"
@@ -192,7 +194,7 @@ export default function DashboardWidget({
             title="Wider"
             className={ctrlClass}
           >
-            <Icon name="chevronRight" size={14} />
+            <Icon name="plus" size={14} />
           </button>
           <button
             type="button"

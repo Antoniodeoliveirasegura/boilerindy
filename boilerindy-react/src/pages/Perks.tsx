@@ -3,6 +3,7 @@ import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { useConfirm } from '../hooks/useConfirm'
 
 // Campus Perks (issue #24): admin-curated local student deals.
 const CATEGORIES = [
@@ -56,6 +57,7 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 export default function Perks() {
+  const { confirm, confirmDialog } = useConfirm()
   const { user } = useAuth()
   const isAdmin = Boolean(user?.isAdmin)
 
@@ -177,7 +179,7 @@ export default function Perks() {
   }
 
   async function deleteDeal(deal: Deal) {
-    if (!window.confirm(`Delete "${deal.businessName}"?`)) return
+    if (!(await confirm({ title: `Delete "${deal.businessName}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
     setDeals((prev) => prev.filter((d) => d.id !== deal.id))
     try {
       await authRequest(`/api/deals/${deal.id}`, { method: 'DELETE' })
@@ -188,6 +190,7 @@ export default function Perks() {
 
   return (
     <div className="max-w-[960px] mx-auto px-6 py-8 pb-24">
+      {confirmDialog}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Perks</h1>

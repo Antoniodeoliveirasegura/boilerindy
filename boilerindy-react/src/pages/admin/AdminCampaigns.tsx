@@ -3,6 +3,7 @@ import Icon from '../../components/Icons'
 import { listAdminCampaigns, updateAdminCampaign } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader, StatusBadge } from './adminShared'
 import { CAMPAIGN_STATUS_META, formatDateTime } from './adminHelpers'
+import { useConfirm } from '../../hooks/useConfirm'
 
 const FILTERS = [
   { value: 'pending_review', label: 'Pending review' },
@@ -39,6 +40,7 @@ type Campaign = {
 }
 
 export default function AdminCampaigns() {
+  const { confirm, confirmDialog } = useConfirm()
   const [filter, setFilter] = useState('pending_review')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
@@ -65,7 +67,7 @@ export default function AdminCampaigns() {
 
   async function setStatus(campaign: Campaign, status: string) {
     const label = CAMPAIGN_STATUS_META[status]?.label || status
-    if (!window.confirm(`${label} campaign "${campaign.name}"?`)) return
+    if (!(await confirm({ title: `${label} campaign "${campaign.name}"?`, confirmLabel: label }))) return
 
     setBusyId(campaign.id)
     setError('')
@@ -83,6 +85,7 @@ export default function AdminCampaigns() {
 
   return (
     <div>
+      {confirmDialog}
       <PageHeader
         title="Campaigns"
         description="Review sponsor creatives before they go live. Approve only campaigns with valid website links and at least three banner photos."

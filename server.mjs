@@ -37,6 +37,10 @@ import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
 import {
+  normalizeLayout as normalizeServicesLayout,
+  defaultLayout as defaultServicesLayout,
+} from './src/servicesLayout.mjs'
+import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
   MAX_TERM_NAME,
@@ -2102,6 +2106,7 @@ app.get('/api/lost-found', requireAuth, async (req, res) => {
   let query = supabase
     .from('lost_found_items')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -2157,6 +2162,7 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
     .from('lost_found_items')
     .select('*')
     .eq('id', id)
+    .is('deleted_at', null)
     .maybeSingle()
   if (findErr || !existing) {
     return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
@@ -2205,11 +2211,14 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
 app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
+  // Soft delete: hide the item (set deleted_at) instead of removing it. Admins
+  // can restore or permanently delete it from the moderation view.
   const { data, error } = await supabase
     .from('lost_found_items')
-    .delete()
+    .update({ deleted_at: nowIso() })
     .eq('id', id)
     .eq('user_id', userId)
+    .is('deleted_at', null)
     .select('id')
   if (error) {
     console.error('DELETE /api/lost-found/:id:', error.message)
@@ -2242,6 +2251,32 @@ app.put('/api/me/dashboard', requireAuth, async (req, res) => {
   if (error) {
     console.error('PUT /api/me/dashboard:', error.message)
     return res.status(500).json({ error: { message: 'Could not save your dashboard layout.', status: 500 } })
+  }
+  res.json({ layout })
+})
+
+// ── Customizable Student Services board layout ───────────────────────────────
+// Per-user widget order/size/visibility for the /services page, stored as JSONB
+// on users. NULL means the user has never customized, so the client applies the
+// default layout. Mirrors /api/me/dashboard.
+
+app.get('/api/me/services', requireAuth, async (req, res) => {
+  const stored = req.currentUser.services_layout
+  // Never customized → return the default so the client always has a layout.
+  const layout = stored == null ? defaultServicesLayout() : normalizeServicesLayout(stored)
+  res.json({ layout })
+})
+
+app.put('/api/me/services', requireAuth, async (req, res) => {
+  // Sanitize untrusted client input against the widget allowlist before storing.
+  const layout = normalizeServicesLayout(req.body?.layout)
+  const { error } = await supabase
+    .from('users')
+    .update({ services_layout: layout })
+    .eq('id', req.currentUser.id)
+  if (error) {
+    console.error('PUT /api/me/services:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your services layout.', status: 500 } })
   }
   res.json({ layout })
 })
@@ -2780,6 +2815,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   let query = supabase
     .from('board_posts')
     .select('*')
+    .is('deleted_at', null)
   if (sort === 'popular') {
     query = query
       .order('pinned', { ascending: false })
@@ -3072,6 +3108,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
     .from('board_posts')
     .select('id, reply_count')
     .eq('id', postId)
+    .is('deleted_at', null)
     .single()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
@@ -3109,6 +3146,7 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
     .from('board_posts')
     .select('id, upvote_count')
     .eq('id', postId)
+    .is('deleted_at', null)
     .single()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
@@ -3189,11 +3227,14 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
 app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
+  // Soft delete: hide the post (set deleted_at). Its replies stay attached and
+  // reappear if an admin restores it; a hard delete (admin) cascades them.
   const { data, error } = await supabase
     .from('board_posts')
-    .delete()
+    .update({ deleted_at: nowIso() })
     .eq('id', postId)
     .eq('user_id', userId)
+    .is('deleted_at', null)
     .select('id')
   if (error) return respondBoardDbError(res, error)
   if (!data?.length) {
@@ -3232,6 +3273,7 @@ app.get('/api/guide', requireAuth, async (req, res) => {
     let query = supabase
       .from('guide_recommendations')
       .select('*')
+      .is('deleted_at', null)
       .order('pinned', { ascending: false })
       .order('upvote_count', { ascending: false })
       .order('created_at', { ascending: false })
@@ -3284,6 +3326,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
       .from('guide_recommendations')
       .select('id, upvote_count')
       .eq('id', recId)
+      .is('deleted_at', null)
       .single()
     if (recErr) throw recErr
     if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
@@ -3321,6 +3364,7 @@ app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
       .from('guide_recommendations')
       .update({ pinned })
       .eq('id', req.params.id)
+      .is('deleted_at', null)
       .select('id')
     if (error) throw error
     if (!data?.length) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
@@ -3335,9 +3379,10 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('guide_recommendations')
-      .delete()
+      .update({ deleted_at: nowIso() })
       .eq('id', req.params.id)
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .select('id')
     if (error) throw error
     if (!data?.length) {
@@ -3578,7 +3623,7 @@ app.get('/api/deals', requireAuth, async (req, res) => {
   // Admins can request everything (incl. inactive/expired) to manage from the UI.
   const includeAll = req.query.all === '1' && isUserAdmin(req.currentUser)
   try {
-    let query = supabase.from('deals').select('*').order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
+    let query = supabase.from('deals').select('*').is('deleted_at', null).order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
     if (category) query = query.eq('category', category)
     const { data, error } = await query
     if (error) throw error
@@ -3622,7 +3667,7 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
   }
   try {
-    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).select('*').single()
+    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').single()
     if (error) throw error
     if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
     res.json({ deal: mapDealRow(data) })
@@ -3634,7 +3679,7 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   try {
-    const { data, error } = await supabase.from('deals').delete().eq('id', req.params.id).select('id')
+    const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
     if (error) throw error
     if (!data?.length) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
     res.status(204).end()
@@ -3675,6 +3720,7 @@ app.get('/api/marketplace', requireAuth, async (req, res) => {
     let query = supabase
       .from('marketplace_listings')
       .select('*')
+      .is('deleted_at', null)
       .eq('status', 'active')
       .eq('hidden', false)
       .order('created_at', { ascending: false })
@@ -3702,6 +3748,7 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
       .from('marketplace_listings')
       .select('*')
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
     if (error) throw error
     res.json({ listings: (data || []).map((r) => mapListingRow(r, userId)) })
@@ -3714,7 +3761,7 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
 app.get('/api/marketplace/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
-    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).single()
+    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).single()
     if (error) throw error
     if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
       return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
@@ -3766,6 +3813,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
       .update({ ...value, updated_at: nowIso() })
       .eq('id', req.params.id)
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .select('*')
     if (error) throw error
     if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
@@ -3779,7 +3827,13 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
 app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
-    let query = supabase.from('marketplace_listings').delete().eq('id', req.params.id)
+    // Soft delete: hide the listing (set deleted_at). Admins purge it
+    // permanently from the moderation view.
+    let query = supabase
+      .from('marketplace_listings')
+      .update({ deleted_at: nowIso() })
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
     if (!isUserAdmin(req.currentUser)) query = query.eq('user_id', userId)
     const { data, error } = await query.select('id')
     if (error) throw error
@@ -4724,6 +4778,75 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
   }
 
   res.json({ ok: true, cleared })
+})
+
+// ── Soft-delete moderation (admin) ───────────────────────────────────────────
+// User/owner delete endpoints only soft-delete (set deleted_at). Admins review
+// hidden content here and either restore it or permanently (hard) delete it —
+// this is the only hard-delete path. `type` is whitelisted so the param can
+// never reach an arbitrary table.
+const SOFT_DELETE_TABLES = {
+  board: { table: 'board_posts', label: 'Board post' },
+  marketplace: { table: 'marketplace_listings', label: 'Marketplace listing' },
+  'lost-found': { table: 'lost_found_items', label: 'Lost & Found item' },
+  guide: { table: 'guide_recommendations', label: 'Guide recommendation' },
+  deals: { table: 'deals', label: 'Deal' },
+}
+
+function softDeleteConfig(type) {
+  return Object.prototype.hasOwnProperty.call(SOFT_DELETE_TABLES, type) ? SOFT_DELETE_TABLES[type] : null
+}
+
+app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .select('*')
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false })
+    .limit(200)
+  if (error) {
+    console.error(`GET /api/admin/deleted/${req.params.type}:`, error.message)
+    return res.status(500).json({ error: { message: 'Could not load deleted items.', status: 500 } })
+  }
+  res.json({ items: data || [], label: cfg.label })
+})
+
+app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .update({ deleted_at: null })
+    .eq('id', req.params.id)
+    .not('deleted_at', 'is', null)
+    .select('id')
+  if (error) {
+    console.error(`restore ${req.params.type}:`, error.message)
+    return res.status(500).json({ error: { message: 'Could not restore the item.', status: 500 } })
+  }
+  if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  res.json({ ok: true })
+})
+
+app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  // Hard delete — permanent. Only already-soft-deleted rows can be purged, so a
+  // mistyped call can never wipe live content. (Board posts cascade to replies.)
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .delete()
+    .eq('id', req.params.id)
+    .not('deleted_at', 'is', null)
+    .select('id')
+  if (error) {
+    console.error(`hard delete ${req.params.type}:`, error.message)
+    return res.status(500).json({ error: { message: 'Could not permanently delete the item.', status: 500 } })
+  }
+  if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  res.status(204).end()
 })
 
 // ── First-party product analytics (issue #51) ───────────────────────────────
