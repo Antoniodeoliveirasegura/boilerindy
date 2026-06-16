@@ -5,9 +5,18 @@ import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
 import { formatDateTime, generateTempPassword } from './adminHelpers'
 
+type Advertiser = {
+  id: string
+  companyName?: string
+  email?: string
+  contactName?: string
+  status?: string
+  createdAt?: string
+}
+
 export default function AdminAdvertisers() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [advertisers, setAdvertisers] = useState([])
+  const [advertisers, setAdvertisers] = useState<Advertiser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -25,10 +34,10 @@ export default function AdminAdvertisers() {
     setLoading(true)
     setError('')
     try {
-      const data = await listAdminAdvertisers()
+      const data = (await listAdminAdvertisers()) as { advertisers?: Advertiser[] }
       setAdvertisers(data.advertisers || [])
     } catch (err) {
-      setError(err.message || 'Could not load advertisers.')
+      setError(err instanceof Error ? err.message : 'Could not load advertisers.')
     } finally {
       setLoading(false)
     }
@@ -66,21 +75,27 @@ export default function AdminAdvertisers() {
     setSearchParams({})
   }
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSubmitting(true)
     setError('')
     setSuccess('')
     try {
-      const payload = {
+      const payload: {
+        email: string
+        companyName: string
+        contactName: string
+        password: string
+        leadId?: string
+      } = {
         email: form.email.trim(),
         companyName: form.companyName.trim(),
-        contactName: form.contactName.trim() || undefined,
+        contactName: form.contactName.trim(),
         password: form.password,
       }
       if (form.leadId) payload.leadId = form.leadId
 
-      const data = await createAdminAdvertiser(payload)
+      const data = (await createAdminAdvertiser(payload)) as { advertiser: { email?: string } }
       setSuccess(
         `Advertiser account ready for ${data.advertiser.email}. Share the temporary password securely — they sign in at /advertise.`,
       )
@@ -88,7 +103,7 @@ export default function AdminAdvertisers() {
       setSearchParams({})
       await load()
     } catch (err) {
-      setError(err.message || 'Could not create advertiser account.')
+      setError(err instanceof Error ? err.message : 'Could not create advertiser account.')
     } finally {
       setSubmitting(false)
     }

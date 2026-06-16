@@ -11,7 +11,7 @@ const FILTERS = [
   { value: 'all', label: 'All' },
 ]
 
-const PLACEMENT_LABELS = {
+const PLACEMENT_LABELS: Record<string, string> = {
   'side-rail': 'Side banners',
   'home-widget': 'Home widget',
   dining: 'Dining',
@@ -19,11 +19,30 @@ const PLACEMENT_LABELS = {
   events: 'Events',
 }
 
+type Creative = {
+  imageUrls?: string[]
+  imageUrl?: string
+  ctaUrl?: string
+  headline?: string
+  body?: string
+}
+type Campaign = {
+  id: string
+  name: string
+  status: string
+  advertiserCompany?: string
+  advertiserEmail?: string
+  placement: string
+  updatedAt?: string
+  createdAt?: string
+  creative?: Creative
+}
+
 export default function AdminCampaigns() {
   const [filter, setFilter] = useState('pending_review')
-  const [campaigns, setCampaigns] = useState([])
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
-  const [busyId, setBusyId] = useState(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -31,10 +50,10 @@ export default function AdminCampaigns() {
     setLoading(true)
     setError('')
     try {
-      const data = await listAdminCampaigns(filter)
+      const data = (await listAdminCampaigns(filter)) as { campaigns?: Campaign[] }
       setCampaigns(data.campaigns || [])
     } catch (err) {
-      setError(err.message || 'Could not load campaigns.')
+      setError(err instanceof Error ? err.message : 'Could not load campaigns.')
     } finally {
       setLoading(false)
     }
@@ -44,7 +63,7 @@ export default function AdminCampaigns() {
     load()
   }, [load])
 
-  async function setStatus(campaign, status) {
+  async function setStatus(campaign: Campaign, status: string) {
     const label = CAMPAIGN_STATUS_META[status]?.label || status
     if (!window.confirm(`${label} campaign "${campaign.name}"?`)) return
 
@@ -52,11 +71,11 @@ export default function AdminCampaigns() {
     setError('')
     setSuccess('')
     try {
-      const data = await updateAdminCampaign(campaign.id, { status })
+      const data = (await updateAdminCampaign(campaign.id, { status })) as { campaign: Campaign }
       setCampaigns((prev) => prev.map((row) => (row.id === campaign.id ? data.campaign : row)))
       setSuccess(`"${campaign.name}" is now ${label.toLowerCase()}.`)
     } catch (err) {
-      setError(err.message || 'Could not update campaign.')
+      setError(err instanceof Error ? err.message : 'Could not update campaign.')
     } finally {
       setBusyId(null)
     }
@@ -109,7 +128,7 @@ export default function AdminCampaigns() {
       ) : (
         <div className="space-y-4">
           {campaigns.map((campaign) => {
-            const creative = campaign.creative || {}
+            const creative: Creative = campaign.creative || {}
             const photos = creative.imageUrls?.length ? creative.imageUrls : creative.imageUrl ? [creative.imageUrl] : []
             const website = creative.ctaUrl || ''
             return (
