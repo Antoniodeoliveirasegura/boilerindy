@@ -60,7 +60,7 @@ const quickLinks = [
   { name: 'Career Support', desc: 'Purdue Indianapolis CCO', icon: 'rocket', href: 'https://www.cco.purdue.edu/PurdueIndianapolis', color: 'dining' },
 ]
 
-const colorConfig = {
+const colorConfig: Record<string, { bg: string; text: string }> = {
   map: { bg: 'bg-[var(--color-map-bg)]', text: 'text-[var(--color-map-color)]' },
   events: { bg: 'bg-[var(--color-events-bg)]', text: 'text-[var(--color-events-color)]' },
   bus: { bg: 'bg-[var(--color-bus-bg)]', text: 'text-[var(--color-bus-title)]' },
@@ -78,7 +78,15 @@ function openCampusAssistantForResources() {
   )
 }
 
-function ResourceCard({ item }) {
+type ResourceItem = {
+  name: string
+  desc: string
+  icon: string
+  href?: string
+  link?: string
+}
+
+function ResourceCard({ item }: { item: ResourceItem }) {
   const content = (
     <div className="flex items-start gap-3 p-3 -mx-2 rounded-xl hover:bg-[var(--color-stat)] transition-all duration-200 group">
       <div className="w-9 h-9 rounded-xl bg-[var(--color-stat)] group-hover:bg-[var(--color-bg-3)] flex items-center justify-center shrink-0 transition-colors">

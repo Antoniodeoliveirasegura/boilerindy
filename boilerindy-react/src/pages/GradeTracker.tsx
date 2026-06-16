@@ -13,19 +13,27 @@ const EMPTY_FORM = {
   letterGrade: 'A',
 }
 
-function gpaText(gpa) {
+function gpaText(gpa: number | null | undefined) {
   return gpa == null ? '—' : gpa.toFixed(2)
 }
 
 // Colour the GPA number by band so it reads at a glance.
-function gpaTone(gpa) {
+function gpaTone(gpa: number | null | undefined) {
   if (gpa == null) return 'text-[var(--color-txt-2)]'
   if (gpa >= 3.5) return 'text-[var(--color-success)]'
   if (gpa >= 2.5) return 'text-[var(--color-gold)]'
   return 'text-[var(--color-error)]'
 }
 
-function GradeBadge({ letter }) {
+type Course = {
+  id: string
+  courseName: string
+  term: string
+  creditHours: number
+  letterGrade: string
+}
+
+function GradeBadge({ letter }: { letter: string }) {
   return (
     <span
       className={`inline-flex items-center justify-center min-w-[2.25rem] px-2 py-0.5 rounded-lg text-[12px] font-semibold border ${
@@ -42,28 +50,32 @@ function GradeBadge({ letter }) {
 
 export default function GradeTracker() {
   const { user } = useAuth()
+  const userId = user?.id as string | undefined
   const { grades, summary, loading, error, addGrade, updateGrade, deleteGrade } = useGradeTracker(
-    user?.id,
+    userId,
   )
-  const { major, setMajor } = useMajor(user?.id)
+  const { major, setMajor } = useMajor(userId)
 
   const [form, setForm] = useState(EMPTY_FORM)
-  const [editingId, setEditingId] = useState(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   // Suggest terms the user has already used (for the datalist).
   const termOptions = useMemo(
-    () => [...new Set(grades.map((g) => g.term).filter(Boolean))],
+    () => [...new Set(grades.map((g) => g.term as string).filter(Boolean))],
     [grades],
   )
 
-  const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  const setField =
+    (key: keyof typeof EMPTY_FORM) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }))
 
   const resetForm = () => {
     setForm(EMPTY_FORM)
     setEditingId(null)
   }
 
-  const submit = async (e) => {
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const payload = {
       courseName: form.courseName,
@@ -75,7 +87,7 @@ export default function GradeTracker() {
     if (ok) resetForm()
   }
 
-  const startEdit = (course) => {
+  const startEdit = (course: Course) => {
     setEditingId(course.id)
     setForm({
       courseName: course.courseName,
@@ -230,7 +242,7 @@ export default function GradeTracker() {
                 </div>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {term.courses.map((course) => (
+                {term.courses.map((course: Course) => (
                   <div key={course.id} className="flex items-center gap-3 py-2.5">
                     <GradeBadge letter={course.letterGrade} />
                     <div className="flex-1 min-w-0">

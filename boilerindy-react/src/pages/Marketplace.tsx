@@ -10,15 +10,32 @@ const CATEGORIES = [
 ]
 const EMPTY_FORM = { title: '', description: '', category: 'textbooks', price: '', imageUrl: '' }
 
-function priceLabel(cents) {
+type Listing = {
+  id: string
+  category?: string
+  priceCents?: number | null
+  title?: string
+  description?: string
+  status?: string
+  sellerName?: string
+  sellerEmail?: string
+  isMine?: boolean
+}
+type BrowseOpts = { category?: string; query?: string; page?: number }
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
+function priceLabel(cents: number | null | undefined) {
   if (cents == null) return 'Free / contact'
   return `$${(cents / 100).toFixed(2)}`
 }
 
 export default function Marketplace() {
   const [tab, setTab] = useState('browse') // 'browse' | 'mine'
-  const [listings, setListings] = useState([])
-  const [mine, setMine] = useState([])
+  const [listings, setListings] = useState<Listing[]>([])
+  const [mine, setMine] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [canPost, setCanPost] = useState(false)
@@ -28,7 +45,7 @@ export default function Marketplace() {
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
 
-  const [selected, setSelected] = useState(null)
+  const [selected, setSelected] = useState<Listing | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
@@ -38,7 +55,7 @@ export default function Marketplace() {
     track('marketplace_viewed')
   }, [])
 
-  const loadBrowse = useCallback((opts = {}) => {
+  const loadBrowse = useCallback((opts: BrowseOpts = {}) => {
     const cat = opts.category ?? category
     const q = opts.query ?? query
     const p = opts.page ?? page
@@ -50,17 +67,21 @@ export default function Marketplace() {
     if (p) params.set('page', String(p))
     authRequest(`/api/marketplace?${params.toString()}`)
       .then((data) => {
-        setListings(Array.isArray(data?.listings) ? data.listings : [])
-        setHasMore(Boolean(data?.hasMore))
-        setCanPost(Boolean(data?.canPost))
+        const d = data as { listings?: Listing[]; hasMore?: boolean; canPost?: boolean }
+        setListings(Array.isArray(d?.listings) ? d.listings : [])
+        setHasMore(Boolean(d?.hasMore))
+        setCanPost(Boolean(d?.canPost))
       })
-      .catch((e) => setError(e?.message || 'Could not load the marketplace.'))
+      .catch((e) => setError(errorText(e, 'Could not load the marketplace.')))
       .finally(() => setLoading(false))
   }, [category, query, page])
 
   const loadMine = useCallback(() => {
     authRequest('/api/marketplace/mine')
-      .then((data) => setMine(Array.isArray(data?.listings) ? data.listings : []))
+      .then((data) => {
+        const d = data as { listings?: Listing[] }
+        setMine(Array.isArray(d?.listings) ? d.listings : [])
+      })
       .catch(() => setMine([]))
   }, [])
 
@@ -69,12 +90,13 @@ export default function Marketplace() {
     authRequest('/api/marketplace')
       .then((data) => {
         if (!active) return
-        setListings(Array.isArray(data?.listings) ? data.listings : [])
-        setHasMore(Boolean(data?.hasMore))
-        setCanPost(Boolean(data?.canPost))
+        const d = data as { listings?: Listing[]; hasMore?: boolean; canPost?: boolean }
+        setListings(Array.isArray(d?.listings) ? d.listings : [])
+        setHasMore(Boolean(d?.hasMore))
+        setCanPost(Boolean(d?.canPost))
       })
       .catch((e) => {
-        if (active) setError(e?.message || 'Could not load the marketplace.')
+        if (active) setError(errorText(e, 'Could not load the marketplace.'))
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -85,26 +107,29 @@ export default function Marketplace() {
     }
   }, [loadMine])
 
-  function applyFilter(nextCat, nextQuery) {
+  function applyFilter(nextCat: string, nextQuery: string) {
     setCategory(nextCat)
     setQuery(nextQuery)
     setPage(0)
     loadBrowse({ category: nextCat, query: nextQuery, page: 0 })
   }
 
-  function changePage(delta) {
+  function changePage(delta: number) {
     const next = Math.max(0, page + delta)
     setPage(next)
     loadBrowse({ page: next })
   }
 
-  function openListing(listing) {
+  function openListing(listing: Listing) {
     authRequest(`/api/marketplace/${listing.id}`)
-      .then((data) => setSelected(data?.listing || null))
+      .then((data) => {
+        const d = data as { listing?: Listing }
+        setSelected(d?.listing || null)
+      })
       .catch(() => {})
   }
 
-  async function submitForm(e) {
+  async function submitForm(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setFormError('')
     if (!form.title.trim()) {
@@ -129,33 +154,33 @@ export default function Marketplace() {
       loadBrowse({ page: 0 })
       setPage(0)
     } catch (err) {
-      setFormError(err?.message || 'Could not post your listing.')
+      setFormError(errorText(err, 'Could not post your listing.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  async function markSold(listing) {
+  async function markSold(listing: Listing) {
     await authRequest(`/api/marketplace/${listing.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'sold' }) }).catch(() => {})
     loadMine()
     loadBrowse({})
   }
 
-  async function deleteListing(listing) {
+  async function deleteListing(listing: Listing) {
     if (!window.confirm(`Delete "${listing.title}"?`)) return
     setMine((prev) => prev.filter((l) => l.id !== listing.id))
     await authRequest(`/api/marketplace/${listing.id}`, { method: 'DELETE' }).catch(() => loadMine())
     loadBrowse({})
   }
 
-  function reportListing(listing) {
+  function reportListing(listing: Listing) {
     const reason = window.prompt('Why are you reporting this listing? (optional)') ?? ''
     authRequest(`/api/marketplace/${listing.id}/report`, { method: 'POST', body: JSON.stringify({ reason }) })
       .then(() => window.alert('Thanks — our team will review it.'))
       .catch(() => {})
   }
 
-  function listingCard(listing, context) {
+  function listingCard(listing: Listing, context: 'browse' | 'mine') {
     return (
       <div key={listing.id} className="card p-4 flex flex-col">
         <button type="button" onClick={() => openListing(listing)} className="text-left">
