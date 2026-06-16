@@ -137,7 +137,7 @@ export default function Navbar() {
                       <Icon name="settings" size={14} />
                       Settings
                     </Link>
-                    {user?.isAdmin && (
+                    {Boolean(user?.isAdmin) && (
                       <Link
                         to="/admin"
                         role="menuitem"
