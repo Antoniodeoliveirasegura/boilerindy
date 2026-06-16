@@ -12,13 +12,15 @@ const quickQuestions = [
   'Is Tower Dining open now?',
 ]
 
+type ChatMessage = { role: string; content: string }
+
 export default function CampusAssistant() {
   const { getFirstName } = useAuth()
   const firstName = getFirstName()
 
   const [open, setOpen] = useState(false)
   // Each message: { role: 'user' | 'assistant', content: string }
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
       content: `Hey ${firstName}! Ask me anything — e.g. what to do right now with your classes and homework, dining, buses, or where to study.`,
@@ -26,13 +28,13 @@ export default function CampusAssistant() {
   ])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
-  const [pendingMessage, setPendingMessage] = useState(null)
-  const messagesRef = useRef(null)
-  const inputRef = useRef(null)
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const messagesRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
   // Voice dictation (issue #19). The base holds whatever was already typed when
   // the mic started so live transcripts append rather than overwrite.
   const speechBaseRef = useRef('')
-  const handleTranscript = (text) => {
+  const handleTranscript = (text: string) => {
     const base = speechBaseRef.current
     setInput(base ? `${base} ${text}` : text)
   }
@@ -46,9 +48,10 @@ export default function CampusAssistant() {
 
   // Listen for external trigger (e.g. "Ask AI what to do" button on dashboard)
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (e: Event) => {
       setOpen(true)
-      if (e.detail?.message) setPendingMessage(e.detail.message)
+      const detail = (e as CustomEvent<{ message?: string }>).detail
+      if (detail?.message) setPendingMessage(detail.message)
     }
     window.addEventListener('open-campus-assistant', handler)
     return () => window.removeEventListener('open-campus-assistant', handler)
@@ -83,7 +86,7 @@ export default function CampusAssistant() {
     if (!open && listening) stopMic()
   }, [open, listening, stopMic])
 
-  async function handleSend(text = input) {
+  async function handleSend(text: string = input) {
     const userMsg = text.trim()
     if (!userMsg || isTyping) return
 
@@ -114,7 +117,7 @@ export default function CampusAssistant() {
     }
   }
 
-  function renderMessage(msg, idx) {
+  function renderMessage(msg: ChatMessage, idx: number) {
     const isUser = msg.role === 'user'
     return (
       <div
