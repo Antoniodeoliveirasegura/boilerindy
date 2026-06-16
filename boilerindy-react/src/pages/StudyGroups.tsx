@@ -8,18 +8,34 @@ import { track } from '../lib/usageStats'
 // visible only within a group.
 const EMPTY_FORM = { title: '', description: '', meetingInfo: '', capacity: '' }
 
+type StudyCourse = { code: string; classmateCount?: number }
+type StudyGroup = {
+  id: string
+  courseCode?: string
+  memberCount?: number
+  capacity?: number
+  title?: string
+  meetingInfo?: string
+  description?: string
+  joinedByMe?: boolean
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
 export default function StudyGroups() {
   const [optIn, setOptIn] = useState(false)
-  const [courses, setCourses] = useState([])
+  const [courses, setCourses] = useState<StudyCourse[]>([])
   const [loadingCourses, setLoadingCourses] = useState(true)
   const [coursesError, setCoursesError] = useState('')
   const [optBusy, setOptBusy] = useState(false)
 
   const [selectedCourse, setSelectedCourse] = useState('')
-  const [groups, setGroups] = useState([])
+  const [groups, setGroups] = useState<StudyGroup[]>([])
   const [loadingGroups, setLoadingGroups] = useState(false)
 
-  const [myGroups, setMyGroups] = useState([])
+  const [myGroups, setMyGroups] = useState<StudyGroup[]>([])
 
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -32,7 +48,10 @@ export default function StudyGroups() {
 
   const loadMyGroups = useCallback(() => {
     authRequest('/api/me/study-groups')
-      .then((data) => setMyGroups(Array.isArray(data?.groups) ? data.groups : []))
+      .then((data) => {
+        const d = data as { groups?: StudyGroup[] }
+        setMyGroups(Array.isArray(d?.groups) ? d.groups : [])
+      })
       .catch(() => setMyGroups([]))
   }, [])
 
@@ -41,11 +60,12 @@ export default function StudyGroups() {
     authRequest('/api/me/study-groups/courses')
       .then((data) => {
         if (!active) return
-        setOptIn(Boolean(data?.optIn))
-        setCourses(Array.isArray(data?.courses) ? data.courses : [])
+        const d = data as { optIn?: boolean; courses?: StudyCourse[] }
+        setOptIn(Boolean(d?.optIn))
+        setCourses(Array.isArray(d?.courses) ? d.courses : [])
       })
       .catch((e) => {
-        if (active) setCoursesError(e?.message || 'Could not load your courses.')
+        if (active) setCoursesError(errorText(e, 'Could not load your courses.'))
       })
       .finally(() => {
         if (active) setLoadingCourses(false)
@@ -56,13 +76,16 @@ export default function StudyGroups() {
     }
   }, [loadMyGroups])
 
-  function selectCourse(code) {
+  function selectCourse(code: string) {
     setSelectedCourse(code)
     setShowCreate(false)
     setForm(EMPTY_FORM)
     setLoadingGroups(true)
     authRequest(`/api/study-groups?course=${encodeURIComponent(code)}`)
-      .then((data) => setGroups(Array.isArray(data?.groups) ? data.groups : []))
+      .then((data) => {
+        const d = data as { groups?: StudyGroup[] }
+        setGroups(Array.isArray(d?.groups) ? d.groups : [])
+      })
       .catch(() => setGroups([]))
       .finally(() => setLoadingGroups(false))
   }
@@ -71,10 +94,10 @@ export default function StudyGroups() {
     setOptBusy(true)
     try {
       const next = !optIn
-      const data = await authRequest('/api/me/study-groups/opt-in', {
+      const data = (await authRequest('/api/me/study-groups/opt-in', {
         method: 'PATCH',
         body: JSON.stringify({ optIn: next }),
-      })
+      })) as { optIn?: boolean }
       setOptIn(Boolean(data?.optIn))
     } catch {
       /* keep previous state on failure */
@@ -83,7 +106,7 @@ export default function StudyGroups() {
     }
   }
 
-  async function createGroup(e) {
+  async function createGroup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setFormError('')
     if (!form.title.trim()) {
@@ -107,13 +130,13 @@ export default function StudyGroups() {
       selectCourse(selectedCourse)
       loadMyGroups()
     } catch (err) {
-      setFormError(err?.message || 'Could not create the group.')
+      setFormError(errorText(err, 'Could not create the group.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  function joinGroup(group) {
+  function joinGroup(group: StudyGroup) {
     authRequest(`/api/study-groups/${group.id}/join`, { method: 'POST' })
       .then(() => {
         if (selectedCourse) selectCourse(selectedCourse)
@@ -122,7 +145,7 @@ export default function StudyGroups() {
       .catch(() => {})
   }
 
-  function leaveGroup(group) {
+  function leaveGroup(group: StudyGroup) {
     authRequest(`/api/study-groups/${group.id}/leave`, { method: 'POST' })
       .then(() => {
         if (selectedCourse) selectCourse(selectedCourse)
@@ -131,7 +154,7 @@ export default function StudyGroups() {
       .catch(() => {})
   }
 
-  function renderGroupCard(group, context) {
+  function renderGroupCard(group: StudyGroup, context: 'course' | 'mine') {
     return (
       <div key={group.id} className="card p-4">
         <div className="flex items-start justify-between gap-3">
@@ -177,7 +200,7 @@ export default function StudyGroups() {
         {context === 'mine' && group.courseCode && (
           <button
             type="button"
-            onClick={() => selectCourse(group.courseCode)}
+            onClick={() => selectCourse(group.courseCode || '')}
             className="text-[11px] text-[var(--color-accent)] hover:underline mt-2"
           >
             See all {group.courseCode} groups
@@ -245,7 +268,7 @@ export default function StudyGroups() {
                 }`}
               >
                 {c.code}
-                {c.classmateCount > 0 && (
+                {(c.classmateCount ?? 0) > 0 && (
                   <span className="ml-1.5 opacity-80">· {c.classmateCount} classmate{c.classmateCount === 1 ? '' : 's'}</span>
                 )}
               </button>
