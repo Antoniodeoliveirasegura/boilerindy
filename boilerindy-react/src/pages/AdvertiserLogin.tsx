@@ -27,7 +27,7 @@ export default function AdvertiserLogin() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [notice, setNotice] = useState(null)
+  const [notice, setNotice] = useState<{ type: string; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   // Request-access (lead) form — invite-only, so this is how new advertisers
@@ -61,7 +61,7 @@ export default function AdvertiserLogin() {
     }
   }, [navigate])
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!email.trim() || !password) {
       setNotice({ type: 'error', text: 'Enter your business email and password to continue.' })
@@ -74,13 +74,13 @@ export default function AdvertiserLogin() {
       setPassword('')
       navigate('/advertise/dashboard')
     } catch (error) {
-      setNotice({ type: 'error', text: error.message || 'Could not sign in. Please try again.' })
+      setNotice({ type: 'error', text: (error instanceof Error && error.message) || 'Could not sign in. Please try again.' })
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleForgot = async (e) => {
+  const handleForgot = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!email.trim()) {
       setNotice({ type: 'error', text: 'Enter your business email to get a reset link.' })
@@ -92,13 +92,13 @@ export default function AdvertiserLogin() {
       await requestAdvertiserPasswordReset(email.trim())
       setForgotDone(true)
     } catch (error) {
-      setNotice({ type: 'error', text: error.message || 'Could not send a reset link. Please try again.' })
+      setNotice({ type: 'error', text: (error instanceof Error && error.message) || 'Could not send a reset link. Please try again.' })
     } finally {
       setForgotSubmitting(false)
     }
   }
 
-  const handleRequestAccess = async (e) => {
+  const handleRequestAccess = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!reqEmail.trim()) {
       setNotice({ type: 'error', text: 'Enter a business email so we can reach you.' })
@@ -114,7 +114,7 @@ export default function AdvertiserLogin() {
       })
       setReqDone(true)
     } catch (error) {
-      setNotice({ type: 'error', text: error.message || 'Could not submit your request. Please try again.' })
+      setNotice({ type: 'error', text: (error instanceof Error && error.message) || 'Could not submit your request. Please try again.' })
     } finally {
       setReqSubmitting(false)
     }
