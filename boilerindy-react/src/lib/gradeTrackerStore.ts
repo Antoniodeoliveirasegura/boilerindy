@@ -5,7 +5,7 @@
  * verbatim by the server (/api/me/grades) and the frontend. This module only
  * adds the browser-side localStorage cache keyed by backend user id (mirrors
  * dashboardLayoutStore), used as an offline/optimistic fallback when the API is
- * unreachable.
+ * unreachable. Migrated to TypeScript (issue #20).
  */
 import {
   GRADE_POINTS,
@@ -35,17 +35,12 @@ export {
   summarizeGrades,
 }
 
-function storageKey(userId) {
+function storageKey(userId: string): string {
   return `boilerindy-grades-v1-${userId}`
 }
 
-/**
- * Read the cached grade list for a user. Returns a normalized array, or null
- * when nothing is cached / storage is unavailable.
- *
- * @param {string | null | undefined} userId
- */
-export function loadLocalGrades(userId) {
+/** Read the cached grade list for a user, or null when nothing is cached. */
+export function loadLocalGrades(userId: string | null | undefined) {
   if (!userId) return null
   try {
     const raw = localStorage.getItem(storageKey(userId))
@@ -56,14 +51,8 @@ export function loadLocalGrades(userId) {
   }
 }
 
-/**
- * Persist a grade list to localStorage for a user. Silently no-ops without a
- * user id or when storage throws (private mode / quota).
- *
- * @param {string | null | undefined} userId
- * @param {unknown} grades
- */
-export function saveLocalGrades(userId, grades) {
+/** Persist a grade list to localStorage for a user. No-ops without a user id. */
+export function saveLocalGrades(userId: string | null | undefined, grades: unknown): void {
   if (!userId) return
   try {
     localStorage.setItem(storageKey(userId), JSON.stringify(grades))

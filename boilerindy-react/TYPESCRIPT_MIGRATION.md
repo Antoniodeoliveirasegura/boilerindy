@@ -23,9 +23,19 @@ container components/pages → `App.tsx`/`main.tsx`.
 
 ## Status
 
-- ✅ Foundation: `tsconfig.json`, `typescript` dep, `typecheck` script.
-- ✅ Converted: `src/lib/privacyNav.ts`, `src/lib/diningFavorites.ts` (pure, unit-tested).
-- ⬜ Remaining: the rest of `src/lib`, `src/hooks`, `src/components`, `src/pages`, `src/context`.
+- ✅ Foundation: `tsconfig.json`, `typescript` dep, `typecheck` script, CI `typecheck` step.
+- ✅ Converted (`src/lib`): `privacyNav.ts`, `diningFavorites.ts`, `scheduleFilters.ts`,
+  `taskPriorityStore.ts`, `buildingCode.ts`, `taskLocalStore.ts`, `gradeTrackerStore.ts`,
+  `dashboardLayoutStore.ts`, `usageStats.ts`.
+- ✅ Converted (`src/hooks`): `usePrefersReducedMotion.ts`.
+- ⬜ Remaining (`src/lib`): the API/fetch helpers (`authApi`, `adminApi`, `advertiserApi`,
+  `spotlightApi`, `supabase`), `transitShared`, and the `useSpeechRecognition` hook.
+- ⬜ Remaining: the rest of `src/hooks`; then `src/components`, `src/pages`, `src/context`.
+
+> **Components/pages note.** With `strict`/`noImplicitAny`, every `.jsx` converted to
+> `.tsx` needs a type on each prop and each inline event handler (`onChange={(e) => …}`),
+> so the ~40 components are converted in small batches (or behind a temporary
+> `noImplicitAny: false`, then tightened) rather than one big-bang rename.
 
 ## Follow-ups
 

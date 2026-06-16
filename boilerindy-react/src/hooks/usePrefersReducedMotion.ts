@@ -5,12 +5,10 @@ const QUERY = '(prefers-reduced-motion: reduce)'
 /**
  * Tracks the user's OS-level "reduce motion" preference so components can drop
  * non-essential transitions/animations. Returns false during SSR / when
- * matchMedia is unavailable.
- *
- * @returns {boolean}
+ * matchMedia is unavailable. Migrated to TypeScript (issue #20).
  */
-export function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(() => {
+export function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState<boolean>(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return false
     return window.matchMedia(QUERY).matches
   })

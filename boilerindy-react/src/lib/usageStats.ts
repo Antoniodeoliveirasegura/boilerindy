@@ -3,22 +3,25 @@
 // Disabled until configureAnalytics says otherwise, so nothing is recorded for
 // signed-out visitors or users who opted out (their queue is dropped too).
 // Fails soft everywhere: analytics must never break or slow the app.
+// Migrated to TypeScript (issue #20).
+
+type AnalyticsEvent = { event_name: string; page: string; props: Record<string, unknown> }
 
 const ENDPOINT = '/api/usage/events'
 const FLUSH_INTERVAL_MS = 10_000
 const BATCH_MAX = 20
 
 let isEnabled = false
-let queue = []
-let flushTimer = null
+let queue: AnalyticsEvent[] = []
+let flushTimer: ReturnType<typeof window.setInterval> | null = null
 
-function startTimer() {
+function startTimer(): void {
   if (flushTimer == null) {
     flushTimer = window.setInterval(flush, FLUSH_INTERVAL_MS)
   }
 }
 
-function stopTimer() {
+function stopTimer(): void {
   if (flushTimer != null) {
     window.clearInterval(flushTimer)
     flushTimer = null
@@ -26,7 +29,7 @@ function stopTimer() {
 }
 
 /** Enable/disable tracking. Disabling drops anything still queued. */
-export function configureAnalytics({ enabled }) {
+export function configureAnalytics({ enabled }: { enabled?: boolean }): void {
   isEnabled = Boolean(enabled)
   if (!isEnabled) {
     queue = []
@@ -37,14 +40,14 @@ export function configureAnalytics({ enabled }) {
 }
 
 /** Queue an allowlisted event. No-op when tracking is disabled. */
-export function track(eventName, props = {}) {
+export function track(eventName: string, props: Record<string, unknown> = {}): void {
   if (!isEnabled) return
   queue.push({ event_name: eventName, page: window.location.pathname, props })
   if (queue.length >= BATCH_MAX) flush()
 }
 
 /** Send the queued batch now. Exposed for tests and route-change hooks. */
-export function flush() {
+export function flush(): void {
   if (!isEnabled || queue.length === 0) return
   const events = queue.splice(0, BATCH_MAX)
   fetch(ENDPOINT, {
@@ -60,8 +63,7 @@ export function flush() {
 
 // On tab close/navigation the interval never fires again — hand the remaining
 // batch to sendBeacon, which the browser delivers after the page is gone.
-// Beacons post as text/plain; the server JSON-parses that explicitly.
-function flushWithBeacon() {
+function flushWithBeacon(): void {
   if (!isEnabled || queue.length === 0) return
   const events = queue.splice(0, BATCH_MAX)
   if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
