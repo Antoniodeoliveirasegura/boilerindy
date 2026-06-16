@@ -23,9 +23,13 @@ container components/pages → `App.tsx`/`main.tsx`.
 
 ## Status
 
-- ✅ Foundation: `tsconfig.json`, `typescript` dep, `typecheck` script.
-- ✅ Converted: `src/lib/privacyNav.ts`, `src/lib/diningFavorites.ts` (pure, unit-tested).
-- ⬜ Remaining: the rest of `src/lib`, `src/hooks`, `src/components`, `src/pages`, `src/context`.
+- ✅ Foundation: `tsconfig.json`, `typescript` dep, `typecheck` script, CI `typecheck` step.
+- ✅ Converted (`src/lib`): `privacyNav.ts`, `diningFavorites.ts`, `scheduleFilters.ts`,
+  `taskPriorityStore.ts`, `buildingCode.ts`, `taskLocalStore.ts`.
+- ✅ Converted (`src/hooks`): `usePrefersReducedMotion.ts`.
+- ⬜ Remaining: the API helpers in `src/lib` (`authApi`, `adminApi`, `advertiserApi`,
+  `spotlightApi`, `supabase`), `transitShared`, `gradeTrackerStore`, `dashboardLayoutStore`,
+  `usageStats`; the rest of `src/hooks`; then `src/components`, `src/pages`, `src/context`.
 
 ## Follow-ups
 
