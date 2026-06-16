@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
+
 /**
  * Strip HTML tags and decode common entities, returning plain text.
  */
-export function stripHtml(html) {
+export function stripHtml(html: string | null | undefined): string {
   if (!html) return ''
   return html
     .replace(/<br\s*\/?>/gi, '\n')
@@ -21,7 +23,7 @@ export function stripHtml(html) {
 /**
  * Clean AI-generated text: strip markdown formatting Gemini sometimes adds.
  */
-export function cleanAiText(text) {
+export function cleanAiText(text: unknown): string {
   if (text == null || text === '') return ''
   const s = typeof text === 'string' ? text : String(text)
   return s
@@ -36,7 +38,10 @@ export function cleanAiText(text) {
 /**
  * Turn raw text with http(s) URLs into React nodes with clickable, wrapping links.
  */
-export function linkifyText(text, { maxDisplayLength = 80 } = {}) {
+export function linkifyText(
+  text: string | null | undefined,
+  { maxDisplayLength = 80 }: { maxDisplayLength?: number } = {},
+): ReactNode {
   if (text == null || text === '') return null
 
   const urlRegex = /(https?:\/\/[^\s<]+)/gi
