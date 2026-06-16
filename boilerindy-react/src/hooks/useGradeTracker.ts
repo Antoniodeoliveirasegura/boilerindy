@@ -15,12 +15,34 @@ import {
  * cache, then GET /api/me/grades as the cross-device source of truth (falling
  * back to the cache, then an empty list). Mutations update local state + cache
  * immediately (optimistic) and sync to the server; a failed network call leaves
- * the optimistic copy in place so the UI stays responsive offline.
- *
- * @param {string | null | undefined} userId backend user id (from useAuth)
+ * the optimistic copy in place so the UI stays responsive offline. Migrated to
+ * TypeScript (issue #20).
  */
-export function useGradeTracker(userId) {
-  const [grades, setGrades] = useState(() => loadLocalGrades(userId) || [])
+
+// Matches the shape produced by normalizeGrade in src/gradeTracker.mjs.
+export type Grade = {
+  id: string | null
+  courseName: string
+  term: string
+  creditHours: number
+  letterGrade: string
+}
+
+// Fields a caller supplies when adding/editing a course (id is assigned by the
+// store/server). letterGrade + courseName are required for a row to be valid.
+export type GradeInput = {
+  courseName: string
+  letterGrade: string
+  term?: string
+  creditHours?: number
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : ''
+}
+
+export function useGradeTracker(userId: string | null | undefined) {
+  const [grades, setGrades] = useState<Grade[]>(() => loadLocalGrades(userId) || [])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -29,7 +51,10 @@ export function useGradeTracker(userId) {
     ;(async () => {
       setLoading(true)
       try {
-        const data = await authRequest('/api/me/grades')
+        const data = (await authRequest('/api/me/grades')) as {
+          unavailable?: boolean
+          grades?: unknown
+        }
         if (cancelled) return
         // If the backend reports the store is unavailable (e.g. table not yet
         // migrated), don't trust its empty list — keep the local cache.
@@ -56,7 +81,7 @@ export function useGradeTracker(userId) {
 
   // Write helper: set state, mirror to cache.
   const persist = useCallback(
-    (next) => {
+    (next: Grade[]) => {
       setGrades(next)
       saveLocalGrades(userId, next)
       return next
@@ -65,7 +90,7 @@ export function useGradeTracker(userId) {
   )
 
   const addGrade = useCallback(
-    async (input) => {
+    async (input: GradeInput): Promise<boolean> => {
       const normalized = normalizeGrade(input)
       if (!normalized) {
         setError('Enter a course name and pick a grade.')
@@ -78,16 +103,17 @@ export function useGradeTracker(userId) {
       const optimistic = { ...normalized, id: tempId }
       const next = persist([...grades, optimistic])
       try {
-        const data = await authRequest('/api/me/grades', {
+        const data = (await authRequest('/api/me/grades', {
           method: 'POST',
           body: JSON.stringify(normalized),
-        })
+        })) as { grade?: Grade }
         if (data?.grade) {
-          persist(next.map((g) => (g.id === tempId ? data.grade : g)))
+          const saved = data.grade
+          persist(next.map((g) => (g.id === tempId ? saved : g)))
         }
         return true
       } catch (err) {
-        setError(err.message || 'Could not save course (offline — kept locally).')
+        setError(errorMessage(err) || 'Could not save course (offline — kept locally).')
         return true // optimistic copy stays; cache keeps it
       }
     },
@@ -95,7 +121,7 @@ export function useGradeTracker(userId) {
   )
 
   const updateGrade = useCallback(
-    async (id, updates) => {
+    async (id: string, updates: Partial<GradeInput>): Promise<boolean> => {
       const current = grades.find((g) => g.id === id)
       if (!current) return false
       const merged = normalizeGrade({ ...current, ...updates })
@@ -104,7 +130,7 @@ export function useGradeTracker(userId) {
         return false
       }
       setError('')
-      const next = persist(grades.map((g) => (g.id === id ? { ...merged, id } : g)))
+      persist(grades.map((g) => (g.id === id ? { ...merged, id } : g)))
       // Don't PATCH an unsynced optimistic row; the create call carries its data.
       if (String(id).startsWith('temp-')) return true
       try {
@@ -113,22 +139,21 @@ export function useGradeTracker(userId) {
           body: JSON.stringify(updates),
         })
       } catch (err) {
-        setError(err.message || 'Could not update course (offline — kept locally).')
+        setError(errorMessage(err) || 'Could not update course (offline — kept locally).')
       }
-      void next
       return true
     },
     [grades, persist],
   )
 
   const deleteGrade = useCallback(
-    async (id) => {
+    async (id: string): Promise<void> => {
       persist(grades.filter((g) => g.id !== id))
       if (String(id).startsWith('temp-')) return
       try {
         await authRequest(`/api/me/grades/${id}`, { method: 'DELETE' })
       } catch (err) {
-        setError(err.message || 'Could not delete course (offline).')
+        setError(errorMessage(err) || 'Could not delete course (offline).')
       }
     },
     [grades, persist],
