@@ -1,4 +1,13 @@
-export function StatusBadge({ status, metaMap }) {
+import type { ReactNode } from 'react'
+import type { StatusMeta } from './adminHelpers'
+
+export function StatusBadge({
+  status,
+  metaMap,
+}: {
+  status: string
+  metaMap: Record<string, StatusMeta>
+}) {
   const meta = metaMap[status] || { label: status, cls: 'text-[var(--color-txt-2)] bg-[var(--color-bg-2)] border-[var(--color-border)]' }
   return (
     <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${meta.cls}`}>
@@ -7,7 +16,15 @@ export function StatusBadge({ status, metaMap }) {
   )
 }
 
-export function PageHeader({ title, description, actions }) {
+export function PageHeader({
+  title,
+  description,
+  actions,
+}: {
+  title: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+}) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
       <div>
@@ -21,7 +38,15 @@ export function PageHeader({ title, description, actions }) {
   )
 }
 
-export function AlertBanner({ type = 'error', message, onDismiss }) {
+export function AlertBanner({
+  type = 'error',
+  message,
+  onDismiss,
+}: {
+  type?: 'success' | 'error'
+  message?: ReactNode
+  onDismiss?: () => void
+}) {
   if (!message) return null
   const cls =
     type === 'success'
@@ -39,7 +64,13 @@ export function AlertBanner({ type = 'error', message, onDismiss }) {
   )
 }
 
-export function EmptyState({ title, description }) {
+export function EmptyState({
+  title,
+  description,
+}: {
+  title: ReactNode
+  description?: ReactNode
+}) {
   return (
     <div className="rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-12 text-center">
       <div className="text-[15px] font-medium text-[var(--color-txt-0)] mb-1">{title}</div>
