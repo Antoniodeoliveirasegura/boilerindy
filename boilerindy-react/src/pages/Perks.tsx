@@ -12,17 +12,54 @@ const CATEGORIES = [
   { key: 'services', label: '🛠️ Services' },
   { key: 'other', label: '✨ Other' },
 ]
-const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.label]))
-const EMPTY_FORM = {
+const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.key, c.label]),
+)
+
+type Deal = {
+  id: string
+  businessName: string
+  description?: string
+  category: string
+  imageUrl?: string
+  address?: string
+  lat?: number | null
+  lng?: number | null
+  expiresAt?: string | null
+  featured?: boolean
+  active?: boolean
+  distanceMiles?: number | null
+  [key: string]: unknown
+}
+
+type DealForm = {
+  id: string | null
+  businessName: string
+  description: string
+  category: string
+  imageUrl: string
+  address: string
+  lat: string | number
+  lng: string | number
+  expiresAt: string
+  featured: boolean
+  active: boolean
+}
+
+const EMPTY_FORM: DealForm = {
   id: null, businessName: '', description: '', category: 'food',
   imageUrl: '', address: '', lat: '', lng: '', expiresAt: '', featured: false, active: true,
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
 }
 
 export default function Perks() {
   const { user } = useAuth()
   const isAdmin = Boolean(user?.isAdmin)
 
-  const [deals, setDeals] = useState([])
+  const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeCat, setActiveCat] = useState('all')
@@ -41,8 +78,11 @@ export default function Perks() {
     setLoading(true)
     setError('')
     authRequest(`/api/deals${isAdmin ? '?all=1' : ''}`)
-      .then((data) => setDeals(Array.isArray(data?.deals) ? data.deals : []))
-      .catch((e) => setError(e?.message || 'Could not load deals.'))
+      .then((data) => {
+        const d = data as { deals?: Deal[] }
+        setDeals(Array.isArray(d?.deals) ? d.deals : [])
+      })
+      .catch((e) => setError(errorText(e, 'Could not load deals.')))
       .finally(() => setLoading(false))
   }
 
@@ -50,10 +90,11 @@ export default function Perks() {
     let active = true
     authRequest(`/api/deals${isAdmin ? '?all=1' : ''}`)
       .then((data) => {
-        if (active) setDeals(Array.isArray(data?.deals) ? data.deals : [])
+        const d = data as { deals?: Deal[] }
+        if (active) setDeals(Array.isArray(d?.deals) ? d.deals : [])
       })
       .catch((e) => {
-        if (active) setError(e?.message || 'Could not load deals.')
+        if (active) setError(errorText(e, 'Could not load deals.'))
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -81,7 +122,7 @@ export default function Perks() {
     setShowForm(true)
   }
 
-  function startEdit(deal) {
+  function startEdit(deal: Deal) {
     setForm({
       id: deal.id,
       businessName: deal.businessName,
@@ -92,14 +133,14 @@ export default function Perks() {
       lat: deal.lat ?? '',
       lng: deal.lng ?? '',
       expiresAt: deal.expiresAt ? deal.expiresAt.slice(0, 10) : '',
-      featured: deal.featured,
-      active: deal.active,
+      featured: deal.featured ?? false,
+      active: deal.active ?? false,
     })
     setFormError('')
     setShowForm(true)
   }
 
-  async function submitForm(e) {
+  async function submitForm(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setFormError('')
     if (!form.businessName.trim()) {
@@ -129,13 +170,13 @@ export default function Perks() {
       setForm(EMPTY_FORM)
       load()
     } catch (err) {
-      setFormError(err?.message || 'Could not save the deal.')
+      setFormError(errorText(err, 'Could not save the deal.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  async function deleteDeal(deal) {
+  async function deleteDeal(deal: Deal) {
     if (!window.confirm(`Delete "${deal.businessName}"?`)) return
     setDeals((prev) => prev.filter((d) => d.id !== deal.id))
     try {

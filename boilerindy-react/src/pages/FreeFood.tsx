@@ -9,7 +9,17 @@ import Icon from '../components/Icons'
 // keyword matcher (item.freeFood). Reuses the same /api/me/calendar source as
 // the Events page, then narrows to free-food events.
 
-function formatDate(dateString) {
+type CalendarItem = {
+  id: string
+  title?: string
+  startTime: string
+  location?: string
+  description?: string
+  freeFood?: boolean
+  [key: string]: unknown
+}
+
+function formatDate(dateString: string) {
   const date = new Date(dateString)
   const now = new Date()
   const tomorrow = new Date(now)
@@ -19,19 +29,19 @@ function formatDate(dateString) {
   return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-function formatTime(dateString) {
+function formatTime(dateString: string) {
   const date = new Date(dateString)
   if (date.getHours() === 0 && date.getMinutes() === 0) return 'All day'
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
-function isPast(dateString) {
+function isPast(dateString: string) {
   return new Date(dateString) < new Date()
 }
 
 export default function FreeFood() {
   const { onboarding } = useAuth()
-  const [items, setItems] = useState([])
+  const [items, setItems] = useState<CalendarItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -39,7 +49,7 @@ export default function FreeFood() {
     void (async () => {
       setLoading(true)
       try {
-        const res = await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')
+        const res = (await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')) as { items?: CalendarItem[] }
         if (!cancelled) setItems(res.items || [])
       } catch (error) {
         if (!cancelled) {
@@ -59,12 +69,12 @@ export default function FreeFood() {
     () =>
       items
         .filter((item) => item.freeFood && !isPast(item.startTime))
-        .sort((a, b) => new Date(a.startTime) - new Date(b.startTime)),
+        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()),
     [items],
   )
 
   const grouped = useMemo(() => {
-    const groups = {}
+    const groups: Record<string, CalendarItem[]> = {}
     for (const item of freeFoodItems) {
       const key = formatDate(item.startTime)
       if (!groups[key]) groups[key] = []
