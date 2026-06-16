@@ -247,6 +247,13 @@ export default function Services() {
               </div>
               <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Report or find lost items around campus.</div>
             </Link>
+            <Link to="/study-groups" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="users" size={16} />
+                Study Groups
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Find classmates and form study groups by course.</div>
+            </Link>
             <Link to="/settings" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
               <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
                 <Icon name="settings" size={16} />

@@ -45,6 +45,7 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
+import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
@@ -3150,6 +3151,209 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
     })
   }
   res.status(204).end()
+})
+
+// ============================================================
+// Study Group Finder (issue #33) — per-course groups from synced schedules.
+// Privacy is opt-in (default off); only opted-in users count as classmates.
+// Requires db/supabase-study-groups.sql.
+// ============================================================
+
+const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
+
+function respondStudyDbError(res, err) {
+  console.error('Study group DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Study Group tables are missing in Supabase. In the dashboard: SQL Editor → run ${STUDY_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load study groups. Please try again.', status: 500 } })
+}
+
+function mapStudyGroupRow(row, userId, memberCounts, myGroupIds) {
+  return {
+    id: row.id,
+    courseCode: row.course_code,
+    title: row.title,
+    description: row.description || '',
+    meetingInfo: row.meeting_info || '',
+    capacity: row.capacity ?? null,
+    memberCount: memberCounts.get(row.id) || 0,
+    joinedByMe: myGroupIds.has(row.id),
+    isMine: row.creator_id === userId,
+    createdAt: row.created_at,
+  }
+}
+
+async function loadStudyMembership(groupIds, userId) {
+  const memberCounts = new Map()
+  const myGroupIds = new Set()
+  if (groupIds.length) {
+    const { data: members } = await supabase
+      .from('study_group_members')
+      .select('group_id, user_id')
+      .in('group_id', groupIds)
+    for (const m of members || []) {
+      memberCounts.set(m.group_id, (memberCounts.get(m.group_id) || 0) + 1)
+      if (m.user_id === userId) myGroupIds.add(m.group_id)
+    }
+  }
+  return { memberCounts, myGroupIds }
+}
+
+// The user's detected courses + opt-in status + classmate counts (opted-in only).
+app.get('/api/me/study-groups/courses', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const optIn = Boolean(req.currentUser.study_groups_opt_in)
+    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
+    const courses = coursesFromClassItems(items)
+    const counts = new Map()
+    if (courses.length) {
+      const { data } = await supabase
+        .from('study_group_courses')
+        .select('course_code, user_id')
+        .in('course_code', courses)
+      for (const row of data || []) {
+        if (row.user_id === userId) continue // never count yourself
+        counts.set(row.course_code, (counts.get(row.course_code) || 0) + 1)
+      }
+    }
+    res.json({ optIn, courses: courses.map((c) => ({ code: c, classmateCount: counts.get(c) || 0 })) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Toggle opt-in; on opt-in, snapshot the user's course codes for classmate counts.
+app.patch('/api/me/study-groups/opt-in', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const optIn = req.body?.optIn === true || req.body?.optIn === 'true'
+  try {
+    const { error } = await supabase.from('users').update({ study_groups_opt_in: optIn }).eq('id', userId)
+    if (error) throw error
+    await supabase.from('study_group_courses').delete().eq('user_id', userId)
+    if (optIn) {
+      const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
+      const courses = coursesFromClassItems(items)
+      if (courses.length) {
+        await supabase.from('study_group_courses').insert(courses.map((c) => ({ user_id: userId, course_code: c })))
+      }
+    }
+    res.json({ ok: true, optIn })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Groups the current user belongs to.
+app.get('/api/me/study-groups', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data: mem, error } = await supabase
+      .from('study_group_members')
+      .select('group_id')
+      .eq('user_id', userId)
+    if (error) throw error
+    const ids = (mem || []).map((m) => m.group_id)
+    if (!ids.length) return res.json({ groups: [] })
+    const { data: groups } = await supabase.from('study_groups').select('*').in('id', ids)
+    const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
+    res.json({ groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// List groups for a course.
+app.get('/api/study-groups', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const course = normalizeCourseCode(req.query.course)
+  if (!course) return res.status(400).json({ error: { message: 'A valid course code is required.', status: 400 } })
+  try {
+    const { data: groups, error } = await supabase
+      .from('study_groups')
+      .select('*')
+      .eq('course_code', course)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    if (error) throw error
+    const ids = (groups || []).map((g) => g.id)
+    const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
+    res.json({ courseCode: course, groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Create a group (creator auto-joins).
+app.post('/api/study-groups', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const { value, error: invalid } = validateStudyGroupInput(req.body || {})
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  const profanity = assertBoardPostTextAllowed(value.title, value.description)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('study_groups')
+      .insert({ creator_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    await supabase.from('study_group_members').insert({ group_id: data.id, user_id: req.currentUser.id, joined_at: nowIso() })
+    res.status(201).json({
+      group: mapStudyGroupRow(data, req.currentUser.id, new Map([[data.id, 1]]), new Set([data.id])),
+    })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Join a group (respects capacity).
+app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const groupId = req.params.id
+  try {
+    const { data: group, error: gErr } = await supabase
+      .from('study_groups')
+      .select('id, capacity')
+      .eq('id', groupId)
+      .single()
+    if (gErr) throw gErr
+    if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
+
+    const { data: members } = await supabase.from('study_group_members').select('user_id').eq('group_id', groupId)
+    const already = (members || []).some((m) => m.user_id === userId)
+    if (!already && group.capacity && (members || []).length >= group.capacity) {
+      return res.status(409).json({ error: { message: 'This group is full.', status: 409 } })
+    }
+    const { error: insErr } = await supabase
+      .from('study_group_members')
+      .insert({ group_id: groupId, user_id: userId, joined_at: nowIso() })
+    if (insErr && insErr.code !== '23505') throw insErr
+    res.json({ ok: true, memberCount: (members || []).length + (already ? 0 : 1) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Leave a group.
+app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { error } = await supabase
+      .from('study_group_members')
+      .delete()
+      .eq('group_id', req.params.id)
+      .eq('user_id', userId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
 })
 
 // ============================================================
