@@ -21,7 +21,7 @@ export default function Settings() {
   const [banner, setBanner] = useState(() => {
     const error = searchParams.get('error')
     if (!error) return ''
-    const messages = {
+    const messages: Record<string, string> = {
       'cas-config': 'Purdue CAS is not configured yet on the backend.',
       'missing-ticket': 'Purdue CAS did not return a ticket. Try linking again.',
       'cas-validation': 'Purdue CAS could not validate your identity. Try again.',
@@ -36,7 +36,7 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false)
 
   // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
-  const [feedUrl, setFeedUrl] = useState(null)
+  const [feedUrl, setFeedUrl] = useState<string | null>(null)
   const [feedLoaded, setFeedLoaded] = useState(false)
   const [feedBusy, setFeedBusy] = useState(false)
   const [feedCopied, setFeedCopied] = useState(false)
@@ -47,7 +47,8 @@ export default function Settings() {
     let active = true
     authRequest('/api/me/calendar-feed')
       .then((data) => {
-        if (active) setFeedUrl(data?.feedUrl || null)
+        const d = data as { feedUrl?: string }
+        if (active) setFeedUrl(d?.feedUrl || null)
       })
       .catch(() => {
         /* feed link is optional UI; ignore load failures */
@@ -68,12 +69,12 @@ export default function Settings() {
     setBanner('')
     setStatus('')
     try {
-      const data = await authRequest('/api/me/calendar-feed/token', { method: 'POST' })
-      setFeedUrl(data.feedUrl)
+      const data = (await authRequest('/api/me/calendar-feed/token', { method: 'POST' })) as { feedUrl?: string }
+      setFeedUrl(data.feedUrl || null)
       setFeedCopied(false)
       setStatus(feedUrl ? 'Calendar link regenerated. Update your calendar subscription.' : 'Calendar link created.')
     } catch (error) {
-      setBanner(error.message || 'Could not generate a calendar link.')
+      setBanner(error instanceof Error ? error.message : 'Could not generate a calendar link.')
     } finally {
       setFeedBusy(false)
     }
@@ -81,7 +82,7 @@ export default function Settings() {
 
   // Analytics opt-out (issue #51): saved immediately on toggle; UsageListener
   // reacts to the refreshed session, so opting out stops sending right away.
-  async function handleAnalyticsToggle(e) {
+  async function handleAnalyticsToggle(e: React.ChangeEvent<HTMLInputElement>) {
     const nextEnabled = e.target.checked
     setAnalyticsSaving(true)
     setBanner('')
@@ -94,7 +95,7 @@ export default function Settings() {
       await refreshSession()
       setStatus(nextEnabled ? 'Usage analytics turned on.' : 'Usage analytics turned off.')
     } catch (error) {
-      setBanner(error.message || 'Could not update your analytics preference.')
+      setBanner(error instanceof Error ? error.message : 'Could not update your analytics preference.')
     } finally {
       setAnalyticsSaving(false)
     }
@@ -121,7 +122,7 @@ export default function Settings() {
     setEmail(user?.email || '')
   }
 
-  async function handleSave(e) {
+  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setBanner('')
     setStatus('')
@@ -148,13 +149,13 @@ export default function Settings() {
       setConfirmPassword('')
       setStatus('Settings updated.')
     } catch (error) {
-      setBanner(error.message || 'Could not update settings.')
+      setBanner(error instanceof Error ? error.message : 'Could not update settings.')
     } finally {
       setSaving(false)
     }
   }
 
-  async function handleDeleteAccount(e) {
+  async function handleDeleteAccount(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setBanner('')
     setStatus('')
@@ -187,7 +188,7 @@ export default function Settings() {
       }
       window.location.replace('/')
     } catch (error) {
-      setBanner(error.message || 'Could not delete your account.')
+      setBanner(error instanceof Error ? error.message : 'Could not delete your account.')
     } finally {
       setDeleting(false)
     }
@@ -283,7 +284,7 @@ export default function Settings() {
         </form>
 
         <div className="space-y-4">
-          {authConfig?.supportsPurdueLink !== false && (
+          {(authConfig as { supportsPurdueLink?: boolean })?.supportsPurdueLink !== false && (
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
               Purdue account
@@ -291,7 +292,7 @@ export default function Settings() {
             {user?.hasPurdueLinked ? (
               <>
                 <div className="text-[15px] font-semibold text-[var(--color-txt-0)]">Linked</div>
-                <div className="text-[13px] text-[var(--color-txt-2)] mt-1">{user.purdueEmail}</div>
+                <div className="text-[13px] text-[var(--color-txt-2)] mt-1">{String(user.purdueEmail ?? '')}</div>
                 <p className="text-[13px] text-[var(--color-txt-1)] mt-3 leading-relaxed">
                   Purdue is connected as a linked identity. Purdue-specific sources like timetable feeds can now be attached from setup.
                 </p>
@@ -436,7 +437,7 @@ export default function Settings() {
                 <button
                   key={mode}
                   type="button"
-                  onClick={() => setTheme(mode)}
+                  onClick={() => setTheme(mode as 'light' | 'dark')}
                   aria-pressed={theme === mode}
                   className={`px-4 py-2 rounded-lg text-[12px] font-semibold capitalize transition-all inline-flex items-center gap-1.5 ${
                     theme === mode
