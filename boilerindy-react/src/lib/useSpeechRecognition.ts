@@ -3,29 +3,43 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // Push-to-talk speech-to-text for the campus assistant (issue #19). Thin wrapper
 // over the browser Web Speech API (Chrome/Android). Where the API is missing
 // (Safari/iOS), `supported` is false and callers simply hide the mic — typing
-// still works, and no error is surfaced.
+// still works, and no error is surfaced. Migrated to TypeScript (issue #20).
+// The SpeechRecognition* ambient types live in src/vite-env.d.ts.
 
-function getRecognitionCtor() {
+function getRecognitionCtor(): SpeechRecognitionCtor | null {
   if (typeof window === 'undefined') return null
   return window.SpeechRecognition || window.webkitSpeechRecognition || null
 }
 
-/**
- * @param {object} [options]
- * @param {(transcript: string) => void} [options.onResult] - fired with the live
- *   (interim + final) cumulative transcript of the current utterance.
- * @param {string} [options.lang]
- * @returns {{ supported: boolean, listening: boolean, error: string | null,
- *   start: () => void, stop: () => void, toggle: () => void }}
- */
-export function useSpeechRecognition({ onResult, lang = 'en-US' } = {}) {
+type UseSpeechRecognitionOptions = {
+  /**
+   * Fired with the live (interim + final) cumulative transcript of the current
+   * utterance.
+   */
+  onResult?: (transcript: string) => void
+  lang?: string
+}
+
+type UseSpeechRecognitionResult = {
+  supported: boolean
+  listening: boolean
+  error: string | null
+  start: () => void
+  stop: () => void
+  toggle: () => void
+}
+
+export function useSpeechRecognition({
+  onResult,
+  lang = 'en-US',
+}: UseSpeechRecognitionOptions = {}): UseSpeechRecognitionResult {
   const Ctor = getRecognitionCtor()
   const supported = Boolean(Ctor)
 
   const [listening, setListening] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const recognitionRef = useRef(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   // Hold the callback in a ref so the recognizer is built once, not rebuilt on
   // every render when the parent passes a fresh onResult function. Written in an
   // effect (not during render) to satisfy the rules of hooks.
@@ -35,7 +49,7 @@ export function useSpeechRecognition({ onResult, lang = 'en-US' } = {}) {
   }, [onResult])
 
   useEffect(() => {
-    if (!supported) return undefined
+    if (!Ctor) return undefined
 
     const recognition = new Ctor()
     recognition.interimResults = true
@@ -68,7 +82,7 @@ export function useSpeechRecognition({ onResult, lang = 'en-US' } = {}) {
       }
       recognitionRef.current = null
     }
-  }, [supported, Ctor, lang])
+  }, [Ctor, lang])
 
   const start = useCallback(() => {
     const recognition = recognitionRef.current
