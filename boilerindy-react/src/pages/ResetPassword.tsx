@@ -25,7 +25,9 @@ export default function ResetPassword() {
   const navigate = useNavigate()
   const { refreshSession } = useAuth()
 
-  const [linkState, setLinkState] = useState(() => (readRecoveryError() ? 'invalid' : 'checking'))
+  const [linkState, setLinkState] = useState<'checking' | 'ready' | 'invalid'>(() =>
+    readRecoveryError() ? 'invalid' : 'checking',
+  )
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -60,7 +62,7 @@ export default function ResetPassword() {
   const inputBase =
     'w-full py-2.5 px-3.5 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-bg-0)] dark:bg-[var(--color-bg-2)] text-[var(--color-txt-0)] text-sm outline-none focus:border-[var(--color-gold)] focus:shadow-[var(--shadow-glow)]'
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setMessage('')
     if (password.length < 8) {
@@ -77,7 +79,11 @@ export default function ResetPassword() {
       await refreshSession()
       navigate(parseNextPath(''), { replace: true })
     } catch (error) {
-      setMessage(error.message || 'Could not reset the password. Request a new link and try again.')
+      setMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not reset the password. Request a new link and try again.',
+      )
     } finally {
       setSubmitting(false)
     }
