@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { track } from '../lib/usageStats'
+import { useSpeechRecognition } from '../lib/useSpeechRecognition'
 import Icon from './Icons'
 
 const quickQuestions = [
@@ -28,6 +29,20 @@ export default function CampusAssistant() {
   const [pendingMessage, setPendingMessage] = useState(null)
   const messagesRef = useRef(null)
   const inputRef = useRef(null)
+  // Voice dictation (issue #19). The base holds whatever was already typed when
+  // the mic started so live transcripts append rather than overwrite.
+  const speechBaseRef = useRef('')
+  const handleTranscript = (text) => {
+    const base = speechBaseRef.current
+    setInput(base ? `${base} ${text}` : text)
+  }
+  const { supported: micSupported, listening, toggle: toggleMic, stop: stopMic } =
+    useSpeechRecognition({ onResult: handleTranscript })
+
+  function handleMicToggle() {
+    if (!listening) speechBaseRef.current = input
+    toggleMic()
+  }
 
   // Listen for external trigger (e.g. "Ask AI what to do" button on dashboard)
   useEffect(() => {
@@ -62,6 +77,11 @@ export default function CampusAssistant() {
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 100)
   }, [open])
+
+  // Stop dictation when the panel closes so the mic does not keep listening.
+  useEffect(() => {
+    if (!open && listening) stopMic()
+  }, [open, listening, stopMic])
 
   async function handleSend(text = input) {
     const userMsg = text.trim()
@@ -199,10 +219,27 @@ export default function CampusAssistant() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                placeholder="Ask about campus..."
+                placeholder={listening ? 'Listening…' : 'Ask about campus...'}
                 className="input flex-1 text-[13px] px-4 py-2.5"
                 disabled={isTyping}
               />
+              {micSupported && (
+                <button
+                  type="button"
+                  onClick={handleMicToggle}
+                  disabled={isTyping}
+                  aria-pressed={listening}
+                  aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+                  title={listening ? 'Stop dictation' : 'Dictate'}
+                  className={`px-3 py-2.5 rounded-xl border transition-colors disabled:opacity-50
+                    ${listening
+                      ? 'bg-[var(--color-error)]/15 border-[var(--color-error)] text-[var(--color-error)] animate-pulse'
+                      : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
+                    }`}
+                >
+                  <Icon name="mic" size={16} />
+                </button>
+              )}
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isTyping}
