@@ -45,6 +45,7 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
+import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
@@ -3150,6 +3151,177 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
     })
   }
   res.status(204).end()
+})
+
+// ============================================================
+// Student Marketplace (issue #32, Phase 1) — listings + reports.
+// Posting requires Purdue verification; 3 distinct reports auto-hide a listing.
+// Requires db/supabase-marketplace.sql.
+// ============================================================
+
+const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
+const MARKETPLACE_PAGE_SIZE = 24
+
+function respondMarketplaceDbError(res, err) {
+  console.error('Marketplace DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Marketplace tables are missing in Supabase. In the dashboard: SQL Editor → run ${MARKETPLACE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load the marketplace. Please try again.', status: 500 } })
+}
+
+// Browse active, non-hidden listings with optional category/text filter + paging.
+app.get('/api/marketplace', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
+  try {
+    let query = supabase
+      .from('marketplace_listings')
+      .select('*')
+      .eq('status', 'active')
+      .eq('hidden', false)
+      .order('created_at', { ascending: false })
+      .range(page * MARKETPLACE_PAGE_SIZE, page * MARKETPLACE_PAGE_SIZE + MARKETPLACE_PAGE_SIZE - 1)
+    if (category) query = query.eq('category', category)
+    if (q) query = query.ilike('title', `%${q}%`)
+    const { data, error } = await query
+    if (error) throw error
+    res.json({
+      listings: (data || []).map((r) => mapListingRow(r, userId)),
+      page,
+      hasMore: (data || []).length === MARKETPLACE_PAGE_SIZE,
+      canPost: Boolean(req.currentUser.purdue_linked_at),
+    })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// The current user's own listings (any status).
+app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json({ listings: (data || []).map((r) => mapListingRow(r, userId)) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Listing detail — reveals seller contact (name + Purdue email) to signed-in users.
+app.get('/api/marketplace/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).single()
+    if (error) throw error
+    if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
+      return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
+    }
+    const { data: seller } = await supabase.from('users').select('display_name, email').eq('id', data.user_id).single()
+    res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.email }) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Create — requires Purdue verification.
+app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) => {
+  if (!req.currentUser.purdue_linked_at) {
+    return res.status(403).json({ error: { message: 'Link your Purdue account in setup before posting.', status: 403 } })
+  }
+  const { value, error: invalid } = validateListingInput(req.body || {}, { partial: false })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  const profanity = assertBoardPostTextAllowed(value.title, value.description)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .insert({ user_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    res.status(201).json({ listing: mapListingRow(data, req.currentUser.id) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Edit / mark sold — owner only.
+app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  if (Object.keys(value).length === 0) {
+    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
+  }
+  if (value.title || value.description) {
+    const profanity = assertBoardPostTextAllowed(value.title || '', value.description || '')
+    if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .update({ ...value, updated_at: nowIso() })
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .select('*')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
+    res.json({ listing: mapListingRow(data[0], userId) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Delete — owner or admin.
+app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    let query = supabase.from('marketplace_listings').delete().eq('id', req.params.id)
+    if (!isUserAdmin(req.currentUser)) query = query.eq('user_id', userId)
+    const { data, error } = await query.select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
+    res.status(204).end()
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters.
+app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const listingId = req.params.id
+  const reason = String(req.body?.reason || '').trim().slice(0, 500)
+  try {
+    const { error: insErr } = await supabase
+      .from('marketplace_reports')
+      .insert({ listing_id: listingId, reporter_id: userId, reason, created_at: nowIso() })
+    if (insErr && insErr.code !== '23505') throw insErr // ignore duplicate report
+
+    const { count } = await supabase
+      .from('marketplace_reports')
+      .select('reporter_id', { count: 'exact', head: true })
+      .eq('listing_id', listingId)
+    if ((count || 0) >= REPORTS_TO_HIDE) {
+      await supabase.from('marketplace_listings').update({ hidden: true }).eq('id', listingId)
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
 })
 
 // ============================================================
