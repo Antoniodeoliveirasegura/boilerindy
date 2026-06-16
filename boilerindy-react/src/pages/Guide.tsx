@@ -8,9 +8,27 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 
 // Neighborhood Guide (issue #31): student-submitted local recommendations.
-const CAMPUS_CENTER = [39.774, -86.172]
+const CAMPUS_CENTER: [number, number] = [39.774, -86.172]
 const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
 const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+
+type Rec = {
+  id: string
+  category?: string
+  title?: string
+  placeName?: string
+  body?: string
+  lat?: number | null
+  lng?: number | null
+  upvotes?: number
+  upvotedByMe?: boolean
+  pinned?: boolean
+  isMine?: boolean
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
 
 const CATEGORIES = [
   { key: 'food', label: 'Food', emoji: '🍔' },
@@ -19,7 +37,9 @@ const CATEGORIES = [
   { key: 'safety', label: 'Safety', emoji: '🛟' },
   { key: 'other', label: 'Other', emoji: '📌' },
 ]
-const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.key, `${c.emoji} ${c.label}`]))
+const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.key, `${c.emoji} ${c.label}`]),
+)
 
 const EMPTY_FORM = { category: 'food', title: '', body: '', placeName: '', lat: '', lng: '' }
 
@@ -28,7 +48,7 @@ export default function Guide() {
   const { dark } = useTheme()
   const isAdmin = Boolean(user?.isAdmin)
 
-  const [recs, setRecs] = useState([])
+  const [recs, setRecs] = useState<Rec[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeCat, setActiveCat] = useState('all')
@@ -42,13 +62,16 @@ export default function Guide() {
     track('guide_viewed')
   }, [])
 
-  const load = useCallback((category) => {
+  const load = useCallback((category: string) => {
     setLoading(true)
     setError('')
     const q = category && category !== 'all' ? `?category=${encodeURIComponent(category)}` : ''
     authRequest(`/api/guide${q}`)
-      .then((data) => setRecs(Array.isArray(data?.recommendations) ? data.recommendations : []))
-      .catch((e) => setError(e?.message || 'Could not load the guide.'))
+      .then((data) => {
+        const d = data as { recommendations?: Rec[] }
+        setRecs(Array.isArray(d?.recommendations) ? d.recommendations : [])
+      })
+      .catch((e) => setError(errorText(e, 'Could not load the guide.')))
       .finally(() => setLoading(false))
   }, [])
 
@@ -60,10 +83,11 @@ export default function Guide() {
     let active = true
     authRequest('/api/guide')
       .then((data) => {
-        if (active) setRecs(Array.isArray(data?.recommendations) ? data.recommendations : [])
+        const d = data as { recommendations?: Rec[] }
+        if (active) setRecs(Array.isArray(d?.recommendations) ? d.recommendations : [])
       })
       .catch((e) => {
-        if (active) setError(e?.message || 'Could not load the guide.')
+        if (active) setError(errorText(e, 'Could not load the guide.'))
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -73,12 +97,12 @@ export default function Guide() {
     }
   }, [])
 
-  function selectCategory(key) {
+  function selectCategory(key: string) {
     setActiveCat(key)
     load(key)
   }
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setFormError('')
     if (!form.title.trim()) {
@@ -100,33 +124,34 @@ export default function Guide() {
       setShowForm(false)
       load(activeCat)
     } catch (err) {
-      setFormError(err?.message || 'Could not post your recommendation.')
+      setFormError(errorText(err, 'Could not post your recommendation.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  function toggleUpvote(rec) {
+  function toggleUpvote(rec: Rec) {
     // Optimistic; reconcile with the server response.
     setRecs((prev) =>
       prev.map((r) =>
         r.id === rec.id
-          ? { ...r, upvotedByMe: !r.upvotedByMe, upvotes: r.upvotes + (r.upvotedByMe ? -1 : 1) }
+          ? { ...r, upvotedByMe: !r.upvotedByMe, upvotes: (r.upvotes ?? 0) + (r.upvotedByMe ? -1 : 1) }
           : r,
       ),
     )
     authRequest(`/api/guide/${rec.id}/upvote`, { method: 'POST' })
-      .then((data) =>
+      .then((data) => {
+        const d = data as { upvotes?: number; upvotedByMe?: boolean }
         setRecs((prev) =>
           prev.map((r) =>
-            r.id === rec.id ? { ...r, upvotes: data.upvotes, upvotedByMe: data.upvotedByMe } : r,
+            r.id === rec.id ? { ...r, upvotes: d.upvotes, upvotedByMe: d.upvotedByMe } : r,
           ),
-        ),
-      )
+        )
+      })
       .catch(() => load(activeCat))
   }
 
-  async function handleDelete(rec) {
+  async function handleDelete(rec: Rec) {
     if (!window.confirm('Delete this recommendation?')) return
     setRecs((prev) => prev.filter((r) => r.id !== rec.id))
     try {
@@ -136,7 +161,7 @@ export default function Guide() {
     }
   }
 
-  function togglePin(rec) {
+  function togglePin(rec: Rec) {
     authRequest(`/api/guide/${rec.id}/pin`, {
       method: 'PATCH',
       body: JSON.stringify({ pinned: !rec.pinned }),
@@ -268,7 +293,7 @@ export default function Guide() {
             {mapped.map((r) => (
               <CircleMarker
                 key={r.id}
-                center={[r.lat, r.lng]}
+                center={[r.lat as number, r.lng as number]}
                 radius={8}
                 pathOptions={{ color: 'var(--color-accent)', fillColor: 'var(--color-accent)', fillOpacity: 0.6 }}
               >
@@ -306,7 +331,7 @@ export default function Guide() {
                       </span>
                     )}
                     <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)]">
-                      {CATEGORY_LABEL[rec.category] || rec.category}
+                      {CATEGORY_LABEL[rec.category ?? ''] || rec.category}
                     </span>
                   </div>
                   <h3 className="text-[15px] font-semibold text-[var(--color-txt-0)] mt-1.5 break-words">{rec.title}</h3>
