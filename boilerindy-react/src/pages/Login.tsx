@@ -36,7 +36,7 @@ export default function Login() {
   const [banner, setBanner] = useState(() => {
     const error = searchParams.get('error')
     if (!error) return ''
-    const messages = {
+    const messages: Record<string, string> = {
       'cas-config': 'Purdue linking is not configured yet on the backend.',
       'missing-ticket': 'Purdue CAS did not return a ticket. Try again from setup.',
       'cas-validation': 'Purdue CAS could not validate the identity. Try again from setup.',
@@ -46,14 +46,14 @@ export default function Login() {
   const [successBanner, setSuccessBanner] = useState(() => {
     const message = searchParams.get('message')
     if (!message) return ''
-    const allowed = {
+    const allowed: Record<string, string> = {
       'password-reset-sent': 'If an account exists for that email, a reset link is on the way. Check your inbox.',
       'signed-out': 'You have been signed out.',
       'session-expired': 'Your session expired. Please sign in again.',
     }
     return allowed[message] || ''
   })
-  const [fieldErr, setFieldErr] = useState({})
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (loading) return
@@ -68,7 +68,7 @@ export default function Login() {
     setFieldErr({})
   }
 
-  async function handleForgotSubmit(e) {
+  async function handleForgotSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     clearErrors()
     if (!email.trim() || !email.includes('@')) {
@@ -81,17 +81,17 @@ export default function Login() {
       // Supabase succeeds for unknown emails too, so this never leaks accounts.
       setSuccessBanner('If an account exists for that email, a reset link is on the way. Check your inbox.')
     } catch (error) {
-      setBanner(error.message || 'Could not send a reset link. Please try again.')
+      setBanner(error instanceof Error ? error.message : 'Could not send a reset link. Please try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     clearErrors()
 
-    const nextErr = {}
+    const nextErr: Record<string, string> = {}
     let valid = true
 
     if (tab === 'signup') {
@@ -167,7 +167,7 @@ export default function Login() {
         navigate(parseNextPath(window.location.search), { replace: true })
       }
     } catch (error) {
-      setBanner(error.message || 'Authentication failed. Please try again.')
+      setBanner(error instanceof Error ? error.message : 'Authentication failed. Please try again.')
     } finally {
       setSubmitting(false)
     }
