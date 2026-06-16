@@ -157,14 +157,26 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Guide />
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/study-groups"
                 element={
                   <RequireAuth>
                     <StudyGroups />
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/perks"
                 element={
                   <RequireAuth>
                     <Perks />
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/marketplace"
                 element={
                   <RequireAuth>
