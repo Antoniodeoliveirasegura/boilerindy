@@ -45,6 +45,14 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
+import {
+  matchIntent,
+  formatNextClass,
+  formatClassesToday,
+  formatDiningOpen,
+  formatAssignments,
+  ASSISTANT_OFFLINE_MESSAGE,
+} from './src/assistantRouter.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
@@ -2448,16 +2456,32 @@ function buildAssistantCalendarContext(calendarData, now) {
   return parts.join('\n\n')
 }
 
+// Intent router (issue #45): answer common questions straight from the DB so
+// they cost zero Gemini tokens. Returns a reply string, or null to fall through.
+async function buildAssistantRouterReply(intent, req, now) {
+  const userId = req.currentUser.id
+  if (intent === 'next_class' || intent === 'classes_today') {
+    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 50 })
+    return intent === 'next_class' ? formatNextClass(items, now, TZ) : formatClassesToday(items, now, TZ)
+  }
+  if (intent === 'dining_open') {
+    const dining = await getDiningSnapshot({}).catch(() => null)
+    return formatDiningOpen(dining)
+  }
+  if (intent === 'assignments') {
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+    const items = await listCalendarItems(userId, {
+      categories: [...ASSISTANT_ASSIGNMENT_CATEGORIES],
+      limit: 50,
+      order: 'asc',
+      from: since,
+    })
+    return formatAssignments(items, now, TZ)
+  }
+  return null
+}
+
 app.post('/api/assistant', requireAuth, async (req, res) => {
-  if (!GEMINI_API_KEY) {
-    return res.status(503).json({ error: 'Assistant not configured.' })
-  }
-
-  const rlKey = req.session?.userId || req.ip || 'anon'
-  if (!geminiAllowed(rlKey, 20)) {
-    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
-  }
-
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })
@@ -2471,9 +2495,32 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
   }
 
+  // Router runs above the API-key check so structured asks work even with no key.
+  const lastUserMessage = [...messages].reverse().find((m) => m?.role === 'user')?.content || ''
+  const intent = matchIntent(lastUserMessage)
+  if (intent) {
+    try {
+      const routed = await buildAssistantRouterReply(intent, req, new Date())
+      if (routed) return res.json({ reply: routed, source: 'router' })
+    } catch {
+      /* fall through to the LLM path */
+    }
+  }
+
+  if (!GEMINI_API_KEY) {
+    // Friendly fallback instead of a bare 503 — the router still handles asks above.
+    return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
+  }
+
+  const rlKey = req.session?.userId || req.ip || 'anon'
+  if (!geminiAllowed(rlKey, 10)) {
+    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
+  }
+
   const now = new Date()
   const nowISOStr = now.toISOString()
-  const fourWeeksOut = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000).toISOString()
+  // Context trim (issue #45): 7 days instead of 4 weeks keeps the LLM prompt small.
+  const fourWeeksOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
   const nowLabel = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const timeLabel = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
 
@@ -2494,7 +2541,7 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
             .gte('start_time', lowerBound)
             .lte('start_time', fourWeeksOut)
             .order('start_time', { ascending: true })
-            .limit(100),
+            .limit(30),
           supabase
             .from('calendar_items')
             .select(sel)
