@@ -48,6 +48,7 @@ import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
+import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import {
   matchIntent,
   formatNextClass,
@@ -56,7 +57,6 @@ import {
   formatAssignments,
   ASSISTANT_OFFLINE_MESSAGE,
 } from './src/assistantRouter.mjs'
-import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
@@ -3217,46 +3217,6 @@ function respondGuideDbError(res, err) {
     return res.status(503).json({
       error: {
         message: `Neighborhood Guide tables are missing in Supabase. In the dashboard: SQL Editor → run ${GUIDE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-// Study Group Finder (issue #33) — per-course groups from synced schedules.
-// Privacy is opt-in (default off); only opted-in users count as classmates.
-// Requires db/supabase-study-groups.sql.
-// ============================================================
-
-const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
-
-function respondStudyDbError(res, err) {
-  console.error('Study group DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Study Group tables are missing in Supabase. In the dashboard: SQL Editor → run ${STUDY_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-// Campus Perks (issue #24) — admin-curated local deals for students.
-// GET is for everyone (active + unexpired); create/edit/delete require admin.
-// Requires db/supabase-campus-deals.sql.
-// ============================================================
-
-const DEALS_SQL_FILE = 'db/supabase-campus-deals.sql'
-
-function respondDealsDbError(res, err) {
-  console.error('Deals DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Campus Perks tables are missing in Supabase. In the dashboard: SQL Editor → run ${DEALS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-// Student Marketplace (issue #32, Phase 1) — listings + reports.
-// Posting requires Purdue verification; 3 distinct reports auto-hide a listing.
-// Requires db/supabase-marketplace.sql.
-// ============================================================
-
-const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
-const MARKETPLACE_PAGE_SIZE = 24
-
-function respondMarketplaceDbError(res, err) {
-  console.error('Marketplace DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Marketplace tables are missing in Supabase. In the dashboard: SQL Editor → run ${MARKETPLACE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
         status: 503,
       },
     })
@@ -3385,6 +3345,27 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
     res.status(204).end()
   } catch (e) {
     return respondGuideDbError(res, e)
+  }
+})
+
+// ============================================================
+// Study Group Finder (issue #33) — per-course groups from synced schedules.
+// Privacy is opt-in (default off); only opted-in users count as classmates.
+// Requires db/supabase-study-groups.sql.
+// ============================================================
+
+const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
+
+function respondStudyDbError(res, err) {
+  console.error('Study group DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Study Group tables are missing in Supabase. In the dashboard: SQL Editor → run ${STUDY_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
   return res.status(500).json({ error: { message: 'Could not load study groups. Please try again.', status: 500 } })
 }
 
@@ -3507,6 +3488,179 @@ app.get('/api/study-groups', requireAuth, async (req, res) => {
 // Create a group (creator auto-joins).
 app.post('/api/study-groups', boardWriteRateLimit, requireAuth, async (req, res) => {
   const { value, error: invalid } = validateStudyGroupInput(req.body || {})
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  const profanity = assertBoardPostTextAllowed(value.title, value.description)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('study_groups')
+      .insert({ creator_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    await supabase.from('study_group_members').insert({ group_id: data.id, user_id: req.currentUser.id, joined_at: nowIso() })
+    res.status(201).json({
+      group: mapStudyGroupRow(data, req.currentUser.id, new Map([[data.id, 1]]), new Set([data.id])),
+    })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Join a group (respects capacity).
+app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const groupId = req.params.id
+  try {
+    const { data: group, error: gErr } = await supabase
+      .from('study_groups')
+      .select('id, capacity')
+      .eq('id', groupId)
+      .single()
+    if (gErr) throw gErr
+    if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
+
+    const { data: members } = await supabase.from('study_group_members').select('user_id').eq('group_id', groupId)
+    const already = (members || []).some((m) => m.user_id === userId)
+    if (!already && group.capacity && (members || []).length >= group.capacity) {
+      return res.status(409).json({ error: { message: 'This group is full.', status: 409 } })
+    }
+    const { error: insErr } = await supabase
+      .from('study_group_members')
+      .insert({ group_id: groupId, user_id: userId, joined_at: nowIso() })
+    if (insErr && insErr.code !== '23505') throw insErr
+    res.json({ ok: true, memberCount: (members || []).length + (already ? 0 : 1) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Leave a group.
+app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { error } = await supabase
+      .from('study_group_members')
+      .delete()
+      .eq('group_id', req.params.id)
+      .eq('user_id', userId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// ============================================================
+// Campus Perks (issue #24) — admin-curated local deals for students.
+// GET is for everyone (active + unexpired); create/edit/delete require admin.
+// Requires db/supabase-campus-deals.sql.
+// ============================================================
+
+const DEALS_SQL_FILE = 'db/supabase-campus-deals.sql'
+
+function respondDealsDbError(res, err) {
+  console.error('Deals DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Campus Perks tables are missing in Supabase. In the dashboard: SQL Editor → run ${DEALS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load deals. Please try again.', status: 500 } })
+}
+
+app.get('/api/deals', requireAuth, async (req, res) => {
+  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
+  // Admins can request everything (incl. inactive/expired) to manage from the UI.
+  const includeAll = req.query.all === '1' && isUserAdmin(req.currentUser)
+  try {
+    let query = supabase.from('deals').select('*').order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
+    if (category) query = query.eq('category', category)
+    const { data, error } = await query
+    if (error) throw error
+    const rows = includeAll ? (data || []) : (data || []).filter((d) => isDealActive(d))
+    res.json({ deals: rows.map(mapDealRow), isAdmin: isUserAdmin(req.currentUser) })
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+function requireAdminJson(req, res) {
+  if (!isUserAdmin(req.currentUser)) {
+    res.status(403).json({ error: { message: 'Admin access required.', status: 403 } })
+    return false
+  }
+  return true
+}
+
+app.post('/api/deals', requireAuth, async (req, res) => {
+  if (!requireAdminJson(req, res)) return
+  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('deals')
+      .insert({ ...value, created_by: req.currentUser.id })
+      .select('*')
+      .single()
+    if (error) throw error
+    res.status(201).json({ deal: mapDealRow(data) })
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+app.patch('/api/deals/:id', requireAuth, async (req, res) => {
+  if (!requireAdminJson(req, res)) return
+  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  if (Object.keys(value).length === 0) {
+    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
+  }
+  try {
+    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).select('*').single()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
+    res.json({ deal: mapDealRow(data) })
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+app.delete('/api/deals/:id', requireAuth, async (req, res) => {
+  if (!requireAdminJson(req, res)) return
+  try {
+    const { data, error } = await supabase.from('deals').delete().eq('id', req.params.id).select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
+    res.status(204).end()
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+// ============================================================
+// Student Marketplace (issue #32, Phase 1) — listings + reports.
+// Posting requires Purdue verification; 3 distinct reports auto-hide a listing.
+// Requires db/supabase-marketplace.sql.
+// ============================================================
+
+const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
+const MARKETPLACE_PAGE_SIZE = 24
+
+function respondMarketplaceDbError(res, err) {
+  console.error('Marketplace DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Marketplace tables are missing in Supabase. In the dashboard: SQL Editor → run ${MARKETPLACE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
   return res.status(500).json({ error: { message: 'Could not load the marketplace. Please try again.', status: 500 } })
 }
 
@@ -3582,108 +3736,6 @@ app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) 
   if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
   try {
     const { data, error } = await supabase
-      .from('study_groups')
-      .insert({ creator_id: req.currentUser.id, ...value })
-      .select('*')
-      .single()
-    if (error) throw error
-    await supabase.from('study_group_members').insert({ group_id: data.id, user_id: req.currentUser.id, joined_at: nowIso() })
-    res.status(201).json({
-      group: mapStudyGroupRow(data, req.currentUser.id, new Map([[data.id, 1]]), new Set([data.id])),
-    })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Join a group (respects capacity).
-app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const groupId = req.params.id
-  try {
-    const { data: group, error: gErr } = await supabase
-      .from('study_groups')
-      .select('id, capacity')
-      .eq('id', groupId)
-      .single()
-    if (gErr) throw gErr
-    if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
-
-    const { data: members } = await supabase.from('study_group_members').select('user_id').eq('group_id', groupId)
-    const already = (members || []).some((m) => m.user_id === userId)
-    if (!already && group.capacity && (members || []).length >= group.capacity) {
-      return res.status(409).json({ error: { message: 'This group is full.', status: 409 } })
-    }
-    const { error: insErr } = await supabase
-      .from('study_group_members')
-      .insert({ group_id: groupId, user_id: userId, joined_at: nowIso() })
-    if (insErr && insErr.code !== '23505') throw insErr
-    res.json({ ok: true, memberCount: (members || []).length + (already ? 0 : 1) })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Leave a group.
-app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { error } = await supabase
-      .from('study_group_members')
-      .delete()
-      .eq('group_id', req.params.id)
-      .eq('user_id', userId)
-    if (error) throw error
-    res.json({ ok: true })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  return res.status(500).json({ error: { message: 'Could not load deals. Please try again.', status: 500 } })
-}
-
-app.get('/api/deals', requireAuth, async (req, res) => {
-  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  // Admins can request everything (incl. inactive/expired) to manage from the UI.
-  const includeAll = req.query.all === '1' && isUserAdmin(req.currentUser)
-  try {
-    let query = supabase.from('deals').select('*').order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
-    if (category) query = query.eq('category', category)
-    const { data, error } = await query
-    if (error) throw error
-    const rows = includeAll ? (data || []) : (data || []).filter((d) => isDealActive(d))
-    res.json({ deals: rows.map(mapDealRow), isAdmin: isUserAdmin(req.currentUser) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-function requireAdminJson(req, res) {
-  if (!isUserAdmin(req.currentUser)) {
-    res.status(403).json({ error: { message: 'Admin access required.', status: 403 } })
-    return false
-  }
-  return true
-}
-
-app.post('/api/deals', requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
-  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  try {
-    const { data, error } = await supabase
-      .from('deals')
-      .insert({ ...value, created_by: req.currentUser.id })
-      .select('*')
-      .single()
-    if (error) throw error
-    res.status(201).json({ deal: mapDealRow(data) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.patch('/api/deals/:id', requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
-  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
       .from('marketplace_listings')
       .insert({ user_id: req.currentUser.id, ...value })
       .select('*')
@@ -3703,25 +3755,6 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
   if (Object.keys(value).length === 0) {
     return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
   }
-  try {
-    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).select('*').single()
-    if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
-    res.json({ deal: mapDealRow(data) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.delete('/api/deals/:id', requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
-  try {
-    const { data, error } = await supabase.from('deals').delete().eq('id', req.params.id).select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
-    res.status(204).end()
-  } catch (e) {
-    return respondDealsDbError(res, e)
   if (value.title || value.description) {
     const profanity = assertBoardPostTextAllowed(value.title || '', value.description || '')
     if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
