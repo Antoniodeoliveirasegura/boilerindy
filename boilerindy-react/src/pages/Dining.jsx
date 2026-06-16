@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Icon from '../components/Icons'
 import { track } from '../lib/usageStats'
+import { authRequest } from '../lib/authApi'
+import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
 
 const STATIC_LOCATIONS = []
 
@@ -36,7 +38,7 @@ function getTodayDayName() {
 const STATION_ICONS = ['dining', 'grid', 'star', 'coffee', 'moon', 'book', 'building', 'users', 'navigation', 'bus']
 const STATION_CAP = 10
 
-function StationCard({ station, index }) {
+function StationCard({ station, index, favorites, onToggleFavorite }) {
   const [expanded, setExpanded] = useState(false)
   const overflow = station.items.length > STATION_CAP
   const visible = expanded ? station.items : station.items.slice(0, STATION_CAP)
@@ -59,15 +61,38 @@ function StationCard({ station, index }) {
         {visible.map((item, idx) => (
           <div
             key={`${item.name}-${idx}`}
-            className="text-[13px] bg-[var(--color-stat)] hover:bg-[var(--color-bg-3)] rounded-xl px-3 py-2 transition-colors cursor-default"
+            className="text-[13px] bg-[var(--color-stat)] hover:bg-[var(--color-bg-3)] rounded-xl px-3 py-2 transition-colors"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-[var(--color-txt-0)] leading-snug">{item.name}</span>
-              {item.calories != null && (
-                <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap flex-shrink-0">
-                  {item.calories} cal
-                </span>
-              )}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {item.calories != null && (
+                  <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap">
+                    {item.calories} cal
+                  </span>
+                )}
+                {(() => {
+                  const isFav = favorites.has(normalizeItemName(item.name))
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onToggleFavorite(item.name)}
+                      aria-pressed={isFav}
+                      aria-label={isFav ? `Remove ${item.name} from favorites` : `Add ${item.name} to favorites`}
+                      title={isFav ? 'Remove favorite' : 'Add to favorites'}
+                      className="leading-none transition-transform hover:scale-110"
+                    >
+                      <Icon
+                        name="star"
+                        size={14}
+                        className={isFav
+                          ? 'text-[var(--color-gold)] fill-current'
+                          : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
+                      />
+                    </button>
+                  )
+                })()}
+              </div>
             </div>
             {item.icons && item.icons.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
@@ -110,6 +135,53 @@ export default function Dining() {
 
   const [aiSuggestion, setAiSuggestion] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
+
+  // Favorites (issue #49): a Set of normalized item names. Loaded once for the
+  // signed-in user; failures leave it empty so the page still works.
+  const [favorites, setFavorites] = useState(() => new Set())
+
+  useEffect(() => {
+    let active = true
+    authRequest('/api/me/dining/favorites')
+      .then((data) => {
+        if (active && Array.isArray(data?.favorites)) {
+          setFavorites(new Set(data.favorites.map(normalizeItemName).filter(Boolean)))
+        }
+      })
+      .catch(() => {
+        /* favorites are optional UI; ignore load failures */
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const toggleFavorite = useCallback(
+    (rawName) => {
+      const key = normalizeItemName(rawName)
+      if (!key) return
+      const adding = !favorites.has(key)
+      setFavorites((prev) => {
+        const next = new Set(prev)
+        if (adding) next.add(key)
+        else next.delete(key)
+        return next
+      })
+      // Persist optimistically; roll back the toggle if the request fails.
+      authRequest('/api/me/dining/favorites', {
+        method: adding ? 'POST' : 'DELETE',
+        body: JSON.stringify({ itemName: key }),
+      }).catch(() => {
+        setFavorites((prev) => {
+          const next = new Set(prev)
+          if (adding) next.delete(key)
+          else next.add(key)
+          return next
+        })
+      })
+    },
+    [favorites],
+  )
 
   const askWhatToEat = () => {
     setAiLoading(true)
@@ -194,6 +266,11 @@ export default function Dining() {
     }
   }
 
+  const favoritesToday = useMemo(
+    () => favoritesOnTodaysMenu(favorites, live?.locations || []),
+    [favorites, live],
+  )
+
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
   const todayHours = selected?.weekly_hours?.[getTodayDayName()]
   const headerBlurb =
@@ -247,6 +324,28 @@ export default function Dining() {
       {loadError && (
         <div className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]">
           {loadError} Showing sample venues below.
+        </div>
+      )}
+
+      {/* Your favorites on today's menu (issue #49) */}
+      {favoritesToday.length > 0 && (
+        <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up">
+          <div className="flex items-center gap-2 mb-2.5">
+            <Icon name="star" size={14} className="text-[var(--color-gold)] fill-current" />
+            <span className="text-[13px] font-semibold text-[var(--color-txt-0)]">
+              Your favorites on today&apos;s menu
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {favoritesToday.map((fav) => (
+              <div key={fav.name} className="flex items-center justify-between gap-3 text-[13px]">
+                <span className="text-[var(--color-txt-0)]">{fav.name}</span>
+                <span className="text-[12px] text-[var(--color-txt-2)] text-right">
+                  {fav.locations.join(', ')}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -369,7 +468,13 @@ export default function Dining() {
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {selected.stations.map((station, i) => (
-                <StationCard key={station.name} station={station} index={i} />
+                <StationCard
+                  key={station.name}
+                  station={station}
+                  index={i}
+                  favorites={favorites}
+                  onToggleFavorite={toggleFavorite}
+                />
               ))}
             </div>
           )}
