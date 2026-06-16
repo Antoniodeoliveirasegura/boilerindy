@@ -30,6 +30,7 @@ const GradeTracker = lazy(() => import('./pages/GradeTracker'))
 const Events = lazy(() => import('./pages/Events'))
 const FreeFood = lazy(() => import('./pages/FreeFood'))
 const LostFound = lazy(() => import('./pages/LostFound'))
+const Perks = lazy(() => import('./pages/Perks'))
 const Dining = lazy(() => import('./pages/Dining'))
 const Transit = lazy(() => import('./pages/Transit'))
 const Services = lazy(() => import('./pages/Services'))
@@ -145,6 +146,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <LostFound />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/perks"
+                element={
+                  <RequireAuth>
+                    <Perks />
                   </RequireAuth>
                 }
               />
