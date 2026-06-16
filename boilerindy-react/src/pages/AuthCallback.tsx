@@ -7,7 +7,7 @@ export default function AuthCallback() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { refreshSession } = useAuth()
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -42,7 +42,7 @@ export default function AuthCallback() {
         }
       } catch (err) {
         console.error('Auth callback error:', err)
-        setError(err.message)
+        setError(err instanceof Error ? err.message : 'Authentication failed')
         setTimeout(() => {
           navigate('/login?error=oauth-error', { replace: true })
         }, 2000)
