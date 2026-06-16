@@ -24,6 +24,7 @@ import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
 import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
+import { normalizeItemName } from './src/diningFavorites.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -2626,6 +2627,62 @@ app.get('/api/dining', publicReadRateLimit, async (req, res) => {
   } catch (error) {
     console.error('Nutrislice dining error:', error)
     res.status(500).json({ ok: false, error: 'dining_internal', locations: [] })
+  }
+})
+
+// ---- Dining favorites (issue #49) ---------------------------------------
+// Per-user favorited menu-item names. The Dining page stars items and shows a
+// "your favorites on today's menu" section by cross-referencing these against
+// the public /api/dining snapshot. Requires db/supabase-dining-favorites.sql.
+
+app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('user_dining_favorites')
+      .select('item_name')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+    res.json({ favorites: (data || []).map((r) => r.item_name) })
+  } catch (e) {
+    // Degrade gracefully so the dining page still renders without favorites.
+    console.error('GET /api/me/dining/favorites:', e?.message || e)
+    res.json({ favorites: [], unavailable: true })
+  }
+})
+
+app.post('/api/me/dining/favorites', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const itemName = normalizeItemName(req.body?.itemName)
+  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  try {
+    const { error } = await supabase
+      .from('user_dining_favorites')
+      .upsert({ user_id: userId, item_name: itemName }, { onConflict: 'user_id,item_name' })
+    if (error) throw error
+    res.json({ ok: true, itemName })
+  } catch (e) {
+    console.error('POST /api/me/dining/favorites:', e?.message || e)
+    res.status(500).json({ error: { message: e.message || 'Could not save favorite' } })
+  }
+})
+
+app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
+  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  try {
+    const { error } = await supabase
+      .from('user_dining_favorites')
+      .delete()
+      .eq('user_id', userId)
+      .eq('item_name', itemName)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('DELETE /api/me/dining/favorites:', e?.message || e)
+    res.status(500).json({ error: { message: e.message || 'Could not remove favorite' } })
   }
 })
 
