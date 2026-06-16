@@ -419,7 +419,7 @@ export default function Settings() {
                 </span>
               </span>
             </label>
-            <Link to="/privacy" className="inline-block text-[12px] text-[var(--color-accent)] hover:underline mt-3">
+            <Link to="/privacy?from=settings" className="inline-block text-[12px] text-[var(--color-accent)] hover:underline mt-3">
               Read the privacy policy
             </Link>
           </div>

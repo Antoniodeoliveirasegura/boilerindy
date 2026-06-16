@@ -19,7 +19,9 @@ export default function Login() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  const [tab, setTab] = useState('signin')
+  // Seed the active tab from ?tab=signup so deep links (e.g. the privacy page's
+  // context-aware "Back to sign up" link, issue #56) land on the signup tab.
+  const [tab, setTab] = useState(() => (searchParams.get('tab') === 'signup' ? 'signup' : 'signin'))
   const [forgotMode, setForgotMode] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -383,7 +385,7 @@ export default function Login() {
                 By creating an account you agree to basic usage analytics that help improve
                 BoilerIndy — stored in our own database, no third-party trackers, opt out anytime
                 in Settings.{' '}
-                <Link to="/privacy" className="text-[var(--color-accent)] hover:underline">
+                <Link to="/privacy?from=signup" className="text-[var(--color-accent)] hover:underline">
                   Privacy policy
                 </Link>
                 .

@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { getBackTarget } from '../lib/privacyNav'
 
 // Privacy policy page (issue #51). DRAFT — the wording below is the agent
 // draft for the owner to review before analytics ships to production (the
@@ -47,11 +48,14 @@ on the BoilerIndy GitHub repository.`,
 ]
 
 export default function Privacy() {
+  const [searchParams] = useSearchParams()
+  const back = getBackTarget(searchParams.get('from'))
+
   return (
     <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
       <div className="max-w-[720px] mx-auto">
-        <Link to="/" className="text-[13px] text-[var(--color-accent)] hover:underline">
-          ← Back to BoilerIndy
+        <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
+          {back.label}
         </Link>
         <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Privacy policy</h1>
         <p className="text-[13px] text-[var(--color-txt-2)] mb-8">
