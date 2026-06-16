@@ -1,11 +1,27 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 
 const STORAGE_KEY = 'pih-theme'
 const LEGACY_KEY = 'pih-dark'
 
-const ThemeContext = createContext()
+type Theme = 'light' | 'dark'
 
-function getInitialTheme() {
+type ThemeContextValue = {
+  theme: Theme
+  dark: boolean
+  setTheme: React.Dispatch<React.SetStateAction<Theme>>
+  toggleTheme: () => void
+}
+
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
+
+function getInitialTheme(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'light' || stored === 'dark') return stored
@@ -18,12 +34,14 @@ function getInitialTheme() {
   return 'dark'
 }
 
-export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(getInitialTheme)
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const firstRun = useRef(true)
 
   useEffect(() => {
-    const root = document.documentElement
+    const root = document.documentElement as HTMLElement & {
+      _themeTransitionTimer?: number
+    }
 
     // Crossfade colours on user-initiated switches (not on first paint),
     // unless the user prefers reduced motion.
@@ -59,7 +77,7 @@ export function ThemeProvider({ children }) {
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function useTheme() {
+export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext)
   if (!context) {
     throw new Error('useTheme must be used within a ThemeProvider')
