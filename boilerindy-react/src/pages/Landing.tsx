@@ -105,7 +105,7 @@ const integrations = [
   ['bell', 'Smart Alerts'],
 ]
 
-const toneClasses = {
+const toneClasses: Record<string, string> = {
   gold: 'bg-[var(--color-gold)]/15 text-[var(--color-gold-dark)] dark:text-[var(--color-gold)]',
   accent: 'bg-[var(--color-accent-bg)] text-[var(--color-accent)]',
   dining: 'bg-[var(--color-dining-bg)] text-[var(--color-dining-color)]',
@@ -116,7 +116,7 @@ const toneClasses = {
   plain: 'bg-[var(--color-stat)] text-[var(--color-txt-1)]',
 }
 
-function Stat({ value, label }) {
+function Stat({ value, label }: { value: React.ReactNode; label: React.ReactNode }) {
   return (
     <div>
       <div className="text-[clamp(1.6rem,3.5vw,2.4rem)] font-bold tracking-tight text-[var(--color-txt-0)] leading-none">
@@ -179,18 +179,18 @@ export default function Landing() {
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse" />
               Built for Purdue Indianapolis
             </div>
-            <h1 className="mkt-reveal text-[clamp(2.4rem,6vw,4.4rem)] font-bold tracking-[-0.03em] leading-[0.98] mb-6" style={{ '--mkt-delay': '80ms' }}>
+            <h1 className="mkt-reveal text-[clamp(2.4rem,6vw,4.4rem)] font-bold tracking-[-0.03em] leading-[0.98] mb-6" style={{ '--mkt-delay': '80ms' } as React.CSSProperties}>
               The whole campus,
               <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-br from-[var(--color-gold)] via-[var(--color-gold-muted)] to-[var(--color-accent)]">
                 one quiet screen.
               </span>
             </h1>
-            <p className="mkt-reveal text-[1.06rem] sm:text-[1.15rem] text-[var(--color-txt-1)] max-w-[480px] leading-relaxed mb-8" style={{ '--mkt-delay': '160ms' }}>
+            <p className="mkt-reveal text-[1.06rem] sm:text-[1.15rem] text-[var(--color-txt-1)] max-w-[480px] leading-relaxed mb-8" style={{ '--mkt-delay': '160ms' } as React.CSSProperties}>
               Classes, dining, live buses, deadlines, events and a campus board —
               stitched together and quietly organized by AI. Stop juggling ten apps.
             </p>
-            <div className="mkt-reveal flex flex-wrap gap-3 mb-10" style={{ '--mkt-delay': '240ms' }}>
+            <div className="mkt-reveal flex flex-wrap gap-3 mb-10" style={{ '--mkt-delay': '240ms' } as React.CSSProperties}>
               <Link to="/login" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-6 py-3 rounded-xl no-underline shadow-lg shadow-[var(--color-gold)]/25 hover:brightness-105 hover:-translate-y-0.5 transition-all">
                 <Icon name="sparkles" size={16} />
                 Get started — it’s free
@@ -200,7 +200,7 @@ export default function Landing() {
                 Take the tour
               </a>
             </div>
-            <div className="mkt-reveal grid grid-cols-4 gap-5 max-w-[440px]" style={{ '--mkt-delay': '320ms' }}>
+            <div className="mkt-reveal grid grid-cols-4 gap-5 max-w-[440px]" style={{ '--mkt-delay': '320ms' } as React.CSSProperties}>
               <Stat value="12+" label="Campus features" />
               <Stat value="Live" label="Bus & dining" />
               <Stat value="AI" label="by Gemini" />
@@ -209,7 +209,7 @@ export default function Landing() {
           </div>
 
           {/* Right: layered product mock with floating chips */}
-          <div className="mkt-reveal relative" style={{ '--mkt-delay': '200ms' }}>
+          <div className="mkt-reveal relative" style={{ '--mkt-delay': '200ms' } as React.CSSProperties}>
             <div className="relative rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-xl)] p-4">
               <div className="flex items-center gap-2 mb-3.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
