@@ -8,7 +8,48 @@ import Icon from '../components/Icons'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 
-const priorityConfig = {
+type Category = { id: string; label?: string; count?: number }
+type Completion = { calendar_item_id?: string; completed_at?: string }
+type ManualTask = {
+  id: string
+  title?: string
+  startTime?: string | null
+  completedAt?: string | null
+  [key: string]: unknown
+}
+type TaskMeta = {
+  completions: Completion[]
+  manualTasks: ManualTask[]
+  unavailable?: boolean
+  local?: boolean
+}
+type CalItem = {
+  id: string
+  category?: string
+  startTime?: string | null
+  title?: string
+  description?: string
+  location?: string
+  [key: string]: unknown
+}
+type MergedItem = {
+  id: string
+  category?: string
+  startTime?: string | null
+  title?: string
+  description?: string
+  location?: string
+  completed: boolean
+  isManual: boolean
+  priority: string | null
+  [key: string]: unknown
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
+const priorityConfig: Record<string, { label: string; bg: string; text: string; border: string }> = {
   high: {
     label: 'High',
     bg: 'bg-red-50 dark:bg-red-900/20',
@@ -29,10 +70,10 @@ const priorityConfig = {
   },
 }
 
-const priorityRank = { high: 0, medium: 1, low: 2 }
+const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 }
 
-const categoryConfig = {
-  exam: { 
+const categoryConfig: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
+  exam: {
     label: 'Exams',
     bg: 'bg-red-50 dark:bg-red-900/20', 
     text: 'text-red-700 dark:text-red-400', 
@@ -104,31 +145,34 @@ const categoryConfig = {
   },
 }
 
-function formatDate(dateString) {
+function formatDate(dateString: string | null | undefined) {
+  if (!dateString) return ''
   const date = new Date(dateString)
   const now = new Date()
   const tomorrow = new Date(now)
   tomorrow.setDate(tomorrow.getDate() + 1)
-  
+
   const isToday = date.toDateString() === now.toDateString()
   const isTomorrow = date.toDateString() === tomorrow.toDateString()
-  
+
   if (isToday) return 'Today'
   if (isTomorrow) return 'Tomorrow'
-  
+
   return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-function formatTime(dateString) {
+function formatTime(dateString: string | null | undefined) {
+  if (!dateString) return ''
   return new Date(dateString).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
-function getRelativeTime(dateString) {
+function getRelativeTime(dateString: string | null | undefined) {
+  if (!dateString) return ''
   const date = new Date(dateString)
   const now = new Date()
-  const diffMs = date - now
+  const diffMs = date.getTime() - now.getTime()
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
-  
+
   if (diffDays < 0) return 'Past'
   if (diffDays === 0) return 'Today'
   if (diffDays === 1) return 'Tomorrow'
@@ -137,14 +181,15 @@ function getRelativeTime(dateString) {
   return `${Math.ceil(diffDays / 7)} weeks`
 }
 
-function isPastDue(dateString) {
+function isPastDue(dateString: string | null | undefined) {
+  if (!dateString) return false
   return new Date(dateString) < new Date()
 }
 
 // Categories that belong on the Events page, not Tasks
 const eventCategories = ['campus_event', 'event', 'deadline']
 
-function getInsightsCacheKey(mode) {
+function getInsightsCacheKey(mode: string) {
   const d = new Date()
   const day = d.getDay()
   const monday = new Date(d)
@@ -154,34 +199,35 @@ function getInsightsCacheKey(mode) {
 
 export default function Assignments() {
   const { user, onboarding } = useAuth()
-  const [items, setItems] = useState([])
-  const [categories, setCategories] = useState([])
-  const [selectedCategories, setSelectedCategories] = useState([])
+  const userId = user?.id as string | undefined
+  const [items, setItems] = useState<CalItem[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [showPast, setShowPast] = useState(false)
-  const [selectedItem, setSelectedItem] = useState(null)
+  const [selectedItem, setSelectedItem] = useState<MergedItem | null>(null)
 
   const [insightsMode, setInsightsMode] = useState('priority')
-  const [insightsText, setInsightsText] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('priority'))) ?? null } catch { return null }
+  const [insightsText, setInsightsText] = useState<string | null>(() => {
+    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('priority')) || 'null') ?? null } catch { return null }
   })
-  const [studyPlan, setStudyPlan] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('study'))) ?? null } catch { return null }
+  const [studyPlan, setStudyPlan] = useState<string | null>(() => {
+    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('study')) || 'null') ?? null } catch { return null }
   })
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(true)
 
-  const [taskMeta, setTaskMeta] = useState({ completions: [], manualTasks: [] })
+  const [taskMeta, setTaskMeta] = useState<TaskMeta>({ completions: [], manualTasks: [] })
   const [hideCompleted, setHideCompleted] = useState(false)
-  const [priorities, setPriorities] = useState(() => (user?.id ? loadPriorities(user.id) : {}))
-  const [priorityFilter, setPriorityFilter] = useState(null)
+  const [priorities, setPriorities] = useState<Record<string, string>>(() => (userId ? loadPriorities(userId) : {}))
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
   const [sortByPriority, setSortByPriority] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDueDate, setNewDueDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [addSubmitting, setAddSubmitting] = useState(false)
   const [taskError, setTaskError] = useState('')
 
-  const generateInsights = (mode) => {
+  const generateInsights = (mode: string) => {
     setInsightsLoading(true)
     const prompt = mode === 'study'
       ? 'Look at my free time between classes this week and my upcoming assignments. Create a short study plan: which assignment to work on, when (day and time), and for how long. Max 5 items. Plain text only, no markdown, no asterisks, no bold, no headers. Complete every sentence.'
@@ -212,13 +258,13 @@ export default function Assignments() {
   const activeInsight = insightsMode === 'study' ? studyPlan : insightsText
 
   const loadTaskMeta = useCallback(async () => {
-    const uid = user?.id
+    const uid = userId
     setTaskError('')
     try {
-      const meta = await authRequest('/api/me/tasks/meta')
+      const meta = (await authRequest('/api/me/tasks/meta')) as TaskMeta & { unavailable?: boolean }
       if (meta.unavailable) {
         if (uid) {
-          setTaskMeta(taskMetaFromLocalStore(uid))
+          setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
         } else {
           setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
         }
@@ -227,12 +273,12 @@ export default function Assignments() {
       setTaskMeta({ ...meta, unavailable: false, local: false })
     } catch {
       if (uid) {
-        setTaskMeta(taskMetaFromLocalStore(uid))
+        setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
       } else {
         setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
       }
     }
-  }, [user?.id])
+  }, [userId])
 
   async function loadData() {
     setLoading(true)
@@ -244,8 +290,8 @@ export default function Assignments() {
         authRequest(`/api/me/calendar?limit=500&from=${encodeURIComponent(from)}`),
         authRequest('/api/me/calendar/categories'),
       ])
-      setItems(calRes.items || [])
-      setCategories(catRes.categories || [])
+      setItems((calRes as { items?: CalItem[] }).items || [])
+      setCategories((catRes as { categories?: Category[] }).categories || [])
       await loadTaskMeta()
     } catch (error) {
       console.error('Failed to load assignments:', error)
@@ -274,35 +320,35 @@ export default function Assignments() {
   // Reload stored priorities when the signed-in user changes. Adjusting during
   // render (guarded by a user-id check) avoids the setState-in-effect warning;
   // the initial value is seeded in the useState initializer above.
-  const [prevPriorityUid, setPrevPriorityUid] = useState(user?.id)
-  if (user?.id !== prevPriorityUid) {
-    setPrevPriorityUid(user?.id)
-    setPriorities(user?.id ? loadPriorities(user.id) : {})
+  const [prevPriorityUid, setPrevPriorityUid] = useState<string | undefined>(userId)
+  if (userId !== prevPriorityUid) {
+    setPrevPriorityUid(userId)
+    setPriorities(userId ? loadPriorities(userId) : {})
   }
 
-  function setItemPriority(item, priority) {
-    const uid = user?.id
+  function setItemPriority(item: MergedItem, priority: string | null) {
+    const uid = userId
     if (!uid) {
       setTaskError('Sign in to set priorities.')
       return
     }
-    const next = savePriority(uid, item.id, priority)
+    const next = savePriority(uid, item.id, priority as 'high' | 'medium' | 'low' | null)
     setPriorities(next)
     setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, priority } : prev))
   }
 
-  const mergedItems = useMemo(() => {
-    const completionById = {}
+  const mergedItems = useMemo<MergedItem[]>(() => {
+    const completionById: Record<string, string | undefined> = {}
     for (const c of taskMeta?.completions || []) {
-      completionById[c.calendar_item_id] = c.completed_at
+      if (c.calendar_item_id) completionById[c.calendar_item_id] = c.completed_at
     }
-    const cal = (items || []).map((item) => ({
+    const cal: MergedItem[] = (items || []).map((item) => ({
       ...item,
       completed: !!completionById[item.id],
       isManual: false,
       priority: priorities[item.id] || null,
     }))
-    const manual = (taskMeta?.manualTasks || []).map((t) => ({
+    const manual: MergedItem[] = (taskMeta?.manualTasks || []).map((t) => ({
       ...t,
       completed: !!t.completedAt,
       isManual: true,
@@ -311,7 +357,7 @@ export default function Assignments() {
     return [...cal, ...manual]
   }, [items, taskMeta, priorities])
 
-  const categoriesWithManual = useMemo(() => {
+  const categoriesWithManual = useMemo<Category[]>(() => {
     const n = mergedItems.filter((i) => i.isManual).length
     const extra = n > 0 ? [{ id: 'manual_task', label: 'My tasks', count: n }] : []
     return [...(categories || []), ...extra]
@@ -319,11 +365,11 @@ export default function Assignments() {
 
   const filteredItems = useMemo(() => {
     let filtered = mergedItems.filter(
-      (item) => item.category !== 'class' && !eventCategories.includes(item.category),
+      (item) => item.category !== 'class' && !eventCategories.includes(item.category ?? ''),
     )
 
     if (selectedCategories.length > 0) {
-      filtered = filtered.filter((item) => selectedCategories.includes(item.category))
+      filtered = filtered.filter((item) => selectedCategories.includes(item.category ?? ''))
     }
 
     if (!showPast) {
@@ -345,12 +391,12 @@ export default function Assignments() {
         const rankB = b.priority ? priorityRank[b.priority] : 3
         if (rankA !== rankB) return rankA - rankB
       }
-      return new Date(a.startTime) - new Date(b.startTime)
+      return new Date(a.startTime ?? 0).getTime() - new Date(b.startTime ?? 0).getTime()
     })
   }, [mergedItems, selectedCategories, showPast, hideCompleted, priorityFilter, sortByPriority])
 
   const groupedItems = useMemo(() => {
-    const groups = {}
+    const groups: Record<string, MergedItem[]> = {}
     for (const item of filteredItems) {
       const dateKey = formatDate(item.startTime)
       if (!groups[dateKey]) groups[dateKey] = []
@@ -359,7 +405,7 @@ export default function Assignments() {
     return groups
   }, [filteredItems])
 
-  const toggleCategory = (catId) => {
+  const toggleCategory = (catId: string) => {
     setSelectedCategories(prev => 
       prev.includes(catId) 
         ? prev.filter(c => c !== catId)
@@ -367,7 +413,7 @@ export default function Assignments() {
     )
   }
 
-  function applyLocalToggle(uid, item, nextDone) {
+  function applyLocalToggle(uid: string, item: MergedItem, nextDone: boolean) {
     const raw = loadLocalTasks(uid)
     if (item.isManual) {
       raw.manualTasks = raw.manualTasks.map((t) =>
@@ -382,11 +428,11 @@ export default function Assignments() {
     setTaskMeta(taskMetaFromLocalStore(uid))
   }
 
-  async function toggleItemComplete(item, nextDone, e) {
+  async function toggleItemComplete(item: MergedItem, nextDone: boolean, e?: React.MouseEvent) {
     e?.preventDefault()
     e?.stopPropagation()
     setTaskError('')
-    const uid = user?.id
+    const uid = userId
     if (!uid) {
       setTaskError('Sign in to save tasks.')
       return
@@ -416,13 +462,13 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (err) {
       console.error(err)
-      setTaskError(err?.message || 'Server sync failed — saved on this device.')
+      setTaskError(errorText(err, 'Server sync failed — saved on this device.'))
       applyLocalToggle(uid, item, nextDone)
     }
   }
 
-  async function deleteManualTask(id) {
-    const uid = user?.id
+  async function deleteManualTask(id: string) {
+    const uid = userId
     if (!uid) return
     setTaskError('')
     const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
@@ -440,7 +486,7 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (e) {
       console.error(e)
-      setTaskError(e?.message || 'Could not delete on server — removed on this device only.')
+      setTaskError(errorText(e, 'Could not delete on server — removed on this device only.'))
       const raw = loadLocalTasks(uid)
       raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
       saveLocalTasks(uid, raw)
@@ -449,13 +495,13 @@ export default function Assignments() {
     }
   }
 
-  async function handleAddManualTask(e) {
+  async function handleAddManualTask(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const t = newTitle.trim()
     if (!t || !newDueDate || addSubmitting) return
     const due = new Date(`${newDueDate}T12:00:00`)
     due.setHours(23, 59, 59, 999)
-    const uid = user?.id
+    const uid = userId
     if (!uid) {
       setTaskError('Sign in to add tasks.')
       return
@@ -489,7 +535,7 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (err) {
       console.error(err)
-      setTaskError(err?.message || 'Could not save to server — saved on this device.')
+      setTaskError(errorText(err, 'Could not save to server — saved on this device.'))
       const raw = loadLocalTasks(uid)
       raw.manualTasks.push({
         id: crypto.randomUUID(),
@@ -628,7 +674,7 @@ export default function Assignments() {
             onClick={() => setSelectedCategories([])}
             className={`pill whitespace-nowrap ${selectedCategories.length === 0 ? 'pill-active' : ''}`}
           >
-            All ({mergedItems.filter((i) => i.category !== 'class' && !eventCategories.includes(i.category)).length})
+            All ({mergedItems.filter((i) => i.category !== 'class' && !eventCategories.includes(i.category ?? '')).length})
           </button>
           {categoriesWithManual.filter((c) => c.id !== 'class' && !eventCategories.includes(c.id)).map((cat) => {
             const isActive = selectedCategories.includes(cat.id)
@@ -742,7 +788,7 @@ export default function Assignments() {
                 </div>
                 <div className="space-y-2">
                   {dateItems.map(item => {
-                    const config = categoryConfig[item.category] || categoryConfig.event
+                    const config = categoryConfig[item.category ?? ''] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
                     const past = isPastDue(item.startTime)
                     
@@ -829,9 +875,9 @@ export default function Assignments() {
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div>
                     <span className={`text-[11px] px-2.5 py-1 rounded-full ${
-                      (categoryConfig[selectedItem.category] || categoryConfig.event).bg
-                    } ${(categoryConfig[selectedItem.category] || categoryConfig.event).text}`}>
-                      {(categoryConfig[selectedItem.category] || categoryConfig.event).label}
+                      (categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).bg
+                    } ${(categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).text}`}>
+                      {(categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).label}
                     </span>
                   </div>
                   <button 
