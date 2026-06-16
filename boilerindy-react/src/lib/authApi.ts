@@ -1,17 +1,23 @@
-export async function registerSupabaseUser(email, password, name, rememberMe = false) {
+// Authenticated fetch wrapper + small user/display helpers shared across the app.
+// Migrated to TypeScript (issue #20).
+
+type UserLike = { name?: string | null; email?: string | null } | null | undefined
+
+export async function registerSupabaseUser(
+  email: string,
+  password: string,
+  name: string,
+  rememberMe = false,
+): Promise<unknown> {
   return authRequest('/api/auth/register-supabase', {
     method: 'POST',
     body: JSON.stringify({ email, password, name, rememberMe }),
   })
 }
 
-export async function authRequest(url, options = {}) {
+export async function authRequest(url: string, options: RequestInit = {}): Promise<unknown> {
   const headers = new Headers(options.headers || {})
-  const init = {
-    ...options,
-    headers,
-    credentials: 'include',
-  }
+  const init: RequestInit = { ...options, headers, credentials: 'include' }
 
   if (options.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -19,7 +25,7 @@ export async function authRequest(url, options = {}) {
 
   const response = await fetch(url, init)
   const contentType = response.headers.get('content-type') || ''
-  const payload = contentType.includes('application/json')
+  const payload: unknown = contentType.includes('application/json')
     ? await response.json()
     : await response.text()
 
@@ -30,12 +36,13 @@ export async function authRequest(url, options = {}) {
       window.location.replace(`/login?next=${next}&message=session-expired`)
       await new Promise(() => {})
     }
+    const p = payload as { error?: { message?: string }; message?: string } | string | null
     const message =
-      payload?.error?.message ||
-      payload?.message ||
-      (typeof payload === 'string' && payload) ||
+      (typeof p === 'object' && p?.error?.message) ||
+      (typeof p === 'object' && p?.message) ||
+      (typeof p === 'string' && p) ||
       'Request failed'
-    const error = new Error(message)
+    const error = new Error(message) as Error & { status?: number; payload?: unknown }
     error.status = response.status
     error.payload = payload
     throw error
@@ -44,28 +51,28 @@ export async function authRequest(url, options = {}) {
   return payload
 }
 
-export function getInitials(name, email) {
+export function getInitials(name?: string | null, email?: string | null): string {
   const source = (name || email || 'PIH').trim()
   const parts = source.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
   return source.slice(0, 2).toUpperCase()
 }
 
-export function getDisplayName(user) {
+export function getDisplayName(user: UserLike): string {
   if (!user) return 'Student'
   if (user.name && user.name.trim()) return user.name.trim()
   if (user.email && user.email.includes('@')) return user.email.split('@')[0]
   return 'Student'
 }
 
-export function getFirstName(user) {
+export function getFirstName(user: UserLike): string {
   const displayName = getDisplayName(user)
   return displayName.split(/\s+/)[0] || displayName
 }
 
 export const SKIP_SETUP_KEY = 'pih-skip-setup'
 
-export function shouldSkipSetup() {
+export function shouldSkipSetup(): boolean {
   try {
     return localStorage.getItem(SKIP_SETUP_KEY) === '1'
   } catch {
@@ -73,7 +80,7 @@ export function shouldSkipSetup() {
   }
 }
 
-export function setSkipSetup(skip) {
+export function setSkipSetup(skip: boolean): void {
   try {
     if (skip) localStorage.setItem(SKIP_SETUP_KEY, '1')
     else localStorage.removeItem(SKIP_SETUP_KEY)
@@ -82,14 +89,14 @@ export function setSkipSetup(skip) {
   }
 }
 
-export function parseNextPath(search) {
+export function parseNextPath(search: string): string {
   const next = new URLSearchParams(search).get('next')
   if (next && next.startsWith('/')) return next
   // Respect a saved choice to skip the schedule-setup screen on login
   return shouldSkipSetup() ? '/dashboard' : '/setup'
 }
 
-export function startPurdueLink(nextPath = '/setup') {
+export function startPurdueLink(nextPath = '/setup'): void {
   const safeNext = nextPath.startsWith('/') ? nextPath : '/setup'
   window.location.href = `/auth/purdue/connect?next=${encodeURIComponent(safeNext)}`
 }
