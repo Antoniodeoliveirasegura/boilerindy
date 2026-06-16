@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { getActiveAd, trackAdEvent } from '../../lib/spotlightApi'
-import SpotlightCard from '../spotlight/SpotlightCard'
+import SpotlightCard, { type SpotlightAd } from '../spotlight/SpotlightCard'
 
 // Sponsored ad slot on the student home dashboard. Renders nothing when no ad
 // is active so the widget slot collapses cleanly.
 
 export default function SponsoredWidget() {
-  const [ad, setAd] = useState(null)
+  const [ad, setAd] = useState<SpotlightAd | null>(null)
   const impressionFired = useRef(false)
 
   useEffect(() => {
     let active = true
     getActiveAd('home-widget').then((served) => {
       if (!active || !served) return
-      setAd(served)
+      const nextAd = served as SpotlightAd
+      setAd(nextAd)
       if (!impressionFired.current) {
         impressionFired.current = true
-        trackAdEvent(served.campaignId, 'impression')
+        trackAdEvent(nextAd.campaignId ?? '', 'impression')
       }
     })
     return () => {
@@ -30,7 +31,7 @@ export default function SponsoredWidget() {
     <SpotlightCard
       ad={ad}
       variant="compact"
-      onTap={() => trackAdEvent(ad.campaignId, 'tap')}
+      onTap={() => trackAdEvent(ad.campaignId ?? '', 'tap')}
     />
   )
 }
