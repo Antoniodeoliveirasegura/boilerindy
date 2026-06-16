@@ -62,7 +62,10 @@ export default function App() {
               path="/advertise/dashboard"
               element={
                 <RequireAdvertiser>
-                  <AdvertiserDashboard />
+                  {/* advertiser is injected by RequireAdvertiser via cloneElement; passed
+                      here only to satisfy the prop type while Dashboard's typed version
+                      (optional advertiser) lands in its own PR. */}
+                  <AdvertiserDashboard advertiser={undefined} />
                 </RequireAdvertiser>
               }
             />
