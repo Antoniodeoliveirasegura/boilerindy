@@ -39,6 +39,12 @@ jobs:
         run: pnpm run lint
         working-directory: boilerindy-react
 
+      # Type-check the migrating TypeScript surface (issue #20). allowJs/checkJs:false
+      # means only .ts/.tsx are checked, so this stays green as conversion proceeds.
+      - name: Typecheck frontend
+        run: pnpm run typecheck
+        working-directory: boilerindy-react
+
       - name: Run tests (backend + frontend)
         run: pnpm test
 
