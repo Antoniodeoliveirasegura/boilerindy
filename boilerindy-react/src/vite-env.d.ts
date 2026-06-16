@@ -23,4 +23,9 @@ type SpeechRecognitionCtor = new () => SpeechRecognitionLike
 interface Window {
   SpeechRecognition?: SpeechRecognitionCtor
   webkitSpeechRecognition?: SpeechRecognitionCtor
+  // Leaflet is loaded from a CDN <script> on the Transit page (issue #8), so it
+  // lives on window rather than being imported.
+  L?: typeof import('leaflet')
+  // Safari-prefixed Web Audio constructor, absent from lib.dom.
+  webkitAudioContext?: typeof AudioContext
 }

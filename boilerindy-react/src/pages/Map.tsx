@@ -6,9 +6,24 @@ import Icon from '../components/Icons'
 import { useTheme } from '../context/ThemeContext'
 import { extractBuildingCode } from '../lib/buildingCode'
 
-const CAMPUS_CENTER = [39.7740, -86.1720]
+const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
 const FLY_ZOOM = 18
+
+type Building = {
+  id: string
+  abbr: string
+  displayCode: string
+  name: string
+  fullName: string
+  address: string
+  section: string
+  lat: number
+  lng: number
+  feature: unknown
+}
+
+type FlyRequest = { lat: number | null; lng: number | null; zoom: number; seq: number }
 
 const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
 const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
@@ -24,7 +39,7 @@ const SECTIONS = [
 ]
 
 // Categorize buildings by their abbreviation or name
-function categorizeBuilding(abbr, name) {
+function categorizeBuilding(abbr: string | undefined, name: string | undefined) {
   const abbrUpper = (abbr || '').toUpperCase()
   const nameUpper = (name || '').toUpperCase()
   
@@ -52,7 +67,7 @@ function categorizeBuilding(abbr, name) {
 }
 
 /** Calculate centroid of a polygon */
-function getPolygonCentroid(coordinates) {
+function getPolygonCentroid(coordinates: any): [number, number] | null {
   let coords = coordinates
   if (coords[0] && Array.isArray(coords[0][0])) {
     coords = coords[0]
@@ -71,7 +86,7 @@ function getPolygonCentroid(coordinates) {
 }
 
 /** Create a custom div icon for building labels */
-function createLabelIcon(label, dark) {
+function createLabelIcon(label: string, dark: boolean) {
   return L.divIcon({
     className: 'building-label-marker',
     html: `<div class="building-code-label ${dark ? 'dark' : ''}">${label}</div>`,
@@ -81,10 +96,10 @@ function createLabelIcon(label, dark) {
 }
 
 /** Process GeoJSON to build places list */
-function processBuildings(geoData) {
+function processBuildings(geoData: any): Building[] {
   if (!geoData?.features) return []
-  
-  const buildings = []
+
+  const buildings: Building[] = []
   
   for (const feature of geoData.features) {
     const props = feature.properties || {}
@@ -122,7 +137,15 @@ function processBuildings(geoData) {
   return buildings.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function BuildingLabels({ buildings, dark, selectedId }) {
+function BuildingLabels({
+  buildings,
+  dark,
+  selectedId,
+}: {
+  buildings: Building[]
+  dark: boolean
+  selectedId: string | null
+}) {
   return (
     <>
       {buildings.map((bldg) => {
@@ -142,12 +165,12 @@ function BuildingLabels({ buildings, dark, selectedId }) {
   )
 }
 
-function MapController({ flyRequest }) {
+function MapController({ flyRequest }: { flyRequest: FlyRequest }) {
   const map = useMap()
-  
+
   useEffect(() => {
     if (flyRequest.lat == null) return
-    map.flyTo([flyRequest.lat, flyRequest.lng], flyRequest.zoom, { duration: 0.85 })
+    map.flyTo([flyRequest.lat, flyRequest.lng as number], flyRequest.zoom, { duration: 0.85 })
   }, [flyRequest.seq, flyRequest.lat, flyRequest.lng, flyRequest.zoom, map])
   
   return null
@@ -156,16 +179,16 @@ function MapController({ flyRequest }) {
 export default function Map() {
   const { dark } = useTheme()
   const [search, setSearch] = useState('')
-  const [selectedId, setSelectedId] = useState(null)
-  const [geoData, setGeoData] = useState(null)
-  const [buildings, setBuildings] = useState([])
-  const [flyRequest, setFlyRequest] = useState({ lat: null, lng: null, zoom: DEFAULT_ZOOM, seq: 0 })
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [geoData, setGeoData] = useState<any>(null)
+  const [buildings, setBuildings] = useState<Building[]>([])
+  const [flyRequest, setFlyRequest] = useState<FlyRequest>({ lat: null, lng: null, zoom: DEFAULT_ZOOM, seq: 0 })
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false) // For mobile
-  const [userLocation, setUserLocation] = useState(null)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
-  const [locationError, setLocationError] = useState(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation) {
@@ -207,9 +230,10 @@ export default function Map() {
         setLoading(false)
 
         const params = new URLSearchParams(window.location.search)
+        const room = params.get('room')
         const targetCode =
           params.get('building') ||
-          (params.get('room') ? extractBuildingCode(params.get('room')) : null)
+          (room ? extractBuildingCode(room) : null)
         if (!targetCode) return
 
         const upperCode = targetCode.toUpperCase()
@@ -224,7 +248,7 @@ export default function Map() {
       })
       .catch(err => {
         console.error("Failed to load Purdue building data:", err)
-        setError(err.message)
+        setError(err instanceof Error ? err.message : 'Failed to load building data')
         setLoading(false)
       })
   }, [])
@@ -241,7 +265,9 @@ export default function Map() {
   }, [search, buildings])
 
   const grouped = useMemo(() => {
-    const bySection = Object.fromEntries(SECTIONS.map(s => [s.key, []]))
+    const bySection: Record<string, Building[]> = Object.fromEntries(
+      SECTIONS.map(s => [s.key, [] as Building[]]),
+    )
     for (const b of filteredBuildings) {
       if (bySection[b.section]) {
         bySection[b.section].push(b)
@@ -254,7 +280,7 @@ export default function Map() {
 
   const selectedBuilding = buildings.find(b => b.id === selectedId) ?? null
 
-  const geoJsonStyle = (feature) => {
+  const geoJsonStyle = (feature: any) => {
     const props = feature.properties || {}
     const featureAbbr = props.PU_ABBR || ''
     const isSelected = selectedBuilding && selectedBuilding.abbr === featureAbbr
@@ -268,7 +294,7 @@ export default function Map() {
     }
   }
 
-  const onEachFeature = (feature, layer) => {
+  const onEachFeature = (feature: any, layer: L.Layer) => {
     const props = feature.properties || {}
     const name = props.BUILDING_NAME || 'Building'
     const code = props.BuildingLabels || props.PU_ABBR || ''
@@ -294,7 +320,7 @@ export default function Map() {
   }
 
   // Close sidebar when a building is selected on mobile
-  const handleBuildingSelect = (b) => {
+  const handleBuildingSelect = (b: Building) => {
     setSelectedId(b.id)
     setFlyRequest(fr => ({ lat: b.lat, lng: b.lng, zoom: FLY_ZOOM, seq: fr.seq + 1 }))
     setSidebarOpen(false) // Close on mobile after selection

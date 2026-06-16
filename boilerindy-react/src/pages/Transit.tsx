@@ -11,6 +11,7 @@ import {
   haversineMeters,
   getOrderedStopsForRoute,
   isRouteActiveNow,
+  type TransitRoute,
 } from '../lib/transitShared'
 
 const CAMPUS_CENTER = { lat: 39.7745, lng: -86.1756 }
@@ -19,12 +20,31 @@ const VISITED_METERS = 95
 /** After chime, allow again once bus is this far from the “before” stop */
 const CHIME_RESET_METERS = 380
 
+type Vehicle = {
+  RouteID?: number | string
+  VehicleID?: number | string
+  Latitude?: number
+  Longitude?: number
+  GroundSpeed?: number
+  Name?: string
+}
+type Stop = {
+  RouteID?: number | string
+  RouteStopID?: number | string
+  Latitude?: number
+  Longitude?: number
+  Description?: string
+  MapPoints?: { Latitude: number; Longitude: number }[]
+}
+type OrderedStop = { id: string; name?: string; lat?: number; lon?: number }
+type CanonicalFn = (routeId: number | string | undefined) => number | null
+
 function playAlertChime() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext
     if (!Ctx) return
     const ctx = new Ctx()
-    const beep = (freq, t0) => {
+    const beep = (freq: number, t0: number) => {
       const o = ctx.createOscillator()
       const g = ctx.createGain()
       o.connect(g)
@@ -55,17 +75,26 @@ function LiveMap({
   selectedBus,
   stopHighlights,
   canonicalRouteId,
+}: {
+  vehicles: Vehicle[]
+  routes: TransitRoute[]
+  stops: Stop[]
+  selectedRoute: TransitRoute | null
+  onSelectBus: (vehicle: Vehicle) => void
+  selectedBus: Vehicle | null
+  stopHighlights: Record<string, string>
+  canonicalRouteId: CanonicalFn
 }) {
-  const mapRef = useRef(null)
-  const mapInstanceRef = useRef(null)
-  const markersRef = useRef({})
-  const routeLinesRef = useRef([])
-  const stopMarkersRef = useRef([])
-  const userMarkerRef = useRef(null)
+  const mapRef = useRef<HTMLDivElement | null>(null)
+  const mapInstanceRef = useRef<import('leaflet').Map | null>(null)
+  const markersRef = useRef<Record<string, import('leaflet').Marker>>({})
+  const routeLinesRef = useRef<import('leaflet').Polyline[]>([])
+  const stopMarkersRef = useRef<import('leaflet').Marker[]>([])
+  const userMarkerRef = useRef<import('leaflet').Marker | null>(null)
   const [mapReady, setMapReady] = useState(false)
-  const [userLocation, setUserLocation] = useState(null)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
-  const [locationError, setLocationError] = useState(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation) {
@@ -148,7 +177,7 @@ function LiveMap({
       document.head.appendChild(link)
     }
 
-    const loadLeaflet = () => {
+    const loadLeaflet = (): Promise<typeof import('leaflet')> => {
       return new Promise((resolve) => {
         if (window.L) {
           resolve(window.L)
@@ -156,7 +185,7 @@ function LiveMap({
         }
         const script = document.createElement('script')
         script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        script.onload = () => resolve(window.L)
+        script.onload = () => resolve(window.L as typeof import('leaflet'))
         document.head.appendChild(script)
       })
     }
@@ -165,7 +194,7 @@ function LiveMap({
 
     loadLeaflet().then((L) => {
       if (!mounted || !mapRef.current) return
-      if (mapRef.current._leaflet_id) return
+      if ((mapRef.current as { _leaflet_id?: number })._leaflet_id) return
 
       const map = L.map(mapRef.current, {
         zoomControl: false,
@@ -203,7 +232,7 @@ function LiveMap({
 
     if (!selectedRoute) return
 
-    const points = []
+    const points: [number, number][] = []
     stops.forEach((stop) => {
       if (canonicalRouteId(stop.RouteID) !== selectedRoute.id) return
       if (stop.MapPoints && stop.MapPoints.length > 0) {
@@ -238,11 +267,11 @@ function LiveMap({
     if (!selectedRoute) return
 
     const visibleStops = stops.filter((s) => canonicalRouteId(s.RouteID) === selectedRoute.id)
-    const uniqueStops = []
-    const seen = new Set()
+    const uniqueStops: (Stop & { _sid: string })[] = []
+    const seen = new Set<string>()
     visibleStops.forEach((stop) => {
       const id = stop.RouteStopID != null ? String(stop.RouteStopID) : `${stop.Latitude},${stop.Longitude}`
-      const key = `${stop.Latitude.toFixed(4)},${stop.Longitude.toFixed(4)}`
+      const key = `${(stop.Latitude ?? 0).toFixed(4)},${(stop.Longitude ?? 0).toFixed(4)}`
       if (seen.has(key)) return
       seen.add(key)
       uniqueStops.push({ ...stop, _sid: id })
@@ -273,7 +302,7 @@ function LiveMap({
         iconAnchor: [7, 7],
       })
 
-      const marker = L.marker([stop.Latitude, stop.Longitude], { icon })
+      const marker = L.marker([stop.Latitude ?? 0, stop.Longitude ?? 0], { icon })
         .addTo(map)
         .bindPopup(
           `<div style="font-family:system-ui;min-width:120px;">
@@ -303,7 +332,7 @@ function LiveMap({
       const canon = canonicalRouteId(vehicle.RouteID)
       const route = routes.find((r) => r.id === canon) || UNKNOWN_ROUTE
       const isSelected = selectedBus?.VehicleID === vehicle.VehicleID
-      const isMoving = vehicle.GroundSpeed > 0
+      const isMoving = (vehicle.GroundSpeed ?? 0) > 0
 
       const iconHtml = `
         <div style="
@@ -361,7 +390,7 @@ function LiveMap({
         iconAnchor: [16, 32],
       })
 
-      const marker = L.marker([vehicle.Latitude, vehicle.Longitude], { icon })
+      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon })
         .addTo(map)
         .on('click', () => onSelectBus(vehicle))
 
@@ -371,16 +400,18 @@ function LiveMap({
           <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${route.name}</div>
           <div style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
             <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isMoving ? '#22c55e' : '#9ca3af'}"></span>
-            ${isMoving ? `${Math.round(vehicle.GroundSpeed)} mph` : 'Stopped'}
+            ${isMoving ? `${Math.round(vehicle.GroundSpeed ?? 0)} mph` : 'Stopped'}
           </div>
         </div>`,
       )
 
-      markersRef.current[vehicle.VehicleID] = marker
+      markersRef.current[String(vehicle.VehicleID)] = marker
     })
 
     if (displayVehicles.length > 0) {
-      const bounds = L.latLngBounds(displayVehicles.map((v) => [v.Latitude, v.Longitude]))
+      const bounds = L.latLngBounds(
+        displayVehicles.map((v) => [v.Latitude ?? 0, v.Longitude ?? 0] as [number, number]),
+      )
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 })
     }
   }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes])
@@ -452,12 +483,12 @@ function LiveMap({
   )
 }
 
-function myStopStorageKey(routeId) {
+function myStopStorageKey(routeId: number | string) {
   return `transit-my-stop-${routeId}`
 }
 
 /** Load the saved "my stop" id for a route from localStorage, or null. */
-function loadMyStopForRoute(routeId) {
+function loadMyStopForRoute(routeId: number | null | undefined): string | null {
   if (!routeId) return null
   try {
     const raw = localStorage.getItem(myStopStorageKey(routeId))
@@ -476,19 +507,19 @@ export default function Transit() {
     track('transit_viewed')
   }, [])
 
-  const [rawVehicles, setRawVehicles] = useState([])
-  const [stops, setStops] = useState([])
-  const [selectedRoute, setSelectedRoute] = useState(null)
-  const [selectedBus, setSelectedBus] = useState(null)
+  const [rawVehicles, setRawVehicles] = useState<Vehicle[]>([])
+  const [stops, setStops] = useState<Stop[]>([])
+  const [selectedRoute, setSelectedRoute] = useState<TransitRoute | null>(null)
+  const [selectedBus, setSelectedBus] = useState<Vehicle | null>(null)
   const [loading, setLoading] = useState(true)
-  const [lastUpdate, setLastUpdate] = useState(null)
-  const [visitedStopIds, setVisitedStopIds] = useState(() => new Set())
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [visitedStopIds, setVisitedStopIds] = useState<Set<string>>(() => new Set())
   // Last bus position folded into visitedStopIds — see the accumulation block below.
-  const [lastBusPos, setLastBusPos] = useState(null)
+  const [lastBusPos, setLastBusPos] = useState<string | null>(null)
   /** One “my stop” per route — chime fires when bus reaches the stop before this one */
-  const [myStopId, setMyStopId] = useState(null)
+  const [myStopId, setMyStopId] = useState<string | null>(null)
   const chimePlayedRef = useRef(false)
-  const [routeIdToCanonical, setRouteIdToCanonical] = useState(() => ({ ...TRANLOC_ROUTE_ALIASES }))
+  const [routeIdToCanonical, setRouteIdToCanonical] = useState<Record<number, number>>(() => ({ ...TRANLOC_ROUTE_ALIASES }))
 
   // Reset per-route tracking state when the selected route changes. Done during
   // render (React's "adjust state on prop change" pattern) rather than in an
@@ -502,8 +533,8 @@ export default function Transit() {
     setMyStopId(loadMyStopForRoute(currentRouteId))
   }
 
-  const canonicalRouteId = useCallback(
-    (routeId) => canonicalFromMap(routeIdToCanonical, routeId),
+  const canonicalRouteId = useCallback<CanonicalFn>(
+    (routeId) => canonicalFromMap(routeIdToCanonical, routeId ?? ''),
     [routeIdToCanonical],
   )
 
@@ -513,11 +544,11 @@ export default function Transit() {
    * opposite day sets). The RouteID on the returned object is replaced with the
    * peer's canonical id so all downstream filtering and coloring work correctly.
    */
-  const vehicles = useMemo(() => {
+  const vehicles = useMemo<Vehicle[]>(() => {
     return rawVehicles.map((v) => {
-      const canon = canonicalFromMap(routeIdToCanonical, v.RouteID)
+      const canon = canonicalFromMap(routeIdToCanonical, v.RouteID ?? '')
       const route = routes.find((r) => r.id === canon)
-      if (route && !isRouteActiveNow(route)) {
+      if (route && canon != null && !isRouteActiveNow(route)) {
         const peerId = SCHEDULE_PEERS[canon]
         if (peerId != null) {
           const peerRoute = routes.find((r) => r.id === peerId)
@@ -593,7 +624,7 @@ export default function Transit() {
   }, [currentRouteId])
 
   const toggleMyStop = useCallback(
-    (stopId) => {
+    (stopId: string) => {
       chimePlayedRef.current = false
       setMyStopId((prev) => {
         const next = prev === stopId ? null : stopId
@@ -623,32 +654,32 @@ export default function Transit() {
   const hereStopId = useMemo(() => {
     if (!trackingBus || !orderedStops.length) return null
 
-    let nearest = null
+    let nearest: OrderedStop | null = null
     let nearestD = Infinity
-    const lat = trackingBus.Latitude
-    const lon = trackingBus.Longitude
+    const lat = trackingBus.Latitude ?? 0
+    const lon = trackingBus.Longitude ?? 0
 
     orderedStops.forEach((s) => {
-      const d = haversineMeters(lat, lon, s.lat, s.lon)
+      const d = haversineMeters(lat, lon, s.lat ?? 0, s.lon ?? 0)
       if (d < nearestD) {
         nearestD = d
         nearest = s
       }
     })
 
-    return nearest && nearestD <= HERE_METERS ? nearest.id : null
+    return nearest && nearestD <= HERE_METERS ? (nearest as OrderedStop).id : null
   }, [trackingBus, orderedStops])
 
   // Visited stops accumulate as the bus moves. We fold each new bus position in
   // during render (adjusting state from the previously-processed position)
   // rather than in an effect, so no setState runs synchronously in an effect.
   const busPosKey = trackingBus ? `${trackingBus.Latitude},${trackingBus.Longitude}` : null
-  if (busPosKey && busPosKey !== lastBusPos && orderedStops.length) {
+  if (busPosKey && busPosKey !== lastBusPos && orderedStops.length && trackingBus) {
     setLastBusPos(busPosKey)
-    const lat = trackingBus.Latitude
-    const lon = trackingBus.Longitude
+    const lat = trackingBus.Latitude ?? 0
+    const lon = trackingBus.Longitude ?? 0
     const newlyVisited = orderedStops.filter(
-      (s) => !visitedStopIds.has(s.id) && haversineMeters(lat, lon, s.lat, s.lon) <= VISITED_METERS,
+      (s) => !visitedStopIds.has(s.id) && haversineMeters(lat, lon, s.lat ?? 0, s.lon ?? 0) <= VISITED_METERS,
     )
     if (newlyVisited.length) {
       setVisitedStopIds((prev) => {
@@ -662,9 +693,9 @@ export default function Transit() {
   useEffect(() => {
     if (!trackingBus || !stopBeforeMyStop) return
 
-    const lat = trackingBus.Latitude
-    const lon = trackingBus.Longitude
-    const dist = haversineMeters(lat, lon, stopBeforeMyStop.lat, stopBeforeMyStop.lon)
+    const lat = trackingBus.Latitude ?? 0
+    const lon = trackingBus.Longitude ?? 0
+    const dist = haversineMeters(lat, lon, stopBeforeMyStop.lat ?? 0, stopBeforeMyStop.lon ?? 0)
 
     if (dist <= HERE_METERS && !chimePlayedRef.current) {
       chimePlayedRef.current = true
@@ -676,7 +707,7 @@ export default function Transit() {
   }, [trackingBus, stopBeforeMyStop])
 
   const stopHighlights = useMemo(() => {
-    const h = {}
+    const h: Record<string, string> = {}
     orderedStops.forEach((s) => {
       if (hereStopId === s.id) h[s.id] = 'here'
       else if (visitedStopIds.has(s.id)) h[s.id] = 'visited'
@@ -748,7 +779,8 @@ export default function Transit() {
         <div className="mt-3 hidden sm:flex flex-wrap gap-x-5 gap-y-1">
           {[...new Map(routes.map(r => [r.schedule?.label, r])).values()].map(r => {
             if (!r.schedule) return null
-            const groupRoutes = routes.filter(x => x.schedule?.label === r.schedule.label)
+            const scheduleLabel = r.schedule.label
+            const groupRoutes = routes.filter(x => x.schedule?.label === scheduleLabel)
             return (
               <div key={r.schedule.label} className="flex items-center gap-1.5 text-[11px] text-[var(--color-txt-3)]">
                 <div className="flex gap-0.5">
