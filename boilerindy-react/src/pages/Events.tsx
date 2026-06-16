@@ -5,8 +5,21 @@ import { authRequest } from '../lib/authApi'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 
-const categoryConfig = {
-  campus_event: { 
+type EventItem = {
+  id: string
+  category?: string
+  title?: string
+  startTime: string
+  location?: string
+  description?: string
+  freeFood?: boolean
+}
+
+const categoryConfig: Record<
+  string,
+  { label: string; bg: string; text: string; border: string; icon: string }
+> = {
+  campus_event: {
     label: 'Campus Event',
     bg: 'bg-pink-50 dark:bg-pink-900/20', 
     text: 'text-pink-700 dark:text-pink-400', 
@@ -29,31 +42,31 @@ const categoryConfig = {
   },
 }
 
-function formatDate(dateString) {
+function formatDate(dateString: string) {
   const date = new Date(dateString)
   const now = new Date()
   const tomorrow = new Date(now)
   tomorrow.setDate(tomorrow.getDate() + 1)
-  
+
   const isToday = date.toDateString() === now.toDateString()
   const isTomorrow = date.toDateString() === tomorrow.toDateString()
-  
+
   if (isToday) return 'Today'
   if (isTomorrow) return 'Tomorrow'
-  
+
   return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-function formatTime(dateString) {
+function formatTime(dateString: string) {
   const date = new Date(dateString)
   if (date.getHours() === 0 && date.getMinutes() === 0) return 'All day'
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
-function getRelativeTime(dateString) {
+function getRelativeTime(dateString: string) {
   const date = new Date(dateString)
   const now = new Date()
-  const diffMs = date - now
+  const diffMs = date.getTime() - now.getTime()
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
   
   if (diffDays < 0) return 'Past'
@@ -64,7 +77,7 @@ function getRelativeTime(dateString) {
   return `${Math.ceil(diffDays / 7)} weeks`
 }
 
-function isPast(dateString) {
+function isPast(dateString: string) {
   return new Date(dateString) < new Date()
 }
 
@@ -74,15 +87,15 @@ function getRecsCacheKey() {
 
 export default function Events() {
   const { onboarding } = useAuth()
-  const [items, setItems] = useState([])
-  const [selectedCategories, setSelectedCategories] = useState([])
+  const [items, setItems] = useState<EventItem[]>([])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [showPast, setShowPast] = useState(false)
   const [freeFoodOnly, setFreeFoodOnly] = useState(false)
-  const [selectedItem, setSelectedItem] = useState(null)
+  const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
 
-  const [eventRecs, setEventRecs] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(getRecsCacheKey())) ?? null } catch { return null }
+  const [eventRecs, setEventRecs] = useState<string | null>(() => {
+    try { return JSON.parse(localStorage.getItem(getRecsCacheKey()) || 'null') ?? null } catch { return null }
   })
   const [recsLoading, setRecsLoading] = useState(false)
 
@@ -118,7 +131,7 @@ export default function Events() {
   async function loadData() {
     setLoading(true)
     try {
-      const res = await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')
+      const res = (await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')) as { items?: EventItem[] }
       setItems(res.items || [])
     } catch (error) {
       console.error('Failed to load events:', error)
@@ -131,9 +144,9 @@ export default function Events() {
     let filtered = items
     
     if (selectedCategories.length > 0) {
-      filtered = filtered.filter(item => selectedCategories.includes(item.category))
+      filtered = filtered.filter(item => selectedCategories.includes(item.category ?? ''))
     }
-    
+
     if (!showPast) {
       filtered = filtered.filter(item => !isPast(item.startTime))
     }
@@ -142,11 +155,11 @@ export default function Events() {
       filtered = filtered.filter(item => item.freeFood)
     }
 
-    return filtered.sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+    return filtered.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
   }, [items, selectedCategories, showPast, freeFoodOnly])
 
   const groupedItems = useMemo(() => {
-    const groups = {}
+    const groups: Record<string, EventItem[]> = {}
     for (const item of filteredItems) {
       const dateKey = formatDate(item.startTime)
       if (!groups[dateKey]) groups[dateKey] = []
@@ -156,9 +169,10 @@ export default function Events() {
   }, [filteredItems])
 
   const categoryCounts = useMemo(() => {
-    const counts = {}
+    const counts: Record<string, number> = {}
     for (const item of items) {
-      counts[item.category] = (counts[item.category] || 0) + 1
+      const cat = item.category ?? 'event'
+      counts[cat] = (counts[cat] || 0) + 1
     }
     return Object.entries(counts).map(([id, count]) => ({
       id,
@@ -167,7 +181,7 @@ export default function Events() {
     }))
   }, [items])
 
-  const toggleCategory = (catId) => {
+  const toggleCategory = (catId: string) => {
     setSelectedCategories(prev => 
       prev.includes(catId) 
         ? prev.filter(c => c !== catId)
@@ -314,7 +328,7 @@ export default function Events() {
                 </div>
                 <div className="space-y-2">
                   {dateItems.map(item => {
-                    const config = categoryConfig[item.category] || categoryConfig.event
+                    const config = categoryConfig[item.category ?? 'event'] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
                     const past = isPast(item.startTime)
                     
@@ -377,9 +391,9 @@ export default function Events() {
               <div className="card p-5 min-w-0 overflow-hidden">
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <span className={`text-[11px] px-2.5 py-1 rounded-full ${
-                    (categoryConfig[selectedItem.category] || categoryConfig.event).bg
-                  } ${(categoryConfig[selectedItem.category] || categoryConfig.event).text}`}>
-                    {(categoryConfig[selectedItem.category] || categoryConfig.event).label}
+                    (categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).bg
+                  } ${(categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).text}`}>
+                    {(categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).label}
                   </span>
                   <button 
                     onClick={() => setSelectedItem(null)}
