@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { authRequest, shouldSkipSetup } from '../lib/authApi'
 import { cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import FeaturedDeal from '../components/FeaturedDeal'
 import {
   routes as transitRoutes,
   TRANLOC_ROUTE_ALIASES,
@@ -1529,6 +1530,7 @@ export default function Home() {
 
   return (
     <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <FeaturedDeal />
       <div className="mb-6 sm:mb-8 transition-all duration-700 opacity-100 translate-y-0">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
           <div>
