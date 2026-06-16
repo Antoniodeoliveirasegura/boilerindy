@@ -5,6 +5,21 @@ import { track } from '../lib/usageStats'
 
 // Friend Matching (issue #17). Privacy is opt-in (discoverable, default off):
 // pre-acceptance only name, interests, and shared-course count are shown.
+
+type Match = {
+  userId: string
+  displayName?: string
+  sharedCount?: number
+  sharedCourses?: string[]
+  interests?: string[]
+}
+type Connection = { userId: string; displayName?: string; email?: string }
+type IncomingRequest = { userId: string; displayName?: string }
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
 export default function Friends() {
   const [bio, setBio] = useState('')
   const [interests, setInterests] = useState('')
@@ -12,12 +27,12 @@ export default function Friends() {
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileMsg, setProfileMsg] = useState('')
 
-  const [matches, setMatches] = useState([])
+  const [matches, setMatches] = useState<Match[]>([])
   const [loadingMatches, setLoadingMatches] = useState(true)
   const [matchError, setMatchError] = useState('')
 
-  const [accepted, setAccepted] = useState([])
-  const [incoming, setIncoming] = useState([])
+  const [accepted, setAccepted] = useState<Connection[]>([])
+  const [incoming, setIncoming] = useState<IncomingRequest[]>([])
 
   useEffect(() => {
     track('friends_viewed')
@@ -26,16 +41,20 @@ export default function Friends() {
   const loadMatches = useCallback(() => {
     setLoadingMatches(true)
     authRequest('/api/me/matches')
-      .then((data) => setMatches(Array.isArray(data?.matches) ? data.matches : []))
-      .catch((e) => setMatchError(e?.message || 'Could not load matches.'))
+      .then((data) => {
+        const d = data as { matches?: Match[] }
+        setMatches(Array.isArray(d?.matches) ? d.matches : [])
+      })
+      .catch((e) => setMatchError(errorText(e, 'Could not load matches.')))
       .finally(() => setLoadingMatches(false))
   }, [])
 
   const loadConnections = useCallback(() => {
     authRequest('/api/me/connections')
       .then((data) => {
-        setAccepted(Array.isArray(data?.accepted) ? data.accepted : [])
-        setIncoming(Array.isArray(data?.incoming) ? data.incoming : [])
+        const d = data as { accepted?: Connection[]; incoming?: IncomingRequest[] }
+        setAccepted(Array.isArray(d?.accepted) ? d.accepted : [])
+        setIncoming(Array.isArray(d?.incoming) ? d.incoming : [])
       })
       .catch(() => {})
   }, [])
@@ -45,19 +64,21 @@ export default function Friends() {
     authRequest('/api/me/profile-card')
       .then((data) => {
         if (!active) return
-        setBio(data?.bio || '')
-        setInterests((data?.interests || []).join(', '))
-        setDiscoverable(Boolean(data?.discoverable))
+        const d = data as { bio?: string; interests?: string[]; discoverable?: boolean }
+        setBio(d?.bio || '')
+        setInterests((d?.interests || []).join(', '))
+        setDiscoverable(Boolean(d?.discoverable))
       })
       .catch(() => {})
     // Initial matches fetch inline — loadingMatches already starts true, so we
     // only setState in async callbacks (no synchronous setState in the effect).
     authRequest('/api/me/matches')
       .then((data) => {
-        if (active) setMatches(Array.isArray(data?.matches) ? data.matches : [])
+        const d = data as { matches?: Match[] }
+        if (active) setMatches(Array.isArray(d?.matches) ? d.matches : [])
       })
       .catch((e) => {
-        if (active) setMatchError(e?.message || 'Could not load matches.')
+        if (active) setMatchError(errorText(e, 'Could not load matches.'))
       })
       .finally(() => {
         if (active) setLoadingMatches(false)
@@ -68,7 +89,7 @@ export default function Friends() {
     }
   }, [loadConnections])
 
-  async function saveProfile(e) {
+  async function saveProfile(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSavingProfile(true)
     setProfileMsg('')
@@ -84,18 +105,18 @@ export default function Friends() {
       setProfileMsg('Saved.')
       loadMatches()
     } catch (err) {
-      setProfileMsg(err?.message || 'Could not save your profile.')
+      setProfileMsg(errorText(err, 'Could not save your profile.'))
     } finally {
       setSavingProfile(false)
     }
   }
 
-  function connect(match) {
+  function connect(match: Match) {
     setMatches((prev) => prev.filter((m) => m.userId !== match.userId))
     authRequest('/api/connections', { method: 'POST', body: JSON.stringify({ addresseeId: match.userId }) }).catch(() => loadMatches())
   }
 
-  function respond(req, action) {
+  function respond(req: IncomingRequest, action: 'accept' | 'decline') {
     setIncoming((prev) => prev.filter((i) => i.userId !== req.userId))
     authRequest(`/api/connections/${req.userId}`, { method: 'PATCH', body: JSON.stringify({ action }) })
       .then(() => loadConnections())
