@@ -1,15 +1,24 @@
 /**
  * Filters calendar/class rows that duplicate real lectures (Zoom/Teams shells,
  * generic "Online Meeting") or exam-only rows. Used on Home and Class Schedule.
+ * Migrated to TypeScript (issue #20).
  */
 
-export function isLikelyExamItem(item) {
+export type CalendarItem = {
+  title?: string
+  description?: string
+  location?: string
+  startTime?: string
+  endTime?: string | null
+}
+
+export function isLikelyExamItem(item: CalendarItem | null | undefined): boolean {
   if (item == null || typeof item !== 'object') return false
   const haystack = `${item.title || ''} ${item.description || ''}`.toLowerCase()
   return /\b(midterm|final|exam|quiz|test)\b/.test(haystack)
 }
 
-export function isOnlineMeetingNoise(item) {
+export function isOnlineMeetingNoise(item: CalendarItem | null | undefined): boolean {
   if (item == null || typeof item !== 'object') return false
   const title = (item.title || '').toLowerCase()
   const haystack = `${title} ${item.description || ''} ${item.location || ''}`.toLowerCase()
@@ -19,12 +28,12 @@ export function isOnlineMeetingNoise(item) {
   return false
 }
 
-export function shouldExcludeFromSchedule(item) {
+export function shouldExcludeFromSchedule(item: CalendarItem | null | undefined): boolean {
   if (item == null || typeof item !== 'object') return true
   return isLikelyExamItem(item) || isOnlineMeetingNoise(item)
 }
 
-export function isLikelyClassMeeting(item) {
+export function isLikelyClassMeeting(item: CalendarItem | null | undefined): boolean {
   if (item == null || typeof item !== 'object') return false
   if (shouldExcludeFromSchedule(item)) return false
   const haystack = `${item.description || ''} ${item.title || ''}`.toLowerCase()
@@ -33,12 +42,12 @@ export function isLikelyClassMeeting(item) {
   )
 }
 
-function getRecurringClassItems(items) {
-  const patterns = new Map()
+function getRecurringClassItems(items: CalendarItem[] | null | undefined): CalendarItem[] {
+  const patterns = new Map<string, CalendarItem[]>()
 
   for (const item of items || []) {
     if (shouldExcludeFromSchedule(item)) continue
-    const start = new Date(item.startTime)
+    const start = new Date(item.startTime ?? '')
     const end = item.endTime ? new Date(item.endTime) : null
     const key = [
       item.title || '',
@@ -56,9 +65,7 @@ function getRecurringClassItems(items) {
     patterns.set(key, group)
   }
 
-  const recurringItems = [...patterns.values()]
-    .filter((group) => group.length > 1)
-    .flat()
+  const recurringItems = [...patterns.values()].filter((group) => group.length > 1).flat()
 
   if (recurringItems.length) {
     return recurringItems
@@ -67,7 +74,7 @@ function getRecurringClassItems(items) {
   return (items || []).filter((item) => !shouldExcludeFromSchedule(item))
 }
 
-export function getHomeClassItems(items) {
+export function getHomeClassItems(items: CalendarItem[] | null | undefined): CalendarItem[] {
   const meetingTypeItems = (items || []).filter((item) => isLikelyClassMeeting(item))
   if (meetingTypeItems.length) {
     return meetingTypeItems
@@ -84,6 +91,6 @@ export function getHomeClassItems(items) {
 }
 
 /** Class Schedule page: drop noise rows; keep all other meetings (not the stricter Home heuristic). */
-export function filterClassItemsForSchedulePage(items) {
+export function filterClassItemsForSchedulePage(items: CalendarItem[] | null | undefined): CalendarItem[] {
   return (items || []).filter((item) => item != null && !shouldExcludeFromSchedule(item))
 }

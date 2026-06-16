@@ -1,0 +1,29 @@
+{
+  // Incremental TypeScript migration (issue #20). allowJs + checkJs:false lets the
+  // existing .jsx/.js keep building untyped while new .ts/.tsx are strictly checked.
+  // Convert files incrementally; flip checkJs on once coverage is high.
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src"]
+}

@@ -2,16 +2,15 @@
 // reached from the signup disclosure (Login) and from Settings → Privacy, so a
 // blanket "/" link would strand users. Callers pass ?from=signup|settings; an
 // absent/unknown value falls back to the Landing page (direct visits, deep links).
+// Migrated to TypeScript as part of the incremental TS migration (issue #20).
 
-const BACK_TARGETS = {
+export type BackTarget = { to: string; label: string }
+
+const BACK_TARGETS: Record<string, BackTarget> = {
   signup: { to: '/login?tab=signup', label: '← Back to sign up' },
   settings: { to: '/settings', label: '← Back to Settings' },
 }
 
-/**
- * @param {string | null | undefined} from - the `from` query param on /privacy
- * @returns {{ to: string, label: string }} destination + label for the back link
- */
-export function getBackTarget(from) {
-  return BACK_TARGETS[from] || { to: '/', label: '← Back to BoilerIndy' }
+export function getBackTarget(from: string | null | undefined): BackTarget {
+  return BACK_TARGETS[from ?? ''] ?? { to: '/', label: '← Back to BoilerIndy' }
 }
