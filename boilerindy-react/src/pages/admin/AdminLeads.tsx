@@ -12,11 +12,20 @@ const FILTERS = [
   { value: 'closed', label: 'Closed' },
 ]
 
+type Lead = {
+  id: string
+  companyName?: string
+  email: string
+  message?: string
+  createdAt?: string
+  status: string
+}
+
 export default function AdminLeads() {
   const [filter, setFilter] = useState('new')
-  const [leads, setLeads] = useState([])
+  const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
-  const [busyId, setBusyId] = useState(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -24,10 +33,10 @@ export default function AdminLeads() {
     setLoading(true)
     setError('')
     try {
-      const data = await listAdminLeads(filter)
+      const data = (await listAdminLeads(filter)) as { leads?: Lead[] }
       setLeads(data.leads || [])
     } catch (err) {
-      setError(err.message || 'Could not load access requests.')
+      setError(err instanceof Error ? err.message : 'Could not load access requests.')
     } finally {
       setLoading(false)
     }
@@ -37,16 +46,16 @@ export default function AdminLeads() {
     load()
   }, [load])
 
-  async function setLeadStatus(lead, status) {
+  async function setLeadStatus(lead: Lead, status: string) {
     setBusyId(lead.id)
     setError('')
     setSuccess('')
     try {
-      const data = await updateAdminLead(lead.id, { status })
+      const data = (await updateAdminLead(lead.id, { status })) as { lead: Lead }
       setLeads((prev) => prev.map((row) => (row.id === lead.id ? data.lead : row)))
       setSuccess(`Updated ${lead.email} → ${LEAD_STATUS_META[status]?.label || status}.`)
     } catch (err) {
-      setError(err.message || 'Could not update lead.')
+      setError(err instanceof Error ? err.message : 'Could not update lead.')
     } finally {
       setBusyId(null)
     }

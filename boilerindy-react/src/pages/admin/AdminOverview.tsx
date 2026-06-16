@@ -1,9 +1,29 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import { getAdminOverview, clearAdminPurdueLink } from '../../lib/adminApi'
 import { AlertBanner, PageHeader } from './adminShared'
 
-function StatCard({ label, value, hint, to, accent }) {
+type Overview = {
+  newLeads?: number
+  pendingCampaigns?: number
+  activeCampaigns?: number
+  advertisers?: number
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  to,
+  accent,
+}: {
+  label: ReactNode
+  value: ReactNode
+  hint?: ReactNode
+  to?: string
+  accent?: string
+}) {
   const inner = (
     <div className={`rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 h-full ${to ? 'hover:border-[var(--color-gold)]/40 transition-colors' : ''}`}>
       <div className="text-[12px] font-medium text-[var(--color-txt-2)] uppercase tracking-wide">{label}</div>
@@ -22,7 +42,7 @@ function StatCard({ label, value, hint, to, accent }) {
 }
 
 export default function AdminOverview() {
-  const [overview, setOverview] = useState(null)
+  const [overview, setOverview] = useState<Overview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -33,10 +53,11 @@ export default function AdminOverview() {
     let active = true
     getAdminOverview()
       .then((data) => {
-        if (active) setOverview(data.overview)
+        const d = data as { overview?: Overview }
+        if (active) setOverview(d.overview ?? null)
       })
       .catch((err) => {
-        if (active) setError(err.message || 'Could not load overview.')
+        if (active) setError(err instanceof Error ? err.message : 'Could not load overview.')
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -46,7 +67,7 @@ export default function AdminOverview() {
     }
   }, [])
 
-  async function handleReleasePurdueLink(e) {
+  async function handleReleasePurdueLink(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const email = purdueReleaseEmail.trim().toLowerCase()
     if (!email) return
@@ -55,11 +76,13 @@ export default function AdminOverview() {
     setError('')
     setSuccess('')
     try {
-      const data = await clearAdminPurdueLink({ purdueEmail: email })
+      const data = (await clearAdminPurdueLink({ purdueEmail: email })) as {
+        cleared: { purdueEmail: string }[]
+      }
       setSuccess(`Released Purdue link for ${data.cleared.map((r) => r.purdueEmail).join(', ')}.`)
       setPurdueReleaseEmail('')
     } catch (err) {
-      setError(err.message || 'Could not release Purdue link.')
+      setError(err instanceof Error ? err.message : 'Could not release Purdue link.')
     } finally {
       setReleasing(false)
     }
@@ -84,14 +107,14 @@ export default function AdminOverview() {
               value={overview?.newLeads ?? 0}
               hint="Advertisers waiting for onboarding"
               to="/admin/leads"
-              accent={overview?.newLeads > 0 ? 'text-[var(--color-gold-dark)]' : undefined}
+              accent={(overview?.newLeads ?? 0) > 0 ? 'text-[var(--color-gold-dark)]' : undefined}
             />
             <StatCard
               label="Campaigns in review"
               value={overview?.pendingCampaigns ?? 0}
               hint="Awaiting your approval to go live"
               to="/admin/campaigns"
-              accent={overview?.pendingCampaigns > 0 ? 'text-[var(--color-gold-dark)]' : undefined}
+              accent={(overview?.pendingCampaigns ?? 0) > 0 ? 'text-[var(--color-gold-dark)]' : undefined}
             />
             <StatCard
               label="Live campaigns"
