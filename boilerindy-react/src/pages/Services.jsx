@@ -247,6 +247,34 @@ export default function Services() {
               </div>
               <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Report or find lost items around campus.</div>
             </Link>
+            <Link to="/guide" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="mapPin" size={16} />
+                Neighborhood Guide
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Student tips for food, study spots, parking, and safety.</div>
+            </Link>
+            <Link to="/study-groups" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="users" size={16} />
+                Study Groups
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Find classmates and form study groups by course.</div>
+            </Link>
+            <Link to="/perks" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="sparkles" size={16} />
+                Campus Perks
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Local deals and discounts for students.</div>
+            </Link>
+            <Link to="/marketplace" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="grid" size={16} />
+                Marketplace
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Buy and sell textbooks, furniture, and more.</div>
+            </Link>
             <Link to="/settings" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
               <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
                 <Icon name="settings" size={16} />

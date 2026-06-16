@@ -30,6 +30,10 @@ const GradeTracker = lazy(() => import('./pages/GradeTracker'))
 const Events = lazy(() => import('./pages/Events'))
 const FreeFood = lazy(() => import('./pages/FreeFood'))
 const LostFound = lazy(() => import('./pages/LostFound'))
+const Guide = lazy(() => import('./pages/Guide'))
+const StudyGroups = lazy(() => import('./pages/StudyGroups'))
+const Perks = lazy(() => import('./pages/Perks'))
+const Marketplace = lazy(() => import('./pages/Marketplace'))
 const Dining = lazy(() => import('./pages/Dining'))
 const Transit = lazy(() => import('./pages/Transit'))
 const Services = lazy(() => import('./pages/Services'))
@@ -145,6 +149,38 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <LostFound />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/guide"
+                element={
+                  <RequireAuth>
+                    <Guide />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/study-groups"
+                element={
+                  <RequireAuth>
+                    <StudyGroups />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/perks"
+                element={
+                  <RequireAuth>
+                    <Perks />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/marketplace"
+                element={
+                  <RequireAuth>
+                    <Marketplace />
                   </RequireAuth>
                 }
               />
