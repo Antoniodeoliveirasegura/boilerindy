@@ -3,12 +3,35 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 
+type Reply = { id?: string; user?: string; body?: string; time?: string; [key: string]: unknown }
+type Post = {
+  id: string
+  title?: string
+  body?: string
+  time?: string
+  editedTime?: string | null
+  isMine?: boolean
+  upvotes?: number
+  upvotedByMe?: boolean
+  pinned?: boolean
+  hot?: boolean
+  user?: string
+  tags?: string[]
+  replies: Reply[]
+  [key: string]: unknown
+}
+type LiveCompose = { betterTitle?: string; bodyAddOn?: string; tags?: string[] }
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
 export default function Board() {
-  const [posts, setPosts] = useState([])
+  const [posts, setPosts] = useState<Post[]>([])
   const [sort, setSort] = useState('recent')
   const [loading, setLoading] = useState(true)
-  const [expanded, setExpanded] = useState(new Set())
-  const [repliesOpen, setRepliesOpen] = useState(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [repliesOpen, setRepliesOpen] = useState<Set<string>>(new Set())
   // Drafts survive session-expiry redirects to /login (issue #23)
   const [showForm, setShowForm] = useState(() => {
     const draft = loadBoardDraft()
@@ -20,15 +43,15 @@ export default function Board() {
   const [submitting, setSubmitting] = useState(false)
   const [improving, setImproving] = useState(false)
   const [postError, setPostError] = useState('')
-  const [filterTag, setFilterTag] = useState(null)
+  const [filterTag, setFilterTag] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [deletingId, setDeletingId] = useState(null)
-  const [editingId, setEditingId] = useState(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState('')
-  const [liveCompose, setLiveCompose] = useState(null)
+  const [liveCompose, setLiveCompose] = useState<LiveCompose | null>(null)
   const [liveComposeLoading, setLiveComposeLoading] = useState(false)
 
   const handleImprovePost = async () => {
@@ -46,7 +69,7 @@ export default function Board() {
           }],
         }),
       })
-      const data = await res.json()
+      const data = (await res.json()) as { reply?: string }
       if (data.reply) {
         const lines = data.reply.trim().split('\n')
         const title = lines[0].replace(/^(Title:\s*|#+\s*)/i, '').trim()
@@ -62,10 +85,10 @@ export default function Board() {
     }
   }
   // ── Fetch posts ────────────────────────────────────────────────────────────
-  const fetchPosts = useCallback(async ({ silent = false } = {}) => {
+  const fetchPosts = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
       if (!silent) setLoading(true)
-      const data = await authRequest(`/api/board/posts?sort=${sort}`)
+      const data = (await authRequest(`/api/board/posts?sort=${sort}`)) as { posts?: Post[] }
       setPosts((data.posts || []).map((p) => ({
         ...p,
         isMine: Boolean(p.isMine),
@@ -136,9 +159,9 @@ export default function Board() {
           (data.betterTitle && String(data.betterTitle).trim()) ||
           (data.bodyAddOn && String(data.bodyAddOn).trim()) ||
           (Array.isArray(data.tags) && data.tags.length > 0)
-        setLiveCompose(has ? data : null)
+        setLiveCompose(has ? (data as LiveCompose) : null)
       } catch (e) {
-        if (e?.name !== 'AbortError' && !cancelled) setLiveCompose(null)
+        if ((e as { name?: string })?.name !== 'AbortError' && !cancelled) setLiveCompose(null)
       } finally {
         if (!cancelled) setLiveComposeLoading(false)
       }
@@ -151,15 +174,15 @@ export default function Board() {
   }, [newTitle, newBody, showForm])
 
   // ── Upvote ─────────────────────────────────────────────────────────────────
-  const handleUpvote = async (id) => {
+  const handleUpvote = async (id: string) => {
     // Optimistic update
     setPosts(prev => prev.map(p =>
       p.id === id
-        ? { ...p, upvotes: p.upvotedByMe ? p.upvotes - 1 : p.upvotes + 1, upvotedByMe: !p.upvotedByMe }
+        ? { ...p, upvotes: p.upvotedByMe ? (p.upvotes ?? 0) - 1 : (p.upvotes ?? 0) + 1, upvotedByMe: !p.upvotedByMe }
         : p
     ))
     try {
-      const data = await authRequest(`/api/board/posts/${id}/upvote`, { method: 'POST' })
+      const data = (await authRequest(`/api/board/posts/${id}/upvote`, { method: 'POST' })) as { upvotes?: number; upvotedByMe?: boolean }
       setPosts(prev => prev.map(p =>
         p.id === id ? { ...p, upvotes: data.upvotes, upvotedByMe: data.upvotedByMe } : p
       ))
@@ -167,16 +190,16 @@ export default function Board() {
       // Revert
       setPosts(prev => prev.map(p =>
         p.id === id
-          ? { ...p, upvotes: p.upvotedByMe ? p.upvotes - 1 : p.upvotes + 1, upvotedByMe: !p.upvotedByMe }
+          ? { ...p, upvotes: p.upvotedByMe ? (p.upvotes ?? 0) - 1 : (p.upvotes ?? 0) + 1, upvotedByMe: !p.upvotedByMe }
           : p
       ))
     }
   }
 
-  const toggleExpand  = (id) => setExpanded(prev => toggle(prev, id))
-  const toggleReplies = (id) => setRepliesOpen(prev => toggle(prev, id))
+  const toggleExpand  = (id: string) => setExpanded(prev => toggle(prev, id))
+  const toggleReplies = (id: string) => setRepliesOpen(prev => toggle(prev, id))
 
-  const handleDeletePost = async (id) => {
+  const handleDeletePost = async (id: string) => {
     if (
       !window.confirm(
         'Delete this post and all of its replies? This cannot be undone.',
@@ -200,16 +223,16 @@ export default function Board() {
       })
     } catch (err) {
       console.error('Delete post error', err)
-      window.alert(err?.message || 'Could not delete this post.')
+      window.alert(errorText(err, 'Could not delete this post.'))
     } finally {
       setDeletingId(null)
     }
   }
 
   // ── Edit post (issue #7) ───────────────────────────────────────────────────
-  const startEditPost = (post) => {
+  const startEditPost = (post: Post) => {
     setEditingId(post.id)
-    setEditTitle(post.title)
+    setEditTitle(post.title ?? '')
     setEditBody(post.body || '')
     setEditError('')
   }
@@ -221,15 +244,15 @@ export default function Board() {
     setEditError('')
   }
 
-  const handleSaveEdit = async (id) => {
+  const handleSaveEdit = async (id: string) => {
     if (!editTitle.trim() || savingEdit) return
     setSavingEdit(true)
     setEditError('')
     try {
-      const data = await authRequest(`/api/board/posts/${id}`, {
+      const data = (await authRequest(`/api/board/posts/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ title: editTitle.trim(), body: editBody.trim() }),
-      })
+      })) as { post: { title?: string; body?: string } }
       setPosts((prev) =>
         prev.map((p) =>
           p.id === id
@@ -240,7 +263,7 @@ export default function Board() {
       cancelEditPost()
     } catch (err) {
       console.error('Edit post error', err)
-      setEditError(err?.message || 'Could not save your changes. Try again.')
+      setEditError(errorText(err, 'Could not save your changes. Try again.'))
     } finally {
       setSavingEdit(false)
     }
@@ -266,19 +289,19 @@ export default function Board() {
       await fetchPosts({ silent: true })
     } catch (err) {
       console.error('Post submit error', err)
-      setPostError(err?.message || 'Could not publish your post. Try again.')
+      setPostError(errorText(err, 'Could not publish your post. Try again.'))
     } finally {
       setSubmitting(false)
     }
   }
 
   // ── Submit reply ───────────────────────────────────────────────────────────
-  const handleSubmitReply = async (postId, text) => {
+  const handleSubmitReply = async (postId: string, text: string) => {
     if (!text.trim()) return
-    const data = await authRequest(`/api/board/posts/${postId}/reply`, {
+    const data = (await authRequest(`/api/board/posts/${postId}/reply`, {
       method: 'POST',
       body: JSON.stringify({ body: text, anon: false }),
-    })
+    })) as { reply: Reply }
     setPosts((prev) =>
       prev.map((p) =>
         p.id === postId
@@ -288,10 +311,10 @@ export default function Board() {
     )
   }
 
-  const [threadSummaries, setThreadSummaries] = useState({})
-  const [summarizing, setSummarizing] = useState(new Set())
+  const [threadSummaries, setThreadSummaries] = useState<Record<string, string>>({})
+  const [summarizing, setSummarizing] = useState<Set<string>>(new Set())
 
-  const summarizeThread = async (post) => {
+  const summarizeThread = async (post: Post) => {
     if (summarizing.has(post.id)) return
     setSummarizing((prev) => new Set(prev).add(post.id))
     try {
@@ -324,7 +347,7 @@ export default function Board() {
   }
 
   const allTags = useMemo(() => {
-    const counts = {}
+    const counts: Record<string, number> = {}
     for (const p of posts) {
       for (const t of p.tags || []) {
         counts[t] = (counts[t] || 0) + 1
@@ -346,7 +369,7 @@ export default function Board() {
     .sort((a, b) => {
       if (a.pinned && !b.pinned) return -1
       if (!a.pinned && b.pinned) return 1
-      return sort === 'popular' ? b.upvotes - a.upvotes : 0
+      return sort === 'popular' ? (b.upvotes ?? 0) - (a.upvotes ?? 0) : 0
     })
 
   return (
@@ -449,7 +472,7 @@ export default function Board() {
                   <p className="text-[13px] text-[var(--color-txt-1)] leading-snug mb-2">{liveCompose.betterTitle}</p>
                   <button
                     type="button"
-                    onClick={() => setNewTitle(liveCompose.betterTitle)}
+                    onClick={() => setNewTitle(liveCompose?.betterTitle ?? '')}
                     className="text-[12px] font-semibold text-[var(--color-accent)] hover:underline"
                   >
                     Use this title
@@ -465,8 +488,8 @@ export default function Board() {
                   <button
                     type="button"
                     onClick={() =>
-                      setNewBody((prev) => {
-                        const add = liveCompose.bodyAddOn.trim()
+                      setNewBody((prev: string) => {
+                        const add = (liveCompose?.bodyAddOn ?? '').trim()
                         if (!prev.trim()) return add
                         return `${prev.trim()}\n\n${add}`
                       })
@@ -477,13 +500,13 @@ export default function Board() {
                   </button>
                 </div>
               )}
-              {liveCompose?.tags?.length > 0 && (
+              {(liveCompose?.tags?.length ?? 0) > 0 && (
                 <div className="mt-2 pt-2 border-t border-[var(--color-border)]/60">
                   <p className="text-[10px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wide mb-1.5">
                     Likely tags after you post
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {liveCompose.tags.map((tag) => (
+                    {(liveCompose?.tags || []).map((tag) => (
                       <span
                         key={tag}
                         className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-txt-2)]"
@@ -673,7 +696,7 @@ export default function Board() {
                         Pinned
                       </span>
                     )}
-                    {post.hot && !post.pinned && (
+                    {Boolean(post.hot) && !post.pinned && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md bg-[var(--color-events-bg)] text-[var(--color-events-color)]">
                         Trending
                       </span>
@@ -739,9 +762,9 @@ export default function Board() {
                   </button>
                   )}
 
-                  {editingId !== post.id && post.tags?.length > 0 && (
+                  {editingId !== post.id && (post.tags?.length ?? 0) > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-3">
-                      {post.tags.map((tag) => (
+                      {(post.tags || []).map((tag) => (
                         <span
                           key={tag}
                           className="text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-[var(--color-accent-bg)] text-[var(--color-accent)] border border-[var(--color-accent)]/15"
@@ -765,7 +788,7 @@ export default function Board() {
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-4 pt-3 border-t border-[var(--color-border)] text-[12px] text-[var(--color-txt-3)]">
                     <span className="inline-flex items-center gap-2 text-[var(--color-txt-2)]">
                       <span className="w-7 h-7 rounded-full bg-[var(--color-accent-bg)] text-[var(--color-accent)] text-[11px] font-bold flex items-center justify-center">
-                        {post.user.charAt(0).toUpperCase()}
+                        {(post.user ?? '').charAt(0).toUpperCase()}
                       </span>
                       <span className="font-medium">{post.user}</span>
                     </span>
@@ -851,7 +874,7 @@ export default function Board() {
                               <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{reply.body}</p>
                               <div className="flex items-center gap-2 mt-2 text-[11px] text-[var(--color-txt-3)]">
                                 <span className="w-5 h-5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center text-[8px] font-bold text-[var(--color-txt-2)]">
-                                  {reply.user.charAt(0).toUpperCase()}
+                                  {(reply.user ?? '').charAt(0).toUpperCase()}
                                 </span>
                                 <span className="font-medium text-[var(--color-txt-2)]">{reply.user}</span>
                                 <span>·</span>
@@ -917,10 +940,18 @@ export default function Board() {
   )
 }
 
-function ReplyInput({ onSubmit, threadTitle = '', threadBody = '' }) {
+function ReplyInput({
+  onSubmit,
+  threadTitle = '',
+  threadBody = '',
+}: {
+  onSubmit: (text: string) => Promise<void> | void
+  threadTitle?: string
+  threadBody?: string
+}) {
   const [text, setText] = useState('')
   const [replyError, setReplyError] = useState('')
-  const [replyTip, setReplyTip] = useState(null)
+  const [replyTip, setReplyTip] = useState<string | null>(null)
   const [replyTipLoading, setReplyTipLoading] = useState(false)
 
   useEffect(() => {
@@ -960,7 +991,7 @@ function ReplyInput({ onSubmit, threadTitle = '', threadBody = '' }) {
         }
         setReplyTip(data.replyTip?.trim() || null)
       } catch (e) {
-        if (e?.name !== 'AbortError' && !cancelled) setReplyTip(null)
+        if ((e as { name?: string })?.name !== 'AbortError' && !cancelled) setReplyTip(null)
       } finally {
         if (!cancelled) setReplyTipLoading(false)
       }
@@ -981,7 +1012,7 @@ function ReplyInput({ onSubmit, threadTitle = '', threadBody = '' }) {
       setReplyTip(null)
     } catch (err) {
       console.error('Reply submit error', err)
-      setReplyError(err?.message || 'Could not post your reply. Try again.')
+      setReplyError(errorText(err, 'Could not post your reply. Try again.'))
     }
   }
 
@@ -1051,7 +1082,7 @@ function loadBoardDraft() {
   }
 }
 
-function saveBoardDraft(title, body) {
+function saveBoardDraft(title: string, body: string) {
   try {
     if (!title.trim() && !body.trim()) {
       localStorage.removeItem(BOARD_DRAFT_KEY)
@@ -1063,14 +1094,14 @@ function saveBoardDraft(title, body) {
   }
 }
 
-function toggle(set, id) {
+function toggle(set: Set<string>, id: string) {
   const next = new Set(set)
   if (next.has(id)) next.delete(id)
   else next.add(id)
   return next
 }
 
-function formatRelative(isoString) {
+function formatRelative(isoString: string | null | undefined) {
   if (!isoString) return ''
   const diff = Date.now() - new Date(isoString).getTime()
   const mins  = Math.floor(diff / 60000)
