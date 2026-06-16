@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion'
 import { getActiveAds, trackAdEvent } from '../../lib/spotlightApi'
-import SpotlightCard from './SpotlightCard'
+import SpotlightCard, { type SpotlightAd } from './SpotlightCard'
 
 const SPONSOR_ROTATE_MS = 8000
 
@@ -9,16 +9,16 @@ const SPONSOR_ROTATE_MS = 8000
  * Sticky side-column sponsor banners for xl+ viewports. Left and right rails
  * show different sponsors when possible and rotate through the pool.
  */
-export default function SideSpotlightRail({ side = 'left' }) {
+export default function SideSpotlightRail({ side = 'left' }: { side?: 'left' | 'right' }) {
   const reducedMotion = usePrefersReducedMotion()
-  const [ads, setAds] = useState([])
+  const [ads, setAds] = useState<SpotlightAd[]>([])
   const [rotateIndex, setRotateIndex] = useState(0)
-  const impressionRef = useRef(null)
+  const impressionRef = useRef<string | null>(null)
 
   useEffect(() => {
     let active = true
     getActiveAds('side-rail', 10).then((list) => {
-      if (active) setAds(list)
+      if (active) setAds(list as SpotlightAd[])
     })
     return () => {
       active = false
@@ -57,7 +57,7 @@ export default function SideSpotlightRail({ side = 'left' }) {
       <SpotlightCard
         ad={currentAd}
         variant="rail"
-        onTap={() => trackAdEvent(currentAd.campaignId, 'tap')}
+        onTap={() => trackAdEvent(currentAd.campaignId ?? '', 'tap')}
       />
     </aside>
   )

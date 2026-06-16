@@ -4,11 +4,34 @@ import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion'
 
 const PHOTO_INTERVAL_MS = 4500
 
+export type SpotlightAd = {
+  campaignId?: string
+  imageUrls?: string[]
+  imageUrl?: string
+  ctaUrl?: string
+  ctaLabel?: string
+  headline?: string
+  body?: string
+  [key: string]: unknown
+}
+
+type SpotlightCardProps = {
+  ad?: SpotlightAd | null
+  /** compact = home widget, rail = side column */
+  variant?: 'compact' | 'rail'
+  onTap?: () => void
+  className?: string
+}
+
 /**
  * Shared sponsor banner: photo carousel, headline/body, click-through to website.
- * @param {'compact'|'rail'} variant compact = home widget, rail = side column
  */
-export default function SpotlightCard({ ad, variant = 'compact', onTap, className = '' }) {
+export default function SpotlightCard({
+  ad,
+  variant = 'compact',
+  onTap,
+  className = '',
+}: SpotlightCardProps) {
   const reducedMotion = usePrefersReducedMotion()
   const photos = useMemo(() => {
     const urls = ad?.imageUrls?.length ? ad.imageUrls : (ad?.imageUrl ? [ad.imageUrl] : [])
