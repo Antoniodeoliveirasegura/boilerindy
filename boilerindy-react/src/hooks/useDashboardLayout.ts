@@ -7,32 +7,23 @@ import {
   saveLocalLayout,
 } from '../lib/dashboardLayoutStore'
 
-/**
- * Owns the customizable home dashboard layout (issue #52).
- *
- * Lifecycle:
- * - Initial state is the cached layout (instant paint) or the default.
- * - On mount / user change it GETs /api/me/dashboard (the cross-device source of
- *   truth) and adopts it; if that fails it falls back to localStorage, then to
- *   the default — so a brand-new user always sees DEFAULT_LAYOUT.
- * - Every mutation is normalized, written to localStorage immediately, and
- *   PUT to the server (fire-and-forget; the local copy keeps the UI responsive
- *   if the network drops).
- *
- * All layout values are run through normalizeLayout (the shared validator) so
- * unknown ids and bad sizes can never reach render.
- *
- * @param {string | null | undefined} userId backend user id (from useAuth)
- */
-export function useDashboardLayout(userId) {
-  const [layout, setLayout] = useState(() => loadLocalLayout(userId) || defaultLayout())
+// Owns the customizable home dashboard layout (issue #52). All layout values are
+// run through normalizeLayout (the shared validator) so unknown ids and bad
+// sizes can never reach render. Migrated to TypeScript (issue #20).
+
+export type DashboardWidget = { id: string; visible: boolean; size: string }
+
+export function useDashboardLayout(userId: string | null | undefined) {
+  const [layout, setLayout] = useState<DashboardWidget[]>(
+    () => loadLocalLayout(userId) || defaultLayout(),
+  )
   const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const data = await authRequest('/api/me/dashboard')
+        const data = (await authRequest('/api/me/dashboard')) as { layout?: unknown }
         if (cancelled) return
         const next = normalizeLayout(data?.layout)
         setLayout(next)
@@ -51,7 +42,7 @@ export function useDashboardLayout(userId) {
 
   // Single write path: normalize, cache locally, and sync to the server.
   const commit = useCallback(
-    (next) => {
+    (next: DashboardWidget[]) => {
       const normalized = normalizeLayout(next)
       setLayout(normalized)
       saveLocalLayout(userId, normalized)
@@ -65,10 +56,9 @@ export function useDashboardLayout(userId) {
     [userId],
   )
 
-  // Move a widget one slot up/down among the *visible* widgets (skips hidden
-  // entries so keyboard reordering matches what the user sees). dir: -1 | +1.
+  // Move a widget one slot up/down among the *visible* widgets. dir: -1 | +1.
   const move = useCallback(
-    (id, dir) => {
+    (id: string, dir: number) => {
       const idx = layout.findIndex((w) => w.id === id)
       if (idx < 0) return
       let target = idx + dir
@@ -88,7 +78,7 @@ export function useDashboardLayout(userId) {
 
   // Drag-and-drop reorder: drop `fromId` onto `toId`'s slot.
   const reorder = useCallback(
-    (fromId, toId) => {
+    (fromId: string, toId: string) => {
       if (!fromId || fromId === toId) return
       const from = layout.findIndex((w) => w.id === fromId)
       const to = layout.findIndex((w) => w.id === toId)
@@ -103,17 +93,14 @@ export function useDashboardLayout(userId) {
   )
 
   const setVisible = useCallback(
-    (id, visible) => {
+    (id: string, visible: boolean) => {
       commit(layout.map((w) => (w.id === id ? { ...w, visible } : w)))
     },
     [layout, commit],
   )
 
-  // Set a widget's display width ('quarter' | 'half' | 'three-quarter' | 'full').
-  // normalizeLayout (inside commit) clamps anything unexpected, so the UI can
-  // pass a stepped-up/down value without re-validating here.
   const setSize = useCallback(
-    (id, size) => {
+    (id: string, size: string) => {
       commit(layout.map((w) => (w.id === id ? { ...w, size } : w)))
     },
     [layout, commit],
