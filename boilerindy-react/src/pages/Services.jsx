@@ -275,6 +275,13 @@ export default function Services() {
               </div>
               <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Buy and sell textbooks, furniture, and more.</div>
             </Link>
+            <Link to="/friends" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
+              <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
+                <Icon name="users" size={16} />
+                People
+              </div>
+              <div className="text-[12px] text-[var(--color-txt-2)] mt-1">Meet classmates who share your courses.</div>
+            </Link>
             <Link to="/settings" className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline">
               <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
                 <Icon name="settings" size={16} />

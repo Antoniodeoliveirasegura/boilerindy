@@ -34,6 +34,7 @@ const Guide = lazy(() => import('./pages/Guide'))
 const StudyGroups = lazy(() => import('./pages/StudyGroups'))
 const Perks = lazy(() => import('./pages/Perks'))
 const Marketplace = lazy(() => import('./pages/Marketplace'))
+const Friends = lazy(() => import('./pages/Friends'))
 const Dining = lazy(() => import('./pages/Dining'))
 const Transit = lazy(() => import('./pages/Transit'))
 const Services = lazy(() => import('./pages/Services'))
@@ -181,6 +182,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Marketplace />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/friends"
+                element={
+                  <RequireAuth>
+                    <Friends />
                   </RequireAuth>
                 }
               />
