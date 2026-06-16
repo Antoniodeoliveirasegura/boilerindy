@@ -2,19 +2,44 @@ import { useMemo } from 'react'
 import Icon from './Icons'
 import { listPrograms, getProgram, matchProgress } from '../../../src/degreePrograms.mjs'
 
+type DegreeGrade = {
+  courseName: string
+  letterGrade: string
+  creditHours: number
+}
+
+type DegreeProgressProps = {
+  major: string | null
+  onChangeMajor: (id: string | null) => void
+  grades: DegreeGrade[]
+}
+
+type ReqCourse = { code: string; name: string; credits: number; done: boolean }
+type ReqGroup = {
+  name: string
+  total: number
+  doneCount: number
+  note?: string
+  courses: ReqCourse[]
+}
+type ProgressData = {
+  doneCourses: number
+  listedCourses: number
+  doneCredits: number
+  listedCredits: number
+  groups: ReqGroup[]
+}
+
 /**
  * Degree planner view (issue #18): a major selector + the program's required
  * courses, auto-checked against the student's tracked grades. Curated, sourced
  * data — shown as a planning aid (selectives/gen-ed are ranges, not auto-tracked).
- *
- * @param {{ major: string|null, onChangeMajor: (id: string|null) => void,
- *   grades: {courseName: string, letterGrade: string, creditHours: number}[] }} props
  */
-export default function DegreeProgress({ major, onChangeMajor, grades }) {
+export default function DegreeProgress({ major, onChangeMajor, grades }: DegreeProgressProps) {
   const programs = useMemo(() => listPrograms(), [])
   const program = getProgram(major)
-  const progress = useMemo(
-    () => (program ? matchProgress(program, grades) : null),
+  const progress = useMemo<ProgressData | null>(
+    () => (program ? (matchProgress(program, grades) as ProgressData) : null),
     [program, grades],
   )
 
@@ -44,7 +69,7 @@ export default function DegreeProgress({ major, onChangeMajor, grades }) {
         </select>
       </div>
 
-      {!program ? (
+      {!program || !progress ? (
         <p className="text-[13px] text-[var(--color-txt-2)] mt-2">
           Pick your major to see the required courses and check them off automatically as you log
           grades.
