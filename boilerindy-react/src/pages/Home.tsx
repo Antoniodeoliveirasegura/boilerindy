@@ -40,13 +40,13 @@ const quickActionTemplates = [
 // Quick actions widget width -> internal grid columns. At quarter width the
 // actions stack into a single vertical column; wider widths fan them out. Full
 // class strings keep Tailwind's scanner happy (it can't read computed names).
-const QUICK_ACTIONS_GRID_CLASS = {
+const QUICK_ACTIONS_GRID_CLASS: Record<string, string> = {
   quarter: 'grid-cols-1',
   half: 'grid-cols-2',
   'three-quarter': 'grid-cols-2 lg:grid-cols-3',
   full: 'grid-cols-2 lg:grid-cols-4',
 }
-function quickActionsGridClass(size) {
+function quickActionsGridClass(size: string) {
   return QUICK_ACTIONS_GRID_CLASS[size] || QUICK_ACTIONS_GRID_CLASS.full
 }
 
@@ -65,7 +65,7 @@ Requirements:
 - Last: notable campus or career events this week, or say none scheduled.
 - Stay under 160 words. Write in second person ("you"). Be warm and skimmable.`
 
-const homeEventCategory = {
+const homeEventCategory: Record<string, { label: string; badge: string; dot: string }> = {
   campus_event: {
     label: 'Campus Event',
     badge: 'bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-400',
@@ -83,12 +83,12 @@ const homeEventCategory = {
   },
 }
 
-function isSameLocalDay(isoOrDate, now) {
+function isSameLocalDay(isoOrDate: string | Date, now: Date) {
   return new Date(isoOrDate).toDateString() === now.toDateString()
 }
 
 /** Event still has time left today (not fully ended). All-day (midnight start) stays for the whole local day. */
-function isStillRelevantToday(item, now) {
+function isStillRelevantToday(item: any, now: Date) {
   const start = new Date(item.startTime)
   const end = item.endTime ? new Date(item.endTime) : null
   const likelyAllDay = start.getHours() === 0 && start.getMinutes() === 0
@@ -100,7 +100,7 @@ function isStillRelevantToday(item, now) {
   return start >= now
 }
 
-function filterTodayRelevantEvents(items, now) {
+function filterTodayRelevantEvents(items: any[], now: Date) {
   return (items || [])
     .filter(
       (item) =>
@@ -108,10 +108,10 @@ function filterTodayRelevantEvents(items, now) {
         isSameLocalDay(item.startTime, now) &&
         isStillRelevantToday(item, now),
     )
-    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
 }
 
-function formatDashboardEventTime(startTime, endTime) {
+function formatDashboardEventTime(startTime: string, endTime?: string | null) {
   const start = new Date(startTime)
   if (start.getHours() === 0 && start.getMinutes() === 0) return 'All day'
   const startLabel = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -126,21 +126,21 @@ const fallbackMenuPreview = {
   sides: ['Caesar Salad', 'Roasted Veggies', 'Garlic Bread'],
 }
 
-const colorMap = {
+const colorMap: Record<string, string> = {
   map: 'bg-[var(--color-map-bg)] text-[var(--color-map-color)]',
   dining: 'bg-[var(--color-dining-bg)] text-[var(--color-dining-color)]',
   bus: 'bg-[var(--color-bus-bg)] text-[var(--color-bus-title)]',
   events: 'bg-[var(--color-events-bg)] text-[var(--color-events-color)]',
 }
 
-function getGreeting(now) {
+function getGreeting(now: Date) {
   const hour = now.getHours()
   if (hour < 12) return 'Good morning'
   if (hour < 17) return 'Good afternoon'
   return 'Good evening'
 }
 
-function getCurrentDate(now) {
+function getCurrentDate(now: Date) {
   return now.toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'long',
@@ -149,7 +149,7 @@ function getCurrentDate(now) {
   })
 }
 
-function formatTimeRange(startTime, endTime) {
+function formatTimeRange(startTime: string, endTime?: string | null) {
   const start = new Date(startTime)
   const end = endTime ? new Date(endTime) : null
   const startLabel = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -157,7 +157,7 @@ function formatTimeRange(startTime, endTime) {
   return endLabel ? `${startLabel} – ${endLabel}` : startLabel
 }
 
-function formatDuration(minutes) {
+function formatDuration(minutes: number) {
   if (minutes <= 0) return '0m'
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
@@ -166,11 +166,11 @@ function formatDuration(minutes) {
   return `${hours}h ${mins}m`
 }
 
-function getMinutesBetween(later, earlier) {
+function getMinutesBetween(later: Date, earlier: Date) {
   return Math.max(0, Math.round((later.getTime() - earlier.getTime()) / 60000))
 }
 
-function deriveScheduleState(items, now) {
+function deriveScheduleState(items: any[], now: Date) {
   const safeItems = (items || []).filter(
     (item) => item != null && typeof item === 'object' && item.startTime != null && item.startTime !== '',
   )
@@ -181,7 +181,7 @@ function deriveScheduleState(items, now) {
       endDate: item.endTime ? new Date(item.endTime) : new Date(item.startTime),
     }))
     .filter((item) => !Number.isNaN(item.startDate.getTime()))
-    .sort((a, b) => a.startDate - b.startDate)
+    .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
 
   const currentClass = normalized.find((item) => item.startDate <= now && item.endDate > now && !shouldExcludeFromSchedule(item)) || null
   const futureItems = normalized.filter((item) => item.startDate > now && !shouldExcludeFromSchedule(item))
@@ -232,7 +232,7 @@ const AVG_STOP_MINUTES = 2
  * Find the index of the stop closest to a given lat/lon within the ordered
  * stop list. Returns -1 if no stop is within 300m.
  */
-function findStopIndex(routeStops, lat, lon) {
+function findStopIndex(routeStops: any[], lat: number, lon: number) {
   let bestIdx = -1
   let bestD = 300
   for (let i = 0; i < routeStops.length; i++) {
@@ -249,7 +249,15 @@ function findStopIndex(routeStops, lat, lon) {
  * Plain-language ETA from this bus to the user's nearest stop on its route.
  * Falls back to a generic description when user location or stop data is missing.
  */
-function describeBusEta(vehicle, route, nearestBusStop, routeStops, speed, moving, userLoc) {
+function describeBusEta(
+  vehicle: any,
+  route: any,
+  nearestBusStop: any,
+  routeStops: any[],
+  speed: number,
+  moving: boolean,
+  userLoc: { lat: number; lon: number } | null,
+) {
   if (!routeStops?.length) {
     if (!moving) return `${route.shortName} bus is stopped`
     return `${route.shortName} bus is moving at ${Math.round(speed)} mph`
@@ -305,7 +313,7 @@ function describeBusEta(vehicle, route, nearestBusStop, routeStops, speed, movin
 }
 
 /** Avoid "Today 12:00 AM" for calendar blocks that start at local midnight (common all-day pattern). */
-function formatSuggestionEventTiming(item, now) {
+function formatSuggestionEventTiming(item: any, now: Date) {
   if (!item?.startTime) return 'Today'
   const start = new Date(item.startTime)
   const end = item.endTime ? new Date(item.endTime) : null
@@ -327,9 +335,23 @@ function formatSuggestionEventTiming(item, now) {
   return `${dayPart} · ${timePart}`
 }
 
-function buildSuggestions({ freeMinutes, nextClass, currentClass, diningStatus, upcomingEvents, now }) {
-  const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const list = []
+function buildSuggestions({
+  freeMinutes,
+  nextClass,
+  currentClass,
+  diningStatus,
+  upcomingEvents,
+  now,
+}: {
+  freeMinutes: number
+  nextClass: any
+  currentClass: any
+  diningStatus: any
+  upcomingEvents: any[]
+  now: Date
+}) {
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const list: Array<{ icon: string; text: string; time: string; variant: string; sub?: string }> = []
 
   // Currently in class
   if (currentClass && freeMinutes === 0) {
@@ -438,22 +460,23 @@ export default function Home() {
   const { getFirstName, onboarding, user, authConfig } = useAuth()
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
-  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(user?.id)
-  const { summary: gpaSummary } = useGradeTracker(user?.id)
+  const userId = user?.id as string | undefined
+  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(userId)
+  const { summary: gpaSummary } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
-  const [classes, setClasses] = useState([])
+  const [classes, setClasses] = useState<any[]>([])
   const [classLoadError, setClassLoadError] = useState('')
-  const [calendarItems, setCalendarItems] = useState([])
+  const [calendarItems, setCalendarItems] = useState<any[]>([])
   const [calendarLoadError, setCalendarLoadError] = useState('')
   const [calendarLoading, setCalendarLoading] = useState(true)
 
-  const [transitVehicles, setTransitVehicles] = useState([])
-  const [transitStops, setTransitStops] = useState([])
-  const [transitRouteMap, setTransitRouteMap] = useState(() => ({ ...TRANLOC_ROUTE_ALIASES }))
+  const [transitVehicles, setTransitVehicles] = useState<any[]>([])
+  const [transitStops, setTransitStops] = useState<any[]>([])
+  const [transitRouteMap, setTransitRouteMap] = useState<Record<number, number>>(() => ({ ...TRANLOC_ROUTE_ALIASES }))
   const [transitLoading, setTransitLoading] = useState(true)
   const [transitError, setTransitError] = useState('')
-  const [transitUpdated, setTransitUpdated] = useState(null)
-  const [userLocation, setUserLocation] = useState(null) // { lat, lon }
+  const [transitUpdated, setTransitUpdated] = useState<Date | null>(null)
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null) // { lat, lon }
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -464,10 +487,10 @@ export default function Home() {
     )
   }, [])
 
-  const [diningPreview, setDiningPreview] = useState(null)
-  const [diningStatus, setDiningStatus] = useState(null) // { name, is_open, hours, weekly_hours }
+  const [diningPreview, setDiningPreview] = useState<{ items: string[] } | null>(null)
+  const [diningStatus, setDiningStatus] = useState<any>(null) // { name, is_open, hours, weekly_hours }
 
-  const [boardPreview, setBoardPreview] = useState([])
+  const [boardPreview, setBoardPreview] = useState<any[]>([])
   const [boardLoading, setBoardLoading] = useState(true)
   const [boardError, setBoardError] = useState('')
 
@@ -479,9 +502,9 @@ export default function Home() {
     return `ai-week-ahead-${monday.toISOString().slice(0, 10)}`
   }
 
-  function readCachedWeekDigest() {
+  function readCachedWeekDigest(): string | null {
     try {
-      const raw = JSON.parse(localStorage.getItem(getWeekDigestStorageKey()))
+      const raw = JSON.parse(localStorage.getItem(getWeekDigestStorageKey()) || 'null')
       return typeof raw === 'string' && raw.trim() ? raw : null
     } catch {
       return null
@@ -539,7 +562,7 @@ export default function Home() {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled || !data?.ok || !Array.isArray(data.locations)) return
-        const tower = data.locations.find((l) => l.slug === 'tower-dining') || data.locations[0]
+        const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
         if (!tower) return
         const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' })
         const todayHrs = tower.weekly_hours?.[todayName]
@@ -549,8 +572,8 @@ export default function Home() {
           hours: todayHrs || tower.hours,
           weekly_hours: tower.weekly_hours || null,
         })
-        const allItems = (tower.stations || []).flatMap((s) => s.items || [])
-        const names = allItems.map((i) => i.name).filter(Boolean)
+        const allItems = (tower.stations || []).flatMap((s: any) => s.items || [])
+        const names = allItems.map((i: any) => i.name).filter(Boolean)
         if (names.length > 0) {
           setDiningPreview({ items: names.slice(0, 8) })
         }
@@ -566,14 +589,14 @@ export default function Home() {
     ;(async () => {
       setBoardLoading(true)
       try {
-        const data = await authRequest('/api/board/posts?sort=recent')
+        const data = (await authRequest('/api/board/posts?sort=recent')) as { posts?: any[] }
         if (cancelled) return
         setBoardPreview((data.posts || []).slice(0, 3))
         setBoardError('')
       } catch (e) {
         if (!cancelled) {
           setBoardPreview([])
-          setBoardError(e?.message || 'Could not load board.')
+          setBoardError(e instanceof Error ? e.message : 'Could not load board.')
         }
       } finally {
         if (!cancelled) setBoardLoading(false)
@@ -601,14 +624,14 @@ export default function Home() {
       ])
       if (cancelled) return
       if (classesResult.status === 'fulfilled') {
-        setClasses(classesResult.value.items || [])
+        setClasses((classesResult.value as { items?: any[] }).items || [])
         setClassLoadError('')
       } else {
         setClasses([])
         setClassLoadError(classesResult.reason?.message || 'Could not load classes.')
       }
       if (calResult.status === 'fulfilled') {
-        setCalendarItems(calResult.value.items || [])
+        setCalendarItems((calResult.value as { items?: any[] }).items || [])
         setCalendarLoadError('')
       } else {
         setCalendarItems([])
@@ -654,7 +677,7 @@ export default function Home() {
         setTransitUpdated(new Date())
       } catch (e) {
         if (!cancelled) {
-          setTransitError(e?.message || 'Could not load live buses.')
+          setTransitError(e instanceof Error ? e.message : 'Could not load live buses.')
           setTransitVehicles([])
         }
       }
@@ -718,7 +741,7 @@ export default function Home() {
     const mapped = (transitVehicles || []).map((v) => {
       let canon = canonicalFromMap(transitRouteMap, v.RouteID)
       const reportedRoute = transitRoutes.find((r) => r.id === canon)
-      if (reportedRoute && !isRouteActiveNow(reportedRoute)) {
+      if (reportedRoute && canon != null && !isRouteActiveNow(reportedRoute)) {
         const peerId = SCHEDULE_PEERS[canon]
         if (peerId != null) {
           const peerRoute = transitRoutes.find((r) => r.id === peerId)
@@ -730,7 +753,7 @@ export default function Home() {
       const speed = Number(v.GroundSpeed) || 0
       const moving = speed > 0.5
 
-      const routeStops = getOrderedStopsForRoute(transitStops, canon, transitRouteMap)
+      const routeStops = getOrderedStopsForRoute(transitStops, canon ?? -1, transitRouteMap)
       const eta = describeBusEta(v, route, near, routeStops, speed, moving, userLocation)
 
       return {
@@ -791,7 +814,7 @@ export default function Home() {
       if (match) {
         const todayStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
         const closeTime = new Date(`${todayStr} ${match[1]}`)
-        if (!isNaN(closeTime)) {
+        if (!isNaN(closeTime.getTime())) {
           const minsUntilClose = Math.round((closeTime.getTime() - nowMs) / 60000)
           if (minsUntilClose > 0 && minsUntilClose <= 45) {
             alerts.push({
@@ -828,7 +851,7 @@ export default function Home() {
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const needsScheduleSource = onboarding?.needsScheduleSource
-  const purdueLinkingOff = authConfig?.supportsPurdueLink === false
+  const purdueLinkingOff = (authConfig as { supportsPurdueLink?: boolean })?.supportsPurdueLink === false
   const showSetupBanner = (needsPurdueConnection || needsScheduleSource) && !shouldSkipSetup()
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass
@@ -840,7 +863,7 @@ export default function Home() {
         !['campus_event', 'event', 'activity', 'class'].includes(item.category) &&
         new Date(item.startTime).getTime() >= now.getTime(),
     )
-    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     .slice(0, 5)
 
   // Registry: widget id → display title + a renderer that closes over the
@@ -848,7 +871,7 @@ export default function Home() {
   // card JSX verbatim (or null when it has nothing to show, e.g. smart alerts).
   // Only ids present here are rendered; unknown ids in a saved layout are
   // ignored. The saved layout drives order, size, and visibility.
-  const widgetRegistry = {
+  const widgetRegistry: Record<string, { title: string; render: (size?: string) => React.ReactNode }> = {
     'week-ahead': {
       title: 'Week ahead',
       render: () => (
@@ -926,8 +949,8 @@ export default function Home() {
       // Column count follows the widget's width so a narrow widget stacks its
       // actions vertically instead of squashing them. Full class strings are
       // written out so Tailwind's scanner emits them.
-      render: (size) => (
-        <div className={`grid gap-2.5 sm:gap-3 transition-all duration-700 opacity-100 translate-y-0 ${quickActionsGridClass(size)}`}>
+      render: (size?: string) => (
+        <div className={`grid gap-2.5 sm:gap-3 transition-all duration-700 opacity-100 translate-y-0 ${quickActionsGridClass(size ?? 'full')}`}>
 
         {quickActions.map(({ path, label, sub, icon, color }, idx) => (
           <Link
