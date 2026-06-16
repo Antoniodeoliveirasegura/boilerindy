@@ -7,7 +7,7 @@ import Icon from '../components/Icons'
 import { filterClassItemsForSchedulePage } from '../lib/scheduleFilters'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-const DAY_CODES = {
+const DAY_CODES: Record<string, string> = {
   Monday: 'M',
   Tuesday: 'T',
   Wednesday: 'W',
@@ -15,8 +15,32 @@ const DAY_CODES = {
   Friday: 'F',
 }
 
+type ClassItem = {
+  id?: string
+  title?: string
+  description?: string
+  location?: string
+  startTime?: string
+  endTime?: string | null
+}
+
+type ClassEntry = {
+  id: string
+  seriesKey: string
+  day: string
+  code: string
+  name: string
+  time: string
+  room: string
+  startTime: string
+  endTime?: string | null
+  color: string
+  count: number
+  pattern?: string
+}
+
 const colorOrder = ['blue', 'green', 'purple', 'orange']
-const colorConfig = {
+const colorConfig: Record<string, { bg: string; border: string; text: string; accent: string }> = {
   blue: {
     bg: 'bg-[#e4eef8] dark:bg-[#18283a]',
     border: 'border-[#6c8fb3]/18 dark:border-[#4f78a4]/30',
@@ -43,11 +67,11 @@ const colorConfig = {
   },
 }
 
-function getDayName(dateValue) {
+function getDayName(dateValue: string | Date) {
   return new Date(dateValue).toLocaleDateString(undefined, { weekday: 'long' })
 }
 
-function getTimeRange(startTime, endTime) {
+function getTimeRange(startTime: string, endTime: string | null | undefined) {
   const start = new Date(startTime)
   const end = endTime ? new Date(endTime) : null
   const startLabel = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -55,11 +79,11 @@ function getTimeRange(startTime, endTime) {
   return endLabel ? `${startLabel} – ${endLabel}` : startLabel
 }
 
-function getPatternLabel(days) {
+function getPatternLabel(days: string[]) {
   const normalized = [...new Set(days)].sort((a, b) => DAYS.indexOf(a) - DAYS.indexOf(b))
   const compact = normalized.map((day) => DAY_CODES[day] || day.slice(0, 1)).join('')
 
-  const knownPatterns = {
+  const knownPatterns: Record<string, string> = {
     MWF: 'MWF',
     MW: 'MW',
     MF: 'MF',
@@ -75,11 +99,12 @@ function getPatternLabel(days) {
   return knownPatterns[compact] || compact
 }
 
-function getWeeklyPattern(items) {
-  const seen = new Map()
-  const seriesDays = new Map()
+function getWeeklyPattern(items: ClassItem[]): Record<string, ClassEntry[]> {
+  const seen = new Map<string, ClassEntry>()
+  const seriesDays = new Map<string, Set<string>>()
 
   for (const item of items) {
+    if (!item.startTime) continue
     const day = getDayName(item.startTime)
     if (!DAYS.includes(day)) continue
 
@@ -110,7 +135,7 @@ function getWeeklyPattern(items) {
         id: key,
         seriesKey,
         day,
-        code: item.title,
+        code: item.title || '',
         name: item.description || 'Class meeting',
         time: getTimeRange(item.startTime, item.endTime),
         room: item.location || 'Location unavailable',
@@ -120,20 +145,22 @@ function getWeeklyPattern(items) {
         count: 1,
       })
     } else {
-      seen.get(key).count += 1
+      seen.get(key)!.count += 1
     }
   }
 
-  const grouped = Object.fromEntries(DAYS.map((day) => [day, []]))
+  const grouped: Record<string, ClassEntry[]> = Object.fromEntries(
+    DAYS.map((day) => [day, [] as ClassEntry[]]),
+  )
   for (const item of seen.values()) {
     grouped[item.day].push({
       ...item,
-      pattern: getPatternLabel(seriesDays.get(item.seriesKey) || [item.day]),
+      pattern: getPatternLabel([...(seriesDays.get(item.seriesKey) || [item.day])]),
     })
   }
 
   for (const day of DAYS) {
-    grouped[day].sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+    grouped[day].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
   }
 
   return grouped
@@ -146,14 +173,14 @@ export default function Schedule() {
     const today = getDayName(new Date())
     return DAYS.includes(today) ? today : 'Monday'
   })
-  const [selectedClass, setSelectedClass] = useState(null)
+  const [selectedClass, setSelectedClass] = useState<ClassEntry | null>(null)
   const [loading, setLoading] = useState(true)
   const [banner, setBanner] = useState('')
   const [termLabel, setTermLabel] = useState('')
-  const [classesMeta, setClassesMeta] = useState({ totalInTerm: 0 })
-  const [classItems, setClassItems] = useState([])
+  const [classesMeta, setClassesMeta] = useState<{ totalInTerm?: number }>({ totalInTerm: 0 })
+  const [classItems, setClassItems] = useState<ClassItem[]>([])
 
-  const handleFindRoom = (room) => {
+  const handleFindRoom = (room: string) => {
     const buildingCode = extractBuildingCode(room)
     if (buildingCode) {
       navigate(`/map?building=${buildingCode}&room=${encodeURIComponent(room)}`)
@@ -168,14 +195,17 @@ export default function Schedule() {
       setLoading(true)
       setBanner('')
       try {
-        const response = await authRequest('/api/me/classes?limit=500&mode=chronological')
+        const response = (await authRequest('/api/me/classes?limit=500&mode=chronological')) as {
+          items?: ClassItem[]
+          meta?: { totalInTerm?: number; selectedTermLabel?: string }
+        }
         if (cancelled) return
         setClassItems(response.items || [])
         setClassesMeta(response.meta || { totalInTerm: 0 })
         setTermLabel(response.meta?.selectedTermLabel || '')
       } catch (error) {
         if (!cancelled) {
-          setBanner(error.message || 'Could not load your class schedule.')
+          setBanner(error instanceof Error ? error.message : 'Could not load your class schedule.')
           setClassItems([])
         }
       } finally {
@@ -199,7 +229,7 @@ export default function Schedule() {
   // render (guarded by a class-list identity check) avoids the setState-in-effect
   // cascading-render warning. `classes` is derived from `selectedDay`, so its
   // identity already changes when the day changes.
-  const [prevClasses, setPrevClasses] = useState(null)
+  const [prevClasses, setPrevClasses] = useState<ClassEntry[] | null>(null)
   if (classes !== prevClasses) {
     setPrevClasses(classes)
     if (!classes.length) {
