@@ -20,10 +20,10 @@ export default function AdvertiserResetPassword() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [notice, setNotice] = useState(null)
+  const [notice, setNotice] = useState<{ type: string; text: string } | null>(null)
   const [done, setDone] = useState(false)
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (password.length < MIN_PASSWORD_LENGTH) {
       setNotice({ type: 'error', text: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` })
@@ -40,7 +40,7 @@ export default function AdvertiserResetPassword() {
       setDone(true)
       setTimeout(() => navigate('/advertise'), 2500)
     } catch (error) {
-      setNotice({ type: 'error', text: error.message || 'Could not reset your password. Please try again.' })
+      setNotice({ type: 'error', text: (error instanceof Error && error.message) || 'Could not reset your password. Please try again.' })
     } finally {
       setSubmitting(false)
     }
