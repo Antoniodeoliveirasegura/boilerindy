@@ -45,6 +45,7 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
+import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
@@ -3150,6 +3151,151 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
     })
   }
   res.status(204).end()
+})
+
+// ============================================================
+// Neighborhood Guide (issue #31) — student-submitted local recommendations.
+// Reuses board conventions: boardWriteRateLimit, boardProfanity, upvote toggle.
+// Requires db/supabase-neighborhood-guide.sql.
+// ============================================================
+
+const GUIDE_SQL_FILE = 'db/supabase-neighborhood-guide.sql'
+
+function respondGuideDbError(res, err) {
+  console.error('Guide DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Neighborhood Guide tables are missing in Supabase. In the dashboard: SQL Editor → run ${GUIDE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load the guide. Please try again.', status: 500 } })
+}
+
+app.get('/api/guide', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
+  try {
+    let query = supabase
+      .from('guide_recommendations')
+      .select('*')
+      .order('pinned', { ascending: false })
+      .order('upvote_count', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (category) query = query.eq('category', category)
+    const { data, error } = await query
+    if (error) throw error
+
+    const recs = data || []
+    let upvoted = new Set()
+    if (recs.length) {
+      const { data: votes } = await supabase
+        .from('guide_upvotes')
+        .select('rec_id')
+        .eq('user_id', userId)
+        .in('rec_id', recs.map((r) => r.id))
+      upvoted = new Set((votes || []).map((v) => v.rec_id))
+    }
+    res.json({ recommendations: recs.map((r) => mapGuideRow(r, userId, upvoted)) })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.post('/api/guide', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const { value, error: invalid } = validateGuideInput(req.body || {})
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+
+  const profanity = assertBoardPostTextAllowed(value.title, value.body)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+
+  try {
+    const { data, error } = await supabase
+      .from('guide_recommendations')
+      .insert({ user_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    res.status(201).json({ recommendation: mapGuideRow(data, req.currentUser.id) })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const recId = req.params.id
+  const userId = req.currentUser.id
+  try {
+    const { data: rec, error: recErr } = await supabase
+      .from('guide_recommendations')
+      .select('id, upvote_count')
+      .eq('id', recId)
+      .single()
+    if (recErr) throw recErr
+    if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
+
+    const { error: insErr } = await supabase
+      .from('guide_upvotes')
+      .insert({ rec_id: recId, user_id: userId, created_at: nowIso() })
+
+    let newCount
+    let upvotedByMe
+    if (insErr && insErr.code === '23505') {
+      await supabase.from('guide_upvotes').delete().eq('rec_id', recId).eq('user_id', userId)
+      newCount = Math.max(0, rec.upvote_count - 1)
+      upvotedByMe = false
+    } else if (insErr) {
+      throw insErr
+    } else {
+      newCount = rec.upvote_count + 1
+      upvotedByMe = true
+    }
+    await supabase.from('guide_recommendations').update({ upvote_count: newCount }).eq('id', recId)
+    res.json({ upvotes: newCount, upvotedByMe })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
+  if (!isUserAdmin(req.currentUser)) {
+    return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
+  }
+  const pinned = req.body?.pinned === true || req.body?.pinned === 'true'
+  try {
+    const { data, error } = await supabase
+      .from('guide_recommendations')
+      .update({ pinned })
+      .eq('id', req.params.id)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
+    res.json({ ok: true, pinned })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.delete('/api/guide/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('guide_recommendations')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) {
+      return res.status(404).json({ error: { message: 'Recommendation not found or not yours.', status: 404 } })
+    }
+    res.status(204).end()
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
 })
 
 // ============================================================
