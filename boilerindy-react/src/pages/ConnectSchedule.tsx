@@ -5,7 +5,33 @@ import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 
-const sourceConfigs = {
+type SourceConfig = {
+  label: string
+  description: string
+  placeholder: string
+  helpText: string
+  icon: string
+}
+
+type Source = {
+  id: string
+  label?: string
+  sourceType?: string
+  status?: string
+  lastSyncedAt?: string
+  lastError?: string
+}
+
+type SyncResponse = {
+  sync?: { itemCount?: number; skippedCount?: number }
+  warning?: string
+}
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
+const sourceConfigs: Record<string, SourceConfig> = {
   brightspace: {
     label: 'Brightspace Calendar',
     description: 'Import assignments, exams, labs, and due dates from Brightspace',
@@ -33,7 +59,7 @@ export default function ConnectSchedule() {
 
   const [icsUrl, setIcsUrl] = useState('')
   const [sourceType, setSourceType] = useState('brightspace')
-  const [sources, setSources] = useState([])
+  const [sources, setSources] = useState<Source[]>([])
   const [saving, setSaving] = useState(false)
 
   const [banner, setBanner] = useState(() => {
@@ -42,7 +68,7 @@ export default function ConnectSchedule() {
     }
     return ''
   })
-  const [bannerType, setBannerType] = useState(() => (
+  const [bannerType, setBannerType] = useState<'error' | 'info' | 'success'>(() => (
     searchParams.get('error') === 'purdue-link' ? 'error' : 'info'
   ))
   const [syncingAll, setSyncingAll] = useState(false)
@@ -58,11 +84,11 @@ export default function ConnectSchedule() {
 
   const loadData = useCallback(async () => {
     try {
-      const sourceRes = await authRequest('/api/me/sources')
+      const sourceRes = (await authRequest('/api/me/sources')) as { sources?: Source[] }
       setSources(sourceRes.sources || [])
     } catch (error) {
       setBannerType('error')
-      setBanner(error.message || 'Could not load linked sources.')
+      setBanner(errorText(error, 'Could not load linked sources.'))
     }
   }, [])
 
@@ -77,7 +103,7 @@ export default function ConnectSchedule() {
 
   // ── Step 1: Link Purdue ──
 
-  async function handleLinkPurdue(e) {
+  async function handleLinkPurdue(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!purdueEmail.trim() || !purdueEmail.includes('@')) {
       setBannerType('error')
@@ -97,7 +123,7 @@ export default function ConnectSchedule() {
       setBanner('Purdue account linked! You can now connect your calendars.')
     } catch (error) {
       setBannerType('error')
-      setBanner(error.message || 'Could not link Purdue account.')
+      setBanner(errorText(error, 'Could not link Purdue account.'))
     } finally {
       setLinking(false)
     }
@@ -105,7 +131,7 @@ export default function ConnectSchedule() {
 
   // ── Step 2: Connect source ──
 
-  const connectSource = useCallback(async (nextUrl = icsUrl) => {
+  const connectSource = useCallback(async (nextUrl: string = icsUrl) => {
     setBanner('')
     setBannerType('info')
     setSaving(true)
@@ -113,10 +139,10 @@ export default function ConnectSchedule() {
       const endpoint = sourceType === 'brightspace'
         ? '/api/sources/brightspace/schedule'
         : '/api/sources/purdue/schedule'
-      const response = await authRequest(endpoint, {
+      const response = (await authRequest(endpoint, {
         method: 'POST',
         body: JSON.stringify({ icsUrl: nextUrl, label: config.label }),
-      })
+      })) as SyncResponse
       setIcsUrl('')
       track('source_synced', { kind: 'connect', sourceType })
       await refreshSession()
@@ -139,23 +165,23 @@ export default function ConnectSchedule() {
       }
     } catch (error) {
       setBannerType('error')
-      setBanner(error.message || 'Could not connect this source.')
+      setBanner(errorText(error, 'Could not connect this source.'))
     } finally {
       setSaving(false)
     }
   }, [config.label, icsUrl, loadData, refreshSession, sourceType])
 
-  async function handleConnect(e) {
+  async function handleConnect(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     await connectSource()
   }
 
-  async function handleSync(sourceId) {
+  async function handleSync(sourceId: string) {
     setBanner('')
     setBannerType('info')
     setBanner('Syncing...')
     try {
-      const response = await authRequest(`/api/sync/${sourceId}`, { method: 'POST' })
+      const response = (await authRequest(`/api/sync/${sourceId}`, { method: 'POST' })) as SyncResponse
       track('source_synced', { kind: 'manual' })
       await refreshSession()
       await loadData()
@@ -175,7 +201,7 @@ export default function ConnectSchedule() {
       }
     } catch (error) {
       setBannerType('error')
-      setBanner(error.message || 'Could not sync source.')
+      setBanner(errorText(error, 'Could not sync source.'))
     }
   }
 
@@ -186,15 +212,15 @@ export default function ConnectSchedule() {
     setBannerType('info')
 
     let totalItems = 0
-    const failures = []
+    const failures: string[] = []
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i]
       setBanner(`Syncing ${i + 1} of ${sources.length}: ${source.label}…`)
       try {
-        const response = await authRequest(`/api/sync/${source.id}`, { method: 'POST' })
+        const response = (await authRequest(`/api/sync/${source.id}`, { method: 'POST' })) as SyncResponse
         totalItems += response?.sync?.itemCount ?? 0
       } catch (error) {
-        failures.push(`${source.label}: ${error.message || 'sync failed'}`)
+        failures.push(`${source.label}: ${errorText(error, 'sync failed')}`)
       }
     }
 
@@ -219,7 +245,7 @@ export default function ConnectSchedule() {
     setSyncingAll(false)
   }
 
-  async function handleDelete(sourceId) {
+  async function handleDelete(sourceId: string) {
     if (!confirm('Delete this source and all its imported items?')) return
     setBanner('')
     try {
@@ -230,7 +256,7 @@ export default function ConnectSchedule() {
       setBanner('Source deleted.')
     } catch (error) {
       setBannerType('error')
-      setBanner(error.message || 'Could not delete source.')
+      setBanner(errorText(error, 'Could not delete source.'))
     }
   }
 
@@ -242,13 +268,13 @@ export default function ConnectSchedule() {
 
   // ── Helpers ──
 
-  function getSourceTypeLabel(st) {
+  function getSourceTypeLabel(st: string | undefined) {
     if (st === 'brightspace_ical') return 'Brightspace'
     if (st === 'purdue_schedule_ical') return 'Class Schedule'
     return st
   }
 
-  function getSourceIcon(st) {
+  function getSourceIcon(st: string | undefined) {
     if (st === 'brightspace_ical') return 'document'
     return 'schedule'
   }
