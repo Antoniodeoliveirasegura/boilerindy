@@ -1,13 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import { configureAnalytics, track, flush } from './usageStats'
 
-function lastFetchPayload(fetchMock) {
-  const [, init] = fetchMock.mock.calls.at(-1)
+function lastFetchPayload(fetchMock: Mock) {
+  const call = fetchMock.mock.calls.at(-1)
+  if (!call) throw new Error('fetch was not called')
+  const [, init] = call
   return JSON.parse(init.body)
 }
 
 describe('analytics client', () => {
-  let fetchMock
+  let fetchMock: Mock
 
   beforeEach(() => {
     vi.useFakeTimers()

@@ -13,20 +13,34 @@ afterEach(() => {
 })
 
 // Minimal stand-in for the browser SpeechRecognition object.
-class FakeRecognition {
-  constructor() {
-    this.interimResults = false
-    this.continuous = true
-    this.lang = ''
-    this.onresult = null
-    this.onerror = null
-    this.onend = null
-    this.start = vi.fn()
-    this.stop = vi.fn()
-    this.abort = vi.fn()
+class FakeRecognition implements SpeechRecognitionLike {
+  interimResults = false
+  continuous = true
+  lang = ''
+  onresult: SpeechRecognitionLike['onresult'] = null
+  onerror: SpeechRecognitionLike['onerror'] = null
+  onend: SpeechRecognitionLike['onend'] = null
+  start = vi.fn()
+  stop = vi.fn()
+  abort = vi.fn()
+  emitResult(transcripts: string[]) {
+    this.onresult?.({ results: transcripts.map((t) => [{ transcript: t }]) })
   }
-  emitResult(transcripts) {
-    this.onresult({ results: transcripts.map((t) => [{ transcript: t }]) })
+}
+
+// Installs a fake recognizer as window.SpeechRecognition and returns a getter
+// for the instance the hook constructs. A regular function (not an arrow) is
+// required so the hook can `new` it; vi.fn isn't typed as constructable, hence
+// the cast to the ambient SpeechRecognitionCtor.
+function installFakeRecognition(): () => FakeRecognition {
+  let instance: FakeRecognition | undefined
+  window.SpeechRecognition = vi.fn(function () {
+    instance = new FakeRecognition()
+    return instance
+  }) as unknown as SpeechRecognitionCtor
+  return () => {
+    if (!instance) throw new Error('SpeechRecognition was not constructed')
+    return instance
   }
 }
 
@@ -42,24 +56,18 @@ describe('useSpeechRecognition (unsupported environment)', () => {
 
 describe('useSpeechRecognition (supported environment)', () => {
   test('configures the recognizer per spec', () => {
-    let instance
-    window.SpeechRecognition = vi.fn(function ctor() {
-      instance = new FakeRecognition()
-      return instance
-    })
+    const getInstance = installFakeRecognition()
     renderHook(() => useSpeechRecognition({ onResult: () => {} }))
+    const instance = getInstance()
     expect(instance.interimResults).toBe(true)
     expect(instance.continuous).toBe(false)
     expect(instance.lang).toBe('en-US')
   })
 
   test('start sets listening and stop clears it', () => {
-    let instance
-    window.SpeechRecognition = vi.fn(function ctor() {
-      instance = new FakeRecognition()
-      return instance
-    })
+    const getInstance = installFakeRecognition()
     const { result } = renderHook(() => useSpeechRecognition({ onResult: () => {} }))
+    const instance = getInstance()
     expect(result.current.supported).toBe(true)
 
     act(() => result.current.start())
@@ -73,13 +81,9 @@ describe('useSpeechRecognition (supported environment)', () => {
 
   test('fires onResult with the cumulative transcript', () => {
     const onResult = vi.fn()
-    let instance
-    window.SpeechRecognition = vi.fn(function ctor() {
-      instance = new FakeRecognition()
-      return instance
-    })
+    const getInstance = installFakeRecognition()
     renderHook(() => useSpeechRecognition({ onResult }))
-    act(() => instance.emitResult(['hello ', 'world']))
+    act(() => getInstance().emitResult(['hello ', 'world']))
     expect(onResult).toHaveBeenCalledWith('hello world')
   })
 })

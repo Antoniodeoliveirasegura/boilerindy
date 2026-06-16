@@ -10,7 +10,7 @@ import Privacy from './Privacy'
 
 afterEach(cleanup)
 
-function renderAt(path) {
+function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Privacy />

@@ -28,6 +28,7 @@ describe('taskPriorityStore', () => {
   })
 
   test('ignores invalid priority levels', () => {
+    // @ts-expect-error 'urgent' is not a valid Priority; the runtime guard must drop it
     savePriority('user-1', 'task-a', 'urgent')
     expect(loadPriorities('user-1')).toEqual({})
   })

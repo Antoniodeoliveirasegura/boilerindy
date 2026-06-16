@@ -91,6 +91,10 @@ export function getHomeClassItems(items: CalendarItem[] | null | undefined): Cal
 }
 
 /** Class Schedule page: drop noise rows; keep all other meetings (not the stricter Home heuristic). */
-export function filterClassItemsForSchedulePage(items: CalendarItem[] | null | undefined): CalendarItem[] {
-  return (items || []).filter((item) => item != null && !shouldExcludeFromSchedule(item))
+export function filterClassItemsForSchedulePage(
+  items: Array<CalendarItem | null> | null | undefined,
+): CalendarItem[] {
+  return (items || []).filter(
+    (item): item is CalendarItem => item != null && !shouldExcludeFromSchedule(item),
+  )
 }
