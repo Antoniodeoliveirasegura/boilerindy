@@ -24,9 +24,49 @@ const PLACEMENTS = [
   { value: 'transit', label: 'Transit' },
   { value: 'events', label: 'Events' },
 ]
-const PLACEMENT_LABELS = Object.fromEntries(PLACEMENTS.map((p) => [p.value, p.label]))
+const PLACEMENT_LABELS: Record<string, string> = Object.fromEntries(
+  PLACEMENTS.map((p) => [p.value, p.label]),
+)
 
-const STATUS_META = {
+type CampaignFormData = {
+  name: string
+  placement: string
+  startsOn: string
+  endsOn: string
+  headline: string
+  body: string
+  ctaLabel: string
+  ctaUrl: string
+  photoUrls: string[]
+}
+
+type Creative = {
+  headline?: string
+  body?: string
+  ctaLabel?: string
+  ctaUrl?: string
+  imageUrls?: string[]
+  imageUrl?: string
+}
+
+type Campaign = {
+  id: string
+  name?: string
+  placement?: string
+  status?: string
+  startsOn?: string | null
+  endsOn?: string | null
+  updatedAt?: string
+  creative?: Creative
+}
+
+type CampaignStats = { impressions: number; taps: number; ctr: number }
+
+function errorText(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback
+}
+
+const STATUS_META: Record<string, { label: string; cls: string }> = {
   draft: { label: 'Draft', cls: 'text-[var(--color-txt-2)] bg-[var(--color-bg-2)] border-[var(--color-border)]' },
   pending_review: { label: 'In review', cls: 'text-[var(--color-gold-dark)] bg-[var(--color-gold)]/20 border-[var(--color-gold)]/40' },
   active: { label: 'Live', cls: 'text-emerald-700 bg-emerald-500/15 border-emerald-500/30 dark:text-emerald-300' },
@@ -49,7 +89,7 @@ const EMPTY_FORM = {
   photoUrls: ['', '', ''],
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] || STATUS_META.draft
   return (
     <span className={`inline-flex items-center text-[11px] font-semibold px-2.5 py-1 rounded-full border ${meta.cls}`}>
@@ -59,8 +99,8 @@ function StatusBadge({ status }) {
 }
 
 // Build the API payload from form state; omit blank optional fields.
-function formToPayload(form) {
-  const creative = {}
+function formToPayload(form: CampaignFormData) {
+  const creative: Creative = {}
   if (form.headline.trim()) creative.headline = form.headline.trim()
   if (form.body.trim()) creative.body = form.body.trim()
   if (form.ctaLabel.trim()) creative.ctaLabel = form.ctaLabel.trim()
@@ -76,7 +116,7 @@ function formToPayload(form) {
   }
 }
 
-function campaignToForm(c) {
+function campaignToForm(c: Campaign): CampaignFormData {
   const urls = c.creative?.imageUrls?.length
     ? [...c.creative.imageUrls]
     : (c.creative?.imageUrl ? [c.creative.imageUrl] : [])
@@ -98,10 +138,27 @@ const inputCls =
   'w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow'
 const labelCls = 'block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5'
 
-function CampaignForm({ initial, submitting, onSubmit, onCancel, title, submitLabel }) {
+function CampaignForm({
+  initial,
+  submitting,
+  onSubmit,
+  onCancel,
+  title,
+  submitLabel,
+}: {
+  initial: CampaignFormData
+  submitting: boolean
+  onSubmit: (form: CampaignFormData) => void
+  onCancel: () => void
+  title: string
+  submitLabel: string
+}) {
   const [form, setForm] = useState(initial)
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
-  const setPhoto = (index) => (e) => setForm((f) => {
+  const set =
+    (key: keyof CampaignFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }))
+  const setPhoto = (index: number) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => {
     const photoUrls = [...(f.photoUrls || [])]
     photoUrls[index] = e.target.value
     return { ...f, photoUrls }
@@ -224,10 +281,20 @@ function CampaignForm({ initial, submitting, onSubmit, onCancel, title, submitLa
   )
 }
 
-function CampaignCard({ campaign, busy, onEdit, onStatus }) {
-  const { status } = campaign
+function CampaignCard({
+  campaign,
+  busy,
+  onEdit,
+  onStatus,
+}: {
+  campaign: Campaign
+  busy: boolean
+  onEdit: () => void
+  onStatus: (status: string) => void
+}) {
+  const status = campaign.status || 'draft'
   const showStats = STATS_STATUSES.has(status)
-  const [stats, setStats] = useState(null)
+  const [stats, setStats] = useState<CampaignStats | null>(null)
 
   // Load aggregate impression/tap stats once a campaign has been live; re-fetch
   // when its status changes (updatedAt moves) so newly-approved ones show data.
@@ -236,7 +303,8 @@ function CampaignCard({ campaign, busy, onEdit, onStatus }) {
     let active = true
     getCampaignStats(campaign.id)
       .then((data) => {
-        if (active) setStats(data.stats)
+        const d = data as { stats?: CampaignStats }
+        if (active && d.stats) setStats(d.stats)
       })
       .catch(() => {
         /* stats are non-critical */
@@ -251,7 +319,7 @@ function CampaignCard({ campaign, busy, onEdit, onStatus }) {
     : 'No dates set'
 
   // Status actions available to the advertiser (activation is owner-gated).
-  const actions = []
+  const actions: { label: string; to: string; primary?: boolean; danger?: boolean }[] = []
   if (status === 'draft') actions.push({ label: 'Submit for review', to: 'pending_review', primary: true })
   if (status === 'pending_review') actions.push({ label: 'Withdraw', to: 'draft' })
   if (status === 'active') actions.push({ label: 'Pause', to: 'paused' })
@@ -265,7 +333,7 @@ function CampaignCard({ campaign, busy, onEdit, onStatus }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-[15px] font-bold tracking-tight truncate">{campaign.name}</h3>
-          <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5">{PLACEMENT_LABELS[campaign.placement] || campaign.placement}</div>
+          <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5">{PLACEMENT_LABELS[campaign.placement ?? ''] || campaign.placement}</div>
         </div>
         <StatusBadge status={status} />
       </div>
@@ -320,16 +388,16 @@ function CampaignCard({ campaign, busy, onEdit, onStatus }) {
   )
 }
 
-export default function AdvertiserDashboard({ advertiser }) {
+export default function AdvertiserDashboard({ advertiser }: { advertiser?: { companyName?: string } }) {
   const { dark, toggleTheme } = useTheme()
   const navigate = useNavigate()
-  const [campaigns, setCampaigns] = useState([])
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [editingId, setEditingId] = useState(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [busyId, setBusyId] = useState(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
 
   const editingCampaign = useMemo(
     () => campaigns.find((c) => c.id === editingId) || null,
@@ -340,10 +408,11 @@ export default function AdvertiserDashboard({ advertiser }) {
     let active = true
     listCampaigns()
       .then((data) => {
-        if (active) setCampaigns(data.campaigns || [])
+        const d = data as { campaigns?: Campaign[] }
+        if (active) setCampaigns(d.campaigns || [])
       })
       .catch((e) => {
-        if (active) setError(e.message || 'Could not load campaigns.')
+        if (active) setError(errorText(e, 'Could not load campaigns.'))
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -353,42 +422,42 @@ export default function AdvertiserDashboard({ advertiser }) {
     }
   }, [])
 
-  const handleCreate = async (form) => {
+  const handleCreate = async (form: CampaignFormData) => {
     setSubmitting(true)
     setError(null)
     try {
-      const { campaign } = await createCampaign(formToPayload(form))
+      const { campaign } = (await createCampaign(formToPayload(form))) as { campaign: Campaign }
       setCampaigns((list) => [campaign, ...list])
       setCreating(false)
     } catch (e) {
-      setError(e.message || 'Could not create campaign.')
+      setError(errorText(e, 'Could not create campaign.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleEditSave = async (form) => {
+  const handleEditSave = async (form: CampaignFormData) => {
     setSubmitting(true)
     setError(null)
     try {
-      const { campaign } = await updateCampaign(editingId, formToPayload(form))
+      const { campaign } = (await updateCampaign(editingId ?? '', formToPayload(form))) as { campaign: Campaign }
       setCampaigns((list) => list.map((c) => (c.id === campaign.id ? campaign : c)))
       setEditingId(null)
     } catch (e) {
-      setError(e.message || 'Could not save campaign.')
+      setError(errorText(e, 'Could not save campaign.'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleStatus = async (id, status) => {
+  const handleStatus = async (id: string, status: string) => {
     setBusyId(id)
     setError(null)
     try {
-      const { campaign } = await updateCampaign(id, { status })
+      const { campaign } = (await updateCampaign(id, { status })) as { campaign: Campaign }
       setCampaigns((list) => list.map((c) => (c.id === campaign.id ? campaign : c)))
     } catch (e) {
-      setError(e.message || 'Could not update campaign.')
+      setError(errorText(e, 'Could not update campaign.'))
     } finally {
       setBusyId(null)
     }
