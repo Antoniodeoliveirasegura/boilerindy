@@ -240,7 +240,8 @@ Run these SQL files (in `db/`) **once** in your Supabase project's SQL Editor (S
 3. `db/supabase-calendar-feed.sql` — adds `users.calendar_feed_token` for the subscribable calendar feed
 4. `db/supabase-lost-found.sql` — adds the `lost_found_items` table for the Lost & Found feature
 5. `db/supabase-dashboard-layout.sql` — adds `users.dashboard_layout` for the customizable home dashboard
-6. `db/supabase-board-only.sql` — only needed if board tables are missing separately
+6. `db/supabase-services-layout.sql` — adds `users.services_layout` for the customizable Student Services board
+7. `db/supabase-board-only.sql` — only needed if board tables are missing separately
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 

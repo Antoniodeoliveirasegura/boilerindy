@@ -24,6 +24,7 @@ import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
 import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
+import { normalizeItemName } from './src/diningFavorites.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -36,6 +37,10 @@ import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
 import {
+  normalizeLayout as normalizeServicesLayout,
+  defaultLayout as defaultServicesLayout,
+} from './src/servicesLayout.mjs'
+import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
   MAX_TERM_NAME,
@@ -44,6 +49,19 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
+import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
+import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
+import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
+import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
+import { validateProfileInput, rankMatches, mapMatchCard } from './src/friendMatching.mjs'
+import {
+  matchIntent,
+  formatNextClass,
+  formatClassesToday,
+  formatDiningOpen,
+  formatAssignments,
+  ASSISTANT_OFFLINE_MESSAGE,
+} from './src/assistantRouter.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
@@ -2088,6 +2106,7 @@ app.get('/api/lost-found', requireAuth, async (req, res) => {
   let query = supabase
     .from('lost_found_items')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -2143,6 +2162,7 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
     .from('lost_found_items')
     .select('*')
     .eq('id', id)
+    .is('deleted_at', null)
     .maybeSingle()
   if (findErr || !existing) {
     return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
@@ -2191,11 +2211,14 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
 app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
+  // Soft delete: hide the item (set deleted_at) instead of removing it. Admins
+  // can restore or permanently delete it from the moderation view.
   const { data, error } = await supabase
     .from('lost_found_items')
-    .delete()
+    .update({ deleted_at: nowIso() })
     .eq('id', id)
     .eq('user_id', userId)
+    .is('deleted_at', null)
     .select('id')
   if (error) {
     console.error('DELETE /api/lost-found/:id:', error.message)
@@ -2228,6 +2251,32 @@ app.put('/api/me/dashboard', requireAuth, async (req, res) => {
   if (error) {
     console.error('PUT /api/me/dashboard:', error.message)
     return res.status(500).json({ error: { message: 'Could not save your dashboard layout.', status: 500 } })
+  }
+  res.json({ layout })
+})
+
+// ── Customizable Student Services board layout ───────────────────────────────
+// Per-user widget order/size/visibility for the /services page, stored as JSONB
+// on users. NULL means the user has never customized, so the client applies the
+// default layout. Mirrors /api/me/dashboard.
+
+app.get('/api/me/services', requireAuth, async (req, res) => {
+  const stored = req.currentUser.services_layout
+  // Never customized → return the default so the client always has a layout.
+  const layout = stored == null ? defaultServicesLayout() : normalizeServicesLayout(stored)
+  res.json({ layout })
+})
+
+app.put('/api/me/services', requireAuth, async (req, res) => {
+  // Sanitize untrusted client input against the widget allowlist before storing.
+  const layout = normalizeServicesLayout(req.body?.layout)
+  const { error } = await supabase
+    .from('users')
+    .update({ services_layout: layout })
+    .eq('id', req.currentUser.id)
+  if (error) {
+    console.error('PUT /api/me/services:', error.message)
+    return res.status(500).json({ error: { message: 'Could not save your services layout.', status: 500 } })
   }
   res.json({ layout })
 })
@@ -2447,16 +2496,32 @@ function buildAssistantCalendarContext(calendarData, now) {
   return parts.join('\n\n')
 }
 
+// Intent router (issue #45): answer common questions straight from the DB so
+// they cost zero Gemini tokens. Returns a reply string, or null to fall through.
+async function buildAssistantRouterReply(intent, req, now) {
+  const userId = req.currentUser.id
+  if (intent === 'next_class' || intent === 'classes_today') {
+    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 50 })
+    return intent === 'next_class' ? formatNextClass(items, now, TZ) : formatClassesToday(items, now, TZ)
+  }
+  if (intent === 'dining_open') {
+    const dining = await getDiningSnapshot({}).catch(() => null)
+    return formatDiningOpen(dining)
+  }
+  if (intent === 'assignments') {
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+    const items = await listCalendarItems(userId, {
+      categories: [...ASSISTANT_ASSIGNMENT_CATEGORIES],
+      limit: 50,
+      order: 'asc',
+      from: since,
+    })
+    return formatAssignments(items, now, TZ)
+  }
+  return null
+}
+
 app.post('/api/assistant', requireAuth, async (req, res) => {
-  if (!GEMINI_API_KEY) {
-    return res.status(503).json({ error: 'Assistant not configured.' })
-  }
-
-  const rlKey = req.session?.userId || req.ip || 'anon'
-  if (!geminiAllowed(rlKey, 20)) {
-    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
-  }
-
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })
@@ -2470,9 +2535,32 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
   }
 
+  // Router runs above the API-key check so structured asks work even with no key.
+  const lastUserMessage = [...messages].reverse().find((m) => m?.role === 'user')?.content || ''
+  const intent = matchIntent(lastUserMessage)
+  if (intent) {
+    try {
+      const routed = await buildAssistantRouterReply(intent, req, new Date())
+      if (routed) return res.json({ reply: routed, source: 'router' })
+    } catch {
+      /* fall through to the LLM path */
+    }
+  }
+
+  if (!GEMINI_API_KEY) {
+    // Friendly fallback instead of a bare 503 — the router still handles asks above.
+    return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
+  }
+
+  const rlKey = req.session?.userId || req.ip || 'anon'
+  if (!geminiAllowed(rlKey, 10)) {
+    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
+  }
+
   const now = new Date()
   const nowISOStr = now.toISOString()
-  const fourWeeksOut = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000).toISOString()
+  // Context trim (issue #45): 7 days instead of 4 weeks keeps the LLM prompt small.
+  const fourWeeksOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
   const nowLabel = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const timeLabel = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
 
@@ -2493,7 +2581,7 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
             .gte('start_time', lowerBound)
             .lte('start_time', fourWeeksOut)
             .order('start_time', { ascending: true })
-            .limit(100),
+            .limit(30),
           supabase
             .from('calendar_items')
             .select(sel)
@@ -2629,6 +2717,62 @@ app.get('/api/dining', publicReadRateLimit, async (req, res) => {
   }
 })
 
+// ---- Dining favorites (issue #49) ---------------------------------------
+// Per-user favorited menu-item names. The Dining page stars items and shows a
+// "your favorites on today's menu" section by cross-referencing these against
+// the public /api/dining snapshot. Requires db/supabase-dining-favorites.sql.
+
+app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('user_dining_favorites')
+      .select('item_name')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+    res.json({ favorites: (data || []).map((r) => r.item_name) })
+  } catch (e) {
+    // Degrade gracefully so the dining page still renders without favorites.
+    console.error('GET /api/me/dining/favorites:', e?.message || e)
+    res.json({ favorites: [], unavailable: true })
+  }
+})
+
+app.post('/api/me/dining/favorites', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const itemName = normalizeItemName(req.body?.itemName)
+  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  try {
+    const { error } = await supabase
+      .from('user_dining_favorites')
+      .upsert({ user_id: userId, item_name: itemName }, { onConflict: 'user_id,item_name' })
+    if (error) throw error
+    res.json({ ok: true, itemName })
+  } catch (e) {
+    console.error('POST /api/me/dining/favorites:', e?.message || e)
+    res.status(500).json({ error: { message: e.message || 'Could not save favorite' } })
+  }
+})
+
+app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
+  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  try {
+    const { error } = await supabase
+      .from('user_dining_favorites')
+      .delete()
+      .eq('user_id', userId)
+      .eq('item_name', itemName)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('DELETE /api/me/dining/favorites:', e?.message || e)
+    res.status(500).json({ error: { message: e.message || 'Could not remove favorite' } })
+  }
+})
+
 // ============================================================
 // Board API
 // ============================================================
@@ -2671,6 +2815,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   let query = supabase
     .from('board_posts')
     .select('*')
+    .is('deleted_at', null)
   if (sort === 'popular') {
     query = query
       .order('pinned', { ascending: false })
@@ -2963,6 +3108,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
     .from('board_posts')
     .select('id, reply_count')
     .eq('id', postId)
+    .is('deleted_at', null)
     .single()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
@@ -3000,6 +3146,7 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
     .from('board_posts')
     .select('id, upvote_count')
     .eq('id', postId)
+    .is('deleted_at', null)
     .single()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
@@ -3080,11 +3227,14 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
 app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
+  // Soft delete: hide the post (set deleted_at). Its replies stay attached and
+  // reappear if an admin restores it; a hard delete (admin) cascades them.
   const { data, error } = await supabase
     .from('board_posts')
-    .delete()
+    .update({ deleted_at: nowIso() })
     .eq('id', postId)
     .eq('user_id', userId)
+    .is('deleted_at', null)
     .select('id')
   if (error) return respondBoardDbError(res, error)
   if (!data?.length) {
@@ -3093,6 +3243,849 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
     })
   }
   res.status(204).end()
+})
+
+// ============================================================
+// Neighborhood Guide (issue #31) — student-submitted local recommendations.
+// Reuses board conventions: boardWriteRateLimit, boardProfanity, upvote toggle.
+// Requires db/supabase-neighborhood-guide.sql.
+// ============================================================
+
+const GUIDE_SQL_FILE = 'db/supabase-neighborhood-guide.sql'
+
+function respondGuideDbError(res, err) {
+  console.error('Guide DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Neighborhood Guide tables are missing in Supabase. In the dashboard: SQL Editor → run ${GUIDE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load the guide. Please try again.', status: 500 } })
+}
+
+app.get('/api/guide', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
+  try {
+    let query = supabase
+      .from('guide_recommendations')
+      .select('*')
+      .is('deleted_at', null)
+      .order('pinned', { ascending: false })
+      .order('upvote_count', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (category) query = query.eq('category', category)
+    const { data, error } = await query
+    if (error) throw error
+
+    const recs = data || []
+    let upvoted = new Set()
+    if (recs.length) {
+      const { data: votes } = await supabase
+        .from('guide_upvotes')
+        .select('rec_id')
+        .eq('user_id', userId)
+        .in('rec_id', recs.map((r) => r.id))
+      upvoted = new Set((votes || []).map((v) => v.rec_id))
+    }
+    res.json({ recommendations: recs.map((r) => mapGuideRow(r, userId, upvoted)) })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.post('/api/guide', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const { value, error: invalid } = validateGuideInput(req.body || {})
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+
+  const profanity = assertBoardPostTextAllowed(value.title, value.body)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+
+  try {
+    const { data, error } = await supabase
+      .from('guide_recommendations')
+      .insert({ user_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    res.status(201).json({ recommendation: mapGuideRow(data, req.currentUser.id) })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const recId = req.params.id
+  const userId = req.currentUser.id
+  try {
+    const { data: rec, error: recErr } = await supabase
+      .from('guide_recommendations')
+      .select('id, upvote_count')
+      .eq('id', recId)
+      .is('deleted_at', null)
+      .single()
+    if (recErr) throw recErr
+    if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
+
+    const { error: insErr } = await supabase
+      .from('guide_upvotes')
+      .insert({ rec_id: recId, user_id: userId, created_at: nowIso() })
+
+    let newCount
+    let upvotedByMe
+    if (insErr && insErr.code === '23505') {
+      await supabase.from('guide_upvotes').delete().eq('rec_id', recId).eq('user_id', userId)
+      newCount = Math.max(0, rec.upvote_count - 1)
+      upvotedByMe = false
+    } else if (insErr) {
+      throw insErr
+    } else {
+      newCount = rec.upvote_count + 1
+      upvotedByMe = true
+    }
+    await supabase.from('guide_recommendations').update({ upvote_count: newCount }).eq('id', recId)
+    res.json({ upvotes: newCount, upvotedByMe })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
+  if (!isUserAdmin(req.currentUser)) {
+    return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
+  }
+  const pinned = req.body?.pinned === true || req.body?.pinned === 'true'
+  try {
+    const { data, error } = await supabase
+      .from('guide_recommendations')
+      .update({ pinned })
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
+    res.json({ ok: true, pinned })
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+app.delete('/api/guide/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('guide_recommendations')
+      .update({ deleted_at: nowIso() })
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) {
+      return res.status(404).json({ error: { message: 'Recommendation not found or not yours.', status: 404 } })
+    }
+    res.status(204).end()
+  } catch (e) {
+    return respondGuideDbError(res, e)
+  }
+})
+
+// ============================================================
+// Study Group Finder (issue #33) — per-course groups from synced schedules.
+// Privacy is opt-in (default off); only opted-in users count as classmates.
+// Requires db/supabase-study-groups.sql.
+// ============================================================
+
+const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
+
+function respondStudyDbError(res, err) {
+  console.error('Study group DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Study Group tables are missing in Supabase. In the dashboard: SQL Editor → run ${STUDY_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load study groups. Please try again.', status: 500 } })
+}
+
+function mapStudyGroupRow(row, userId, memberCounts, myGroupIds) {
+  return {
+    id: row.id,
+    courseCode: row.course_code,
+    title: row.title,
+    description: row.description || '',
+    meetingInfo: row.meeting_info || '',
+    capacity: row.capacity ?? null,
+    memberCount: memberCounts.get(row.id) || 0,
+    joinedByMe: myGroupIds.has(row.id),
+    isMine: row.creator_id === userId,
+    createdAt: row.created_at,
+  }
+}
+
+async function loadStudyMembership(groupIds, userId) {
+  const memberCounts = new Map()
+  const myGroupIds = new Set()
+  if (groupIds.length) {
+    const { data: members } = await supabase
+      .from('study_group_members')
+      .select('group_id, user_id')
+      .in('group_id', groupIds)
+    for (const m of members || []) {
+      memberCounts.set(m.group_id, (memberCounts.get(m.group_id) || 0) + 1)
+      if (m.user_id === userId) myGroupIds.add(m.group_id)
+    }
+  }
+  return { memberCounts, myGroupIds }
+}
+
+// The user's detected courses + opt-in status + classmate counts (opted-in only).
+app.get('/api/me/study-groups/courses', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const optIn = Boolean(req.currentUser.study_groups_opt_in)
+    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
+    const courses = coursesFromClassItems(items)
+    const counts = new Map()
+    if (courses.length) {
+      const { data } = await supabase
+        .from('study_group_courses')
+        .select('course_code, user_id')
+        .in('course_code', courses)
+      for (const row of data || []) {
+        if (row.user_id === userId) continue // never count yourself
+        counts.set(row.course_code, (counts.get(row.course_code) || 0) + 1)
+      }
+    }
+    res.json({ optIn, courses: courses.map((c) => ({ code: c, classmateCount: counts.get(c) || 0 })) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Toggle opt-in; on opt-in, snapshot the user's course codes for classmate counts.
+app.patch('/api/me/study-groups/opt-in', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const optIn = req.body?.optIn === true || req.body?.optIn === 'true'
+  try {
+    const { error } = await supabase.from('users').update({ study_groups_opt_in: optIn }).eq('id', userId)
+    if (error) throw error
+    await supabase.from('study_group_courses').delete().eq('user_id', userId)
+    if (optIn) {
+      const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
+      const courses = coursesFromClassItems(items)
+      if (courses.length) {
+        await supabase.from('study_group_courses').insert(courses.map((c) => ({ user_id: userId, course_code: c })))
+      }
+    }
+    res.json({ ok: true, optIn })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Groups the current user belongs to.
+app.get('/api/me/study-groups', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data: mem, error } = await supabase
+      .from('study_group_members')
+      .select('group_id')
+      .eq('user_id', userId)
+    if (error) throw error
+    const ids = (mem || []).map((m) => m.group_id)
+    if (!ids.length) return res.json({ groups: [] })
+    const { data: groups } = await supabase.from('study_groups').select('*').in('id', ids)
+    const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
+    res.json({ groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// List groups for a course.
+app.get('/api/study-groups', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const course = normalizeCourseCode(req.query.course)
+  if (!course) return res.status(400).json({ error: { message: 'A valid course code is required.', status: 400 } })
+  try {
+    const { data: groups, error } = await supabase
+      .from('study_groups')
+      .select('*')
+      .eq('course_code', course)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    if (error) throw error
+    const ids = (groups || []).map((g) => g.id)
+    const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
+    res.json({ courseCode: course, groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Create a group (creator auto-joins).
+app.post('/api/study-groups', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const { value, error: invalid } = validateStudyGroupInput(req.body || {})
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  const profanity = assertBoardPostTextAllowed(value.title, value.description)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('study_groups')
+      .insert({ creator_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    await supabase.from('study_group_members').insert({ group_id: data.id, user_id: req.currentUser.id, joined_at: nowIso() })
+    res.status(201).json({
+      group: mapStudyGroupRow(data, req.currentUser.id, new Map([[data.id, 1]]), new Set([data.id])),
+    })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Join a group (respects capacity).
+app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const groupId = req.params.id
+  try {
+    const { data: group, error: gErr } = await supabase
+      .from('study_groups')
+      .select('id, capacity')
+      .eq('id', groupId)
+      .single()
+    if (gErr) throw gErr
+    if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
+
+    const { data: members } = await supabase.from('study_group_members').select('user_id').eq('group_id', groupId)
+    const already = (members || []).some((m) => m.user_id === userId)
+    if (!already && group.capacity && (members || []).length >= group.capacity) {
+      return res.status(409).json({ error: { message: 'This group is full.', status: 409 } })
+    }
+    const { error: insErr } = await supabase
+      .from('study_group_members')
+      .insert({ group_id: groupId, user_id: userId, joined_at: nowIso() })
+    if (insErr && insErr.code !== '23505') throw insErr
+    res.json({ ok: true, memberCount: (members || []).length + (already ? 0 : 1) })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Leave a group.
+app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { error } = await supabase
+      .from('study_group_members')
+      .delete()
+      .eq('group_id', req.params.id)
+      .eq('user_id', userId)
+    if (error) throw error
+    res.json({ ok: true })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// ============================================================
+// Campus Perks (issue #24) — admin-curated local deals for students.
+// GET is for everyone (active + unexpired); create/edit/delete require admin.
+// Requires db/supabase-campus-deals.sql.
+// ============================================================
+
+const DEALS_SQL_FILE = 'db/supabase-campus-deals.sql'
+
+function respondDealsDbError(res, err) {
+  console.error('Deals DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Campus Perks tables are missing in Supabase. In the dashboard: SQL Editor → run ${DEALS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load deals. Please try again.', status: 500 } })
+}
+
+app.get('/api/deals', requireAuth, async (req, res) => {
+  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
+  // Admins can request everything (incl. inactive/expired) to manage from the UI.
+  const includeAll = req.query.all === '1' && isUserAdmin(req.currentUser)
+  try {
+    let query = supabase.from('deals').select('*').is('deleted_at', null).order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
+    if (category) query = query.eq('category', category)
+    const { data, error } = await query
+    if (error) throw error
+    const rows = includeAll ? (data || []) : (data || []).filter((d) => isDealActive(d))
+    res.json({ deals: rows.map(mapDealRow), isAdmin: isUserAdmin(req.currentUser) })
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+function requireAdminJson(req, res) {
+  if (!isUserAdmin(req.currentUser)) {
+    res.status(403).json({ error: { message: 'Admin access required.', status: 403 } })
+    return false
+  }
+  return true
+}
+
+app.post('/api/deals', requireAuth, async (req, res) => {
+  if (!requireAdminJson(req, res)) return
+  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('deals')
+      .insert({ ...value, created_by: req.currentUser.id })
+      .select('*')
+      .single()
+    if (error) throw error
+    res.status(201).json({ deal: mapDealRow(data) })
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+app.patch('/api/deals/:id', requireAuth, async (req, res) => {
+  if (!requireAdminJson(req, res)) return
+  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  if (Object.keys(value).length === 0) {
+    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
+  }
+  try {
+    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').single()
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
+    res.json({ deal: mapDealRow(data) })
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+app.delete('/api/deals/:id', requireAuth, async (req, res) => {
+  if (!requireAdminJson(req, res)) return
+  try {
+    const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
+    res.status(204).end()
+  } catch (e) {
+    return respondDealsDbError(res, e)
+  }
+})
+
+// ============================================================
+// Student Marketplace (issue #32, Phase 1) — listings + reports.
+// Posting requires Purdue verification; 3 distinct reports auto-hide a listing.
+// Requires db/supabase-marketplace.sql.
+// ============================================================
+
+const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
+const MARKETPLACE_PAGE_SIZE = 24
+
+function respondMarketplaceDbError(res, err) {
+  console.error('Marketplace DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Marketplace tables are missing in Supabase. In the dashboard: SQL Editor → run ${MARKETPLACE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load the marketplace. Please try again.', status: 500 } })
+}
+
+// Browse active, non-hidden listings with optional category/text filter + paging.
+app.get('/api/marketplace', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
+  try {
+    let query = supabase
+      .from('marketplace_listings')
+      .select('*')
+      .is('deleted_at', null)
+      .eq('status', 'active')
+      .eq('hidden', false)
+      .order('created_at', { ascending: false })
+      .range(page * MARKETPLACE_PAGE_SIZE, page * MARKETPLACE_PAGE_SIZE + MARKETPLACE_PAGE_SIZE - 1)
+    if (category) query = query.eq('category', category)
+    if (q) query = query.ilike('title', `%${q}%`)
+    const { data, error } = await query
+    if (error) throw error
+    res.json({
+      listings: (data || []).map((r) => mapListingRow(r, userId)),
+      page,
+      hasMore: (data || []).length === MARKETPLACE_PAGE_SIZE,
+      canPost: Boolean(req.currentUser.purdue_linked_at),
+    })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// The current user's own listings (any status).
+app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .select('*')
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json({ listings: (data || []).map((r) => mapListingRow(r, userId)) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Listing detail — reveals seller contact (name + Purdue email) to signed-in users.
+app.get('/api/marketplace/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).single()
+    if (error) throw error
+    if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
+      return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
+    }
+    const { data: seller } = await supabase.from('users').select('display_name, email').eq('id', data.user_id).single()
+    res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.email }) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Create — requires Purdue verification.
+app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) => {
+  if (!req.currentUser.purdue_linked_at) {
+    return res.status(403).json({ error: { message: 'Link your Purdue account in setup before posting.', status: 403 } })
+  }
+  const { value, error: invalid } = validateListingInput(req.body || {}, { partial: false })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  const profanity = assertBoardPostTextAllowed(value.title, value.description)
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .insert({ user_id: req.currentUser.id, ...value })
+      .select('*')
+      .single()
+    if (error) throw error
+    res.status(201).json({ listing: mapListingRow(data, req.currentUser.id) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Edit / mark sold — owner only.
+app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  if (Object.keys(value).length === 0) {
+    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
+  }
+  if (value.title || value.description) {
+    const profanity = assertBoardPostTextAllowed(value.title || '', value.description || '')
+    if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .update({ ...value, updated_at: nowIso() })
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .select('*')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
+    res.json({ listing: mapListingRow(data[0], userId) })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Delete — owner or admin.
+app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    // Soft delete: hide the listing (set deleted_at). Admins purge it
+    // permanently from the moderation view.
+    let query = supabase
+      .from('marketplace_listings')
+      .update({ deleted_at: nowIso() })
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+    if (!isUserAdmin(req.currentUser)) query = query.eq('user_id', userId)
+    const { data, error } = await query.select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
+    res.status(204).end()
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters.
+app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const listingId = req.params.id
+  const reason = String(req.body?.reason || '').trim().slice(0, 500)
+  try {
+    const { error: insErr } = await supabase
+      .from('marketplace_reports')
+      .insert({ listing_id: listingId, reporter_id: userId, reason, created_at: nowIso() })
+    if (insErr && insErr.code !== '23505') throw insErr // ignore duplicate report
+
+    const { count } = await supabase
+      .from('marketplace_reports')
+      .select('reporter_id', { count: 'exact', head: true })
+      .eq('listing_id', listingId)
+    if ((count || 0) >= REPORTS_TO_HIDE) {
+      await supabase.from('marketplace_listings').update({ hidden: true }).eq('id', listingId)
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// ============================================================
+// Friend Matching (issue #17) — connect students who share courses.
+// Privacy is opt-in (discoverable, default off); pre-acceptance only display
+// name, interests, and shared-course count are exposed. Requires
+// db/supabase-friend-matching.sql.
+// ============================================================
+
+const FRIENDS_SQL_FILE = 'db/supabase-friend-matching.sql'
+
+function respondFriendsDbError(res, err) {
+  console.error('Friend matching DB error:', err?.message || err, err?.code)
+  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
+    return res.status(503).json({
+      error: {
+        message: `Friend Matching tables are missing in Supabase. In the dashboard: SQL Editor → run ${FRIENDS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message: 'Could not load matches. Please try again.', status: 500 } })
+}
+
+// My profile + discoverable status.
+app.get('/api/me/profile-card', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data, error } = await supabase.from('user_profiles').select('*').eq('user_id', userId).maybeSingle()
+    if (error) throw error
+    res.json({
+      bio: data?.bio || '',
+      interests: Array.isArray(data?.interests) ? data.interests : [],
+      discoverable: Boolean(data?.discoverable),
+    })
+  } catch (e) {
+    return respondFriendsDbError(res, e)
+  }
+})
+
+// Update profile; on discoverable=true, snapshot my course codes for matching.
+app.put('/api/me/profile-card', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const { value, error: invalid } = validateProfileInput(req.body || {})
+  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
+  const profanity = assertBoardPostTextAllowed(value.bio, value.interests.join(' '))
+  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .upsert({ user_id: userId, ...value, updated_at: nowIso() }, { onConflict: 'user_id' })
+    if (error) throw error
+    await supabase.from('friend_match_courses').delete().eq('user_id', userId)
+    if (value.discoverable) {
+      const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
+      const courses = coursesFromClassItems(items)
+      if (courses.length) {
+        await supabase.from('friend_match_courses').insert(courses.map((c) => ({ user_id: userId, course_code: c })))
+      }
+    }
+    res.json({ ok: true, ...value })
+  } catch (e) {
+    return respondFriendsDbError(res, e)
+  }
+})
+
+// Discoverable users sharing >=1 course, ranked by overlap. No email/schedule.
+app.get('/api/me/matches', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const me = await supabase.from('user_profiles').select('discoverable').eq('user_id', userId).maybeSingle()
+    if (!me.data?.discoverable) return res.json({ matches: [], discoverable: false })
+
+    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
+    const myCourses = new Set(coursesFromClassItems(items))
+    if (myCourses.size === 0) return res.json({ matches: [], discoverable: true })
+
+    // Candidate users who share at least one of my courses (excluding me).
+    const { data: courseRows, error: cErr } = await supabase
+      .from('friend_match_courses')
+      .select('user_id, course_code')
+      .in('course_code', [...myCourses])
+    if (cErr) throw cErr
+    const byUser = new Map()
+    for (const row of courseRows || []) {
+      if (row.user_id === userId) continue
+      if (!byUser.has(row.user_id)) byUser.set(row.user_id, [])
+      byUser.get(row.user_id).push(row.course_code)
+    }
+    if (byUser.size === 0) return res.json({ matches: [], discoverable: true })
+
+    // Exclude users with an existing connection (any direction/status).
+    const { data: conns } = await supabase
+      .from('connections')
+      .select('requester_id, addressee_id')
+      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+    const connected = new Set()
+    for (const c of conns || []) {
+      connected.add(c.requester_id === userId ? c.addressee_id : c.requester_id)
+    }
+
+    const candidates = [...byUser.entries()]
+      .filter(([uid]) => !connected.has(uid))
+      .map(([uid, courses]) => ({ userId: uid, courses }))
+    const ranked = rankMatches(myCourses, candidates)
+    if (ranked.length === 0) return res.json({ matches: [], discoverable: true })
+
+    // Hydrate names + interests for the ranked candidates (discoverable only).
+    const ids = ranked.map((r) => r.userId)
+    const { data: profiles } = await supabase.from('user_profiles').select('user_id, interests, discoverable').in('user_id', ids)
+    const { data: users } = await supabase.from('users').select('id, display_name').in('id', ids)
+    const profById = new Map((profiles || []).map((p) => [p.user_id, p]))
+    const userById = new Map((users || []).map((u) => [u.id, u]))
+
+    const matches = ranked
+      .filter((r) => profById.get(r.userId)?.discoverable)
+      .map((r) => {
+        const card = mapMatchCard(
+          { id: r.userId, display_name: userById.get(r.userId)?.display_name, interests: profById.get(r.userId)?.interests },
+          r.sharedCount,
+        )
+        return { ...card, sharedCourses: r.sharedCourses }
+      })
+    res.json({ matches, discoverable: true })
+  } catch (e) {
+    return respondFriendsDbError(res, e)
+  }
+})
+
+// Send a connection request (blocked silently if the addressee declined before).
+app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const addresseeId = String(req.body?.addresseeId || '').trim()
+  if (!addresseeId || addresseeId === userId) {
+    return res.status(400).json({ error: { message: 'A valid recipient is required.', status: 400 } })
+  }
+  try {
+    // If the addressee previously declined me, silently no-op (requester sees pending).
+    const prior = await supabase
+      .from('connections')
+      .select('status')
+      .eq('requester_id', userId)
+      .eq('addressee_id', addresseeId)
+      .maybeSingle()
+    if (prior.data?.status === 'declined') return res.json({ ok: true, status: 'pending' })
+
+    const { error } = await supabase
+      .from('connections')
+      .upsert(
+        { requester_id: userId, addressee_id: addresseeId, status: 'pending', created_at: nowIso() },
+        { onConflict: 'requester_id,addressee_id' },
+      )
+    if (error) throw error
+    res.json({ ok: true, status: 'pending' })
+  } catch (e) {
+    return respondFriendsDbError(res, e)
+  }
+})
+
+// Accept or decline an incoming request.
+app.patch('/api/connections/:requesterId', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const requesterId = req.params.requesterId
+  const action = String(req.body?.action || '').trim()
+  if (!['accept', 'decline'].includes(action)) {
+    return res.status(400).json({ error: { message: 'Action must be accept or decline.', status: 400 } })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('connections')
+      .update({ status: action === 'accept' ? 'accepted' : 'declined' })
+      .eq('requester_id', requesterId)
+      .eq('addressee_id', userId)
+      .eq('status', 'pending')
+      .select('requester_id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'No pending request from that user.', status: 404 } })
+    res.json({ ok: true, status: action === 'accept' ? 'accepted' : 'declined' })
+  } catch (e) {
+    return respondFriendsDbError(res, e)
+  }
+})
+
+// My connections: accepted (with contact email) + incoming pending requests.
+app.get('/api/me/connections', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const { data: conns, error } = await supabase
+      .from('connections')
+      .select('requester_id, addressee_id, status')
+      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+    if (error) throw error
+
+    const accepted = []
+    const incoming = []
+    const otherIds = new Set()
+    for (const c of conns || []) {
+      const other = c.requester_id === userId ? c.addressee_id : c.requester_id
+      otherIds.add(other)
+      if (c.status === 'accepted') accepted.push({ userId: other })
+      else if (c.status === 'pending' && c.addressee_id === userId) incoming.push({ userId: c.requester_id })
+    }
+    const { data: users } = otherIds.size
+      ? await supabase.from('users').select('id, display_name, email').in('id', [...otherIds])
+      : { data: [] }
+    const userById = new Map((users || []).map((u) => [u.id, u]))
+    // Accepted connections may see the Purdue email for contact; pending may not.
+    const acctOut = accepted.map((a) => ({
+      userId: a.userId,
+      displayName: userById.get(a.userId)?.display_name || 'Student',
+      email: userById.get(a.userId)?.email || null,
+    }))
+    const inOut = incoming.map((a) => ({
+      userId: a.userId,
+      displayName: userById.get(a.userId)?.display_name || 'Student',
+    }))
+    res.json({ accepted: acctOut, incoming: inOut })
+  } catch (e) {
+    return respondFriendsDbError(res, e)
+  }
 })
 
 // ============================================================
@@ -3785,6 +4778,75 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
   }
 
   res.json({ ok: true, cleared })
+})
+
+// ── Soft-delete moderation (admin) ───────────────────────────────────────────
+// User/owner delete endpoints only soft-delete (set deleted_at). Admins review
+// hidden content here and either restore it or permanently (hard) delete it —
+// this is the only hard-delete path. `type` is whitelisted so the param can
+// never reach an arbitrary table.
+const SOFT_DELETE_TABLES = {
+  board: { table: 'board_posts', label: 'Board post' },
+  marketplace: { table: 'marketplace_listings', label: 'Marketplace listing' },
+  'lost-found': { table: 'lost_found_items', label: 'Lost & Found item' },
+  guide: { table: 'guide_recommendations', label: 'Guide recommendation' },
+  deals: { table: 'deals', label: 'Deal' },
+}
+
+function softDeleteConfig(type) {
+  return Object.prototype.hasOwnProperty.call(SOFT_DELETE_TABLES, type) ? SOFT_DELETE_TABLES[type] : null
+}
+
+app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .select('*')
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false })
+    .limit(200)
+  if (error) {
+    console.error(`GET /api/admin/deleted/${req.params.type}:`, error.message)
+    return res.status(500).json({ error: { message: 'Could not load deleted items.', status: 500 } })
+  }
+  res.json({ items: data || [], label: cfg.label })
+})
+
+app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .update({ deleted_at: null })
+    .eq('id', req.params.id)
+    .not('deleted_at', 'is', null)
+    .select('id')
+  if (error) {
+    console.error(`restore ${req.params.type}:`, error.message)
+    return res.status(500).json({ error: { message: 'Could not restore the item.', status: 500 } })
+  }
+  if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  res.json({ ok: true })
+})
+
+app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  // Hard delete — permanent. Only already-soft-deleted rows can be purged, so a
+  // mistyped call can never wipe live content. (Board posts cascade to replies.)
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .delete()
+    .eq('id', req.params.id)
+    .not('deleted_at', 'is', null)
+    .select('id')
+  if (error) {
+    console.error(`hard delete ${req.params.type}:`, error.message)
+    return res.status(500).json({ error: { message: 'Could not permanently delete the item.', status: 500 } })
+  }
+  if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  res.status(204).end()
 })
 
 // ── First-party product analytics (issue #51) ───────────────────────────────

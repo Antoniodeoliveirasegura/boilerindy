@@ -1,5 +1,9 @@
 import { test as base, expect } from '@playwright/test'
 import { defaultLayout, normalizeLayout } from '../../src/dashboardLayout.mjs'
+import {
+  defaultLayout as defaultServicesLayout,
+  normalizeLayout as normalizeServicesLayout,
+} from '../../src/servicesLayout.mjs'
 
 // Stateful, in-memory mock of the BoilerIndy backend. Each test gets a fresh
 // `mockApi` controller that intercepts every `/api/**` call (and the Supabase
@@ -72,6 +76,7 @@ export const test = base.extend({
       feedUrl: null,
       // null === never customized; the GET handler then returns the default.
       dashboardLayout: null,
+      servicesLayout: null,
       // Grade tracker (#10) + degree planner (#18).
       grades: [],
       gradeSeq: 0,
@@ -203,6 +208,17 @@ export const test = base.extend({
       if (pathname === '/api/me/dashboard' && method === 'PUT') {
         state.dashboardLayout = normalizeLayout(bodyOf().layout)
         return json(route, 200, { layout: state.dashboardLayout })
+      }
+
+      // Customizable Student Services board layout. Mirrors /api/me/dashboard:
+      // GET returns the saved layout (or default), PUT sanitizes + stores it.
+      if (pathname === '/api/me/services' && method === 'GET') {
+        const layout = state.servicesLayout == null ? defaultServicesLayout() : normalizeServicesLayout(state.servicesLayout)
+        return json(route, 200, { layout })
+      }
+      if (pathname === '/api/me/services' && method === 'PUT') {
+        state.servicesLayout = normalizeServicesLayout(bodyOf().layout)
+        return json(route, 200, { layout: state.servicesLayout })
       }
 
       // Grade tracker (#10): user-scoped course CRUD. Shapes mirror

@@ -74,4 +74,27 @@ test.describe('Dashboard customization', () => {
     const after = await widgetOrder(page)
     expect(after.indexOf('board')).toBeLessThan(after.indexOf('dining'))
   })
+
+  test('reset uses a styled in-app dialog and restores defaults', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/dashboard')
+
+    await page.getByRole('button', { name: 'Customize' }).click()
+    await expect(page.getByRole('button', { name: 'Done' })).toBeVisible()
+
+    // Hide a default-visible widget so we can prove Reset brings it back.
+    await page.getByRole('button', { name: 'Hide Dining snapshot' }).click()
+    await expect(page.locator('[data-widget-id="dining"]')).toHaveCount(0)
+
+    // Reset opens the custom dialog (an accessible role=dialog), not window.confirm.
+    await page.getByRole('button', { name: 'Reset' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Reset dashboard?')).toBeVisible()
+
+    // Confirm → dialog closes and defaults are restored (Dining is back).
+    await dialog.getByRole('button', { name: 'Reset' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.locator('[data-widget-id="dining"]')).toHaveCount(1)
+  })
 })
