@@ -48,6 +48,12 @@ const AdminCampaigns = lazy(() => import('./pages/admin/AdminCampaigns'))
 const AdminAdvertisers = lazy(() => import('./pages/admin/AdminAdvertisers'))
 const AdminDeleted = lazy(() => import('./pages/admin/AdminDeleted'))
 
+// PROTOTYPE (dev-only): design playground for exploring website design directions.
+// Compiled out of production builds. Remove with src/pages/prototype/.
+const DesignPlayground = import.meta.env.DEV
+  ? lazy(() => import('./pages/prototype/DesignPlayground'))
+  : null
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -76,6 +82,10 @@ export default function App() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            {/* PROTOTYPE (dev-only): website design playground. Remove with src/pages/prototype/. */}
+            {DesignPlayground && (
+              <Route path="/design-playground" element={<DesignPlayground />} />
+            )}
             <Route element={<AppLayout />}>
               <Route
                 path="/setup"
