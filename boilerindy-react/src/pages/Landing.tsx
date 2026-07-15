@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import Icon from '../components/Icons'
+import SiteDisclaimer from '../components/SiteDisclaimer'
 import './marketing.css'
 
 // BoilerIndy public landing / marketing page (route: /, the front page).
@@ -397,9 +398,7 @@ export default function Landing() {
             Advertise with us
           </Link>
         </div>
-        <div className="text-[12px] text-[var(--color-txt-2)]">
-          A student-built campus companion for Purdue University Indianapolis · Not an official Purdue product
-        </div>
+        <SiteDisclaimer note="A student-built campus companion for Purdue University Indianapolis" />
       </footer>
     </div>
   )

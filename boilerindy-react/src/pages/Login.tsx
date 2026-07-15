@@ -5,6 +5,7 @@ import { useTheme } from '../context/ThemeContext'
 import { parseNextPath, registerSupabaseUser } from '../lib/authApi'
 import { sendPasswordResetEmail, signInWithEmail, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
+import SiteDisclaimer from '../components/SiteDisclaimer'
 
 const asideFeatures = [
   ['user', 'Create an account with your email'],
@@ -410,9 +411,7 @@ export default function Login() {
           </p>
         </div>
 
-        <p className="text-[11px] text-[var(--color-txt-3)] text-center">
-          Link your Purdue account later in setup · Not an official Purdue product
-        </p>
+        <SiteDisclaimer note="Link your Purdue account later in setup" />
       </main>
     </div>
   )
