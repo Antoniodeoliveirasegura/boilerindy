@@ -2,3 +2,9 @@
 # Flat node_modules (no symlinks) so installs work on exFAT/Windows drives
 # without symlink permissions. CI (Linux) is unaffected by the linker choice.
 nodeLinker: hoisted
+
+# Security override (issue #114): force the patched form-data across the tree.
+# It's pulled transitively via node-ical > axios; 4.0.6 fixes a CRLF-injection
+# advisory (GHSA form-data < 4.0.6). Patch-level bump, no API change.
+overrides:
+  form-data: '>=4.0.6'
