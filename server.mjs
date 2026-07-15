@@ -14,6 +14,11 @@ if (process.env.SENTRY_DSN) {
     environment: process.env.NODE_ENV || 'development',
     sendDefaultPii: false,
     tracesSampleRate: 0, // errors only — keeps the free tier roomy
+    // ponytail: route every console.error (the ~80 catch-and-log swallow points)
+    // to Sentry, instead of editing each catch block. Adds to the default
+    // integrations (uncaught + unhandledRejection stay on). Too noisy? Narrow to
+    // captureException() at the sites that matter, or drop levels to taste.
+    integrations: [Sentry.captureConsoleIntegration({ levels: ['error'] })],
     beforeSend: scrubSentryEvent,
   })
 }
