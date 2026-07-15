@@ -174,6 +174,13 @@ if (isProduction) {
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Lightweight liveness probe for uptime pings (issue #111). Defined before the
+// session middleware so warm-up pings don't allocate a session on every hit —
+// an external pinger hitting this every ~10 min keeps the Render service warm
+// and avoids the ~50s cold-start on the next real login.
+app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
 app.use(
   session({
     name: 'pih.sid',

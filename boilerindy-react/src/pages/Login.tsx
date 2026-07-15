@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, type BackendSession } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { parseNextPath, registerSupabaseUser } from '../lib/authApi'
 import { sendPasswordResetEmail, signInWithEmail, supabase } from '../lib/supabase'
@@ -14,7 +14,7 @@ const asideFeatures = [
 ]
 
 export default function Login() {
-  const { user, loading, refreshSession } = useAuth()
+  const { user, loading, refreshSession, applySession } = useAuth()
   const { dark, toggleTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -129,11 +129,11 @@ export default function Login() {
 
     setSubmitting(true)
     try {
-      // Clear any stale Supabase session so a failed client sign-in cannot
-      // overwrite the fresh backend session on shared devices.
-      await supabase.auth.signOut().catch(() => {})
-
       if (tab === 'signup') {
+        // Clear any stale local Supabase session so a failed client sign-in
+        // cannot leave another user's session on a shared device. Local scope
+        // avoids a network round-trip.
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
         await registerSupabaseUser(email.trim(), password, name.trim(), rememberMe)
         try {
           await signInWithEmail(email.trim(), password)
@@ -160,10 +160,20 @@ export default function Login() {
           )
         }
 
-        // Also sign in on the client Supabase (non-blocking — only needed for OAuth features)
-        try { await signInWithEmail(email.trim(), password) } catch { /* ok */ }
+        // The backend sign-in is authoritative: it set the session cookie AND
+        // returned the full payload. Apply it directly so the app is usable after
+        // a single round-trip — no client re-sign-in + refreshSession waterfall
+        // (issue #111).
+        applySession((data as { session?: BackendSession | null } | null)?.session ?? null)
 
-        await refreshSession()
+        // Establish the client Supabase session in the background — only needed
+        // for OAuth and silent re-hydration after a backend restart. Its
+        // onAuthStateChange listener reconciles the context session. On failure,
+        // clear any stale local session so it can't re-hydrate as another user.
+        void signInWithEmail(email.trim(), password).catch(() => {
+          void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        })
+
         navigate(parseNextPath(window.location.search), { replace: true })
       }
     } catch (error) {
