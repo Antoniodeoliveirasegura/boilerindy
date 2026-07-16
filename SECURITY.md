@@ -52,19 +52,18 @@ asking a maintainer to get in touch, without exploit specifics.
   (titles/times/locations). Available knobs if that ever needs tightening: lower
   `FEED_HORIZON_MONTHS` (`server.mjs`) or add an opt-in auth-gated variant.
 
-## Dependency status (as of the #114 review)
+## Dependency status
 
-- **form-data** (high — CRLF injection) — **FIXED** via a `>=4.0.6` override in
-  `pnpm-workspace.yaml`. Pulled transitively through `node-ical > axios`;
-  non-exploitable in our GET-only usage, but patched anyway.
-- **uuid `<11.1.1`** (moderate) — transitive via `node-ical` (uses uuid@10).
-  Non-exploitable: the advisory needs a `buf` argument that node-ical never
-  passes. Resolved by upgrading **node-ical 0.20 → 0.26+**, which drops
-  axios/uuid/form-data entirely. **Deferred to its own task**: 0.26 switched
-  recurrence handling (`rrule` → `rrule-temporal`), which
-  `src/scheduleSync.mjs::expandRecurringEvents` depends on, so it needs a real
-  ICS-parse regression check — the unit tests use synthetic fixtures and would
-  not catch a parser-shape change.
+- **node-ical 0.20 → 0.26 (#118)** — **DONE.** 0.26's only dependencies are
+  `rrule-temporal` + `temporal-polyfill`; the upgrade dropped `axios`,
+  `moment-timezone`, and `uuid` from the tree entirely. This cleared the
+  **uuid `<11.1.1`** moderate advisory (GHSA-w5hq-g745-h8pq) and removed
+  `form-data` along with axios — so the `>=4.0.6` override added in #114 was
+  deleted from `pnpm-workspace.yaml`. 0.26 swapped recurrence handling
+  (`rrule` → `rrule-temporal`), so `test/scheduleSyncParse.test.mjs` was added
+  as a real-ICS-parse regression check (the pure-core tests use synthetic
+  fixtures and would not catch a parser-shape change). `pnpm audit` (backend):
+  **0 vulnerabilities**.
 - **Frontend audit** (7× `undici`, high→low) — all transitive via
   `jsdom`/`vitest` (dev/test tooling, never shipped to the browser bundle). No
   production exposure; clear by bumping `vitest`/`jsdom` when convenient.
