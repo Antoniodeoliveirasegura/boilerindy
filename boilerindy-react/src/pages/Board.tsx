@@ -416,7 +416,7 @@ export default function Board() {
         </div>
       </header>
 
-      {/* Compose — scrollable so Post is never clipped on small viewports */}
+      {/* Compose - scrollable so Post is never clipped on small viewports */}
       <div
         className={`transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
           showForm ? 'max-h-[min(85vh,720px)] opacity-100 mb-8 overflow-y-auto overscroll-contain' : 'max-h-0 opacity-0 mb-0 overflow-hidden pointer-events-none'
@@ -452,7 +452,7 @@ export default function Board() {
             id="board-new-body"
             value={newBody}
             onChange={(e) => setNewBody(e.target.value)}
-            placeholder="Optional context — course, building, deadline…"
+            placeholder="Optional context - course, building, deadline…"
             className="input w-full text-[14px] px-4 py-3.5 resize-y min-h-[108px] mb-4 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
           />
 
@@ -727,7 +727,7 @@ export default function Board() {
                         id={`edit-body-${post.id}`}
                         value={editBody}
                         onChange={(e) => setEditBody(e.target.value)}
-                        placeholder="Optional context — course, building, deadline…"
+                        placeholder="Optional context - course, building, deadline…"
                         className="input w-full text-[14px] px-3 py-2.5 resize-y min-h-[88px] rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
                       />
                       {editError && (
@@ -926,7 +926,7 @@ export default function Board() {
                 <>
                   <p className="text-[16px] font-semibold text-[var(--color-txt-0)]">No threads yet</p>
                   <p className="text-[13px] text-[var(--color-txt-2)] mt-2 max-w-xs mx-auto leading-relaxed">
-                    Start the conversation — someone else is probably wondering the same thing.
+                    Start the conversation - someone else is probably wondering the same thing.
                   </p>
                   <button
                     type="button"

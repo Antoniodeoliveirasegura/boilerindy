@@ -33,7 +33,7 @@ type ProgressData = {
 /**
  * Degree planner view (issue #18): a major selector + the program's required
  * courses, auto-checked against the student's tracked grades. Curated, sourced
- * data — shown as a planning aid (selectives/gen-ed are ranges, not auto-tracked).
+ * data - shown as a planning aid (selectives/gen-ed are ranges, not auto-tracked).
  */
 export default function DegreeProgress({ major, onChangeMajor, grades }: DegreeProgressProps) {
   const programs = useMemo(() => listPrograms(), [])
@@ -155,7 +155,7 @@ export default function DegreeProgress({ major, onChangeMajor, grades }: DegreeP
 
           {/* Source + disclaimer */}
           <div className="mt-4 pt-3 border-t border-[var(--color-border)] text-[11px] text-[var(--color-txt-3)] leading-relaxed">
-            Planning aid only — selective and general-education credits aren&apos;t auto-tracked.
+            Planning aid only - selective and general-education credits aren&apos;t auto-tracked.
             Confirm with your advisor / MyPurduePlan.{' '}
             <a
               href={program.sourceUrl}

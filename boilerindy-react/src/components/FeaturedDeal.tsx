@@ -27,7 +27,7 @@ export default function FeaturedDeal() {
         setDeal(deals.find((d) => d.featured) || null)
       })
       .catch(() => {
-        /* optional UI — ignore failures (e.g. table not migrated yet) */
+        /* optional UI - ignore failures (e.g. table not migrated yet) */
       })
     return () => {
       active = false
@@ -50,7 +50,7 @@ export default function FeaturedDeal() {
           <div className="text-[11px] font-semibold text-[var(--color-gold-muted)] uppercase tracking-wider">Featured perk</div>
           <div className="text-[14px] font-medium text-[var(--color-txt-0)] truncate">
             {deal.businessName}
-            {deal.description ? <span className="text-[var(--color-txt-2)] font-normal"> — {deal.description}</span> : null}
+            {deal.description ? <span className="text-[var(--color-txt-2)] font-normal"> - {deal.description}</span> : null}
           </div>
         </div>
         <Icon name="chevronRight" size={16} className="text-[var(--color-txt-3)] ml-auto shrink-0" />

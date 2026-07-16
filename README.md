@@ -17,7 +17,7 @@ boilerindy/
 │   ├── gradeTracker.mjs            # Grade tracker + degree planner logic
 │   ├── advertiser*.mjs             # Advertiser portal (auth, campaigns, ad serving, admin)
 │   └── …                           # analytics, rate limiting, email, password hashing, etc.
-├── test/                       # Backend unit tests (node:test) — one *.test.mjs per module
+├── test/                       # Backend unit tests (node:test) - one *.test.mjs per module
 ├── e2e/                        # Playwright end-to-end tests
 ├── db/                         # Supabase SQL schema/migrations (run in the SQL Editor)
 │   ├── supabase-schema.sql         # Core DB schema (run once)
@@ -26,7 +26,7 @@ boilerindy/
 │   └── …                           # calendar feed, lost & found, dashboard, advertiser, analytics
 ├── scripts/                    # Admin / maintenance CLI scripts
 ├── docs/                       # Feature & ops documentation
-├── .env.example                # Backend env template — copy to .env
+├── .env.example                # Backend env template - copy to .env
 └── boilerindy-react/           # React + Vite frontend
     ├── src/
     │   ├── pages/                  # Route-level page components
@@ -34,24 +34,24 @@ boilerindy/
     │   ├── context/                # Auth and theme context
     │   └── lib/                    # API helpers, Supabase client, utilities
     ├── vite.config.js              # Vite config with dev proxy
-    └── .env.example                # Frontend env template — copy to .env
+    └── .env.example                # Frontend env template - copy to .env
 ```
 
 **Branches:**
-- `main` — production (deployed to Vercel + Render)
-- `develop` — local development and testing
+- `main` - production (deployed to Vercel + Render)
+- `develop` - local development and testing
 
 ---
 
 ## Local Development Setup
 
-This section explains how to run the full stack (frontend + backend) on your own machine. No hosted dev backend is needed — the backend runs locally and Vite proxies all API calls to it automatically.
+This section explains how to run the full stack (frontend + backend) on your own machine. No hosted dev backend is needed - the backend runs locally and Vite proxies all API calls to it automatically.
 
 ### Prerequisites
 
-- **Node.js 22+** — check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22.)
-- **npm** — comes with Node.js.
-- **Supabase project** — you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
+- **Node.js 22+** - check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22.)
+- **npm** - comes with Node.js.
+- **Supabase project** - you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
 
 ---
 
@@ -93,7 +93,7 @@ Open `.env` and fill in the values:
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Settings → API → service_role key |
 | `SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
 | `SESSION_SECRET` | Any long random string (e.g. `openssl rand -hex 32`) |
-| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com/app/apikey) — free tier works |
+| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com/app/apikey) - free tier works |
 | `PORT` | Leave as `3000` |
 | `HOST` | Leave as `127.0.0.1` |
 | `CLIENT_APP_URL` | Leave as `http://localhost:5173` |
@@ -133,7 +133,7 @@ Open `boilerindy-react/.env` and fill in:
 | `VITE_SUPABASE_URL` | Same Supabase URL as the backend |
 | `VITE_SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
 
-Leave `VITE_API_PROXY` commented out — it defaults to `http://127.0.0.1:3000` which is where the local backend runs.
+Leave `VITE_API_PROXY` commented out - it defaults to `http://127.0.0.1:3000` which is where the local backend runs.
 
 ---
 
@@ -188,7 +188,7 @@ In development, **you never need to set a backend URL in the frontend**. Vite au
 - `/api/*` → `http://127.0.0.1:3000/api/*`
 - `/auth/purdue/*` → `http://127.0.0.1:3000/auth/purdue/*`
 
-This is configured in `boilerindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Render backend — the frontend code never changes between environments.
+This is configured in `boilerindy-react/vite.config.js`. In production, Vercel rewrites handle the same routing to the Render backend - the frontend code never changes between environments.
 
 ---
 
@@ -216,9 +216,9 @@ Vite automatically tries 5174, 5175, etc. Check which port Vite actually started
 This should not happen with the Vite proxy active. If you see CORS errors, make sure you're accessing the app through Vite (`http://localhost:5173`) and not directly from `http://localhost:3000`.
 
 **`fetch failed` errors in the backend console**
-The backend makes outbound requests to Nutrislice (dining), TransLoc (transit), and Gemini (AI). These can fail when external services are down — it does not affect auth, calendar, or board features.
+The backend makes outbound requests to Nutrislice (dining), TransLoc (transit), and Gemini (AI). These can fail when external services are down - it does not affect auth, calendar, or board features.
 
-**Supabase errors — `table does not exist` or `schema cache`**
+**Supabase errors - `table does not exist` or `schema cache`**
 The database schema hasn't been applied. See the [Database setup](#database-setup) section below.
 
 ---
@@ -226,8 +226,8 @@ The database schema hasn't been applied. See the [Database setup](#database-setu
 ## What a teammate needs to do
 
 1. Get the Supabase credentials (URL, service role key, anon key) from the project owner.
-2. Follow steps 1–8 above.
-3. That's it — no Render account, no Vercel account, no separate backend hosting required.
+2. Follow steps 1-8 above.
+3. That's it - no Render account, no Vercel account, no separate backend hosting required.
 
 ---
 
@@ -235,13 +235,13 @@ The database schema hasn't been applied. See the [Database setup](#database-setu
 
 Run these SQL files (in `db/`) **once** in your Supabase project's SQL Editor (Supabase dashboard → SQL Editor):
 
-1. `db/supabase-schema.sql` — core tables: `users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`
-2. `db/supabase-user-tasks.sql` — tasks tables: `user_task_completions`, `user_manual_tasks`
-3. `db/supabase-calendar-feed.sql` — adds `users.calendar_feed_token` for the subscribable calendar feed
-4. `db/supabase-lost-found.sql` — adds the `lost_found_items` table for the Lost & Found feature
-5. `db/supabase-dashboard-layout.sql` — adds `users.dashboard_layout` for the customizable home dashboard
-6. `db/supabase-services-layout.sql` — adds `users.services_layout` for the customizable Student Services board
-7. `db/supabase-board-only.sql` — only needed if board tables are missing separately
+1. `db/supabase-schema.sql` - core tables: `users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`
+2. `db/supabase-user-tasks.sql` - tasks tables: `user_task_completions`, `user_manual_tasks`
+3. `db/supabase-calendar-feed.sql` - adds `users.calendar_feed_token` for the subscribable calendar feed
+4. `db/supabase-lost-found.sql` - adds the `lost_found_items` table for the Lost & Found feature
+5. `db/supabase-dashboard-layout.sql` - adds `users.dashboard_layout` for the customizable home dashboard
+6. `db/supabase-services-layout.sql` - adds `users.services_layout` for the customizable Student Services board
+7. `db/supabase-board-only.sql` - only needed if board tables are missing separately
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
@@ -249,9 +249,9 @@ All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXI
 
 ## Production deployment
 
-- **Frontend** — Vercel, auto-deploys from `main`
-- **Backend** — Render, running `node server.mjs`
-- **Routing** — `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
+- **Frontend** - Vercel, auto-deploys from `main`
+- **Backend** - Render, running `node server.mjs`
+- **Routing** - `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
 
 Do not merge dev-only env variables into `main`. Production secrets are configured in the Vercel and Render dashboards, not in this repo.
 
@@ -273,7 +273,7 @@ Each user can mint a private, subscribable calendar feed of their classes
 - `POST /api/me/calendar-feed/token` (auth required) creates or regenerates the
   feed token and returns the full URL. Regenerating **immediately invalidates**
   the previous URL.
-- `GET /feeds/calendar/<token>.ics` is **unauthenticated** — calendar apps
+- `GET /feeds/calendar/<token>.ics` is **unauthenticated** - calendar apps
   cannot log in, so the UUID v4 token is the only credential. It resolves to a
   single user, is rate-limited per IP, is never logged, and returns `404` for an
   unknown or malformed token. Treat the URL like a password.
@@ -314,7 +314,7 @@ npm install          # Install backend dependencies
 npm run dev          # Start backend on :3000
 npm run test:backend # Run backend unit tests (node:test)
 npm run test:e2e     # Run Playwright E2E suite (builds + previews the frontend,
-                     # mocks the backend — no Supabase creds needed)
+                     # mocks the backend - no Supabase creds needed)
 
 # From boilerindy-react/
 npm install          # Install frontend dependencies
@@ -329,6 +329,15 @@ node scripts/create-advertiser.mjs                       # mint an advertiser-po
 node scripts/review-campaign.mjs                         # approve a pending ad campaign
 node scripts/clear-purdue-link.mjs --email=you@gmail.com # clear a stale Purdue link
 ```
+
+## Conventions
+
+**No em or en dashes.** Use a plain hyphen (`-`) everywhere - UI copy, code
+comments, docs, and commit messages - instead of the em dash (U+2014) or the en
+dash (U+2013). They read as machine-generated, so this repo bans them: CI fails
+the build if either character appears anywhere in the source (the "No em/en
+dashes" step in `.github/workflows/ci.yml`). When you would reach for one, use a
+spaced hyphen ( - ), a comma, or a colon.
 
 ## License
 

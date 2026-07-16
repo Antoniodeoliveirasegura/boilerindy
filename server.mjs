@@ -6,14 +6,14 @@ import * as Sentry from '@sentry/node'
 import { scrubSentryEvent } from './src/sentryScrub.mjs'
 
 // Error tracking (issue #50). Plain error capture only (no auto-tracing, which
-// would need a pre-import hook). A missing DSN means Sentry is fully disabled —
+// would need a pre-import hook). A missing DSN means Sentry is fully disabled -
 // zero events in local dev; the human step is setting SENTRY_DSN on the host.
 if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     sendDefaultPii: false,
-    tracesSampleRate: 0, // errors only — keeps the free tier roomy
+    tracesSampleRate: 0, // errors only - keeps the free tier roomy
     // ponytail: route every console.error (the ~80 catch-and-log swallow points)
     // to Sentry, instead of editing each catch block. Adds to the default
     // integrations (uncaught + unhandledRejection stay on). Too noisy? Narrow to
@@ -181,7 +181,7 @@ app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
 // Lightweight liveness probe for uptime pings (issue #111). Defined before the
-// session middleware so warm-up pings don't allocate a session on every hit —
+// session middleware so warm-up pings don't allocate a session on every hit -
 // an external pinger hitting this every ~10 min keeps the Render service warm
 // and avoids the ~50s cold-start on the next real login.
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
@@ -250,7 +250,7 @@ const sourceSyncRateLimit = createRateLimiter({
   message: 'Too many sync requests. Please wait a few minutes before syncing again.',
 })
 // The .ics feed is unauthenticated (calendar apps cannot log in), so it is
-// keyed by IP. Calendar clients poll every 15–60 min; this budget tolerates
+// keyed by IP. Calendar clients poll every 15-60 min; this budget tolerates
 // that while blunting token-guessing sweeps.
 const calendarFeedRateLimit = createRateLimiter({
   name: 'calendar-feed',
@@ -266,7 +266,7 @@ const lostFoundWriteRateLimit = createRateLimiter({
   max: 30,
   message: 'You are posting too quickly. Take a short break and try again.',
 })
-// Sponsored ad impression/tap logging (advertiser-portal M3). Per-user budget —
+// Sponsored ad impression/tap logging (advertiser-portal M3). Per-user budget -
 // generous because a student scrolling the dashboard legitimately fires several
 // impressions, but capped to blunt automated inflation of an advertiser's stats.
 const adEventRateLimit = createRateLimiter({
@@ -544,7 +544,7 @@ function orderClassItemsForDisplay(items) {
 
 // Accepts either a userId or an already-loaded user row. Callers that already
 // have the user (e.g. the session endpoint) pass the object to avoid a
-// redundant re-fetch, and the two independent counts run in parallel — turning
+// redundant re-fetch, and the two independent counts run in parallel - turning
 // the session payload from 4 sequential Supabase round-trips into 2.
 async function getUserSummary(userOrId) {
   const user = userOrId && typeof userOrId === 'object' ? userOrId : await getUserById(userOrId)
@@ -1073,7 +1073,7 @@ async function verifySupabasePassword(email, password) {
 }
 
 // Move a pre-Supabase account (scrypt hash in public.users only) into Supabase
-// Auth. Returns false when the email already exists there — in that case
+// Auth. Returns false when the email already exists there - in that case
 // Supabase's password verdict is authoritative and the caller must reject.
 async function migrateLegacyUserToSupabaseAuth(userRow, password) {
   const { error } = await supabase.auth.admin.createUser({
@@ -2023,7 +2023,7 @@ app.get('/feeds/calendar/:file', calendarFeedRateLimit, async (req, res) => {
     return res.status(404).type('text/plain').send('Not found')
   }
 
-  // Look the user up by token only — never logged, never reflected back.
+  // Look the user up by token only - never logged, never reflected back.
   const { data: user, error: userErr } = await supabase
     .from('users')
     .select('id')
@@ -2323,8 +2323,8 @@ function geminiAllowed(key, max) {
   return true
 }
 
-const CAMPUS_SYSTEM_PROMPT = `You are BoilerIndy — a helpful campus assistant for Purdue University Indianapolis (Purdue Indy / IUPUI).
-You have access to real-time data about the student's schedule, dining, and campus events — all provided in the context block below.
+const CAMPUS_SYSTEM_PROMPT = `You are BoilerIndy - a helpful campus assistant for Purdue University Indianapolis (Purdue Indy / IUPUI).
+You have access to real-time data about the student's schedule, dining, and campus events - all provided in the context block below.
 Use that data to answer questions directly and accurately. Do not tell the student to "check the app" or "check the tab" when the answer is already in the context.
 
 You help students with:
@@ -2332,17 +2332,17 @@ You help students with:
 - Dining hours and today's menu at each location (from context)
 - Campus / career / optional events (from context)
 - Where to study and get help on campus (use the ON-CAMPUS STUDY & HELP section when relevant)
-- Campus transit/buses: Crimson & Gray routes run Mon–Fri 6:30am–10pm; Yellow & Blue run Mon–Fri 5:30am–midnight; Purple runs Mon–Fri 7am–10pm; Orange runs Sat–Sun 9am–8pm
+- Campus transit/buses: Crimson & Gray routes run Mon-Fri 6:30am-10pm; Yellow & Blue run Mon-Fri 5:30am-midnight; Purple runs Mon-Fri 7am-10pm; Orange runs Sat-Sun 9am-8pm
 - Buildings: ET Building (engineering/tech), Campus Center (dining, student services), University Library, Science & Engineering Lab Building (SL), Cavanaugh Hall (CA), Hine Hall (HH), Madam Walker Legacy Center, IUPUI Tower
 - Student services: ASC tutoring (Campus Center 2nd floor), printing (library 25 free pages/day), Health & Wellness Center, Financial Aid (Cavanaugh Hall), Registrar (Cavanaugh Hall)
 - General student life at Purdue Indy
 
 Rules:
-- Be concise and friendly. For simple questions: 2–4 sentences. For "what should I do now?", "plan my afternoon", or similar planning questions: give a short prioritized plan (3–6 sentences or brief bullets), because multiple commitments may apply.
-- Answer directly from the context data when available — do not hedge or defer.
-- When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24–48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
+- Be concise and friendly. For simple questions: 2-4 sentences. For "what should I do now?", "plan my afternoon", or similar planning questions: give a short prioritized plan (3-6 sentences or brief bullets), because multiple commitments may apply.
+- Answer directly from the context data when available - do not hedge or defer.
+- When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
-- For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support — match to subject when possible).
+- For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
 - For "next class" questions only count regular lectures/labs/discussions, not exams or office hours (unless asked).
 - If something is genuinely unknown (not in context and not general knowledge), say so briefly.
 - If asked about something totally unrelated to campus life, briefly redirect.`
@@ -2361,7 +2361,7 @@ function buildDiningContext(dining) {
   const lines = [`=== DINING TODAY (${dining.date}) ===`]
   for (const loc of dining.locations) {
     const status = loc.is_open ? 'OPEN' : 'CLOSED'
-    const hrs = loc.hours && loc.hours !== 'Closed today' ? ` — ${loc.hours}` : ''
+    const hrs = loc.hours && loc.hours !== 'Closed today' ? ` - ${loc.hours}` : ''
     lines.push(`${loc.name}: ${status}${hrs}`)
     if (loc.stations?.length) {
       for (const station of loc.stations) {
@@ -2456,12 +2456,12 @@ function buildAssistantCalendarContext(calendarData, now) {
       month: 'short',
       day: 'numeric',
     })
-    parts.push(`=== TODAY (${dayLabel}) — everything with times (Eastern) ===`)
+    parts.push(`=== TODAY (${dayLabel}) - everything with times (Eastern) ===`)
     parts.push(
       todayRows
         .map((i) => {
           const range = i.end_time
-            ? `${fmtTime(i.start_time)}–${fmtTime(i.end_time)}`
+            ? `${fmtTime(i.start_time)}-${fmtTime(i.end_time)}`
             : fmtTime(i.start_time)
           return `- ${range}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}`
         })
@@ -2502,7 +2502,7 @@ function buildAssistantCalendarContext(calendarData, now) {
 - University Library: quiet floors, study rooms, printing (25 free pages/day).
 - ET Building & Science/Engineering Lab (SL): strong for STEM work between classes.
 - Cavanaugh Hall & Hine Hall: lounges for shorter sessions.
-- ASC tutoring: Campus Center 2nd floor — math, writing, coaching (check hours).
+- ASC tutoring: Campus Center 2nd floor - math, writing, coaching (check hours).
 - Campus Center: food and space to regroup before/after events.`)
 
   return parts.join('\n\n')
@@ -2560,7 +2560,7 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
   }
 
   if (!GEMINI_API_KEY) {
-    // Friendly fallback instead of a bare 503 — the router still handles asks above.
+    // Friendly fallback instead of a bare 503 - the router still handles asks above.
     return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
   }
 
@@ -2660,7 +2660,7 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
 
 // ── Tiny in-memory TTL cache for quasi-static upstream/DB reads (perf) ──────
 // Repeat calls within the TTL return instantly instead of re-hitting TransLoc /
-// Supabase on every page load. Failures are never cached. Process-local — fine
+// Supabase on every page load. Failures are never cached. Process-local - fine
 // for a single instance; swap for Redis if the backend is ever horizontally scaled.
 const _ttlCache = new Map() // key -> { value, expiresAt }
 async function getCached(key, ttlMs, producer) {
@@ -2946,7 +2946,7 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
   const userText =
     context === 'compose'
       ? `The student is composing a question for a Purdue Indianapolis campus board.\n\nTitle (draft):\n${title}\n\nBody (draft):\n${body || '(empty)'}\n\nReturn ONLY a JSON object, no markdown code fences, with this exact shape:\n{"betterTitle":string|null,"bodyAddOn":string|null,"tags":string[]}\n\n- betterTitle: a clearer full title under 120 characters, or null if the draft title is already good.\n- bodyAddOn: one short optional sentence they could add for context (location, course, deadline), or null if not needed.\n- tags: 0 to 3 items, each must be exactly one of: ${tagList}\nUse JSON null (not the string "null") where appropriate.`
-      : `Campus board thread title: ${postTitle}\nOriginal post:\n${postBody || '(no body)'}\n\nStudent's reply draft:\n${draft}\n\nReturn ONLY JSON: {"replyTip":string|null} — one concise coaching sentence (tone, specificity, or missing info), or null if the draft is fine.`
+      : `Campus board thread title: ${postTitle}\nOriginal post:\n${postBody || '(no body)'}\n\nStudent's reply draft:\n${draft}\n\nReturn ONLY JSON: {"replyTip":string|null} - one concise coaching sentence (tone, specificity, or missing info), or null if the draft is fine.`
 
   try {
     const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
@@ -3258,7 +3258,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 })
 
 // ============================================================
-// Neighborhood Guide (issue #31) — student-submitted local recommendations.
+// Neighborhood Guide (issue #31) - student-submitted local recommendations.
 // Reuses board conventions: boardWriteRateLimit, boardProfanity, upvote toggle.
 // Requires db/supabase-neighborhood-guide.sql.
 // ============================================================
@@ -3407,7 +3407,7 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
 })
 
 // ============================================================
-// Study Group Finder (issue #33) — per-course groups from synced schedules.
+// Study Group Finder (issue #33) - per-course groups from synced schedules.
 // Privacy is opt-in (default off); only opted-in users count as classmates.
 // Requires db/supabase-study-groups.sql.
 // ============================================================
@@ -3610,7 +3610,7 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
 })
 
 // ============================================================
-// Campus Perks (issue #24) — admin-curated local deals for students.
+// Campus Perks (issue #24) - admin-curated local deals for students.
 // GET is for everyone (active + unexpired); create/edit/delete require admin.
 // Requires db/supabase-campus-deals.sql.
 // ============================================================
@@ -3701,7 +3701,7 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
 })
 
 // ============================================================
-// Student Marketplace (issue #32, Phase 1) — listings + reports.
+// Student Marketplace (issue #32, Phase 1) - listings + reports.
 // Posting requires Purdue verification; 3 distinct reports auto-hide a listing.
 // Requires db/supabase-marketplace.sql.
 // ============================================================
@@ -3769,7 +3769,7 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
   }
 })
 
-// Listing detail — reveals seller contact (name + Purdue email) to signed-in users.
+// Listing detail - reveals seller contact (name + Purdue email) to signed-in users.
 app.get('/api/marketplace/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
@@ -3785,7 +3785,7 @@ app.get('/api/marketplace/:id', requireAuth, async (req, res) => {
   }
 })
 
-// Create — requires Purdue verification.
+// Create - requires Purdue verification.
 app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) => {
   if (!req.currentUser.purdue_linked_at) {
     return res.status(403).json({ error: { message: 'Link your Purdue account in setup before posting.', status: 403 } })
@@ -3807,7 +3807,7 @@ app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) 
   }
 })
 
-// Edit / mark sold — owner only.
+// Edit / mark sold - owner only.
 app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
@@ -3835,7 +3835,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
   }
 })
 
-// Delete — owner or admin.
+// Delete - owner or admin.
 app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
@@ -3881,7 +3881,7 @@ app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async 
 })
 
 // ============================================================
-// Friend Matching (issue #17) — connect students who share courses.
+// Friend Matching (issue #17) - connect students who share courses.
 // Privacy is opt-in (discoverable, default off); pre-acceptance only display
 // name, interests, and shared-course count are exposed. Requires
 // db/supabase-friend-matching.sql.
@@ -4101,11 +4101,11 @@ app.get('/api/me/connections', requireAuth, async (req, res) => {
 })
 
 // ============================================================
-// Advertiser portal (separate from student auth — see
+// Advertiser portal (separate from student auth - see
 // db/supabase-advertiser-portal.sql and docs/advertiser-portal.md).
 //
 // Isolation is the whole point: advertisers authenticate against the
-// `advertisers` table and are tracked by req.session.advertiserId — NEVER
+// `advertisers` table and are tracked by req.session.advertiserId - NEVER
 // req.session.userId. Sign-in regenerates the session, so a browser is either a
 // student session or an advertiser session, never both. requireAdvertiserAuth
 // gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
@@ -4159,7 +4159,7 @@ async function getAdvertiserByEmail(email) {
     .select('*')
     .eq('email', email)
     .single()
-  // A "no rows" result is an expected miss, not a schema error — surface other
+  // A "no rows" result is an expected miss, not a schema error - surface other
   // errors (e.g. table missing) to the caller.
   if (error) {
     if (error.code === 'PGRST116') return { advertiser: null, error: null }
@@ -4303,7 +4303,7 @@ app.post('/api/advertiser/forgot-password', passwordResetRateLimit, async (req, 
   const { advertiser, error } = await getAdvertiserByEmail(input.email)
   if (error) return respondAdvertiserDbError(res, error)
 
-  // Only mint + email a token for an existing, active account — but never tell
+  // Only mint + email a token for an existing, active account - but never tell
   // the client either way (uniform 200) so the endpoint can't enumerate emails.
   if (advertiser && advertiser.status === 'active') {
     try {
@@ -4317,7 +4317,7 @@ app.post('/api/advertiser/forgot-password', passwordResetRateLimit, async (req, 
       // Email not configured (dev): surface the link in the server log so the
       // flow is testable without a provider (mirrors Sentry-disabled wiring).
       if (result?.skipped) {
-        console.warn(`[advertiser reset] email disabled — reset link for ${advertiser.email}: ${resetUrl}`)
+        console.warn(`[advertiser reset] email disabled - reset link for ${advertiser.email}: ${resetUrl}`)
       }
     } catch (sendErr) {
       if (isAdvertiserSchemaMissingError(sendErr)) {
@@ -4485,7 +4485,7 @@ app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req
 // ── Ad serving + tracking (M3) ───────────────────────────────────────────────
 // Student-session routes (requireAuth), NOT advertiser-gated. They serve a single
 // approved, in-window campaign into the student home dashboard and log aggregate
-// impression/tap events (no student PII — see db/supabase-advertiser-ad-events.sql).
+// impression/tap events (no student PII - see db/supabase-advertiser-ad-events.sql).
 // Routed as /api/spotlight/* (not /api/ads/*) because ad-blocker filter lists
 // match the ads keyword and silently block the requests for students running
 // blockers. Client counterpart: boilerindy-react/src/lib/spotlightApi.js.
@@ -4794,7 +4794,7 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 
 // ── Soft-delete moderation (admin) ───────────────────────────────────────────
 // User/owner delete endpoints only soft-delete (set deleted_at). Admins review
-// hidden content here and either restore it or permanently (hard) delete it —
+// hidden content here and either restore it or permanently (hard) delete it -
 // this is the only hard-delete path. `type` is whitelisted so the param can
 // never reach an arbitrary table.
 const SOFT_DELETE_TABLES = {
@@ -4845,7 +4845,7 @@ app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAut
 app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
-  // Hard delete — permanent. Only already-soft-deleted rows can be purged, so a
+  // Hard delete - permanent. Only already-soft-deleted rows can be purged, so a
   // mistyped call can never wipe live content. (Board posts cascade to replies.)
   const { data, error } = await supabase
     .from(cfg.table)
@@ -4863,7 +4863,7 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, req
 
 // ── First-party product analytics (issue #51) ───────────────────────────────
 // Signed-in students only; events live in our own Supabase (analytics_events,
-// service-role only — see db/supabase-analytics.sql). The server re-checks the
+// service-role only - see db/supabase-analytics.sql). The server re-checks the
 // opt-out so a stale or misbehaving client can never record an opted-out user.
 // Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
 // JSON parse fallback.

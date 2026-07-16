@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizeItemName, MAX_ITEM_NAME } from '../src/diningFavorites.mjs'
 
-// Issue #49 — favorite item names must normalize to a stable key so menu names
+// Issue #49 - favorite item names must normalize to a stable key so menu names
 // and user input match regardless of case and spacing.
 
 test('lowercases and trims', () => {

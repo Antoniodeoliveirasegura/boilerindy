@@ -13,7 +13,7 @@ import PageLoader from './components/PageLoader'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
 
-// Every other route is code-split and fetched on demand — Map (Leaflet), the
+// Every other route is code-split and fetched on demand - Map (Leaflet), the
 // admin/advertiser areas, and the feature pages no longer ship in the initial load.
 const RequireAdvertiser = lazy(() => import('./components/RequireAdvertiser'))
 const AdvertiserLogin = lazy(() => import('./pages/AdvertiserLogin'))

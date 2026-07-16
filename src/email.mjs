@@ -1,16 +1,16 @@
-// Minimal transactional email via Resend's HTTP API — no SDK dependency, just
+// Minimal transactional email via Resend's HTTP API - no SDK dependency, just
 // fetch. Disabled-safe: when RESEND_API_KEY / RESEND_FROM are unset the send is
 // skipped and the link is logged to the server console, so local/dev works
 // without an email provider (mirrors the Sentry "disabled without DSN" wiring
 // in server.mjs). Currently used for the advertiser password-reset flow.
 //
-// CAN-SPAM (issue #116): `sendEmail` is for TRANSACTIONAL messages only —
+// CAN-SPAM (issue #116): `sendEmail` is for TRANSACTIONAL messages only -
 // password resets and the like. Those need only accurate routing (a real
 // `RESEND_FROM`) and an honest subject, which the reset email has; transactional
 // mail is exempt from the unsubscribe / physical-address rules. ANY commercial
 // or marketing email (announcements, newsletters, promos) MUST append
 // `commercialEmailFooter()` below (postal address + unsubscribe) AND honor a
-// suppression list before sending — build that unsubscribe/suppression plumbing
+// suppression list before sending - build that unsubscribe/suppression plumbing
 // when the first marketing email is actually added.
 
 const RESEND_API_URL = 'https://api.resend.com/emails'
@@ -27,7 +27,7 @@ export function isEmailConfigured() {
  */
 export async function sendEmail({ to, subject, html }) {
   if (!isEmailConfigured()) {
-    console.warn(`[email] RESEND_API_KEY/RESEND_FROM not set — skipping email to ${to} ("${subject}")`)
+    console.warn(`[email] RESEND_API_KEY/RESEND_FROM not set - skipping email to ${to} ("${subject}")`)
     return { sent: false, skipped: true }
   }
 
@@ -54,12 +54,12 @@ const escapeHtml = (value) =>
   )
 
 /**
- * CAN-SPAM footer required on ANY commercial / marketing email — NOT transactional
+ * CAN-SPAM footer required on ANY commercial / marketing email - NOT transactional
  * messages (see the module header). Renders the two footer-level things the law
  * requires: a valid physical postal address (from `MAIL_POSTAL_ADDRESS`) and a
  * working unsubscribe link. Throws if either is missing, so a non-compliant
  * marketing email can't be built. Callers must ALSO honor unsubscribes via a
- * suppression list and clearly identify promotional content — those live with
+ * suppression list and clearly identify promotional content - those live with
  * the marketing feature itself (issue #116).
  * @param {{ unsubscribeUrl: string }} opts
  * @returns {string} footer HTML to append to a commercial email body
@@ -84,7 +84,7 @@ export function commercialEmailFooter({ unsubscribeUrl } = {}) {
 </table>`.trim()
 }
 
-/** Branded BoilerIndy reset email. Pure — returns the subject + HTML body. */
+/** Branded BoilerIndy reset email. Pure - returns the subject + HTML body. */
 export function advertiserPasswordResetEmail({ resetUrl, companyName }) {
   const safeUrl = escapeHtml(resetUrl)
   const greeting = companyName ? `Hi ${escapeHtml(companyName)},` : 'Hi there,'
@@ -112,7 +112,7 @@ export function advertiserPasswordResetEmail({ resetUrl, companyName }) {
         <p style="margin:6px 0 0;font-size:12px;word-break:break-all;color:#a1a1aa;">${safeUrl}</p>
       </td></tr>
       <tr><td style="padding:20px 32px;border-top:1px solid #f4f4f5;">
-        <p style="margin:0;font-size:12px;line-height:1.5;color:#a1a1aa;">Didn't request this? You can safely ignore this email — your password won't change.</p>
+        <p style="margin:0;font-size:12px;line-height:1.5;color:#a1a1aa;">Didn't request this? You can safely ignore this email - your password won't change.</p>
       </td></tr>
     </table>
     <p style="margin:16px 0 0;font-size:11px;color:#a1a1aa;">BoilerIndy · Advertiser Portal</p>

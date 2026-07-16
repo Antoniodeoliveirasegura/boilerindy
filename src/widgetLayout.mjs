@@ -3,7 +3,7 @@
 // Generic, I/O-free validation/normalization for a customizable widget board.
 // A board is a per-user ordered list of widgets, each with a display size +
 // visibility. Extracted from the home dashboard (issue #52) so the Services
-// board can reuse the exact same rules with its own widget catalogue — the two
+// board can reuse the exact same rules with its own widget catalogue - the two
 // boards never share a catalogue but they do share this normalization logic,
 // keeping behaviour identical and the rules unit-testable.
 //

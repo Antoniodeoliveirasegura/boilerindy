@@ -9,7 +9,7 @@ import {
   DEAL_CATEGORIES,
 } from '../src/campusDeals.mjs'
 
-// Issue #24 — distance, active-window, and validation for admin-curated deals.
+// Issue #24 - distance, active-window, and validation for admin-curated deals.
 
 test('haversine is ~0 for the same point and positive for distinct points', () => {
   assert.equal(Math.round(haversineMiles(39.774, -86.172, 39.774, -86.172)), 0)

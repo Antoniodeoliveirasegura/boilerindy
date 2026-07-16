@@ -97,7 +97,7 @@ export default function AdminAdvertisers() {
 
       const data = (await createAdminAdvertiser(payload)) as { advertiser: { email?: string } }
       setSuccess(
-        `Advertiser account ready for ${data.advertiser.email}. Share the temporary password securely — they sign in at /advertise.`,
+        `Advertiser account ready for ${data.advertiser.email}. Share the temporary password securely - they sign in at /advertise.`,
       )
       setShowForm(false)
       setSearchParams({})
@@ -252,7 +252,7 @@ export default function AdminAdvertisers() {
                       <div className="font-medium text-[var(--color-txt-0)]">{row.companyName}</div>
                       <div className="text-[12px] text-[var(--color-txt-2)]">{row.email}</div>
                     </td>
-                    <td className="px-4 py-4 text-[var(--color-txt-1)]">{row.contactName || '—'}</td>
+                    <td className="px-4 py-4 text-[var(--color-txt-1)]">{row.contactName || '-'}</td>
                     <td className="px-4 py-4">
                       <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
                         row.status === 'active'

@@ -236,7 +236,7 @@ export default function ConnectSchedule() {
     } else if (failures.length < sources.length) {
       setBannerType('info')
       setBanner(
-        `Synced ${sources.length - failures.length} of ${sources.length} sources (${totalItems} items). Failed — ${failures.join('; ')}`,
+        `Synced ${sources.length - failures.length} of ${sources.length} sources (${totalItems} items). Failed - ${failures.join('; ')}`,
       )
     } else {
       setBannerType('error')
@@ -293,7 +293,7 @@ export default function ConnectSchedule() {
   )
 
   // ────────────────────────────────────────
-  // STEP 1 — Link Purdue email
+  // STEP 1 - Link Purdue email
   // ────────────────────────────────────────
   if (needsPurdueConnection) {
     return (
@@ -315,7 +315,7 @@ export default function ConnectSchedule() {
           {usesCasPurdue ? (
             <div className="space-y-4">
               <p className="text-[13px] text-[var(--color-txt-2)] leading-relaxed">
-                On boilerindy.app you sign in with official Purdue CAS — we never ask you to type your Purdue password into this app.
+                On boilerindy.app you sign in with official Purdue CAS - we never ask you to type your Purdue password into this app.
               </p>
               <button
                 type="button"
@@ -361,7 +361,7 @@ export default function ConnectSchedule() {
             onClick={handleSkipSetup}
             className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] underline underline-offset-2"
           >
-            Skip for now — don&rsquo;t ask me again
+            Skip for now - don&rsquo;t ask me again
           </button>
         </div>
       </div>
@@ -369,7 +369,7 @@ export default function ConnectSchedule() {
   }
 
   // ────────────────────────────────────────
-  // STEP 2 — Connect calendar sources
+  // STEP 2 - Connect calendar sources
   // ────────────────────────────────────────
   return (
     <div className="max-w-[800px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">

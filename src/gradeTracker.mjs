@@ -31,7 +31,7 @@ export const NON_GPA_GRADES = ['P', 'W', 'I']
 export const LETTER_GRADES = [...Object.keys(GRADE_POINTS), ...NON_GPA_GRADES]
 const LETTER_SET = new Set(LETTER_GRADES)
 
-// Field bounds — shared by the server validator and the DB CHECK constraints.
+// Field bounds - shared by the server validator and the DB CHECK constraints.
 export const MAX_COURSE_NAME = 120
 export const MAX_TERM_NAME = 60
 export const MAX_CREDIT_HOURS = 30
@@ -93,7 +93,7 @@ export function normalizeGrades(input) {
 
 /**
  * Cumulative GPA over a list of courses. Only GPA-scale letters with positive
- * credit hours count. Returns { gpa: number|null, credits, points } — gpa is
+ * credit hours count. Returns { gpa: number|null, credits, points } - gpa is
  * null when nothing countable is present (so callers can show a placeholder
  * rather than a misleading 0.00).
  *

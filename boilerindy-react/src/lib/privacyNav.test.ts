@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { getBackTarget } from './privacyNav'
 
-// Issue #56 — the privacy "Back" link must be context-aware so users who arrive
+// Issue #56 - the privacy "Back" link must be context-aware so users who arrive
 // from signup or Settings are returned to where they came from, not the Landing page.
 
 describe('getBackTarget', () => {

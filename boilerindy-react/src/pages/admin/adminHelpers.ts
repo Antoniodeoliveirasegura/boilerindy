@@ -1,5 +1,5 @@
 // Non-component shared values for the admin console. Kept out of
-// adminShared.jsx so that file exports only components — Fast Refresh
+// adminShared.jsx so that file exports only components - Fast Refresh
 // (react-refresh/only-export-components) requires component-only modules.
 
 export type StatusMeta = { label: string; cls: string }
@@ -19,7 +19,7 @@ export const CAMPAIGN_STATUS_META: Record<string, StatusMeta> = {
 }
 
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '—'
+  if (!value) return '-'
   try {
     return new Date(value).toLocaleString(undefined, {
       month: 'short',

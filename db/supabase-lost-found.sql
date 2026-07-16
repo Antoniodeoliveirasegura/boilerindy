@@ -1,6 +1,6 @@
 -- Run in Supabase SQL Editor (once). Enables the standalone Lost & Found
 -- feature (issue #47): students post lost or found items and mark them
--- resolved. Independent of the campus board. Idempotent — safe to re-run.
+-- resolved. Independent of the campus board. Idempotent - safe to re-run.
 
 CREATE TABLE IF NOT EXISTS lost_found_items (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

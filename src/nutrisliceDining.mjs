@@ -141,7 +141,7 @@ function normalizeFoodEntry(food) {
   }
 }
 
-// Station/section names to completely omit — condiments, toppings, garnishes, etc.
+// Station/section names to completely omit - condiments, toppings, garnishes, etc.
 const SKIP_SECTION_RE = /condiment|^toppings?$|^garnish|infused.{0,8}water|sugar.{0,12}sub(stitute)?|sweetener|creamer|^spreads?$|^sauces?$|^dressings?$|\bbeverage/i
 
 function shouldSkipSection(name) {
@@ -320,7 +320,7 @@ async function buildSnapshotBody(ymd, allSchools) {
       hours: status.hours,
       weekly_hours: extractWeeklyHours(school),
       timezone: status.tz,
-      meal: mealHint || '—',
+      meal: mealHint || '-',
       stations,
       warnings: warnings.length ? warnings : undefined,
     })

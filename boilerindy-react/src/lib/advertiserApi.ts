@@ -1,6 +1,6 @@
 // Thin client for the advertiser portal API. Mirrors lib/authApi (cookie
 // session via credentials: 'include') but talks to the SEPARATE /api/advertiser/*
-// routes — advertiser sessions are isolated from the student app server-side.
+// routes - advertiser sessions are isolated from the student app server-side.
 // Migrated to TypeScript (issue #20).
 
 async function advertiserRequest(url: string, options: RequestInit = {}): Promise<unknown> {

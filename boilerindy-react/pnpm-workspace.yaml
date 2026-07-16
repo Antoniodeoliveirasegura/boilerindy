@@ -1,5 +1,5 @@
 # @sentry/cli's postinstall only verifies its binary, which already ships via
-# the platform optionalDependencies — no build script needed (issue #50).
+# the platform optionalDependencies - no build script needed (issue #50).
 allowBuilds:
   '@sentry/cli': false
 # Independent pnpm root for the frontend (separate lockfile + node_modules

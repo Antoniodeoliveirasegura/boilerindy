@@ -163,11 +163,11 @@ export default function Login() {
 
         // The backend sign-in is authoritative: it set the session cookie AND
         // returned the full payload. Apply it directly so the app is usable after
-        // a single round-trip — no client re-sign-in + refreshSession waterfall
+        // a single round-trip - no client re-sign-in + refreshSession waterfall
         // (issue #111).
         applySession((data as { session?: BackendSession | null } | null)?.session ?? null)
 
-        // Establish the client Supabase session in the background — only needed
+        // Establish the client Supabase session in the background - only needed
         // for OAuth and silent re-hydration after a backend restart. Its
         // onAuthStateChange listener reconciles the context session. On failure,
         // clear any stale local session so it can't re-hydrate as another user.
@@ -394,7 +394,7 @@ export default function Login() {
             {isSignup && (
               <p className="text-[11px] text-[var(--color-txt-3)] leading-relaxed">
                 By creating an account you agree to basic usage analytics that help improve
-                BoilerIndy — stored in our own database, no third-party trackers, opt out anytime
+                BoilerIndy - stored in our own database, no third-party trackers, opt out anytime
                 in Settings.{' '}
                 <Link to="/privacy?from=signup" className="text-[var(--color-accent)] hover:underline">
                   Privacy policy

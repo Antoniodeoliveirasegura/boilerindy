@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 // E2E runs against the built frontend served by `vite preview`. The backend is
 // mocked at the network layer (see e2e/fixtures/mock-backend.js), so the suite
 // is deterministic and needs no Supabase credentials or running Express server
-// — which is what lets it run in CI without secrets.
+// - which is what lets it run in CI without secrets.
 
 const PORT = Number(process.env.E2E_PORT || 4173)
 const baseURL = process.env.E2E_BASE_URL || `http://localhost:${PORT}`

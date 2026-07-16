@@ -43,7 +43,7 @@ export default function Settings() {
   const [feedBusy, setFeedBusy] = useState(false)
   const [feedCopied, setFeedCopied] = useState(false)
 
-  // Load the current feed URL once on mount — a genuine external read, so an
+  // Load the current feed URL once on mount - a genuine external read, so an
   // effect is the right tool here (unlike the derived state handled in render).
   useEffect(() => {
     let active = true
@@ -118,7 +118,7 @@ export default function Settings() {
       setFeedCopied(true)
       window.setTimeout(() => setFeedCopied(false), 2000)
     } catch {
-      setBanner('Could not copy automatically — select and copy the URL manually.')
+      setBanner('Could not copy automatically - select and copy the URL manually.')
     }
   }
 
@@ -374,7 +374,7 @@ export default function Settings() {
             </div>
             <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
               Subscribe to your classes and tasks from Google or Apple Calendar with a private link.
-              Treat it like a password — anyone with the link can see your schedule.
+              Treat it like a password - anyone with the link can see your schedule.
             </p>
             {feedUrl ? (
               <div className="mt-4 space-y-3">
@@ -434,7 +434,7 @@ export default function Settings() {
                 <span className="block text-[13px] font-medium text-[var(--color-txt-0)]">Share usage analytics</span>
                 <span className="block text-[12px] text-[var(--color-txt-2)] mt-0.5 leading-relaxed">
                   Help prioritize features by sharing which pages and features you use. Stored only in
-                  BoilerIndy&apos;s own database — no third-party trackers, deleted with your account.
+                  BoilerIndy&apos;s own database - no third-party trackers, deleted with your account.
                 </span>
               </span>
             </label>

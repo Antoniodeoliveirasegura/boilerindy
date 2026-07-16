@@ -1,7 +1,7 @@
 // Sentry beforeSend scrubbing (issue #50), shared verbatim by the Express
-// backend (server.mjs) and the React frontend (main.jsx) — the same pattern as
+// backend (server.mjs) and the React frontend (main.jsx) - the same pattern as
 // dashboardLayout.mjs. Acceptance criterion: event payloads contain no emails,
-// cookies, or tokens. Scrubbing must never throw — a scrubbing bug must not
+// cookies, or tokens. Scrubbing must never throw - a scrubbing bug must not
 // take down error reporting itself.
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/g

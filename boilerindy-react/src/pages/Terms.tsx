@@ -33,12 +33,12 @@ University; we use them only to describe the campus this app serves.`,
     title: 'Acceptable use',
     body: `Do not use BoilerIndy to break the law, harass or threaten others, post someone else's
 private information, spam, upload malware, scrape or overload the service, or try to bypass its
-security or access other users' data. Keep posts civil — an automated filter and human moderation
+security or access other users' data. Keep posts civil - an automated filter and human moderation
 apply, and we may remove content or accounts that violate these rules.`,
   },
   {
     title: 'Your content',
-    body: `You keep ownership of what you post — board posts, listings, recommendations, and your
+    body: `You keep ownership of what you post - board posts, listings, recommendations, and your
 profile. By posting, you grant BoilerIndy a non-exclusive license to store and display that
 content so the app can show it to other students. You are responsible for what you post and must
 have the right to share it. We may hide or remove content at our discretion (for example, for
@@ -56,7 +56,7 @@ students.`,
     title: 'Your schedule and connected sources',
     body: `You connect your own calendar feeds, and you are responsible for the feed URLs you
 provide and for having the right to use them. Campus information shown in the app (schedule,
-dining, transit, maps, events) may be delayed, incomplete, or inaccurate — do not rely on it as
+dining, transit, maps, events) may be delayed, incomplete, or inaccurate - do not rely on it as
 the sole source for anything important.`,
   },
   {
@@ -117,14 +117,14 @@ export default function Terms() {
         <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Terms of Service</h1>
         <p className="text-[13px] text-[var(--color-txt-2)] mb-6">
           Last updated July 15, 2026. The short version: BoilerIndy is a free, independent student
-          app for Purdue Indianapolis — be respectful, don't misuse it, campus data may be
+          app for Purdue Indianapolis - be respectful, don't misuse it, campus data may be
           imperfect, and it's provided as-is.
         </p>
 
         {/* OWNER REVIEW (#115): remove this note once the wording is approved and a
             monitored contact email is published in the Contact section. */}
         <p className="text-[12px] text-[var(--color-txt-2)] bg-[var(--color-gold)]/10 border border-[var(--color-gold)]/25 rounded-lg px-3.5 py-2.5 mb-8">
-          Pending review before public launch — the wording below is complete but awaiting owner
+          Pending review before public launch - the wording below is complete but awaiting owner
           approval and a published contact email.
         </p>
 

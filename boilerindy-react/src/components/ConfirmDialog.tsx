@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Icon from './Icons'
 
 /**
- * Reusable, app-styled confirmation modal — a replacement for the native
+ * Reusable, app-styled confirmation modal - a replacement for the native
  * window.confirm() (which renders as an ugly browser dialog). Rendered through a
  * portal so it escapes any parent overflow/stacking context. Confirms on the
  * focused primary button, cancels on Escape or backdrop click.

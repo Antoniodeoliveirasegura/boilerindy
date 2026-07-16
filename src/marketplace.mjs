@@ -1,5 +1,5 @@
 // Student Marketplace (issue #32, Phase 1). Pure validation + mapping helpers,
-// unit-testable without DB/HTTP. No payments and no messaging in Phase 1 —
+// unit-testable without DB/HTTP. No payments and no messaging in Phase 1 -
 // contact is the seller's display name + Purdue email shown on the detail page.
 
 export const MARKETPLACE_CATEGORIES = [

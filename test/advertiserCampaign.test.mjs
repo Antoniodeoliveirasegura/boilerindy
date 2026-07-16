@@ -112,7 +112,7 @@ test('advertiser CAN pause an active campaign and resume a paused one', () => {
   assert.deepEqual(normalizeCampaignPatch({ status: 'active' }, { status: 'paused' }), { status: 'active' })
 })
 
-test('ended is terminal — no transitions allowed', () => {
+test('ended is terminal - no transitions allowed', () => {
   assert.deepEqual(ADVERTISER_STATUS_TRANSITIONS.ended, [])
   assert.throws(() => normalizeCampaignPatch({ status: 'draft' }, { status: 'ended' }), /can't change/)
 })

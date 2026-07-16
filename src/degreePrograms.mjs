@@ -68,7 +68,7 @@ export const DEGREE_PROGRAMS = [
       },
       {
         name: 'Laboratory Science',
-        note: 'Two-course lab science sequence (PHYS/CHM/BIOL) from the approved list, ~6–8 cr. Specific courses are your choice.',
+        note: 'Two-course lab science sequence (PHYS/CHM/BIOL) from the approved list, ~6-8 cr. Specific courses are your choice.',
         courses: [],
       },
       {
@@ -85,7 +85,7 @@ export const DEGREE_PROGRAMS = [
     totalCredits: 120,
     sourceUrl: 'https://catalog.purdue.edu/preview_program.php?catoid=18&poid=33846',
     sourceNote:
-      'Purdue University Catalog 2025–2026, Data Science BS (Dept. of Computer Science). This reflects the West Lafayette plan of study — an Indianapolis-specific Data Science plan was not located.',
+      'Purdue University Catalog 2025-2026, Data Science BS (Dept. of Computer Science). This reflects the West Lafayette plan of study - an Indianapolis-specific Data Science plan was not located.',
     requirementGroups: [
       {
         name: 'Data Science / CS Core',
@@ -151,7 +151,7 @@ export const DEGREE_PROGRAMS = [
     totalCredits: 124,
     sourceUrl: 'https://catalog.purdue.edu/preview_program.php?catoid=17&poid=31879',
     sourceNote:
-      'Purdue University Catalog 2024–2025, Electrical Engineering BSEE (Elmore Family School of ECE). Offered at Indianapolis. Calculus I/II and a first chemistry/physics sit inside First-Year Engineering.',
+      'Purdue University Catalog 2024-2025, Electrical Engineering BSEE (Elmore Family School of ECE). Offered at Indianapolis. Calculus I/II and a first chemistry/physics sit inside First-Year Engineering.',
     requirementGroups: [
       {
         name: 'First-Year Engineering',
@@ -200,7 +200,7 @@ export const DEGREE_PROGRAMS = [
       },
       {
         name: 'Advanced EE Selectives',
-        note: 'Choose three (9–12 cr) from the EE selective list; representative options shown.',
+        note: 'Choose three (9-12 cr) from the EE selective list; representative options shown.',
         courses: [
           { code: 'ECE 30412', name: 'Electromagnetics II', credits: 3 },
           { code: 'ECE 36200', name: 'Microprocessor Systems and Interfacing', credits: 4 },
@@ -239,7 +239,7 @@ export function getProgram(id) {
   return PROGRAM_BY_ID.get(id) || null
 }
 
-// Purdue course codes are 2–4 subject letters + a 5-digit number, e.g. "CS 18000".
+// Purdue course codes are 2-4 subject letters + a 5-digit number, e.g. "CS 18000".
 const COURSE_CODE_RE = /\b([A-Z]{2,4})\s*(\d{5})\b/gi
 
 /** All normalized course codes found in a string ("CS18000 / MA 165" -> ["CS 18000"]). */
@@ -317,7 +317,7 @@ export function matchProgress(program, takenCourses) {
     doneCourses,
     doneCredits,
     // Credits across courses we can list (excludes range-only gen-ed/selective
-    // buckets) — the honest denominator for the auto-tracked portion.
+    // buckets) - the honest denominator for the auto-tracked portion.
     listedCourses,
     listedCredits,
     totalCredits: program.totalCredits,

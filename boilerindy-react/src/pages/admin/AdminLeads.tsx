@@ -122,11 +122,11 @@ export default function AdminLeads() {
                 {leads.map((lead) => (
                   <tr key={lead.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
                     <td className="px-4 py-4">
-                      <div className="font-medium text-[var(--color-txt-0)]">{lead.companyName || '—'}</div>
+                      <div className="font-medium text-[var(--color-txt-0)]">{lead.companyName || '-'}</div>
                       <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5">{lead.email}</div>
                     </td>
                     <td className="px-4 py-4 text-[var(--color-txt-1)] max-w-xs">
-                      <p className="line-clamp-3 whitespace-pre-wrap">{lead.message || '—'}</p>
+                      <p className="line-clamp-3 whitespace-pre-wrap">{lead.message || '-'}</p>
                     </td>
                     <td className="px-4 py-4 text-[var(--color-txt-2)] whitespace-nowrap">
                       {formatDateTime(lead.createdAt)}

@@ -70,7 +70,7 @@ export default function Friends() {
         setDiscoverable(Boolean(d?.discoverable))
       })
       .catch(() => {})
-    // Initial matches fetch inline — loadingMatches already starts true, so we
+    // Initial matches fetch inline - loadingMatches already starts true, so we
     // only setState in async callbacks (no synchronous setState in the effect).
     authRequest('/api/me/matches')
       .then((data) => {
@@ -135,7 +135,7 @@ export default function Friends() {
         <div className="text-[12px] font-semibold text-[var(--color-txt-2)] uppercase tracking-wider">Your profile</div>
         <p className="text-[12px] text-[var(--color-txt-2)]">
           Turn on “discoverable” to appear to classmates in your courses. Until you accept a request, others only see
-          your name, interests, and how many courses you share — never your email or schedule. Default is off.
+          your name, interests, and how many courses you share - never your email or schedule. Default is off.
         </p>
         <textarea
           value={bio}

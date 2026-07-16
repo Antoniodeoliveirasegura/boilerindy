@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import ConfirmDialog from '../components/ConfirmDialog'
 
-// Promise-based confirmation backed by the styled ConfirmDialog — a drop-in
+// Promise-based confirmation backed by the styled ConfirmDialog - a drop-in
 // replacement for the native window.confirm() (which renders as an ugly browser
 // dialog). Usage:
 //

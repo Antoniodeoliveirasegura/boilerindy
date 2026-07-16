@@ -6,9 +6,9 @@ app keeps building and shipping the whole time.
 ## Setup (done in this PR)
 
 - `typescript` added as a dev dependency.
-- `tsconfig.json` with `strict: true`, **`allowJs: true`, `checkJs: false`** — existing
+- `tsconfig.json` with `strict: true`, **`allowJs: true`, `checkJs: false`** - existing
   `.js`/`.jsx` keep building untyped while new/converted `.ts`/`.tsx` are strictly checked.
-- `pnpm typecheck` (`tsc --noEmit`) — run it in CI alongside `lint`, `test`, `build`.
+- `pnpm typecheck` (`tsc --noEmit`) - run it in CI alongside `lint`, `test`, `build`.
 - Vite and Vitest already understand `.ts`/`.tsx` (esbuild), so no bundler changes are needed.
 
 ## How to convert a file

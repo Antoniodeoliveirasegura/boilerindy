@@ -7,7 +7,7 @@ import {
   MAX_LISTING_TITLE,
 } from '../src/marketplace.mjs'
 
-// Issue #32 — listing validation and row mapping (contact only on detail).
+// Issue #32 - listing validation and row mapping (contact only on detail).
 
 test('requires a title and a valid category', () => {
   assert.match(validateListingInput({ category: 'textbooks' }).error, /Title is required/)

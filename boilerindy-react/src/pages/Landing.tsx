@@ -5,7 +5,7 @@ import SiteDisclaimer from '../components/SiteDisclaimer'
 import './marketing.css'
 
 // BoilerIndy public landing / marketing page (route: /, the front page).
-// Self-contained and data-free — it never touches the backend, so it renders
+// Self-contained and data-free - it never touches the backend, so it renders
 // identically in any environment. Editorial / bento direction on the
 // Purdue-gold design system.
 
@@ -15,7 +15,7 @@ const bentoTiles = [
     icon: 'grid',
     tag: 'New',
     title: 'A dashboard that bends to you',
-    desc: 'Drag, hide, and reorder every widget. Your campus — class, dining, buses, board — arranged exactly how your day actually runs. Synced across devices.',
+    desc: 'Drag, hide, and reorder every widget. Your campus - class, dining, buses, board - arranged exactly how your day actually runs. Synced across devices.',
     tone: 'gold',
     feature: true,
   },
@@ -37,7 +37,7 @@ const bentoTiles = [
     span: 'lg:col-span-2',
     icon: 'bus',
     title: 'Buses, in human terms',
-    desc: '“3 stops from you — about 6 minutes.” Real-time ETAs from your location, not a raw map dump.',
+    desc: '“3 stops from you - about 6 minutes.” Real-time ETAs from your location, not a raw map dump.',
     tone: 'bus',
   },
   {
@@ -79,14 +79,14 @@ const bentoTiles = [
     span: '',
     icon: 'mapPin',
     title: 'Find anything',
-    desc: 'Buildings, parking, resources — one tap away.',
+    desc: 'Buildings, parking, resources - one tap away.',
     tone: 'map',
   },
 ]
 
 const dayTimeline = [
   { time: '8:05 AM', icon: 'schedule', title: 'Heads up: CS 30200 in 25 min', body: 'Your dashboard greets you with the next class, the room, and the walk time.' },
-  { time: '11:15 AM', icon: 'sparkles', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block — and tells you Tower Dining is open until 2.' },
+  { time: '11:15 AM', icon: 'sparkles', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block - and tells you Tower Dining is open until 2.' },
   { time: '12:30 PM', icon: 'dining', title: 'Lunch, sorted', body: 'Live menu shows what’s actually being served. Ask AI for the high-protein pick.' },
   { time: '2:00 PM', icon: 'bus', title: 'Catch the shuttle', body: '“Gold route is 2 stops away, ~4 minutes.” You leave at exactly the right time.' },
   { time: '4:30 PM', icon: 'coffee', title: 'Free pizza in ET', body: 'A free-food alert pings before it’s gone. You detour for a slice.' },
@@ -188,13 +188,13 @@ export default function Landing() {
               </span>
             </h1>
             <p className="mkt-reveal text-[1.06rem] sm:text-[1.15rem] text-[var(--color-txt-1)] max-w-[480px] leading-relaxed mb-8" style={{ '--mkt-delay': '160ms' } as React.CSSProperties}>
-              Classes, dining, live buses, deadlines, events and a campus board —
+              Classes, dining, live buses, deadlines, events and a campus board -
               stitched together and quietly organized by AI. Stop juggling ten apps.
             </p>
             <div className="mkt-reveal flex flex-wrap gap-3 mb-10" style={{ '--mkt-delay': '240ms' } as React.CSSProperties}>
               <Link to="/login" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-6 py-3 rounded-xl no-underline shadow-lg shadow-[var(--color-gold)]/25 hover:brightness-105 hover:-translate-y-0.5 transition-all">
                 <Icon name="sparkles" size={16} />
-                Get started — it’s free
+                Get started - it’s free
               </Link>
               <a href="#features" className="inline-flex items-center gap-2 text-[14px] text-[var(--color-txt-0)] px-6 py-3 rounded-xl border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] no-underline hover:-translate-y-0.5 transition-all">
                 <Icon name="arrowUpRight" size={16} />

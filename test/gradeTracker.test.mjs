@@ -1,5 +1,5 @@
 // Tests for the pure grade-tracker validator + GPA math (issue #10). Untrusted
-// input in, safe values out — no DB, no network.
+// input in, safe values out - no DB, no network.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -75,8 +75,8 @@ test('computeGpa: credit-weighted average over GPA grades only', () => {
 test('computeGpa excludes non-GPA grades and zero-credit rows', () => {
   const { gpa, credits } = computeGpa([
     { creditHours: 3, letterGrade: 'A' },
-    { creditHours: 3, letterGrade: 'P' }, // pass — excluded
-    { creditHours: 0, letterGrade: 'F' }, // zero credit — excluded
+    { creditHours: 3, letterGrade: 'P' }, // pass - excluded
+    { creditHours: 0, letterGrade: 'F' }, // zero credit - excluded
   ])
   assert.equal(credits, 3)
   assert.equal(gpa, 4.0)

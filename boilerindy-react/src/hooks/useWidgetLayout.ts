@@ -14,7 +14,7 @@ export type WidgetLayoutConfig = {
   userId: string | null | undefined
   /** Backend endpoint for this board, e.g. '/api/me/dashboard' or '/api/me/services'. */
   endpoint: string
-  /** Board-specific helpers (stable module references — never inline these). */
+  /** Board-specific helpers (stable module references - never inline these). */
   defaultLayout: () => WidgetLayoutEntry[]
   normalizeLayout: (input: unknown) => WidgetLayoutEntry[]
   loadLocalLayout: (userId: string | null | undefined) => WidgetLayoutEntry[] | null
@@ -65,7 +65,7 @@ export function useWidgetLayout({
         method: 'PUT',
         body: JSON.stringify({ layout: normalized }),
       }).catch(() => {
-        /* offline — localStorage copy will re-sync via the next successful PUT */
+        /* offline - localStorage copy will re-sync via the next successful PUT */
       })
     },
     [userId, endpoint, normalizeLayout, saveLocalLayout],

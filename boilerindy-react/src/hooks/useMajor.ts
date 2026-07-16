@@ -69,7 +69,7 @@ export function useMajor(userId: string | null | undefined) {
         method: 'PUT',
         body: JSON.stringify({ major: next }),
       }).catch(() => {
-        /* offline — cache holds the choice until the next successful PUT */
+        /* offline - cache holds the choice until the next successful PUT */
       })
     },
     [userId],

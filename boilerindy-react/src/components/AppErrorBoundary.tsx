@@ -5,7 +5,7 @@ type Props = { children: ReactNode }
 type State = { hasError: boolean }
 
 // Plain React error boundary so @sentry/react stays out of the initial bundle.
-// Caught errors are still forwarded to Sentry, but lazily — captureException is
+// Caught errors are still forwarded to Sentry, but lazily - captureException is
 // a no-op until Sentry has initialized (see main.jsx), and the dynamic import
 // never blocks the fallback UI from rendering.
 export default class AppErrorBoundary extends Component<Props, State> {

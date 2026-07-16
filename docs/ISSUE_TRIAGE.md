@@ -1,6 +1,6 @@
 # Issue Triage & Implementation Plan
 
-Snapshot date: 2026-06-11. Covers all 32 open issues (#4–#35).
+Snapshot date: 2026-06-11. Covers all 32 open issues (#4-#35).
 
 ## Status: implemented 2026-06-11 (7 issues)
 
@@ -18,24 +18,24 @@ Live on `main` as `c02fcad` (backend) + `be50592` (frontend).
 
 Follow-ups from that session: run the `edited_at` migration; delete test accounts
 `claude.verify.20260611@example.com` / `claude.verify2.20260611@example.com`; pre-existing
-bugs found — ~~ICS sync crashes on object-valued `summary` (node-ical)~~ **FIXED**
+bugs found - ~~ICS sync crashes on object-valued `summary` (node-ical)~~ **FIXED**
 (`icalText` coercion in `scheduleSync.mjs`, commit b63c013 + regression tests; the
 dev `/api/debug/source` endpoint was also hardened), ~~missing `VITE_SUPABASE_*`
 env for the frontend client in dev~~ **RESOLVED** (frontend `.env` recreated),
-invalid `GEMINI_API_KEY` (still open — check Week Ahead).
+invalid `GEMINI_API_KEY` (still open - check Week Ahead).
 
 ## Deferred (25 issues), grouped
 
-### A. Quick wins — no external blockers, doable next
+### A. Quick wins - no external blockers, doable next
 
 | Issue | Feature | Why this bucket |
 |---|---|---|
 | #35 | Interactive landing background | Frontend-only design work (CSS/canvas aurora, grid, or map motif) |
 | #34 | Campus safety layer | Mostly static data + existing Leaflet map overlay |
-| #10 | Grade tracker | ✅ **DONE** (2026-06-13) — `user_grades` + `/api/me/grades` + GPA dashboard widget |
-| #16 | Club calendar sync | ⚠️ **STASHED — blocked on a usable event feed** (2026-06-14). See note below. |
+| #10 | Grade tracker | ✅ **DONE** (2026-06-13) - `user_grades` + `/api/me/grades` + GPA dashboard widget |
+| #16 | Club calendar sync | ⚠️ **STASHED - blocked on a usable event feed** (2026-06-14). See note below. |
 
-**#16 Club calendar sync — investigation (2026-06-14, stashed, no code shipped):**
+**#16 Club calendar sync - investigation (2026-06-14, stashed, no code shipped):**
 BoilerLink runs on Anthology Engage. Findings from probing its public endpoints:
 - ✅ The **organizations directory IS a public JSON API**:
   `https://boilerlink.purdue.edu/api/discovery/search/organizations` returns all
@@ -48,7 +48,7 @@ BoilerLink runs on Anthology Engage. Findings from probing its public endpoints:
   admin-generated** (a student can't mint a per-org `.ics` URL); and the official
   Engage API needs **OAuth keys only a Purdue Engage admin can issue**
   (`/keymanagement`). So syncing club *events* into the Events feed is blocked on
-  a feed we can't access — not a code problem.
+  a feed we can't access - not a code problem.
 
 Unblock paths when revisited: (a) ship the **club directory** from the public
 orgs API + deep-link to BoilerLink for events; (b) a **paste-a-URL** ICS subscribe
@@ -80,9 +80,9 @@ orgs API + deep-link to BoilerLink for events; (b) a **paste-a-URL** ICS subscri
 | Issue | Feature | Notes |
 |---|---|---|
 | #24 | Campus Perks MVP | Admin-managed deals; foundation for #25/#29 |
-| #29 | Student deals & coupons | **Near-duplicate of #24** — consolidate |
+| #29 | Student deals & coupons | **Near-duplicate of #24** - consolidate |
 | #25 | Business self-service portal | Extends #24 with business auth, dashboards, approval workflow |
-| #27 | Community marketplace | **Same epic as #32** — consolidate (Sprint 6, estimate 13) |
+| #27 | Community marketplace | **Same epic as #32** - consolidate (Sprint 6, estimate 13) |
 | #32 | Student marketplace | Listings, moderation, Purdue verification |
 | #31 | Neighborhood guide | Student-submitted recs; could reuse board infra |
 | #33 | Study group finder | Course matching from existing schedule data + new groups tables |
@@ -98,7 +98,7 @@ orgs API + deep-link to BoilerLink for events; (b) a **paste-a-URL** ICS subscri
 3. **Epics:** #24 (close #29 as dup) → #25; merged marketplace (#27 + #32)
 4. **External-API features** as access lands: #28, #30, #13, #14, #15, #12
 5. **Social:** #33 → #17 → #18 → #19
-6. **#26 launch readiness** last — review once 1–3 are largely done
+6. **#26 launch readiness** last - review once 1-3 are largely done
 
 GitHub hygiene suggestion: close #29 as duplicate of #24, and merge #27/#32 into one
 epic, leaving ~23 real work items.

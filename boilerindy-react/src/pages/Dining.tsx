@@ -34,9 +34,9 @@ type LiveData = { ok?: boolean; locations?: NutrisliceLoc[]; date?: string; cach
 const STATIC_LOCATIONS: Location[] = []
 
 const GENERIC_HOURS = [
-  { meal: 'Breakfast', time: '7:00 – 10:30 AM', icon: 'coffee' },
-  { meal: 'Lunch', time: '11:00 AM – 2:00 PM', icon: 'dining' },
-  { meal: 'Dinner', time: '4:30 – 8:00 PM', icon: 'moon' },
+  { meal: 'Breakfast', time: '7:00 - 10:30 AM', icon: 'coffee' },
+  { meal: 'Lunch', time: '11:00 AM - 2:00 PM', icon: 'dining' },
+  { meal: 'Dinner', time: '4:30 - 8:00 PM', icon: 'moon' },
 ]
 
 const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -259,7 +259,7 @@ export default function Dining() {
 
   useEffect(() => {
     // Initial menu load. `loading` already starts true, so we fetch directly and
-    // only setState inside async callbacks — no synchronous setState in the effect
+    // only setState inside async callbacks - no synchronous setState in the effect
     // body. The Refresh button still calls loadMenu(force) for the spinner path.
     let cancelled = false
     fetch('/api/dining')
@@ -484,7 +484,7 @@ export default function Dining() {
                   </span>
                 </div>
                 {selected.source === 'static' && (
-                  <p className="text-[12px] text-[var(--color-txt-3)] mt-1.5">Demo menu — not live data.</p>
+                  <p className="text-[12px] text-[var(--color-txt-3)] mt-1.5">Demo menu - not live data.</p>
                 )}
               </div>
               <button type="button" className="btn btn-primary text-[12px] px-4 py-2.5 w-fit">

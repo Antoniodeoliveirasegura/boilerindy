@@ -78,7 +78,7 @@ export default function AdminDeleted() {
     try {
       await restoreDeletedItem(type, row.id)
       setItems((prev) => prev.filter((r) => r.id !== row.id))
-      setSuccess('Item restored — it is visible again.')
+      setSuccess('Item restored - it is visible again.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not restore the item.')
     } finally {

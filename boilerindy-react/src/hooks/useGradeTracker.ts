@@ -57,7 +57,7 @@ export function useGradeTracker(userId: string | null | undefined) {
         }
         if (cancelled) return
         // If the backend reports the store is unavailable (e.g. table not yet
-        // migrated), don't trust its empty list — keep the local cache.
+        // migrated), don't trust its empty list - keep the local cache.
         if (data?.unavailable) {
           const cached = loadLocalGrades(userId)
           if (cached) setGrades(cached)
@@ -113,7 +113,7 @@ export function useGradeTracker(userId: string | null | undefined) {
         }
         return true
       } catch (err) {
-        setError(errorMessage(err) || 'Could not save course (offline — kept locally).')
+        setError(errorMessage(err) || 'Could not save course (offline - kept locally).')
         return true // optimistic copy stays; cache keeps it
       }
     },
@@ -139,7 +139,7 @@ export function useGradeTracker(userId: string | null | undefined) {
           body: JSON.stringify(updates),
         })
       } catch (err) {
-        setError(errorMessage(err) || 'Could not update course (offline — kept locally).')
+        setError(errorMessage(err) || 'Could not update course (offline - kept locally).')
       }
       return true
     },

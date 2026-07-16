@@ -41,6 +41,6 @@ export function saveLocalLayout(userId: string | null | undefined, layout: unkno
   try {
     localStorage.setItem(storageKey(userId), JSON.stringify(layout))
   } catch {
-    /* storage unavailable / quota — DB copy remains the source of truth */
+    /* storage unavailable / quota - DB copy remains the source of truth */
   }
 }

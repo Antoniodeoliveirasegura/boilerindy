@@ -7,7 +7,7 @@ import {
   MAX_GROUP_TITLE,
 } from '../src/studyGroups.mjs'
 
-// Issue #33 — the course-code normalizer is the shared piece (#17 reuses it).
+// Issue #33 - the course-code normalizer is the shared piece (#17 reuses it).
 
 test('extracts a spaced course code', () => {
   assert.equal(normalizeCourseCode('CS 18000 - Problem Solving'), 'CS 18000')

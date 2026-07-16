@@ -1,7 +1,7 @@
 -- =============================================================================
--- CAMPUS BOARD — REQUIRED for /api/board/* (fixes "schema cache" / missing table)
+-- CAMPUS BOARD - REQUIRED for /api/board/* (fixes "schema cache" / missing table)
 --
--- Supabase may warn: "destructive operations" — usually from CREATE OR REPLACE
+-- Supabase may warn: "destructive operations" - usually from CREATE OR REPLACE
 -- FUNCTION below. That only defines/updates the shared updated_at helper used by
 -- several tables; it does NOT delete data. Safe to confirm and run.
 --

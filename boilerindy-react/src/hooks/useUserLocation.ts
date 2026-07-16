@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 //   memory") so the UI never waits and survives a non-persisting grant.
 // - Use the Permissions API: if already granted, refresh silently (no prompt).
 // - Only ever surface the prompt ONCE (tracked in localStorage), and only when
-//   autoPrompt is set — so a returning user is never nagged again.
+//   autoPrompt is set - so a returning user is never nagged again.
 
 export type UserLocation = { lat: number; lon: number }
 
@@ -36,7 +36,7 @@ function writeCache(loc: UserLocation): void {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(loc))
   } catch {
-    /* storage unavailable / quota — cache is best-effort */
+    /* storage unavailable / quota - cache is best-effort */
   }
 }
 
@@ -57,7 +57,7 @@ function markAsked(): void {
 }
 
 /**
- * @param autoPrompt When true, the browser permission prompt may be shown — but
+ * @param autoPrompt When true, the browser permission prompt may be shown - but
  *   at most once, ever (subsequent loads reuse the cached position instead of
  *   re-prompting). When false, location is only read if permission is already
  *   granted. Defaults to false.
@@ -76,7 +76,7 @@ export function useUserLocation({ autoPrompt = false }: { autoPrompt?: boolean }
           writeCache(loc)
         },
         () => {
-          /* denied / unavailable — keep the cached value, if any */
+          /* denied / unavailable - keep the cached value, if any */
         },
         GEO_OPTS,
       )

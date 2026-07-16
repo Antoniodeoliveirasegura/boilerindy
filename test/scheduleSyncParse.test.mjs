@@ -1,7 +1,7 @@
 // Real-parse regression test for the node-ical upgrade (issue #118).
 //
 // The pure-core tests (scheduleSync.test.mjs) use synthetic fixtures, so they
-// cannot catch a change in node-ical's PARSED OUTPUT — and 0.26 swapped the
+// cannot catch a change in node-ical's PARSED OUTPUT - and 0.26 swapped the
 // recurrence engine (rrule → rrule-temporal) and dropped moment. This test
 // feeds a real .ics string through node-ical and pins exactly the shape
 // scheduleSync relies on: JS Date start/end, `.type`, `{ params, val }` text,
@@ -67,7 +67,7 @@ test('node-ical parses a real feed into the shape scheduleSync depends on', asyn
   const lecture = events.find((e) => String(e.uid).startsWith('lecture'))
   const holiday = events.find((e) => String(e.uid).startsWith('holiday'))
 
-  // Timed event: JS Date start/end — the type expandRecurringEvents/planSync read.
+  // Timed event: JS Date start/end - the type expandRecurringEvents/planSync read.
   assert.ok(lecture.start instanceof Date, 'start is a Date')
   assert.ok(lecture.end instanceof Date, 'end is a Date')
   assert.equal(icalText(lecture.summary), 'CS 180 Lecture') // SUMMARY;LANGUAGE → { params, val }

@@ -1,10 +1,10 @@
 -- Run in Supabase SQL Editor (once). Advertiser portal M2: campaigns owned by
 -- advertisers. Depends on supabase-advertiser-portal.sql (advertisers table).
--- Idempotent — safe to re-run. Impression/tap logging (ad_events) is M3.
+-- Idempotent - safe to re-run. Impression/tap logging (ad_events) is M3.
 --
 -- Approval flow: campaigns are created 'draft'. Advertisers submit for review
 -- (-> pending_review); only the owner activates (-> active), enforced in the
--- Node server (advertiserCampaign.mjs transition map) — not in SQL.
+-- Node server (advertiserCampaign.mjs transition map) - not in SQL.
 
 CREATE TABLE IF NOT EXISTS campaigns (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

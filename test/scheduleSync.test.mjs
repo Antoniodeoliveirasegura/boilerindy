@@ -1,6 +1,6 @@
 // Tests for the pure schedule-sync core. The interface IS the test surface:
 // a parsed feed goes in, a deterministic plan comes out. No DB, no network,
-// no mocks — just values.
+// no mocks - just values.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -47,7 +47,7 @@ test('planSync maps a single VEVENT to one item without stamping identity', () =
   assert.equal(plan.itemsToInsert.length, 1)
   const item = plan.itemsToInsert[0]
 
-  // Identity is the shell's job — the pure core must not stamp these.
+  // Identity is the shell's job - the pure core must not stamp these.
   assert.equal('id' in item, false)
   assert.equal('created_at' in item, false)
   assert.equal('updated_at' in item, false)
@@ -63,7 +63,7 @@ test('planSync maps a single VEVENT to one item without stamping identity', () =
   assert.equal(plan.meta.rawCount, 1)
 })
 
-test('planSync is deterministic — same feed yields a deep-equal plan', () => {
+test('planSync is deterministic - same feed yields a deep-equal plan', () => {
   const feed = { a: vevent(), b: vevent({ uid: 'evt-2', summary: 'CS 240', start: new Date('2026-01-13T16:30:00.000Z'), end: new Date('2026-01-13T17:20:00.000Z') }) }
   const source = purdueSource()
 

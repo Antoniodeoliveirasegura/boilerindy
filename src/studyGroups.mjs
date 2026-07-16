@@ -1,5 +1,5 @@
-// Study Group Finder (issue #33). Pure helpers — course-code normalization and
-// input validation — kept here so they are unit-testable without DB/HTTP, and
+// Study Group Finder (issue #33). Pure helpers - course-code normalization and
+// input validation - kept here so they are unit-testable without DB/HTTP, and
 // so Friend Matching (#17) can reuse the same normalizer.
 
 // Purdue course codes look like "CS 18000", "MA 16500", "ENGL 10600": a 2-4

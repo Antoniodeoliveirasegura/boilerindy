@@ -1,6 +1,6 @@
 // Student-side client for sponsored content (advertiser-portal M3). Uses the
 // student cookie session (credentials: 'include'). Ads are non-critical chrome,
-// so every call fails soft — a serving/tracking error must never break the
+// so every call fails soft - a serving/tracking error must never break the
 // dashboard. Migrated to TypeScript (issue #20).
 //
 // Named "spotlight" (file AND /api/spotlight/* routes) instead of "ads" because
@@ -34,7 +34,7 @@ export async function getActiveAds(placement = 'side-rail', limit = 8): Promise<
 }
 
 /**
- * Log an impression or tap for a served ad. Fire-and-forget — resolves to a
+ * Log an impression or tap for a served ad. Fire-and-forget - resolves to a
  * boolean but callers can ignore it.
  */
 export async function trackAdEvent(campaignId: string, kind: 'impression' | 'tap'): Promise<boolean> {

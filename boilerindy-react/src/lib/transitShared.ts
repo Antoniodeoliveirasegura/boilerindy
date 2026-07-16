@@ -13,12 +13,12 @@ export type TransitRoute = {
 }
 
 export const routes: TransitRoute[] = [
-  { id: 31, num: '1', name: 'Route 1 – Crimson', shortName: 'Crimson', color: '#990000', schedule: { days: [1, 2, 3, 4, 5], start: '06:30', end: '22:00', label: 'Mon–Fri 6:30a–10:00p' } },
-  { id: 19, num: '2', name: 'Route 2 – Gray', shortName: 'Gray', color: '#83786F', schedule: { days: [1, 2, 3, 4, 5], start: '06:30', end: '22:00', label: 'Mon–Fri 6:30a–10:00p' } },
-  { id: 32, num: '3', name: 'Route 3 – Yellow', shortName: 'Yellow', color: '#F1BE48', schedule: { days: [1, 2, 3, 4, 5], start: '05:30', end: '00:00', label: 'Mon–Fri 5:30a–12:00a' } },
-  { id: 27, num: '4', name: 'Route 4 – Blue', shortName: 'Blue', color: '#006298', schedule: { days: [1, 2, 3, 4, 5], start: '05:30', end: '00:00', label: 'Mon–Fri 5:30a–12:00a' } },
-  { id: 33, num: '5', name: 'Route 5 – Purple', shortName: 'Purple', color: '#66435A', schedule: { days: [1, 2, 3, 4, 5], start: '07:00', end: '22:00', label: 'Mon–Fri 7:00a–10:00p' } },
-  { id: 34, num: '7', name: 'Route 7 – Orange', shortName: 'Orange', color: '#e68217', schedule: { days: [0, 6], start: '09:00', end: '20:00', label: 'Sat–Sun 9:00a–8:00p' } },
+  { id: 31, num: '1', name: 'Route 1 - Crimson', shortName: 'Crimson', color: '#990000', schedule: { days: [1, 2, 3, 4, 5], start: '06:30', end: '22:00', label: 'Mon-Fri 6:30a-10:00p' } },
+  { id: 19, num: '2', name: 'Route 2 - Gray', shortName: 'Gray', color: '#83786F', schedule: { days: [1, 2, 3, 4, 5], start: '06:30', end: '22:00', label: 'Mon-Fri 6:30a-10:00p' } },
+  { id: 32, num: '3', name: 'Route 3 - Yellow', shortName: 'Yellow', color: '#F1BE48', schedule: { days: [1, 2, 3, 4, 5], start: '05:30', end: '00:00', label: 'Mon-Fri 5:30a-12:00a' } },
+  { id: 27, num: '4', name: 'Route 4 - Blue', shortName: 'Blue', color: '#006298', schedule: { days: [1, 2, 3, 4, 5], start: '05:30', end: '00:00', label: 'Mon-Fri 5:30a-12:00a' } },
+  { id: 33, num: '5', name: 'Route 5 - Purple', shortName: 'Purple', color: '#66435A', schedule: { days: [1, 2, 3, 4, 5], start: '07:00', end: '22:00', label: 'Mon-Fri 7:00a-10:00p' } },
+  { id: 34, num: '7', name: 'Route 7 - Orange', shortName: 'Orange', color: '#e68217', schedule: { days: [0, 6], start: '09:00', end: '20:00', label: 'Sat-Sun 9:00a-8:00p' } },
 ]
 
 /** Returns true if the given route is scheduled to run right now (Eastern time). */
@@ -73,7 +73,7 @@ export const TRANLOC_ROUTE_ALIASES: Record<number, number> = {
 
 /**
  * Routes that share an overlapping physical path but run on different days.
- * Gray (19) ↔ Orange (34): same corridor, Mon–Fri vs Sat–Sun.
+ * Gray (19) ↔ Orange (34): same corridor, Mon-Fri vs Sat-Sun.
  */
 export const SCHEDULE_PEERS: Record<number, number> = {
   19: 34, // Gray → Orange (weekends)

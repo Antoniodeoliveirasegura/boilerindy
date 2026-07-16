@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from './taskPriorityStore'
 
-// Issue #6 — assignment priority labels persist per user in localStorage.
+// Issue #6 - assignment priority labels persist per user in localStorage.
 beforeEach(() => localStorage.clear())
 
 describe('taskPriorityStore', () => {

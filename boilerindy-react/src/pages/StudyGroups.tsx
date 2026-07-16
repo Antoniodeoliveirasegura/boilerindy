@@ -301,7 +301,7 @@ export default function StudyGroups() {
                 value={form.meetingInfo}
                 onChange={(e) => setForm((f) => ({ ...f, meetingInfo: e.target.value }))}
                 maxLength={200}
-                placeholder="When/where (optional) — e.g. Tue 4pm, Library 2nd floor"
+                placeholder="When/where (optional) - e.g. Tue 4pm, Library 2nd floor"
                 className="input w-full text-[13px] px-3 py-2"
               />
               <textarea
@@ -316,7 +316,7 @@ export default function StudyGroups() {
                 value={form.capacity}
                 onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))}
                 inputMode="numeric"
-                placeholder="Max size (optional, 2–100)"
+                placeholder="Max size (optional, 2-100)"
                 className="input w-full text-[13px] px-3 py-2"
               />
               {formError && <p className="text-[12px] text-[var(--color-error)]">{formError}</p>}

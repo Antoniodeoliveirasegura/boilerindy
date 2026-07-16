@@ -61,7 +61,7 @@ export function rankMatches(myCourses, candidates) {
 }
 
 /**
- * Public match card — only non-sensitive fields before a connection is accepted.
+ * Public match card - only non-sensitive fields before a connection is accepted.
  */
 export function mapMatchCard(user, sharedCount) {
   return {

@@ -14,7 +14,7 @@ import { ADVERTISER_PASSWORD_MIN_LENGTH, normalizeAdvertiserEmail } from './adve
 export const RESET_TOKEN_TTL_MS = 60 * 60 * 1000 // 1 hour, matches the student flow
 export const RESET_TOKEN_BYTES = 32
 
-/** SHA-256 hex of a reset token. Deterministic — used to look up the stored row. */
+/** SHA-256 hex of a reset token. Deterministic - used to look up the stored row. */
 export function hashResetToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex')
 }

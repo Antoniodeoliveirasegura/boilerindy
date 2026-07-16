@@ -60,7 +60,7 @@ export function formatClassesToday(classItems, now = new Date(), timeZone = 'Ame
   if (!today.length) return 'You have no classes scheduled for today.'
   const lines = today.map((c) => {
     const t = startOf(c).toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit' })
-    return `• ${t} — ${c.title}${c.location ? ` (${c.location})` : ''}`
+    return `• ${t} - ${c.title}${c.location ? ` (${c.location})` : ''}`
   })
   return `You have ${today.length} class${today.length === 1 ? '' : 'es'} today:\n${lines.join('\n')}`
 }
@@ -73,7 +73,7 @@ export function formatDiningOpen(diningData) {
   if (!open.length) {
     return 'No dining locations are open right now. Check the Dining page for today’s hours.'
   }
-  const lines = open.map((l) => `• ${l.name}${l.hours ? ` — ${l.hours}` : ''}`)
+  const lines = open.map((l) => `• ${l.name}${l.hours ? ` - ${l.hours}` : ''}`)
   return `Open dining locations right now:\n${lines.join('\n')}`
 }
 
@@ -84,7 +84,7 @@ export function formatAssignments(items, now = new Date(), timeZone = 'America/I
     .sort((a, b) => startOf(a) - startOf(b))
     .slice(0, 5)
   if (!upcoming.length) return 'You have no upcoming assignments on your calendar.'
-  const lines = upcoming.map((c) => `• ${timeLabel(startOf(c), timeZone)} — ${c.title}`)
+  const lines = upcoming.map((c) => `• ${timeLabel(startOf(c), timeZone)} - ${c.title}`)
   return `Your next ${upcoming.length} deadline${upcoming.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
 }
 

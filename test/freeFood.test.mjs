@@ -1,5 +1,5 @@
 // Tests for the pure free-food matcher (issue #46). Title + description go in,
-// a boolean comes out — no DB, no network.
+// a boolean comes out - no DB, no network.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { hasFreeFood } from '../src/freeFood.mjs'
 
 test('matches obvious free-food phrases in the title', () => {
-  assert.equal(hasFreeFood('Club fair — free pizza!', ''), true)
+  assert.equal(hasFreeFood('Club fair - free pizza!', ''), true)
   assert.equal(hasFreeFood('Game night with snacks', null), true)
   assert.equal(hasFreeFood('Lunch provided', undefined), true)
 })

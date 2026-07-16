@@ -1,7 +1,7 @@
 // calendarItemStore.mjs
 //
 // The persistence edge for schedule sync. This is a plain module for locality
-// of the delete-then-batch-insert and status-update logic — NOT an injected
+// of the delete-then-batch-insert and status-update logic - NOT an injected
 // port. Because planSync (scheduleSync.mjs) is pure, the tests never touch this
 // module, so there is no second adapter to justify a swappable seam.
 //
@@ -21,7 +21,7 @@ export function createCalendarItemStore(supabase) {
    * Replace every calendar_item for a source with a fresh set. Deletes first,
    * then inserts the stamped rows in batches. Throws on insert failure so the
    * shell can mark the source 'error'; a delete failure is logged and tolerated
-   * (matches prior behaviour — a stale row is better than losing the sync).
+   * (matches prior behaviour - a stale row is better than losing the sync).
    *
    * @param {string} sourceId
    * @param {object[]} rows - plan items WITHOUT id/created_at/updated_at.

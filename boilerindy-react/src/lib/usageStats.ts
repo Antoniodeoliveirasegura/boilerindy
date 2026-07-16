@@ -1,5 +1,5 @@
 // First-party product analytics client (issue #51). Events queue locally and
-// flush in batches to our own backend — no third-party trackers, ever.
+// flush in batches to our own backend - no third-party trackers, ever.
 // Disabled until configureAnalytics says otherwise, so nothing is recorded for
 // signed-out visitors or users who opted out (their queue is dropped too).
 // Fails soft everywhere: analytics must never break or slow the app.
@@ -61,7 +61,7 @@ export function flush(): void {
   })
 }
 
-// On tab close/navigation the interval never fires again — hand the remaining
+// On tab close/navigation the interval never fires again - hand the remaining
 // batch to sendBeacon, which the browser delivers after the page is gone.
 function flushWithBeacon(): void {
   if (!isEnabled || queue.length === 0) return

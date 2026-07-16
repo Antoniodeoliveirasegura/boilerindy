@@ -32,7 +32,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return // leave cross-origin alone
 
-  // Never cache dynamic/auth endpoints — always hit the network.
+  // Never cache dynamic/auth endpoints - always hit the network.
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/feeds/') ||

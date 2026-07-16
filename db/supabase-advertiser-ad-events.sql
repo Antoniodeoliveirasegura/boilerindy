@@ -1,8 +1,8 @@
 -- Run in Supabase SQL Editor (once). Advertiser portal M3: impression/tap log
 -- for served ads. Depends on supabase-advertiser-campaigns.sql (campaigns table).
--- Idempotent — safe to re-run.
+-- Idempotent - safe to re-run.
 --
--- Privacy: this table stores NO student PII — only which campaign was shown/tapped
+-- Privacy: this table stores NO student PII - only which campaign was shown/tapped
 -- and when. Stats are aggregate counts (see GET /api/advertiser/campaigns/:id/stats).
 
 CREATE TABLE IF NOT EXISTS ad_events (

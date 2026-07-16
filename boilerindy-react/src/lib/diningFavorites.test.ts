@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { normalizeItemName, favoritesOnTodaysMenu } from './diningFavorites'
 
-// Issue #49 — favorites must match the live menu regardless of case/spacing,
+// Issue #49 - favorites must match the live menu regardless of case/spacing,
 // and the "favorites today" section must report which locations serve them.
 
 describe('normalizeItemName', () => {

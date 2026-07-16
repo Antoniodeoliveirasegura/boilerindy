@@ -15,7 +15,7 @@ const MAX_LINE_OCTETS = 75
 /**
  * Escape a value for an iCalendar TEXT property (RFC 5545 §3.3.11):
  * backslash, semicolon, comma are escaped; newlines become the literal "\n".
- * Colons are intentionally NOT escaped — they are legal inside TEXT.
+ * Colons are intentionally NOT escaped - they are legal inside TEXT.
  */
 export function escapeIcsText(value) {
   return String(value ?? '')

@@ -2,7 +2,7 @@
 //
 // The deep, pure core of schedule ingestion. Takes a parsed iCalendar feed
 // (node-ical's `eventsByKey` object) plus the linked source row and returns a
-// plan describing what should be persisted — it performs NO I/O, holds no
+// plan describing what should be persisted - it performs NO I/O, holds no
 // clock, and generates no randomness, so the same feed always yields the same
 // plan. That determinism is what makes `planSync` testable by value.
 //
@@ -337,7 +337,7 @@ export function classifyFetchError(fetchError) {
   if (isNetworkError) {
     message = 'Could not reach the calendar URL. Please check the URL is correct and accessible.'
   } else if (isAuthError) {
-    message = 'Calendar access denied. The feed URL may have expired — try generating a new one.'
+    message = 'Calendar access denied. The feed URL may have expired - try generating a new one.'
   } else if (errorMsg.includes('404')) {
     message = 'Calendar not found. The URL may be incorrect or the calendar may have been deleted.'
   }
@@ -352,7 +352,7 @@ export function classifyFetchError(fetchError) {
  * @param {object} eventsByKey - node-ical's parsed feed (keyed objects).
  * @param {object} source - the linked_sources row: { id, user_id, source_type, source_url }.
  * @returns {{ itemsToInsert: object[], sourceStatus: string, statusMessage: string|null, meta: object }}
- *   itemsToInsert rows carry every column EXCEPT id/created_at/updated_at — the
+ *   itemsToInsert rows carry every column EXCEPT id/created_at/updated_at - the
  *   shell stamps those at persist time so this function stays deterministic.
  */
 export function planSync(eventsByKey, source) {

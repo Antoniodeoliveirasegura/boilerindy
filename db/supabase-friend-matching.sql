@@ -1,7 +1,7 @@
 -- Run in Supabase SQL Editor (once). Enables Friend Matching (issue #17):
 -- connect students who share courses. Privacy is opt-in (discoverable, default
 -- off). Pre-acceptance, only display name, interests, and shared-course count
--- are exposed — never email or schedule details.
+-- are exposed - never email or schedule details.
 
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

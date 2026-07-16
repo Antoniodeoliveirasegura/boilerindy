@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (supabaseSession) {
           setSupabaseUser(supabaseSession.user)
           // Sync (which establishes the backend session from the Supabase token)
-          // and the static auth-config run together — no waterfall. Issue #111.
+          // and the static auth-config run together - no waterfall. Issue #111.
           const [synced, cfg] = (await Promise.all([
             syncUserToBackend(supabaseSession),
             authRequest('/api/auth-config'),

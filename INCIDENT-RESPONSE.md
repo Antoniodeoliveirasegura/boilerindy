@@ -31,7 +31,7 @@ and in SECURITY.md before public launch._
 ## 3. Response workflow
 
 **Detect → Triage → Contain → Eradicate → Notify → Recover → Review.**
-Start a timestamped log (what you saw, did, and when) at the first sign — you'll
+Start a timestamped log (what you saw, did, and when) at the first sign - you'll
 need the timeline for any notification and the post-mortem.
 
 ## 4. Containment runbook (runnable)
@@ -61,7 +61,7 @@ never in the repo.
 - Supabase SQL editor: `DELETE FROM advertiser_password_resets;`
 
 **e. Rotate any other exposed secret**
-- `RESEND_API_KEY`, `GEMINI_API_KEY`, `TRANSLOC_API_KEY`, `SENTRY_DSN` — roll at
+- `RESEND_API_KEY`, `GEMINI_API_KEY`, `TRANSLOC_API_KEY`, `SENTRY_DSN` - roll at
   the provider, update the host env, redeploy.
 
 **f. Cut off a specific abused surface**
@@ -74,7 +74,7 @@ never in the repo.
 |---|---|---|
 | Email, display name, avatar, auth provider | `users` | Medium (PII) |
 | Purdue email + username (never the password) | `users` | Medium |
-| Imported schedule: class/assignment/exam titles, times, **locations**, raw ICS | `calendar_items` (incl. `raw_json`) | **High** — reveals where a student physically is |
+| Imported schedule: class/assignment/exam titles, times, **locations**, raw ICS | `calendar_items` (incl. `raw_json`) | **High** - reveals where a student physically is |
 | Grades | `user_grades` | High |
 | Posts: board, marketplace (name + Purdue email shown), lost & found, guide, study groups, friend profile | respective tables | Medium |
 | Calendar-feed token (bearer capability) | `users.calendar_feed_token` | High |
@@ -86,17 +86,17 @@ never in the repo.
 ## 6. Legal notification (Indiana)
 
 Indiana's breach law, **IC 24-4.9**, is triggered by unauthorized acquisition of
-unencrypted **"personal information"** — defined narrowly as a name **plus** an
+unencrypted **"personal information"** - defined narrowly as a name **plus** an
 SSN, driver's-license number, or financial-account/card number. BoilerIndy does
 **not** collect those for students, so a breach of schedule/email/post data
 likely falls **outside** IC 24-4.9's strict trigger.
 
 Even so:
-- **Notify affected users anyway** for any real exposure of their data — it's
+- **Notify affected users anyway** for any real exposure of their data - it's
   the right thing, our privacy policy implies it, and the FTC treats deceptive
   security claims as unfair/deceptive practices.
 - **Advertiser credentials** (emails + password hashes) or any future collection
-  of regulated identifiers **could** trigger IC 24-4.9 — which then requires
+  of regulated identifiers **could** trigger IC 24-4.9 - which then requires
   notifying affected Indiana residents **and the Indiana Attorney General**
   without unreasonable delay.
 - **Confirm the specific obligation with counsel** before deciding not to notify.
@@ -108,17 +108,17 @@ Even so:
 >
 > Hi {first name},
 >
-> On {date} we discovered {plain-language what happened}. Your {data involved —
+> On {date} we discovered {plain-language what happened}. Your {data involved -
 > e.g. email address and class schedule} may have been exposed. We have {what we
-> did — e.g. rotated all keys and invalidated calendar-feed links}.
+> did - e.g. rotated all keys and invalidated calendar-feed links}.
 >
-> As a precaution, please {action — e.g. reset your password / re-create your
+> As a precaution, please {action - e.g. reset your password / re-create your
 > calendar link in Settings}. We do not collect passwords for social logins, and
 > we never store your Purdue password.
 >
 > We're sorry this happened. Questions: {security contact}.
 >
-> — The BoilerIndy team
+> - The BoilerIndy team
 
 ## 8. Post-incident review
 

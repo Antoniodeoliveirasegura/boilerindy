@@ -1,7 +1,7 @@
 # First-Party Product Analytics (issue #51)
 
 Privacy-conscious usage analytics stored in our own Supabase. **No third-party
-trackers** — there is no Google Analytics, no pixel, no external script. Events
+trackers** - there is no Google Analytics, no pixel, no external script. Events
 power feature prioritization (e.g. consolidating the marketplace issues) and the
 accurate data disclosure required for app-store listing (issue #26).
 
@@ -26,7 +26,7 @@ else is rejected with a 400. Add new events to the constant **and** this table.
 | `page_view` | Any route change (path in props) |
 | `source_synced` | A calendar source is connected or re-synced |
 | `board_post_created` | A board post is published |
-| `assistant_message_sent` | A campus-assistant message is sent (event only — never the text) |
+| `assistant_message_sent` | A campus-assistant message is sent (event only - never the text) |
 | `dining_viewed` | Dining page opened |
 | `transit_viewed` | Transit page opened |
 | `task_completed` | A task is marked complete |
@@ -40,7 +40,7 @@ else is rejected with a 400. Add new events to the constant **and** this table.
   for opted-out users.
 - RLS with no policies: only the service-role key (the Node server) can touch
   the table; the browser's anon key sees nothing.
-- No free-form content is ever recorded — no message text, post bodies,
+- No free-form content is ever recorded - no message text, post bodies,
   schedule contents, grades, or location.
 
 ## Retention: 12 months

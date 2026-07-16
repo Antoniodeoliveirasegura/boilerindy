@@ -514,9 +514,9 @@ export default function Transit() {
   const [loading, setLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [visitedStopIds, setVisitedStopIds] = useState<Set<string>>(() => new Set())
-  // Last bus position folded into visitedStopIds — see the accumulation block below.
+  // Last bus position folded into visitedStopIds - see the accumulation block below.
   const [lastBusPos, setLastBusPos] = useState<string | null>(null)
-  /** One “my stop” per route — chime fires when bus reaches the stop before this one */
+  /** One “my stop” per route - chime fires when bus reaches the stop before this one */
   const [myStopId, setMyStopId] = useState<string | null>(null)
   const chimePlayedRef = useRef(false)
   const [routeIdToCanonical, setRouteIdToCanonical] = useState<Record<number, number>>(() => ({ ...TRANLOC_ROUTE_ALIASES }))
@@ -737,7 +737,7 @@ export default function Transit() {
         </button>
       </div>
 
-      {/* Route filter pills — horizontal scroll on mobile */}
+      {/* Route filter pills - horizontal scroll on mobile */}
       <div className="mb-5 sm:mb-6 animate-fade-in-up stagger-1">
         <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible scrollbar-hide">
           <button
@@ -775,7 +775,7 @@ export default function Transit() {
           })}
         </div>
 
-        {/* Schedule reference — hidden on mobile for cleaner UI */}
+        {/* Schedule reference - hidden on mobile for cleaner UI */}
         <div className="mt-3 hidden sm:flex flex-wrap gap-x-5 gap-y-1">
           {[...new Map(routes.map(r => [r.schedule?.label, r])).values()].map(r => {
             if (!r.schedule) return null
@@ -847,7 +847,7 @@ export default function Transit() {
               Stops on this route
             </div>
             <p className="text-[11px] text-[var(--color-txt-3)]">
-              Green pulse = at stop · Filled = reached · Bell = your stop — chimes when the bus reaches the{' '}
+              Green pulse = at stop · Filled = reached · Bell = your stop - chimes when the bus reaches the{' '}
               <span className="font-medium text-[var(--color-txt-2)]">stop before</span> yours
             </p>
           </div>
@@ -859,7 +859,7 @@ export default function Transit() {
           )}
           {myStopId && !stopBeforeMyStop && (
             <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mb-2 px-0.5">
-              Pick a stop after the first in the list — there is no previous stop to trigger the chime.
+              Pick a stop after the first in the list - there is no previous stop to trigger the chime.
             </p>
           )}
 
@@ -906,7 +906,7 @@ export default function Transit() {
                     onClick={() => canPickMyStop && toggleMyStop(s.id)}
                     title={
                       !canPickMyStop
-                        ? 'First stop has no “before” stop — pick another'
+                        ? 'First stop has no “before” stop - pick another'
                         : isMyStop
                           ? 'Tap to clear my stop'
                           : 'Set as my stop (chime at the stop before)'

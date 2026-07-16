@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 // Web Speech API (issue #19). Still non-standard, so it is absent from
-// lib.dom.d.ts — declare the minimal surface consumed by useSpeechRecognition.
+// lib.dom.d.ts - declare the minimal surface consumed by useSpeechRecognition.
 interface SpeechRecognitionResultLike {
   results: ArrayLike<ArrayLike<{ transcript: string }>>
 }

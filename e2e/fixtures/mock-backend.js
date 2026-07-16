@@ -86,7 +86,7 @@ export const test = base.extend({
     const json = (route, status, body) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-    // Supabase JS SDK token/refresh calls — kept offline so getSession() and the
+    // Supabase JS SDK token/refresh calls - kept offline so getSession() and the
     // non-blocking signInWithEmail() in Login.jsx resolve fast and predictably.
     // /recover (resetPasswordForEmail) succeeds so the forgot-password flow is
     // testable; everything else stays disabled.

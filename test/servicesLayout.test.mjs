@@ -1,6 +1,6 @@
 // Tests for the pure Services-board layout normalizer. Mirrors
 // dashboardLayout.test.mjs: untrusted input goes in, a safe canonical layout
-// comes out — no DB, no network. Confirms the shared widgetLayout factory
+// comes out - no DB, no network. Confirms the shared widgetLayout factory
 // behaves correctly for the Services catalogue.
 
 import { test } from 'node:test'

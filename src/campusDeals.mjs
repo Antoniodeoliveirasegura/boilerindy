@@ -1,5 +1,5 @@
-// Campus Perks (issue #24). Admin-curated local deals. Pure helpers — distance,
-// validation, active-window, row mapping — kept here so they are unit-testable
+// Campus Perks (issue #24). Admin-curated local deals. Pure helpers - distance,
+// validation, active-window, row mapping - kept here so they are unit-testable
 // without the DB or HTTP layer.
 
 export const DEAL_CATEGORIES = ['food', 'coffee', 'entertainment', 'services', 'other']

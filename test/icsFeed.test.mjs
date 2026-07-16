@@ -1,6 +1,6 @@
 // Tests for the pure ICS feed generator (issue #48). The interface IS the test
 // surface: event descriptors go in, an RFC 5545 string comes out. No DB, no
-// network — just values and string assertions on the escaping/folding rules.
+// network - just values and string assertions on the escaping/folding rules.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -26,7 +26,7 @@ test('escapeIcsText turns newlines into literal \\n', () => {
 })
 
 test('escapeIcsText leaves colons and unicode intact', () => {
-  assert.equal(escapeIcsText('Office hours: 3pm — café ☕'), 'Office hours: 3pm — café ☕')
+  assert.equal(escapeIcsText('Office hours: 3pm - café ☕'), 'Office hours: 3pm - café ☕')
 })
 
 test('escapeIcsText handles null and undefined as empty string', () => {

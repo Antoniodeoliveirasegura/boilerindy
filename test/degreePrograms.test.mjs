@@ -1,5 +1,5 @@
 // Tests for the degree-planner data + matching helpers (issue #18). Pure
-// functions — no DB, no network.
+// functions - no DB, no network.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

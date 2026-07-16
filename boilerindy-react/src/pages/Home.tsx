@@ -57,13 +57,13 @@ function quickActionsGridClass(size: string) {
 const HOME_CALENDAR_CATEGORIES =
   'campus_event,event,deadline,activity,assignment,task,homework,submission,quiz,project,exam,lab,midterm,paper,presentation'
 
-/** User message for /api/assistant — server already attaches schedule & calendar context. */
+/** User message for /api/assistant - server already attaches schedule & calendar context. */
 const WEEK_AHEAD_GEMINI_PROMPT = `Write a concise "Week Ahead" summary for my dashboard using ONLY the class schedule, assignments, deadlines, and events in your context. Do not invent courses, due dates, or events.
 
 Requirements:
 - Plain text only. No markdown, no bullets, no numbered lists, no emoji.
-- Use 2–4 short paragraphs separated by a blank line between each.
-- First paragraph: my weekly class rhythm — each course and which days it meets.
+- Use 2-4 short paragraphs separated by a blank line between each.
+- First paragraph: my weekly class rhythm - each course and which days it meets.
 - Next: assignments, exams, or deadlines due this calendar week, or clearly say nothing major is due.
 - Last: notable campus or career events this week, or say none scheduled.
 - Stay under 160 words. Write in second person ("you"). Be warm and skimmable.`
@@ -121,7 +121,7 @@ function formatDashboardEventTime(startTime: string, endTime?: string | null) {
   if (!endTime) return startLabel
   const end = new Date(endTime)
   const endLabel = end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  return `${startLabel} – ${endLabel}`
+  return `${startLabel} - ${endLabel}`
 }
 
 const fallbackMenuPreview = {
@@ -157,7 +157,7 @@ function formatTimeRange(startTime: string, endTime?: string | null) {
   const end = endTime ? new Date(endTime) : null
   const startLabel = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   const endLabel = end ? end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
-  return endLabel ? `${startLabel} – ${endLabel}` : startLabel
+  return endLabel ? `${startLabel} - ${endLabel}` : startLabel
 }
 
 function formatDuration(minutes: number) {
@@ -295,14 +295,14 @@ function describeBusEta(
         ? userIdx - busIdx
         : routeStops.length - busIdx + userIdx
     if (stopsAway === 0) {
-      return `At your stop — ${userStopName}`
+      return `At your stop - ${userStopName}`
     }
     const etaMin = stopsAway * AVG_STOP_MINUTES
     const stopWord = stopsAway === 1 ? 'stop' : 'stops'
     return `${stopsAway} ${stopWord} from you (${userStopName}), ~${etaMin} min`
   }
 
-  // Fallback: no user location — describe bus position generically
+  // Fallback: no user location - describe bus position generically
   if (!nearestBusStop) {
     if (!moving) return `${route.shortName} bus is stopped`
     return `${route.shortName} bus is en route`
@@ -376,7 +376,7 @@ function buildSuggestions({
     return list.slice(0, 3)
   }
 
-  // Tight gap — need to head to next class
+  // Tight gap - need to head to next class
   if (freeMinutes > 0 && freeMinutes < 20 && nextClass) {
     list.push({
       icon: 'mapPin',
@@ -389,7 +389,7 @@ function buildSuggestions({
     return list.slice(0, 3)
   }
 
-  // Good window — dining open?
+  // Good window - dining open?
   if (diningStatus?.is_open && freeMinutes >= 25) {
     const hrs = diningStatus.hours && diningStatus.hours !== 'Closed today' ? diningStatus.hours : 'Open now'
     list.push({
@@ -515,7 +515,7 @@ export default function Home() {
   // flag synchronously (which trips react-hooks/set-state-in-effect).
   const [weekAheadLoading, setWeekAheadLoading] = useState(() => !readCachedWeekDigest())
 
-  // Fetches and stores the digest. Does NOT raise the loading flag on entry —
+  // Fetches and stores the digest. Does NOT raise the loading flag on entry -
   // the mount path starts with it already true, and the Refresh button raises it
   // via generateWeekAheadSummary. The only setState calls here run inside async
   // promise callbacks, so this is safe to call directly from an effect.
@@ -1599,7 +1599,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Customize toolbar — fixed chrome that toggles widget edit mode. */}
+      {/* Customize toolbar - fixed chrome that toggles widget edit mode. */}
       <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
         <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
           {editing
@@ -1662,7 +1662,7 @@ export default function Home() {
             >
               {content || (
                 <div className="card p-5 text-[13px] text-[var(--color-txt-2)]">
-                  Nothing to show right now — this widget appears when it has something for you.
+                  Nothing to show right now - this widget appears when it has something for you.
                 </div>
               )}
             </DashboardWidget>

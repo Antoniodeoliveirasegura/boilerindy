@@ -14,7 +14,7 @@ const EMPTY_FORM = {
 }
 
 function gpaText(gpa: number | null | undefined) {
-  return gpa == null ? '—' : gpa.toFixed(2)
+  return gpa == null ? '-' : gpa.toFixed(2)
 }
 
 // Colour the GPA number by band so it reads at a glance.

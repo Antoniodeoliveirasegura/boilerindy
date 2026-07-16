@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useSpeechRecognition } from './useSpeechRecognition'
 
-// Issue #19 — push-to-talk dictation for the campus assistant. jsdom has no Web
+// Issue #19 - push-to-talk dictation for the campus assistant. jsdom has no Web
 // Speech API, so the unsupported path is the real environment; the supported
 // path is exercised with a minimal fake recognizer.
 

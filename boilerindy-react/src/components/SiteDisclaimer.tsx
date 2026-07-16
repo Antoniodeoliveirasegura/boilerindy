@@ -18,7 +18,7 @@ export default function SiteDisclaimer({
     >
       {note ? <p className="mb-1">{note}</p> : null}
       <p>
-        BoilerIndy is an independent, student-built project — not affiliated with, endorsed by, or
+        BoilerIndy is an independent, student-built project - not affiliated with, endorsed by, or
         sponsored by Purdue University. &ldquo;Purdue&rdquo; and &ldquo;Boilermaker&rdquo; are
         trademarks of Purdue University.{' '}
         <Link to="/terms" className="text-[var(--color-txt-2)] hover:underline">

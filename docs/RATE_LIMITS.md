@@ -26,7 +26,7 @@ session-gated, cheap, and limiting them would hurt normal navigation.
 
 ## Configuration
 
-Every limiter can be tuned through environment variables — no code changes:
+Every limiter can be tuned through environment variables - no code changes:
 
 ```bash
 RATE_LIMIT_ENABLED=false              # master switch (default: true)

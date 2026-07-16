@@ -57,6 +57,6 @@ export function saveLocalGrades(userId: string | null | undefined, grades: unkno
   try {
     localStorage.setItem(storageKey(userId), JSON.stringify(grades))
   } catch {
-    /* storage unavailable / quota — DB copy remains the source of truth */
+    /* storage unavailable / quota - DB copy remains the source of truth */
   }
 }

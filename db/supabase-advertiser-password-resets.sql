@@ -1,10 +1,10 @@
 -- Run in Supabase SQL Editor (once). Advertiser self-serve password reset
 -- (forgot-password). Depends on supabase-advertiser-portal.sql (advertisers
--- table). Idempotent — safe to re-run.
+-- table). Idempotent - safe to re-run.
 --
 -- Security: we store only the SHA-256 HASH of each reset token, never the raw
 -- token (that lives only in the emailed link). Tokens are single-use (used_at)
--- and short-lived (expires_at, 1h — enforced in advertiserPasswordReset.mjs).
+-- and short-lived (expires_at, 1h - enforced in advertiserPasswordReset.mjs).
 
 CREATE TABLE IF NOT EXISTS advertiser_password_resets (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

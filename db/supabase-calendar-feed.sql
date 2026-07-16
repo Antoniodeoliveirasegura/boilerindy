@@ -1,6 +1,6 @@
 -- Run in Supabase SQL Editor (once). Enables the subscribable ICS calendar
 -- feed (issue #48): a per-user secret token that authorizes the public
--- /feeds/calendar/<token>.ics endpoint. Idempotent — safe to re-run.
+-- /feeds/calendar/<token>.ics endpoint. Idempotent - safe to re-run.
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_feed_token UUID;
 

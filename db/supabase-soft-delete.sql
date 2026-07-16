@@ -1,8 +1,8 @@
 -- Run in Supabase SQL Editor (once). Adds soft-delete support across user
 -- content: a NULL `deleted_at` means the row is live; a timestamp means it was
 -- soft-deleted (hidden from all normal listings). Recovery (restore) and
--- permanent (hard) deletion are admin-only — see the /api/admin/deleted/*
--- endpoints in server.mjs. Idempotent — safe to re-run.
+-- permanent (hard) deletion are admin-only - see the /api/admin/deleted/*
+-- endpoints in server.mjs. Idempotent - safe to re-run.
 
 ALTER TABLE board_posts            ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE marketplace_listings   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

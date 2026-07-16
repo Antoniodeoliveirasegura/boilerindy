@@ -295,7 +295,7 @@ export default function Services() {
         })}
       </div>
 
-      {/* Customize toolbar — toggles widget edit mode for the resource board. */}
+      {/* Customize toolbar - toggles widget edit mode for the resource board. */}
       <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
         <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
           {editing
@@ -372,7 +372,7 @@ export default function Services() {
               Need help finding something?
             </div>
             <p className="text-[13px] sm:text-[14px] text-[var(--color-gold)]/75 mt-1.5 leading-relaxed max-w-xl mx-auto sm:mx-0">
-              Open the Campus Assistant to get directed to official Purdue and Indianapolis resources—writing, advising,
+              Open the Campus Assistant to get directed to official Purdue and Indianapolis resources-writing, advising,
               health, transit, dining, careers, and more.
             </p>
           </div>

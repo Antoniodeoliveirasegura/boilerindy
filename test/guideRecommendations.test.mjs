@@ -8,7 +8,7 @@ import {
   MAX_GUIDE_BODY,
 } from '../src/guideRecommendations.mjs'
 
-// Issue #31 — guide submissions must be validated/coerced before hitting the DB.
+// Issue #31 - guide submissions must be validated/coerced before hitting the DB.
 
 test('accepts a valid submission and lowercases the category', () => {
   const { value, error } = validateGuideInput({

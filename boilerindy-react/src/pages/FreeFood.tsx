@@ -93,7 +93,7 @@ export default function FreeFood() {
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Free Food</h1>
         </div>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[680px]">
-          {freeFoodItems.length} upcoming event{freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food — pizza, snacks, refreshments, and more.
+          {freeFoodItems.length} upcoming event{freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food - pizza, snacks, refreshments, and more.
         </p>
       </div>
 

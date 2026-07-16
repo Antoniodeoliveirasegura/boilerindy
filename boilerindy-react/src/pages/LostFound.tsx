@@ -3,7 +3,7 @@ import { authRequest } from '../lib/authApi'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
 
-// Standalone Lost & Found (issue #47) — its own page + table, independent of the
+// Standalone Lost & Found (issue #47) - its own page + table, independent of the
 // campus board. Students post lost/found items, search them, and the author can
 // mark a post resolved (rendered dimmed) or delete it.
 

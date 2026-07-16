@@ -1,5 +1,5 @@
 // Tests for the pure dashboard-layout normalizer (issue #52). Untrusted input
-// goes in, a safe canonical layout comes out — no DB, no network.
+// goes in, a safe canonical layout comes out - no DB, no network.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

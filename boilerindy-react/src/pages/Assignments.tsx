@@ -462,7 +462,7 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (err) {
       console.error(err)
-      setTaskError(errorText(err, 'Server sync failed — saved on this device.'))
+      setTaskError(errorText(err, 'Server sync failed - saved on this device.'))
       applyLocalToggle(uid, item, nextDone)
     }
   }
@@ -486,7 +486,7 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (e) {
       console.error(e)
-      setTaskError(errorText(e, 'Could not delete on server — removed on this device only.'))
+      setTaskError(errorText(e, 'Could not delete on server - removed on this device only.'))
       const raw = loadLocalTasks(uid)
       raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
       saveLocalTasks(uid, raw)
@@ -535,7 +535,7 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (err) {
       console.error(err)
-      setTaskError(errorText(err, 'Could not save to server — saved on this device.'))
+      setTaskError(errorText(err, 'Could not save to server - saved on this device.'))
       const raw = loadLocalTasks(uid)
       raw.manualTasks.push({
         id: crypto.randomUUID(),

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Push-to-talk speech-to-text for the campus assistant (issue #19). Thin wrapper
 // over the browser Web Speech API (Chrome/Android). Where the API is missing
-// (Safari/iOS), `supported` is false and callers simply hide the mic — typing
+// (Safari/iOS), `supported` is false and callers simply hide the mic - typing
 // still works, and no error is surfaced. Migrated to TypeScript (issue #20).
 // The SpeechRecognition* ambient types live in src/vite-env.d.ts.
 
@@ -78,7 +78,7 @@ export function useSpeechRecognition({
       try {
         recognition.abort()
       } catch {
-        /* abort throws if it was never started — safe to ignore */
+        /* abort throws if it was never started - safe to ignore */
       }
       recognitionRef.current = null
     }
@@ -92,7 +92,7 @@ export function useSpeechRecognition({
       recognition.start()
       setListening(true)
     } catch {
-      /* start() throws if already started — ignore */
+      /* start() throws if already started - ignore */
     }
   }, [listening])
 

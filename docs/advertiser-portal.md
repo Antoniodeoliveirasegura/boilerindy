@@ -1,6 +1,6 @@
-# Advertiser Portal — Scope & Architecture
+# Advertiser Portal - Scope & Architecture
 
-Status: **M1 + M2 shipped — auth, leads, and campaigns dashboard wired.**
+Status: **M1 + M2 shipped - auth, leads, and campaigns dashboard wired.**
 Last updated: 2026-06-12
 
 > **M1 done:** `db/supabase-advertiser-portal.sql` (`advertisers` + `advertiser_leads`),
@@ -33,9 +33,9 @@ real, served ads.
 | Piece | Where | State |
 |---|---|---|
 | Marketing front page | `boilerindy-react/src/pages/Landing.jsx` | Live at `/` |
-| Advertiser sign-in | `boilerindy-react/src/pages/AdvertiserLogin.jsx` | **UI only** — `handleSubmit` is stubbed (validates + shows invite-only notice). No auth, no session. |
+| Advertiser sign-in | `boilerindy-react/src/pages/AdvertiserLogin.jsx` | **UI only** - `handleSubmit` is stubbed (validates + shows invite-only notice). No auth, no session. |
 | `/demo` | `App.jsx` | Redirects to `/advertise` |
-| "Request advertiser access" | `AdvertiserLogin.jsx` | `mailto:` link — not stored anywhere |
+| "Request advertiser access" | `AdvertiserLogin.jsx` | `mailto:` link - not stored anywhere |
 | Profile dropdown entry | `components/Navbar.jsx` | "Advertiser portal" → `/advertise` |
 
 The student app's auth is the template to mirror (but **not** entangle):
@@ -59,13 +59,13 @@ The student app's auth is the template to mirror (but **not** entangle):
    advertisers.
 3. **Ads are content, not chrome.** Served ads render as a first-class
    `sponsored` widget inside the existing #52 dashboard registry
-   (`pages/Home.jsx`) — clearly labeled, never disguised as student data.
+   (`pages/Home.jsx`) - clearly labeled, never disguised as student data.
 4. **Measured, not estimated.** Every impression and tap is logged so the portal's
    "transparent analytics" promise is real.
 
 ---
 
-## 3. Data model (proposed — Supabase, new `.sql` migration)
+## 3. Data model (proposed - Supabase, new `.sql` migration)
 
 `db/supabase-advertiser-portal.sql` (idempotent, run once):
 
@@ -115,26 +115,26 @@ code, matching the existing `users`/`linked_sources` pattern).
 ## 4. API surface (Express, server.mjs)
 
 Auth (separate from student auth):
-- `POST /api/advertiser/sign-in` — verify against `advertisers`, regenerate session,
+- `POST /api/advertiser/sign-in` - verify against `advertisers`, regenerate session,
   set `req.session.advertiserId`. Reuse `signInRateLimit`.
 - `POST /api/advertiser/sign-out`
-- `POST /api/advertiser/request-access` — insert into `advertiser_leads`
+- `POST /api/advertiser/request-access` - insert into `advertiser_leads`
   (rate-limited). This is what the `/advertise` "Request access" button should call.
-- `GET  /api/advertiser/me` — current advertiser (gated by `requireAdvertiserAuth`).
+- `GET  /api/advertiser/me` - current advertiser (gated by `requireAdvertiserAuth`).
 
 Campaigns (all `requireAdvertiserAuth`, scoped to `req.session.advertiserId`):
 - `GET    /api/advertiser/campaigns`
 - `POST   /api/advertiser/campaigns`
 - `PATCH  /api/advertiser/campaigns/:id`
-- `GET    /api/advertiser/campaigns/:id/stats` — aggregated `ad_events`.
+- `GET    /api/advertiser/campaigns/:id/stats` - aggregated `ad_events`.
 
 Ad serving + tracking (public / student-session, NOT advertiser-gated). Routed
-under `/api/spotlight/*` — and the client lives in `lib/spotlightApi.js` — because
+under `/api/spotlight/*` - and the client lives in `lib/spotlightApi.js` - because
 ad-blocker filter lists match the "ads" keyword and silently block the requests
 (in dev, blocking the module file white-screened the whole app):
-- `GET  /api/spotlight/active?placement=home-widget` — returns at most one active,
+- `GET  /api/spotlight/active?placement=home-widget` - returns at most one active,
   in-window campaign's creative for a placement.
-- `POST /api/spotlight/:campaignId/event` — body `{ kind: 'impression' | 'tap' }`,
+- `POST /api/spotlight/:campaignId/event` - body `{ kind: 'impression' | 'tap' }`,
   rate-limited, no PII.
 
 `requireAdvertiserAuth` mirrors `requireAuth` but reads `req.session.advertiserId`
@@ -144,13 +144,13 @@ and looks up the `advertisers` row; returns 401 otherwise.
 
 ## 5. Frontend
 
-- `AdvertiserLogin.jsx` — replace stubbed `handleSubmit` with a real call to
+- `AdvertiserLogin.jsx` - replace stubbed `handleSubmit` with a real call to
   `POST /api/advertiser/sign-in`; on success route to `/advertise/dashboard`.
   Wire "Request access" to `POST /api/advertiser/request-access`.
 - New `pages/advertiser/Dashboard.jsx` (route `/advertise/dashboard`, guarded by a
-  small `RequireAdvertiser` wrapper that checks `GET /api/advertiser/me`) —
+  small `RequireAdvertiser` wrapper that checks `GET /api/advertiser/me`) -
   list campaigns, create/edit, view stats.
-- New `lib/advertiserApi.js` — thin fetch wrapper (mirror `lib/authApi.js`,
+- New `lib/advertiserApi.js` - thin fetch wrapper (mirror `lib/authApi.js`,
   `credentials: 'include'`).
 - Student side: a `sponsored` entry in the `widgetRegistry` in `pages/Home.jsx`
   that fetches `/api/spotlight/active?placement=home-widget`, renders a labeled
@@ -177,7 +177,7 @@ and looks up the `advertisers` row; returns 401 otherwise.
 - [ ] Rate-limit sign-in, request-access, and `/api/spotlight/:id/event`.
 - [ ] Ownership enforced server-side on every `campaigns` query (`advertiser_id =
       session advertiser`).
-- [ ] `ad_events` stores **no** student PII — aggregate counts only.
+- [ ] `ad_events` stores **no** student PII - aggregate counts only.
 - [ ] Creative `ctaUrl` validated (http/https only) before render to avoid
       `javascript:` injection in the served ad.
 - [ ] "Sponsored" label always visible on served ads.
@@ -186,4 +186,4 @@ and looks up the `advertisers` row; returns 401 otherwise.
 
 - Self-serve signup vs. invite-only (currently invite-only via leads)?
 - Does an ad need a `pending_review` approval step before going `active`?
-- Billing — out of scope for now, or stub a "plan" field on `advertisers`?
+- Billing - out of scope for now, or stub a "plan" field on `advertisers`?

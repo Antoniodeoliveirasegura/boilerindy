@@ -4,7 +4,7 @@
  */
 
 export const BOARD_PROFANITY_USER_MESSAGE =
-  'Please keep the campus board respectful — remove profanity or slurs and try again.'
+  'Please keep the campus board respectful - remove profanity or slurs and try again.'
 
 const BASE_BLOCKED = [
   'anal',

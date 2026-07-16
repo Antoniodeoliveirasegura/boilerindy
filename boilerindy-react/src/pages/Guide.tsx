@@ -78,7 +78,7 @@ export default function Guide() {
   }, [])
 
   // Initial load. `loading` already starts true, so we fetch directly and only
-  // setState inside async callbacks — no synchronous setState in the effect body
+  // setState inside async callbacks - no synchronous setState in the effect body
   // (avoids the cascading-render lint warning). Category changes go through
   // selectCategory(), an event handler, which is allowed to setState eagerly.
   useEffect(() => {

@@ -65,7 +65,7 @@ export function normalizeLeadInput(input = {}) {
 
 /**
  * Validate the fields needed to mint an advertiser account (seed script + any
- * future admin path). Does not hash — callers pass the result to passwordHash.
+ * future admin path). Does not hash - callers pass the result to passwordHash.
  * @param {{ email?: string, password?: string, companyName?: string, contactName?: string }} input
  * @returns {{ email: string, password: string, companyName: string, contactName: string|null }}
  * @throws {Error} when invalid

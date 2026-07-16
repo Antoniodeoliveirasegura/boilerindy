@@ -23,7 +23,7 @@ export default function CampusAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: `Hey ${firstName}! Ask me anything — e.g. what to do right now with your classes and homework, dining, buses, or where to study.`,
+      content: `Hey ${firstName}! Ask me anything - e.g. what to do right now with your classes and homework, dining, buses, or where to study.`,
     },
   ])
   const [input, setInput] = useState('')
@@ -94,7 +94,7 @@ export default function CampusAssistant() {
     setMessages(nextMessages)
     setInput('')
     setIsTyping(true)
-    // Event only — the message text itself is never recorded (issue #51).
+    // Event only - the message text itself is never recorded (issue #51).
     track('assistant_message_sent')
 
     try {

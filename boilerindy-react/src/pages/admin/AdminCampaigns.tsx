@@ -148,8 +148,8 @@ export default function AdminCampaigns() {
                     <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-[12px]">
                       <div>
                         <dt className="text-[var(--color-txt-3)]">Advertiser</dt>
-                        <dd className="text-[var(--color-txt-1)]">{campaign.advertiserCompany || '—'}</dd>
-                        <dd className="text-[var(--color-txt-2)]">{campaign.advertiserEmail || '—'}</dd>
+                        <dd className="text-[var(--color-txt-1)]">{campaign.advertiserCompany || '-'}</dd>
+                        <dd className="text-[var(--color-txt-2)]">{campaign.advertiserEmail || '-'}</dd>
                       </div>
                       <div>
                         <dt className="text-[var(--color-txt-3)]">Placement</dt>
@@ -163,7 +163,7 @@ export default function AdminCampaigns() {
                               {website}
                             </a>
                           ) : (
-                            '—'
+                            '-'
                           )}
                         </dd>
                       </div>

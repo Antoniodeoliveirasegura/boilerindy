@@ -4,7 +4,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { useConfirm } from '../hooks/useConfirm'
 
-// Student Marketplace (issue #32, Phase 1). No payments / no messaging — contact
+// Student Marketplace (issue #32, Phase 1). No payments / no messaging - contact
 // is the seller's name + Purdue email, shown on the detail panel.
 const CATEGORIES = [
   'textbooks', 'furniture', 'electronics', 'housing', 'rideshare', 'tutoring', 'tickets', 'misc',
@@ -178,7 +178,7 @@ export default function Marketplace() {
   function reportListing(listing: Listing) {
     const reason = window.prompt('Why are you reporting this listing? (optional)') ?? ''
     authRequest(`/api/marketplace/${listing.id}/report`, { method: 'POST', body: JSON.stringify({ reason }) })
-      .then(() => window.alert('Thanks — our team will review it.'))
+      .then(() => window.alert('Thanks - our team will review it.'))
       .catch(() => {})
   }
 

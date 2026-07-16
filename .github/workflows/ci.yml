@@ -45,6 +45,30 @@ jobs:
         run: pnpm run typecheck
         working-directory: boilerindy-react
 
+      # Ban the em dash (U+2014) and en dash (U+2013) repo-wide. See the
+      # "Conventions" section in README.md. Uses Node (Unicode-correct and always
+      # present here); grep -P's \x{} support is too environment-dependent.
+      - name: No em/en dashes (use a hyphen)
+        run: |
+          node -e '
+            const { execSync } = require("node:child_process");
+            const { readFileSync } = require("node:fs");
+            const files = execSync("git ls-files").toString().split("\n").filter(Boolean)
+              .filter(f => !/\.(lock|svg|png|ico|webp|jpe?g|woff2?|ttf)$|pnpm-lock\.yaml$/.test(f));
+            const DASH = new RegExp("[" + String.fromCharCode(0x2013, 0x2014) + "]");
+            const bad = [];
+            for (const f of files) {
+              let t; try { t = readFileSync(f, "utf8"); } catch { continue; }
+              t.split("\n").forEach((ln, i) => { if (DASH.test(ln)) bad.push(f + ":" + (i + 1) + ": " + ln.trim().slice(0, 80)); });
+            }
+            if (bad.length) {
+              console.error("Em dash (U+2014) or en dash (U+2013) found. Use a hyphen (-). See README.md Conventions:");
+              console.error(bad.slice(0, 50).join("\n"));
+              process.exit(1);
+            }
+            console.log("No em/en dashes across " + files.length + " tracked files.");
+          '
+
       - name: Run tests (backend + frontend)
         run: pnpm test
 

@@ -10,7 +10,7 @@ const DISMISS_FOR_MS = 5 * 60 * 1000
 /**
  * Warns shortly before the auth session expires and offers one-click
  * recovery (issue #23). "Stay signed in" works because the backend uses
- * rolling sessions — any authenticated request resets the cookie clock.
+ * rolling sessions - any authenticated request resets the cookie clock.
  */
 export default function SessionExpiryWatcher() {
   const { session, refreshSession } = useAuth()
@@ -65,7 +65,7 @@ export default function SessionExpiryWatcher() {
           </p>
           <p className="text-[12px] text-[var(--color-txt-2)] mt-0.5 leading-relaxed">
             {expired
-              ? 'Sign in again to continue — unsaved drafts on this device are kept.'
+              ? 'Sign in again to continue - unsaved drafts on this device are kept.'
               : 'Extend it now so you don’t lose your place.'}
           </p>
           <div className="flex items-center gap-2 mt-3">

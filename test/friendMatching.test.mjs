@@ -8,7 +8,7 @@ import {
   MAX_BIO,
 } from '../src/friendMatching.mjs'
 
-// Issue #17 — profile validation + match ranking by shared courses.
+// Issue #17 - profile validation + match ranking by shared courses.
 
 test('re-exports the #33 course-code normalizer', () => {
   assert.equal(normalizeCourseCode('cs18000'), 'CS 18000')

@@ -24,7 +24,7 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
-      // React Compiler advisory rules (perf hints, not bug detectors) — kept at
+      // React Compiler advisory rules (perf hints, not bug detectors) - kept at
       // 'warn' so CI lint blocks on real errors while set-state-in-effect debt
       // is burned down screen by screen, with testing.
       'react-hooks/set-state-in-effect': 'warn',

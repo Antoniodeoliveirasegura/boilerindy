@@ -10,7 +10,7 @@ import {
   requestAdvertiserPasswordReset,
 } from '../lib/advertiserApi'
 
-// Advertiser portal sign-in — a SEPARATE login from the student /login flow, for
+// Advertiser portal sign-in - a SEPARATE login from the student /login flow, for
 // businesses and marketers who want to run ads on BoilerIndy. Wired to the
 // isolated /api/advertiser/* backend: sign-in establishes an advertiser-only
 // session (never a student session), and "Request access" persists a lead.
@@ -18,9 +18,9 @@ import {
 
 const ADVERTISER_PERKS = [
   { icon: 'users', title: 'Reach the whole campus', desc: 'Get in front of Purdue Indianapolis students where they already plan their day.' },
-  { icon: 'mapPin', title: 'Context & place targeting', desc: 'Show up next to dining, transit, or events — when intent is highest.' },
+  { icon: 'mapPin', title: 'Context & place targeting', desc: 'Show up next to dining, transit, or events - when intent is highest.' },
   { icon: 'grid', title: 'Native dashboard placements', desc: 'Sponsored widgets that fit the home dashboard instead of fighting it.' },
-  { icon: 'star', title: 'Transparent analytics', desc: 'Impressions, taps, and reach — measured, not estimated.' },
+  { icon: 'star', title: 'Transparent analytics', desc: 'Impressions, taps, and reach - measured, not estimated.' },
 ]
 
 export default function AdvertiserLogin() {
@@ -31,7 +31,7 @@ export default function AdvertiserLogin() {
   const [notice, setNotice] = useState<{ type: string; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // Request-access (lead) form — invite-only, so this is how new advertisers
+  // Request-access (lead) form - invite-only, so this is how new advertisers
   // raise their hand. Hidden until "Request access" is clicked.
   const [showRequest, setShowRequest] = useState(false)
   const [reqEmail, setReqEmail] = useState('')
@@ -41,7 +41,7 @@ export default function AdvertiserLogin() {
   const [reqDone, setReqDone] = useState(false)
 
   // Forgot-password: clicking "Forgot?" swaps the sign-in form for an email
-  // form. Success is intentionally vague — the backend never reveals whether an
+  // form. Success is intentionally vague - the backend never reveals whether an
   // account exists, so neither do we.
   const [showForgot, setShowForgot] = useState(false)
   const [forgotSubmitting, setForgotSubmitting] = useState(false)
@@ -55,7 +55,7 @@ export default function AdvertiserLogin() {
         if (active && profile) navigate('/advertise/dashboard', { replace: true })
       })
       .catch(() => {
-        /* not signed in / backend unavailable — show the form */
+        /* not signed in / backend unavailable - show the form */
       })
     return () => {
       active = false
@@ -144,7 +144,7 @@ export default function AdvertiserLogin() {
             Put your brand where students actually look.
           </h1>
           <p className="text-[15px] text-[var(--color-gold-light)]/70 leading-relaxed mb-8">
-            BoilerIndy is the daily home screen for Purdue Indianapolis student life. Reach them in context — without the noise of social feeds.
+            BoilerIndy is the daily home screen for Purdue Indianapolis student life. Reach them in context - without the noise of social feeds.
           </p>
 
           <ul className="list-none m-0 p-0 space-y-4">
@@ -227,7 +227,7 @@ export default function AdvertiserLogin() {
                 role="status"
                 className="rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 p-3.5 text-[13px] leading-relaxed text-[var(--color-txt-1)]"
               >
-                If an advertiser account exists for that email, we’ve sent a reset link. Check your inbox — it expires in 1 hour.
+                If an advertiser account exists for that email, we’ve sent a reset link. Check your inbox - it expires in 1 hour.
               </div>
             ) : (
               <form onSubmit={handleForgot} className="space-y-4">
@@ -335,7 +335,7 @@ export default function AdvertiserLogin() {
                   role="status"
                   className="rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 p-3.5 text-[13px] leading-relaxed text-[var(--color-txt-1)]"
                 >
-                  Thanks — we’ve got your request. We’ll email you about advertiser access during the campus pilot.
+                  Thanks - we’ve got your request. We’ll email you about advertiser access during the campus pilot.
                 </div>
               ) : showRequest ? (
                 <form onSubmit={handleRequestAccess} className="space-y-3">

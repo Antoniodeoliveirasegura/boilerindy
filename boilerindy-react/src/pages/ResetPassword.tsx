@@ -6,7 +6,7 @@ import { parseNextPath } from '../lib/authApi'
 
 // Landing page for Supabase password-recovery links (sent from the Login
 // "Forgot password?" form). Only PASSWORD_RECOVERY sessions may set a new
-// password here — a normal signed-in session is redirected to Settings.
+// password here - a normal signed-in session is redirected to Settings.
 
 const LINK_CHECK_TIMEOUT_MS = 6000
 

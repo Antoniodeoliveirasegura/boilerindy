@@ -1,8 +1,8 @@
 -- Run in Supabase SQL Editor (once). Creates the advertiser portal backend
 -- (advertiser-portal M1): businesses/marketers sign in separately from students
 -- and request access before an account exists. Isolated from the student `users`
--- table on purpose — advertisers must never reach student data (enforced in the
--- Node server via a distinct session key + requireAdvertiserAuth). Idempotent —
+-- table on purpose - advertisers must never reach student data (enforced in the
+-- Node server via a distinct session key + requireAdvertiserAuth). Idempotent -
 -- safe to re-run. Campaigns + ad_events land in later milestones.
 
 -- Advertiser accounts. Invite-only: rows are minted by scripts/create-advertiser.mjs

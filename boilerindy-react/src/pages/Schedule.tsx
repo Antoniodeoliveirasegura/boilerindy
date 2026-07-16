@@ -76,7 +76,7 @@ function getTimeRange(startTime: string, endTime: string | null | undefined) {
   const end = endTime ? new Date(endTime) : null
   const startLabel = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   const endLabel = end ? end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
-  return endLabel ? `${startLabel} – ${endLabel}` : startLabel
+  return endLabel ? `${startLabel} - ${endLabel}` : startLabel
 }
 
 function getPatternLabel(days: string[]) {

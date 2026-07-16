@@ -3,7 +3,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Privacy from './Privacy'
 
-// Issue #56 — the privacy "Back" link must be context-aware so users who arrive
+// Issue #56 - the privacy "Back" link must be context-aware so users who arrive
 // from signup or Settings are returned to where they came from, not the Landing page.
 // The pure routing logic is unit-tested in ../lib/privacyNav.test.js; this verifies
 // the rendered link wires that target through to an href.

@@ -38,14 +38,14 @@ function useMasonrySpan(enabled: boolean): [RefObject<HTMLDivElement | null>, nu
   const ref = useRef<HTMLDivElement | null>(null)
   const [span, setSpan] = useState<number | null>(null)
   useLayoutEffect(() => {
-    // While editing the span is unused (uniform grid), so skip work entirely —
+    // While editing the span is unused (uniform grid), so skip work entirely -
     // the stale value is simply ignored until view mode re-measures.
     if (!enabled) return undefined
     const el = ref.current
     if (!el) return undefined
     const measure = () => {
       // align-self:start keeps the widget at its natural content height, so its
-      // measured height never depends on the row span we set — no feedback loop.
+      // measured height never depends on the row span we set - no feedback loop.
       const h = el.getBoundingClientRect().height
       if (h) setSpan(Math.max(1, Math.ceil(h + MASONRY_GAP_PX)))
     }

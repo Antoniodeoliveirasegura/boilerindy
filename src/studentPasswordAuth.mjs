@@ -1,5 +1,5 @@
 // Student password policy: Supabase Auth is the single source of truth for
-// passwords. The scrypt hash in public.users.password_hash is LEGACY ONLY — it
+// passwords. The scrypt hash in public.users.password_hash is LEGACY ONLY - it
 // exists so accounts created before the Supabase migration can sign in once
 // more and be migrated forward; nothing may write new hashes to it.
 //
@@ -37,7 +37,7 @@ export async function resolveSignIn(deps, email, password) {
   }
 
   // Legacy fallback. migrateLegacyUser returns false when the email already
-  // exists in Supabase Auth — then Supabase's rejection above stands, so a
+  // exists in Supabase Auth - then Supabase's rejection above stands, so a
   // stale local hash can never resurrect an old password.
   const userRow = await deps.getUserByEmail(email)
   if (!hasLegacyHash(userRow) || !verifyPassword(password, userRow.password_hash)) {

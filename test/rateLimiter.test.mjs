@@ -87,7 +87,7 @@ test('honors the RATE_LIMIT_<NAME>_MAX env override', () => {
 
   assert.equal(pass(limiter, ctx), true, '1st allowed')
   assert.equal(pass(limiter, ctx), true, '2nd allowed')
-  assert.equal(pass(limiter, ctx), false, '3rd blocked — limit overridden to 2')
+  assert.equal(pass(limiter, ctx), false, '3rd blocked - limit overridden to 2')
 
   delete process.env.RATE_LIMIT_TEST_ENV_MAX
 })

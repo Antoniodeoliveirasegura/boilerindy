@@ -1,5 +1,5 @@
 -- Run in Supabase SQL Editor (once). First-party product analytics (issue #51):
--- usage events land in our own Supabase — no third-party trackers. Idempotent —
+-- usage events land in our own Supabase - no third-party trackers. Idempotent -
 -- safe to re-run.
 --
 -- Privacy posture:
@@ -27,5 +27,5 @@ ALTER TABLE analytics_events ENABLE ROW LEVEL SECURITY;
 -- this before inserting AND the client stops sending when it is true.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS analytics_opt_out BOOLEAN NOT NULL DEFAULT FALSE;
 
--- 12-month retention (run on a schedule — see docs/analytics.md):
+-- 12-month retention (run on a schedule - see docs/analytics.md):
 --   DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months';

@@ -13,7 +13,7 @@ createRoot(document.getElementById('root')!).render(
 )
 
 // PWA service worker (issue #11). Registered in production only so dev assets are
-// never cached. Best-effort — a failed registration must not break the app.
+// never cached. Best-effort - a failed registration must not break the app.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
@@ -32,7 +32,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         dsn: import.meta.env.VITE_SENTRY_DSN,
         environment: import.meta.env.MODE,
         sendDefaultPii: false,
-        tracesSampleRate: 0, // errors only — keeps the free tier roomy
+        tracesSampleRate: 0, // errors only - keeps the free tier roomy
         beforeSend: scrubSentryEvent,
       })
     } catch {
