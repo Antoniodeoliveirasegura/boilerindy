@@ -4,8 +4,7 @@ import SiteDisclaimer from '../components/SiteDisclaimer'
 
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
 // (account, imported schedule, grades, posts, AI features, analytics, the
-// calendar feed). Contact runs through the GitHub repository; if a dedicated
-// privacy email is set up later, add it here and in the "Contact" section.
+// calendar feed). Contact is privacy@boilerindy.app (Cloudflare email routing).
 
 const SECTIONS = [
   {
@@ -99,8 +98,8 @@ analytics events along with it.`,
   },
   {
     title: 'Contact',
-    body: `Questions about this policy, or want your data removed? Reach the BoilerIndy maintainer
-by opening an issue on the BoilerIndy GitHub repository, and we will respond there.`,
+    body: `Questions about this policy, or want your data removed? Email privacy@boilerindy.app and
+we will respond there. You can also open an issue on the BoilerIndy GitHub repository.`,
   },
 ]
 

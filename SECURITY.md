@@ -6,10 +6,10 @@ security review (issue #114).
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities **privately** - do not open a public
-issue with exploit details. _Owner TODO: publish a monitored security contact
-email here before public launch (#114)._ Until then, open a minimal GitHub issue
-asking a maintainer to get in touch, without exploit specifics.
+Please report suspected vulnerabilities **privately** to **security@boilerindy.app**
+- do not open a public issue with exploit details. If you prefer, open a minimal
+GitHub issue asking a maintainer to get in touch (without exploit specifics), and
+we will follow up privately.
 
 ## Data-access model
 

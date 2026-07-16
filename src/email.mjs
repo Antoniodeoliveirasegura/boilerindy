@@ -37,7 +37,14 @@ export async function sendEmail({ to, subject, html }) {
       Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from: process.env.RESEND_FROM, to: [to], subject, html }),
+    body: JSON.stringify({
+      from: process.env.RESEND_FROM,
+      to: [to],
+      subject,
+      html,
+      // noreply@ is send-only; route replies to a monitored inbox (support@) when set.
+      ...(process.env.MAIL_REPLY_TO ? { reply_to: process.env.MAIL_REPLY_TO } : {}),
+    }),
   })
 
   if (!resp.ok) {

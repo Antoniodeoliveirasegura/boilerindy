@@ -5,8 +5,7 @@ BoilerIndy is a small student-run app; this is sized for one person to execute,
 not an enterprise SOC. Pair it with [SECURITY.md](SECURITY.md).
 
 **Incident commander:** the project owner (you) decides severity, containment,
-and whether/when to notify. _Owner TODO: add a real security contact email here
-and in SECURITY.md before public launch._
+and whether/when to notify. Security contact: **security@boilerindy.app**.
 
 ---
 
@@ -116,7 +115,7 @@ Even so:
 > calendar link in Settings}. We do not collect passwords for social logins, and
 > we never store your Purdue password.
 >
-> We're sorry this happened. Questions: {security contact}.
+> We're sorry this happened. Questions: security@boilerindy.app.
 >
 > - The BoilerIndy team
 

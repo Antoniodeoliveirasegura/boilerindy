@@ -398,6 +398,11 @@ export default function Landing() {
             Advertise with us
           </Link>
         </div>
+        <div className="text-[12px] mb-2.5">
+          <a href="mailto:hello@boilerindy.app" className="text-[var(--color-accent)] hover:underline">
+            hello@boilerindy.app
+          </a>
+        </div>
         <SiteDisclaimer note="A student-built campus companion for Purdue University Indianapolis" />
       </footer>
     </div>

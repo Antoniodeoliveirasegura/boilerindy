@@ -1,0 +1,6 @@
+# BoilerIndy security contact (RFC 9116). Please report vulnerabilities
+# privately and give us a chance to fix them before public disclosure.
+Contact: mailto:security@boilerindy.app
+Expires: 2027-07-16T00:00:00.000Z
+Preferred-Languages: en
+Policy: https://github.com/Antoniodeoliveirasegura/boilerindy/blob/main/SECURITY.md
