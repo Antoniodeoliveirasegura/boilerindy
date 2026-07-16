@@ -3,6 +3,15 @@
 // skipped and the link is logged to the server console, so local/dev works
 // without an email provider (mirrors the Sentry "disabled without DSN" wiring
 // in server.mjs). Currently used for the advertiser password-reset flow.
+//
+// CAN-SPAM (issue #116): `sendEmail` is for TRANSACTIONAL messages only —
+// password resets and the like. Those need only accurate routing (a real
+// `RESEND_FROM`) and an honest subject, which the reset email has; transactional
+// mail is exempt from the unsubscribe / physical-address rules. ANY commercial
+// or marketing email (announcements, newsletters, promos) MUST append
+// `commercialEmailFooter()` below (postal address + unsubscribe) AND honor a
+// suppression list before sending — build that unsubscribe/suppression plumbing
+// when the first marketing email is actually added.
 
 const RESEND_API_URL = 'https://api.resend.com/emails'
 
@@ -43,6 +52,37 @@ const escapeHtml = (value) =>
   String(value).replace(/[&<>"']/g, (ch) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]),
   )
+
+/**
+ * CAN-SPAM footer required on ANY commercial / marketing email — NOT transactional
+ * messages (see the module header). Renders the two footer-level things the law
+ * requires: a valid physical postal address (from `MAIL_POSTAL_ADDRESS`) and a
+ * working unsubscribe link. Throws if either is missing, so a non-compliant
+ * marketing email can't be built. Callers must ALSO honor unsubscribes via a
+ * suppression list and clearly identify promotional content — those live with
+ * the marketing feature itself (issue #116).
+ * @param {{ unsubscribeUrl: string }} opts
+ * @returns {string} footer HTML to append to a commercial email body
+ */
+export function commercialEmailFooter({ unsubscribeUrl } = {}) {
+  const postal = process.env.MAIL_POSTAL_ADDRESS
+  if (!postal) {
+    throw new Error(
+      'MAIL_POSTAL_ADDRESS is required for commercial email (CAN-SPAM physical-address rule).',
+    )
+  }
+  if (!unsubscribeUrl || typeof unsubscribeUrl !== 'string') {
+    throw new Error('unsubscribeUrl is required for commercial email (CAN-SPAM opt-out rule).')
+  }
+  return `
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <tr><td align="center" style="padding:24px 32px;color:#a1a1aa;font-size:12px;line-height:1.6;">
+    <p style="margin:0 0 6px;">You're receiving this because you have a BoilerIndy account.</p>
+    <p style="margin:0 0 6px;"><a href="${escapeHtml(unsubscribeUrl)}" style="color:#71717a;">Unsubscribe</a> from these emails.</p>
+    <p style="margin:0;">${escapeHtml(postal)}</p>
+  </td></tr>
+</table>`.trim()
+}
 
 /** Branded BoilerIndy reset email. Pure — returns the subject + HTML body. */
 export function advertiserPasswordResetEmail({ resetUrl, companyName }) {

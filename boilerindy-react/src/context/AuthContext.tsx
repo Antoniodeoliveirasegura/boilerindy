@@ -32,7 +32,7 @@ type Onboarding = {
   needsScheduleSource: boolean
 }
 
-type BackendSession = {
+export type BackendSession = {
   user?: AuthUser | null
   onboarding?: Onboarding | null
   [key: string]: unknown
@@ -51,6 +51,7 @@ type AuthContextValue = {
   loading: boolean
   authConfig: AuthConfig
   refreshSession: () => Promise<BackendSession | null>
+  applySession: (session: BackendSession | null) => void
   signOut: () => Promise<void>
   startPurdueLink: typeof startPurdueLink
   getInitials: () => string
@@ -125,6 +126,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [syncUserToBackend])
 
+  // Set the backend session directly from a payload the server already returned
+  // (e.g. POST /api/auth/sign-in), avoiding a refetch round-trip. Issue #111.
+  const applySession = useCallback((next: BackendSession | null) => {
+    setSession(next)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
@@ -137,19 +144,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
 
         let backendSession: BackendSession | null = null
+        let config: AuthConfig = { authProvider: 'local', purdueAuthMode: 'mock' }
+
         if (supabaseSession) {
           setSupabaseUser(supabaseSession.user)
-          backendSession = await syncUserToBackend(supabaseSession)
+          // Sync (which establishes the backend session from the Supabase token)
+          // and the static auth-config run together — no waterfall. Issue #111.
+          const [synced, cfg] = (await Promise.all([
+            syncUserToBackend(supabaseSession),
+            authRequest('/api/auth-config'),
+          ])) as [BackendSession | null, AuthConfig]
+          backendSession = synced
+          config = cfg
+          // Only fall back to the cookie session if the Supabase token no longer
+          // syncs (expired server-side); otherwise /api/session is redundant.
+          if (!backendSession) {
+            const sessionData = (await authRequest('/api/session')) as {
+              session?: BackendSession | null
+            }
+            backendSession = sessionData.session ?? null
+          }
+        } else {
+          const [sessionData, cfg] = (await Promise.all([
+            authRequest('/api/session'),
+            authRequest('/api/auth-config'),
+          ])) as [{ session?: BackendSession | null }, AuthConfig]
+          backendSession = sessionData.session ?? null
+          config = cfg
         }
-
-        const [sessionData, config] = (await Promise.all([
-          authRequest('/api/session'),
-          authRequest('/api/auth-config'),
-        ])) as [{ session?: BackendSession | null }, AuthConfig]
 
         if (cancelled) return
 
-        setSession(backendSession ?? sessionData.session ?? null)
+        setSession(backendSession)
         setAuthConfig(config)
       } catch {
         if (!cancelled) {
@@ -218,13 +244,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       authConfig,
       refreshSession,
+      applySession,
       signOut,
       startPurdueLink,
       getInitials: () => getInitials(user?.name, user?.email),
       getDisplayName: () => getDisplayName(user),
       getFirstName: () => getFirstName(user),
     }),
-    [session, user, supabaseUser, onboarding, loading, authConfig, refreshSession, signOut],
+    [session, user, supabaseUser, onboarding, loading, authConfig, refreshSession, applySession, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

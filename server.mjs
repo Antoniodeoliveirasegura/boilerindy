@@ -14,6 +14,11 @@ if (process.env.SENTRY_DSN) {
     environment: process.env.NODE_ENV || 'development',
     sendDefaultPii: false,
     tracesSampleRate: 0, // errors only — keeps the free tier roomy
+    // ponytail: route every console.error (the ~80 catch-and-log swallow points)
+    // to Sentry, instead of editing each catch block. Adds to the default
+    // integrations (uncaught + unhandledRejection stay on). Too noisy? Narrow to
+    // captureException() at the sites that matter, or drop levels to taste.
+    integrations: [Sentry.captureConsoleIntegration({ levels: ['error'] })],
     beforeSend: scrubSentryEvent,
   })
 }
@@ -174,6 +179,13 @@ if (isProduction) {
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Lightweight liveness probe for uptime pings (issue #111). Defined before the
+// session middleware so warm-up pings don't allocate a session on every hit —
+// an external pinger hitting this every ~10 min keeps the Render service warm
+// and avoids the ~50s cold-start on the next real login.
+app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
 app.use(
   session({
     name: 'pih.sid',

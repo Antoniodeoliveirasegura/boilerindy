@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import Icon from '../components/Icons'
+import SiteDisclaimer from '../components/SiteDisclaimer'
 import {
   advertiserSignIn,
   getAdvertiserSession,
@@ -394,9 +395,7 @@ export default function AdvertiserLogin() {
           </p>
         </div>
 
-        <p className="text-[11px] text-[var(--color-txt-3)] text-center">
-          Advertiser accounts are invite-only during the campus pilot · Not an official Purdue product
-        </p>
+        <SiteDisclaimer note="Advertiser accounts are invite-only during the campus pilot" />
       </main>
     </div>
   )
