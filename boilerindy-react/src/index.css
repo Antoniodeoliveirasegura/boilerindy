@@ -464,6 +464,15 @@ body {
 }
 
 .btn-primary {
+  /* Light mode: a warm gold button with dark text, so it reads as the primary
+     action instead of dropping a heavy near-black block onto a light page. */
+  background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-muted) 100%);
+  color: var(--color-gold-dark);
+  border: 1px solid rgba(26, 20, 8, 0.16);
+}
+
+.dark .btn-primary {
+  /* Dark mode: the premium near-black button with gold text. */
   background: linear-gradient(135deg, var(--color-gold-dark) 0%, #2A1E0A 100%);
   color: var(--color-gold);
   border: 1px solid rgba(212, 168, 75, 0.2);

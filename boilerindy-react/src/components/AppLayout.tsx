@@ -9,7 +9,7 @@ import PageLoader from './PageLoader'
 
 export default function AppLayout() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
       <SideSpotlightRail side="left" />
       <SideSpotlightRail side="right" />
@@ -18,7 +18,7 @@ export default function AppLayout() {
         <Outlet />
       </Suspense>
       {/* Extra bottom padding on mobile clears the fixed bottom nav (issue #112). */}
-      <SiteDisclaimer className="pb-20 md:pb-6" />
+      <SiteDisclaimer className="mt-auto pb-20 md:pb-6" />
       <CampusAssistant />
       <SessionExpiryWatcher />
     </div>
