@@ -92,6 +92,7 @@ import {
   summarizeAdEvents,
 } from './src/adServing.mjs'
 import { assertSafeHttpUrl, safeFetchIcsText, assertHostAllowed } from './src/urlSafety.mjs'
+import { isSessionStale } from './src/sessionFreshness.mjs'
 import {
   LEAD_STATUSES,
   mapLeadRow,
@@ -451,6 +452,20 @@ async function updateUserProfile(userId, { email, displayName, currentPassword, 
     .single()
 
   if (error) throw new Error(error.message)
+
+  if (wantsPasswordChange) {
+    // Stamp the credential-change time so sessions established earlier are rejected
+    // by getCurrentUser (#132). Guarded: if the column isn't migrated yet the
+    // password change still succeeds and invalidation just stays inert.
+    const { error: stampError } = await supabase
+      .from('users')
+      .update({ password_changed_at: nowIso() })
+      .eq('id', userId)
+    if (stampError) {
+      console.warn('[updateUserProfile] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
+    }
+  }
+
   return data
 }
 
@@ -602,7 +617,12 @@ async function getUserSummary(userOrId) {
 }
 
 async function getCurrentUser(req) {
-  return await getUserById(req.session.userId)
+  const user = await getUserById(req.session.userId)
+  if (!user) return null
+  // Reject a session established before the account's last password change (#132),
+  // so changing the password from Settings evicts other (e.g. stolen) sessions.
+  if (isSessionStale(user.password_changed_at, req.session.authAt)) return null
+  return user
 }
 
 async function buildSessionPayload(user, req) {
@@ -1087,6 +1107,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       }
       req.session.cookie.maxAge = cookieMaxAge
       req.session.userId = row.id
+      req.session.authAt = nowIso()
       req.session.save(async () => {
         res.status(201).json({ session: await buildSessionPayload(row, req) })
       })
@@ -1229,6 +1250,7 @@ app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
       }
       req.session.cookie.maxAge = cookieMaxAge
       req.session.userId = user.id
+      req.session.authAt = nowIso()
       req.session.save(async () => {
         res.json({ session: await buildSessionPayload(user, req) })
       })
@@ -1331,6 +1353,7 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
         return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
       }
       req.session.userId = user.id
+      req.session.authAt = nowIso()
       req.session.save(async () => {
         const session = await buildSessionPayload(user, req)
         res.json({ session })
@@ -1425,6 +1448,11 @@ app.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
       newPassword: req.body.newPassword,
       analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
     })
+    // The user just changed their own password: refresh this session's
+    // establishment time so it survives its own change (#132).
+    if (req.body.newPassword) {
+      req.session.authAt = nowIso()
+    }
     const payload = await buildSessionPayload(user, req)
     res.json({ user: payload.user })
   } catch (error) {
