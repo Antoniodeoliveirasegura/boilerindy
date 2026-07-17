@@ -56,9 +56,15 @@ export function flush(): void {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ events }),
     keepalive: true,
-  }).catch(() => {
-    /* analytics is best-effort; never surface errors */
   })
+    .then((res) => {
+      // Session is gone (signed out / expired in this tab): stop tracking so we
+      // don't keep POSTing to this requireAuth endpoint and logging 401s.
+      if (res && res.status === 401) configureAnalytics({ enabled: false })
+    })
+    .catch(() => {
+      /* analytics is best-effort; never surface errors */
+    })
 }
 
 // On tab close/navigation the interval never fires again - hand the remaining
