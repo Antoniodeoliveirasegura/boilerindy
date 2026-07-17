@@ -464,7 +464,7 @@ export default function Home() {
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const userId = user?.id as string | undefined
-  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useDashboardLayout(userId)
+  const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset } = useDashboardLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const { summary: gpaSummary } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
@@ -1655,6 +1655,7 @@ export default function Home() {
               canMoveUp={idx > 0}
               canMoveDown={idx < visibleWidgets.length - 1}
               onMove={move}
+              onMoveTop={moveToTop}
               onResize={setSize}
               onHide={(id) => setVisible(id, false)}
               onDropReorder={reorder}
