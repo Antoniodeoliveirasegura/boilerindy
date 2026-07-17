@@ -63,6 +63,9 @@ export async function applyPasswordChange(deps, userRow, currentPassword, newPas
   if (!newPassword || newPassword.length < 8) {
     throw new Error('New password must be at least 8 characters.')
   }
+  if (newPassword.length > 128) {
+    throw new Error('New password must be at most 128 characters.')
+  }
 
   const authUser = await deps.verifySupabasePassword(userRow.email, currentPassword || '')
   if (authUser) {
@@ -78,6 +81,22 @@ export async function applyPasswordChange(deps, userRow, currentPassword, newPas
   // authoritative and the change is refused.
   const migrated = await deps.migrateLegacyUser(userRow, newPassword)
   if (!migrated) {
+    throw new Error('Current password is incorrect.')
+  }
+}
+
+/**
+ * Verify a signed-in user's current password WITHOUT changing it, using the same
+ * Supabase-Auth-first / legacy-hash-fallback rules as applyPasswordChange. Gates
+ * account-takeover-sensitive changes (e.g. an email change) behind re-auth.
+ *
+ * @param {{ verifySupabasePassword: (email: string, password: string) => Promise<object|null> }} deps
+ * @throws {Error} when the current password is wrong.
+ */
+export async function verifyCurrentPassword(deps, userRow, currentPassword) {
+  const authUser = await deps.verifySupabasePassword(userRow.email, currentPassword || '')
+  if (authUser) return
+  if (!hasLegacyHash(userRow) || !verifyPassword(currentPassword || '', userRow.password_hash)) {
     throw new Error('Current password is incorrect.')
   }
 }

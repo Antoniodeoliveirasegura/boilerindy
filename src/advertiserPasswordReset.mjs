@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { ADVERTISER_PASSWORD_MIN_LENGTH, normalizeAdvertiserEmail } from './advertiserAuth.mjs'
+import { ADVERTISER_PASSWORD_MIN_LENGTH, ADVERTISER_PASSWORD_MAX_LENGTH, normalizeAdvertiserEmail } from './advertiserAuth.mjs'
 
 // Pure logic for the advertiser self-serve password reset (forgot-password).
 // Kept out of server.mjs so it can be unit-tested without a live Supabase or
@@ -69,6 +69,9 @@ export function normalizeResetPasswordInput(input = {}) {
   const password = typeof input.password === 'string' ? input.password : ''
   if (password.length < ADVERTISER_PASSWORD_MIN_LENGTH) {
     throw new Error(`Password must be at least ${ADVERTISER_PASSWORD_MIN_LENGTH} characters.`)
+  }
+  if (password.length > ADVERTISER_PASSWORD_MAX_LENGTH) {
+    throw new Error(`Password must be at most ${ADVERTISER_PASSWORD_MAX_LENGTH} characters.`)
   }
   return { token, password }
 }

@@ -69,7 +69,7 @@ import {
 } from './src/assistantRouter.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
-import { hasLegacyHash, resolveSignIn, applyPasswordChange } from './src/studentPasswordAuth.mjs'
+import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
@@ -91,7 +91,8 @@ import {
   toServedAd,
   summarizeAdEvents,
 } from './src/adServing.mjs'
-import { assertSafeHttpUrl } from './src/urlSafety.mjs'
+import { assertSafeHttpUrl, safeFetchIcsText, assertHostAllowed } from './src/urlSafety.mjs'
+import { isSessionStale } from './src/sessionFreshness.mjs'
 import {
   LEAD_STATUSES,
   mapLeadRow,
@@ -115,7 +116,16 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const TERM_ORDER = { spring: 1, summer: 2, fall: 3 }
-const isProduction = process.env.NODE_ENV === 'production'
+// Fail-closed on a mistyped NODE_ENV: a value that is set but unrecognized
+// (e.g. 'prod', 'Production', a trailing space) must not silently fall through to
+// non-production mode and drop the Secure-cookie / trust-proxy / debug-gate /
+// mock-auth safeguards. Unset stays development (local dev runs `node server.mjs`).
+const nodeEnv = process.env.NODE_ENV
+if (nodeEnv !== undefined && !['production', 'development', 'test'].includes(nodeEnv)) {
+  console.error(`ERROR: NODE_ENV is set to an unrecognized value: ${JSON.stringify(nodeEnv)}. Use production, development, or test.`)
+  process.exit(1)
+}
+const isProduction = nodeEnv === 'production'
 
 const app = express()
 const port = Number(process.env.PORT || 3000)
@@ -163,19 +173,21 @@ const sessionSecret = process.env.SESSION_SECRET || process.env.BETTER_AUTH_SECR
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
 
 if (isProduction) {
-  if (!sessionSecret) {
-    console.error('ERROR: SESSION_SECRET is required in production')
+  if (!sessionSecret || sessionSecret.length < 32) {
+    console.error('ERROR: SESSION_SECRET is required in production and must be at least 32 characters')
     process.exit(1)
   }
   if (!supabaseAnonKey) {
     console.error('ERROR: SUPABASE_ANON_KEY is required in production')
     process.exit(1)
   }
-  if (purdueAuthMode === 'mock') {
-    console.error('ERROR: PURDUE_AUTH_MODE=mock is not allowed in production')
+  if (!['cas', 'off'].includes(purdueAuthMode)) {
+    console.error(`ERROR: PURDUE_AUTH_MODE must be 'cas' or 'off' in production (got ${JSON.stringify(purdueAuthMode)})`)
     process.exit(1)
   }
 }
+
+console.log(`[startup] mode=${isProduction ? 'production' : (nodeEnv || 'development')} secureCookies=${isProduction} trustProxy=${isProduction || process.env.TRUST_PROXY === '1'}`)
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
@@ -313,7 +325,11 @@ function makeId() {
 }
 
 function sanitizeNext(next) {
-  if (!next || typeof next !== 'string' || !next.startsWith('/')) return defaultNextPath
+  // Must be a site-relative path. Reject protocol-relative (//host) and backslash
+  // variants so this can never be turned into an open redirect.
+  if (!next || typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) {
+    return defaultNextPath
+  }
   return next
 }
 
@@ -376,7 +392,16 @@ async function updateUserProfile(userId, { email, displayName, currentPassword, 
     throw new Error('That email address is already in use.')
   }
 
-  const wantsPasswordChange = Boolean((currentPassword && currentPassword.trim()) || (newPassword && newPassword.trim()))
+  const wantsEmailChange = normalizedEmail !== normalizeEmail(user.email)
+  const wantsPasswordChange = Boolean(newPassword && newPassword.trim())
+
+  // Changing the login email is as account-takeover-sensitive as changing the
+  // password: require the current password either way, so a stolen session alone
+  // can't silently repoint the account's identity (#124).
+  if ((wantsPasswordChange || wantsEmailChange) && !(currentPassword && currentPassword.trim())) {
+    throw new Error('Please enter your current password to change your email or password.')
+  }
+
   if (wantsPasswordChange) {
     await applyPasswordChange(
       {
@@ -391,11 +416,14 @@ async function updateUserProfile(userId, { email, displayName, currentPassword, 
       currentPassword,
       newPassword,
     )
+  } else if (wantsEmailChange) {
+    // Email-only change: verify the current password without altering it.
+    await verifyCurrentPassword({ verifySupabasePassword }, user, currentPassword)
   }
 
   // Keep the Supabase Auth email in sync so password sign-in keeps working.
   // user_not_found = legacy row that has not been migrated into Auth yet.
-  if (normalizedEmail !== normalizeEmail(user.email)) {
+  if (wantsEmailChange) {
     const { error: emailError } = await supabase.auth.admin.updateUserById(userId, {
       email: normalizedEmail,
       email_confirm: true,
@@ -424,6 +452,20 @@ async function updateUserProfile(userId, { email, displayName, currentPassword, 
     .single()
 
   if (error) throw new Error(error.message)
+
+  if (wantsPasswordChange) {
+    // Stamp the credential-change time so sessions established earlier are rejected
+    // by getCurrentUser (#132). Guarded: if the column isn't migrated yet the
+    // password change still succeeds and invalidation just stays inert.
+    const { error: stampError } = await supabase
+      .from('users')
+      .update({ password_changed_at: nowIso() })
+      .eq('id', userId)
+    if (stampError) {
+      console.warn('[updateUserProfile] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
+    }
+  }
+
   return data
 }
 
@@ -575,7 +617,12 @@ async function getUserSummary(userOrId) {
 }
 
 async function getCurrentUser(req) {
-  return await getUserById(req.session.userId)
+  const user = await getUserById(req.session.userId)
+  if (!user) return null
+  // Reject a session established before the account's last password change (#132),
+  // so changing the password from Settings evicts other (e.g. stolen) sessions.
+  if (isSessionStale(user.password_changed_at, req.session.authAt)) return null
+  return user
 }
 
 async function buildSessionPayload(user, req) {
@@ -685,8 +732,8 @@ async function runScheduleSync(source) {
 
   let eventsByKey
   try {
-    await assertSafeHttpUrl(source.source_url)
-    eventsByKey = await ical.async.fromURL(source.source_url)
+    const icsText = await safeFetchIcsText(source.source_url)
+    eventsByKey = await ical.async.parseICS(icsText)
   } catch (fetchError) {
     const classified = classifyFetchError(fetchError)
     console.error('[runScheduleSync] Fetch failed for source=' + sourceId + ':', fetchError?.message || fetchError)
@@ -721,7 +768,20 @@ async function runScheduleSync(source) {
   }
 }
 
+// Hard host allowlist per schedule provider: the ONLY line of defense left once a
+// URL passes assertSafeHttpUrl, and what stops an attacker supplying a rebindable
+// hostname. A source type absent from this map is rejected (fail closed).
+const SCHEDULE_SOURCE_HOSTS = {
+  purdue_schedule_ical: ['purdue.edu'],
+  brightspace_ical: ['brightspace.com', 'd2l.com', 'desire2learn.com'],
+}
+
 async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdue_schedule_ical' }) {
+  const allowedHosts = SCHEDULE_SOURCE_HOSTS[sourceType]
+  if (!allowedHosts) {
+    throw new Error('That calendar provider is not allowed.')
+  }
+  assertHostAllowed(icsUrl, allowedHosts)
   const sourceUrl = await validateSourceUrl(icsUrl)
   const timestamp = nowIso()
   const id = makeId()
@@ -987,6 +1047,9 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
     if (!password || password.length < 8) {
       return res.status(400).json({ error: { message: 'Password must be at least 8 characters.', status: 400 } })
     }
+    if (password.length > 128) {
+      return res.status(400).json({ error: { message: 'Password must be at most 128 characters.', status: 400 } })
+    }
 
     const existingRow = await getUserByEmail(normalizedEmail)
     if (existingRow) {
@@ -1044,6 +1107,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       }
       req.session.cookie.maxAge = cookieMaxAge
       req.session.userId = row.id
+      req.session.authAt = nowIso()
       req.session.save(async () => {
         res.status(201).json({ session: await buildSessionPayload(row, req) })
       })
@@ -1186,6 +1250,7 @@ app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
       }
       req.session.cookie.maxAge = cookieMaxAge
       req.session.userId = user.id
+      req.session.authAt = nowIso()
       req.session.save(async () => {
         res.json({ session: await buildSessionPayload(user, req) })
       })
@@ -1288,6 +1353,7 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
         return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
       }
       req.session.userId = user.id
+      req.session.authAt = nowIso()
       req.session.save(async () => {
         const session = await buildSessionPayload(user, req)
         res.json({ session })
@@ -1373,7 +1439,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   res.json({ user: payload.user })
 })
 
-app.patch('/api/me/profile', requireAuth, async (req, res) => {
+app.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
   try {
     const user = await updateUserProfile(req.currentUser.id, {
       email: req.body.email,
@@ -1382,6 +1448,11 @@ app.patch('/api/me/profile', requireAuth, async (req, res) => {
       newPassword: req.body.newPassword,
       analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
     })
+    // The user just changed their own password: refresh this session's
+    // establishment time so it survives its own change (#132).
+    if (req.body.newPassword) {
+      req.session.authAt = nowIso()
+    }
     const payload = await buildSessionPayload(user, req)
     res.json({ user: payload.user })
   } catch (error) {
@@ -1420,8 +1491,8 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
   }
 
   try {
-    await assertSafeHttpUrl(source.source_url)
-    const eventsByKey = await ical.async.fromURL(source.source_url)
+    const icsText = await safeFetchIcsText(source.source_url)
+    const eventsByKey = await ical.async.parseICS(icsText)
     const rawEvents = Object.values(eventsByKey).filter((item) => item?.type === 'VEVENT')
     const detectedTimezone = detectTimezoneFromFeed(eventsByKey)
     
@@ -1460,7 +1531,7 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[/api/debug/source] failed:', error)
     res.status(500).json({
-      error: { message: error.message || 'Debug failed', status: 500 },
+      error: { message: 'Debug failed.', status: 500 },
     })
   }
 })
@@ -1498,12 +1569,6 @@ app.post('/api/sources/purdue/schedule', sourceSyncRateLimit, requireAuth, requi
     return res.status(400).json({ error: { message: 'Calendar URL must start with http:// or https://', status: 400 } })
   }
 
-  // Warn if URL doesn't look like a typical Purdue timetable URL
-  const isPurdueUrl = trimmedUrl.includes('purdue.edu') || trimmedUrl.includes('mypurdue')
-  if (!isPurdueUrl) {
-    console.warn(`[/api/sources/purdue/schedule] User ${userId} connecting non-Purdue URL: ${trimmedUrl.slice(0, 80)}...`)
-  }
-
   try {
     console.log(`[/api/sources/purdue/schedule] User ${userId} creating source...`)
     const source = await createScheduleSource(userId, { icsUrl: trimmedUrl, label })
@@ -1533,13 +1598,6 @@ app.post('/api/sources/brightspace/schedule', sourceSyncRateLimit, requireAuth, 
   // Check for common URL issues
   if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
     return res.status(400).json({ error: { message: 'Calendar URL must start with http:// or https://', status: 400 } })
-  }
-
-  // Validate Brightspace URL format (but be flexible)
-  const isBrightspaceUrl = trimmedUrl.includes('brightspace.com') || trimmedUrl.includes('d2l')
-  if (!isBrightspaceUrl) {
-    console.warn(`[/api/sources/brightspace/schedule] User ${userId} connecting non-Brightspace URL: ${trimmedUrl.slice(0, 80)}...`)
-    // Still allow it but log the warning
   }
 
   try {
@@ -2109,11 +2167,17 @@ function cleanField(value, max) {
   return trimmed ? trimmed.slice(0, max) : null
 }
 
+// Strip PostgREST filter separators and ILIKE wildcards from free-text search so a
+// crafted `q` can't inject extra `.or()` clauses or abuse %/_ wildcards.
+function sanitizeSearchTerm(value) {
+  return String(value ?? '').replace(/[%_,()\\]/g, ' ').trim().slice(0, 120)
+}
+
 app.get('/api/lost-found', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const type = typeof req.query.type === 'string' && LOST_FOUND_TYPES.has(req.query.type) ? req.query.type : null
   const status = req.query.status === 'resolved' || req.query.status === 'open' ? req.query.status : null
-  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : ''
+  const search = typeof req.query.q === 'string' ? sanitizeSearchTerm(req.query.q) : ''
 
   let query = supabase
     .from('lost_found_items')
@@ -2180,7 +2244,8 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
     return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
   }
   if (existing.user_id !== userId) {
-    return res.status(403).json({ error: { message: 'You can only edit your own posts.', status: 403 } })
+    // Uniform 404 (not 403) so this can't be used as an existence oracle.
+    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
   }
 
   const patch = {}
@@ -2633,9 +2698,9 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }))
 
   try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents,
@@ -2674,11 +2739,22 @@ async function getCached(key, ttlMs, producer) {
 
 // TransLoc API proxy endpoints (to avoid CORS issues)
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
-const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY || '8882812681'
+const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY
 const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
 const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
 
+// Fail closed when the key isn't configured rather than calling TransLoc with an
+// undefined key (and caching the error). Transit requires TRANSLOC_API_KEY to be set.
+function translocReady(res) {
+  if (!TRANSLOC_API_KEY) {
+    res.status(503).json({ error: 'Transit is not configured.' })
+    return false
+  }
+  return true
+}
+
 app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
+  if (!translocReady(res)) return
   try {
     const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, async () => {
       const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
@@ -2692,6 +2768,7 @@ app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
 })
 
 app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
+  if (!translocReady(res)) return
   try {
     const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, async () => {
       const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
@@ -2705,6 +2782,7 @@ app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
 })
 
 app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
+  if (!translocReady(res)) return
   try {
     const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, async () => {
       const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
@@ -2949,9 +3027,9 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       : `Campus board thread title: ${postTitle}\nOriginal post:\n${postBody || '(no body)'}\n\nStudent's reply draft:\n${draft}\n\nReturn ONLY JSON: {"replyTip":string|null} - one concise coaching sentence (tone, specificity, or missing info), or null if the draft is fine.`
 
   try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: userText }] }],
         generationConfig: { maxOutputTokens: 350, temperature: 0.35 },
@@ -3009,9 +3087,9 @@ async function autoTagBoardPost(postId, title, body) {
   if (!GEMINI_API_KEY) return []
   const combined = `${title}\n${body}`.slice(0, 400)
   try {
-    const resp = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    const resp = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
       body: JSON.stringify({
         system_instruction: {
           parts: [{
@@ -3726,7 +3804,7 @@ function respondMarketplaceDbError(res, err) {
 app.get('/api/marketplace', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  const q = typeof req.query.q === 'string' ? sanitizeSearchTerm(req.query.q) : ''
   const page = Math.max(0, parseInt(req.query.page, 10) || 0)
   try {
     let query = supabase
@@ -4139,7 +4217,7 @@ function respondAdvertiserDbError(res, err) {
       },
     })
   }
-  return res.status(500).json({ error: { message: err?.message || 'Database error', status: 500 } })
+  return res.status(500).json({ error: { message: 'Something went wrong. Please try again.', status: 500 } })
 }
 
 async function getAdvertiserById(advertiserId) {
@@ -4316,8 +4394,12 @@ app.post('/api/advertiser/forgot-password', passwordResetRateLimit, async (req, 
       })
       // Email not configured (dev): surface the link in the server log so the
       // flow is testable without a provider (mirrors Sentry-disabled wiring).
-      if (result?.skipped) {
+      if (result?.skipped && !isProduction) {
+        // Dev only: surface the link so the flow is testable without a provider.
         console.warn(`[advertiser reset] email disabled - reset link for ${advertiser.email}: ${resetUrl}`)
+      } else if (result?.skipped) {
+        // Never write a live reset token to production logs.
+        console.error('[advertiser reset] email is not configured; reset link was not delivered')
       }
     } catch (sendErr) {
       if (isAdvertiserSchemaMissingError(sendErr)) {
@@ -4772,7 +4854,8 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 
   const { data: rows, error: lookupError } = await query
   if (lookupError) {
-    return res.status(500).json({ error: { message: lookupError.message, status: 500 } })
+    console.error('[admin/purdue-links/clear] lookup failed:', lookupError.message)
+    return res.status(500).json({ error: { message: 'Could not look up the user.', status: 500 } })
   }
   if (!rows?.length) {
     return res.status(404).json({ error: { message: 'No matching user profile found.', status: 404 } })
@@ -4913,6 +4996,19 @@ app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ ty
 if (process.env.SENTRY_DSN) {
   Sentry.setupExpressErrorHandler(app)
 }
+
+// Final safety net: anything that escapes a route handler (e.g. a malformed JSON
+// body throwing in express.json()) returns a generic message - never a stack
+// trace - regardless of NODE_ENV. Must be the last middleware registered.
+app.use((err, _req, res, _next) => {
+  console.error('[unhandled]', err?.message || err)
+  if (res.headersSent) return
+  const isBadRequest = err?.status === 400 || err?.statusCode === 400 || err?.type === 'entity.parse.failed'
+  const status = isBadRequest ? 400 : 500
+  res.status(status).json({
+    error: { message: isBadRequest ? 'Invalid request.' : 'Internal server error.', status },
+  })
+})
 
 app.listen(port, host, async () => {
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)

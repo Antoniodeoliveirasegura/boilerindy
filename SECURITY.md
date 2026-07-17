@@ -67,3 +67,21 @@ we will follow up privately.
 - **Frontend audit** (7× `undici`, high→low) - all transitive via
   `jsdom`/`vitest` (dev/test tooling, never shipped to the browser bundle). No
   production exposure; clear by bumping `vitest`/`jsdom` when convenient.
+
+## Known operational risks (accepted)
+
+Tracked for a conscious decision rather than fixed in code (see the 2026-07-16
+security audit `security-audit-2026-07-16.md` and issue #135):
+
+- **In-process session store.** `express-session` uses the default `MemoryStore`.
+  Fine for the current single Render instance, but it grows in memory over long
+  uptimes and can't be shared across instances - move to a Postgres/Redis-backed
+  store before any horizontal scale.
+- **Supabase tokens in `localStorage`.** `@supabase/supabase-js` stores its
+  access/refresh JWTs in `localStorage` by default (XSS-readable). Largely inherent
+  to the SDK; the CSP in `boilerindy-react/vercel.json` reduces the XSS that would
+  read them. Revisit with an in-memory storage adapter if the posture needs it.
+- **Shared dev/prod Supabase project.** Local dev and production use the same
+  Supabase project + service-role key, so a compromised dev machine equals prod DB
+  compromise. Provision a separate dev project, and keep the production
+  `SESSION_SECRET` distinct from any value in a local `.env`.

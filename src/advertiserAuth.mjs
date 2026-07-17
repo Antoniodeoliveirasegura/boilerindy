@@ -5,6 +5,7 @@
 // `advertiser_leads` tables (see supabase-advertiser-portal.sql).
 
 export const ADVERTISER_PASSWORD_MIN_LENGTH = 8
+export const ADVERTISER_PASSWORD_MAX_LENGTH = 128
 export const COMPANY_NAME_MAX_LENGTH = 200
 export const LEAD_MESSAGE_MAX_LENGTH = 2000
 
@@ -78,6 +79,9 @@ export function normalizeAdvertiserAccountInput(input = {}) {
   const password = typeof input.password === 'string' ? input.password : ''
   if (password.length < ADVERTISER_PASSWORD_MIN_LENGTH) {
     throw new Error(`Password must be at least ${ADVERTISER_PASSWORD_MIN_LENGTH} characters.`)
+  }
+  if (password.length > ADVERTISER_PASSWORD_MAX_LENGTH) {
+    throw new Error(`Password must be at most ${ADVERTISER_PASSWORD_MAX_LENGTH} characters.`)
   }
   const companyName = typeof input.companyName === 'string' ? input.companyName.trim() : ''
   if (!companyName || companyName.length > COMPANY_NAME_MAX_LENGTH) {

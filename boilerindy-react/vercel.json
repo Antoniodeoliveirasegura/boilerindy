@@ -3,5 +3,19 @@
     { "source": "/api/:path*", "destination": "https://boilerindy-api.onrender.com/api/:path*" },
     { "source": "/auth/purdue/:path*", "destination": "https://boilerindy-api.onrender.com/auth/purdue/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://*.supabase.co https://services1.arcgis.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+        },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
   ]
 }
