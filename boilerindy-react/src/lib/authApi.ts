@@ -30,7 +30,12 @@ export async function authRequest(url: string, options: RequestInit = {}): Promi
     : await response.text()
 
   if (!response.ok) {
-    if (response.status === 401 && !url.includes('/api/session') && !url.includes('/api/auth/')) {
+    if (
+      response.status === 401 &&
+      window.location.pathname !== '/login' &&
+      !url.includes('/api/session') &&
+      !url.includes('/api/auth')
+    ) {
       const current = window.location.pathname + window.location.search
       const next = encodeURIComponent(current)
       window.location.replace(`/login?next=${next}&message=session-expired`)
@@ -91,12 +96,13 @@ export function setSkipSetup(skip: boolean): void {
 
 export function parseNextPath(search: string): string {
   const next = new URLSearchParams(search).get('next')
-  if (next && next.startsWith('/')) return next
+  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return next
   // Respect a saved choice to skip the schedule-setup screen on login
   return shouldSkipSetup() ? '/dashboard' : '/setup'
 }
 
 export function startPurdueLink(nextPath = '/setup'): void {
-  const safeNext = nextPath.startsWith('/') ? nextPath : '/setup'
+  const safeNext =
+    nextPath.startsWith('/') && !nextPath.startsWith('//') && !nextPath.startsWith('/\\') ? nextPath : '/setup'
   window.location.href = `/auth/purdue/connect?next=${encodeURIComponent(safeNext)}`
 }
