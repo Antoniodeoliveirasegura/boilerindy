@@ -40,6 +40,20 @@ test('drops cookies, auth headers, and user fields entirely', () => {
   assert.equal(event.breadcrumbs[0].message, 'fetch /api/session for [email]')
 })
 
+test('redacts the calendar-feed token, UUIDs, and API keys in URLs', () => {
+  const event = scrubSentryEvent({
+    request: { url: 'https://www.boilerindy.app/feeds/calendar/2f1c9e7a-4b6d-4a1e-9c3f-8d2b7e5a1f04.ics' },
+    breadcrumbs: [
+      { data: { url: 'https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r' } },
+      { message: 'transit ?apiKey=8882812681 fetched' },
+    ],
+  })
+  assert.ok(!event.request.url.includes('2f1c9e7a-4b6d-4a1e-9c3f-8d2b7e5a1f04'), 'feed token survived scrubbing')
+  assert.ok(event.request.url.includes('[redacted]'))
+  assert.ok(!event.breadcrumbs[0].data.url.includes('AIzaSy'), 'Gemini key survived scrubbing')
+  assert.ok(!event.breadcrumbs[1].message.includes('8882812681'), 'transit key survived scrubbing')
+})
+
 test('returns null/undefined unchanged and never throws on odd shapes', () => {
   assert.equal(scrubSentryEvent(null), null)
   assert.equal(scrubSentryEvent(undefined), undefined)

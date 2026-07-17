@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import * as L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
 import { track } from '../lib/usageStats'
 import {
@@ -13,6 +15,20 @@ import {
   isRouteActiveNow,
   type TransitRoute,
 } from '../lib/transitShared'
+
+// Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
+// expose it on window.L to match the existing usage across this component.
+if (typeof window !== 'undefined') {
+  window.L = L
+}
+
+// Escape untrusted TransLoc feed strings before they go into Leaflet popup HTML
+// (bindPopup sets innerHTML), so a hostile feed value can't inject markup.
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
+  )
+}
 
 const CAMPUS_CENTER = { lat: 39.7745, lng: -86.1756 }
 const HERE_METERS = 72
@@ -170,25 +186,10 @@ function LiveMap({
       mapInstanceRef.current = null
     }
 
-    if (!document.querySelector('link[href*="leaflet"]')) {
-      const link = document.createElement('link')
-      link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      document.head.appendChild(link)
-    }
-
-    const loadLeaflet = (): Promise<typeof import('leaflet')> => {
-      return new Promise((resolve) => {
-        if (window.L) {
-          resolve(window.L)
-          return
-        }
-        const script = document.createElement('script')
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        script.onload = () => resolve(window.L as typeof import('leaflet'))
-        document.head.appendChild(script)
-      })
-    }
+    // Leaflet + its CSS are bundled and imported at the top of this file, so there
+    // is no third-party CDN script/style to inject at runtime (no SRI gap).
+    const loadLeaflet = (): Promise<typeof import('leaflet')> =>
+      Promise.resolve(window.L as typeof import('leaflet'))
 
     let mounted = true
 
@@ -306,7 +307,7 @@ function LiveMap({
         .addTo(map)
         .bindPopup(
           `<div style="font-family:system-ui;min-width:120px;">
-            <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${stop.Description}</div>
+            <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escapeHtml(stop.Description)}</div>
             <div style="font-size:11px;color:${route.color};">${route.name}</div>
           </div>`,
         )
@@ -396,7 +397,7 @@ function LiveMap({
 
       marker.bindPopup(
         `<div style="font-family: system-ui; min-width: 140px;">
-          <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Bus ${vehicle.Name}</div>
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Bus ${escapeHtml(vehicle.Name)}</div>
           <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${route.name}</div>
           <div style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
             <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isMoving ? '#22c55e' : '#9ca3af'}"></span>
