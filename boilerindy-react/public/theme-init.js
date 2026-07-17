@@ -9,6 +9,6 @@ try {
       : 'dark'
   }
   if (t === 'dark') document.documentElement.classList.add('dark')
-} catch (e) {
+} catch {
   document.documentElement.classList.add('dark')
 }
