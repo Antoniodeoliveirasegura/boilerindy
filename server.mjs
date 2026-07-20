@@ -36,6 +36,7 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
+import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
@@ -198,10 +199,19 @@ app.use(express.urlencoded({ extended: true }))
 // and avoids the ~50s cold-start on the next real login.
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
+// Sessions live in Postgres rather than in this process (issue #111). Render's
+// free tier spins down after ~15 min idle, and the express-session default
+// MemoryStore died with it, signing out every user on every spin-down even
+// though their 14-day cookie was still valid. Null when db/supabase-sessions.sql
+// has not been run yet: express-session then keeps its in-memory default, which
+// is the old behaviour, and createSessionStore has already logged why.
+const sessionStore = await createSessionStore(supabase)
+
 app.use(
   session({
     name: 'pih.sid',
     secret: sessionSecret || 'dev-session-secret',
+    ...(sessionStore ? { store: sessionStore } : {}),
     resave: false,
     saveUninitialized: false,
     // Refresh the cookie on every response so active users are never logged

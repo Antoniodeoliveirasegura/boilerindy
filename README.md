@@ -242,8 +242,16 @@ Run these SQL files (in `db/`) **once** in your Supabase project's SQL Editor (S
 5. `db/supabase-dashboard-layout.sql` - adds `users.dashboard_layout` for the customizable home dashboard
 6. `db/supabase-services-layout.sql` - adds `users.services_layout` for the customizable Student Services board
 7. `db/supabase-board-only.sql` - only needed if board tables are missing separately
+8. `db/supabase-sessions.sql` - adds `user_sessions` so server sessions survive a backend restart (issue #111). Until this runs, the backend logs a warning at startup and keeps sessions in memory, which signs everyone out whenever Render spins down.
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
+
+> This list is **not exhaustive** - `db/` currently holds more files than are
+> listed here (feature tables for marketplace, study groups, grade tracker, the
+> advertiser portal, and others, plus later migrations such as
+> `supabase-session-invalidation.sql` and `supabase-calendar-indexes.sql`).
+> Check `db/` directly when setting up a fresh project or chasing a "relation
+> does not exist" error.
 
 ---
 
