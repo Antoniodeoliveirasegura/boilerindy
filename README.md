@@ -233,25 +233,48 @@ The database schema hasn't been applied. See the [Database setup](#database-setu
 
 ## Database setup
 
-Run these SQL files (in `db/`) **once** in your Supabase project's SQL Editor (Supabase dashboard → SQL Editor):
+Run these SQL files (in `db/`) **once** in your Supabase project's SQL Editor
+(Supabase dashboard → SQL Editor), **top to bottom**. This list covers every
+file in `db/`; running it in order satisfies each file's dependencies.
 
-1. `db/supabase-schema.sql` - core tables: `users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`
-2. `db/supabase-user-tasks.sql` - tasks tables: `user_task_completions`, `user_manual_tasks`
-3. `db/supabase-calendar-feed.sql` - adds `users.calendar_feed_token` for the subscribable calendar feed
-4. `db/supabase-lost-found.sql` - adds the `lost_found_items` table for the Lost & Found feature
-5. `db/supabase-dashboard-layout.sql` - adds `users.dashboard_layout` for the customizable home dashboard
-6. `db/supabase-services-layout.sql` - adds `users.services_layout` for the customizable Student Services board
-7. `db/supabase-board-only.sql` - only needed if board tables are missing separately
-8. `db/supabase-sessions.sql` - adds `user_sessions` so server sessions survive a backend restart (issue #111). Until this runs, the backend logs a warning at startup and keeps sessions in memory, which signs everyone out whenever Render spins down.
+- **Steps 1-11** are the core install. Step 1 is required before anything else;
+  the rest back the always-on surfaces (tasks, sessions, calendar, dashboard, admin).
+- **Steps 12-21** are per-feature. Skip any page you are not running yet.
+- **Steps 22-26** are the advertiser portal, a separate product surface that most
+  installs never need.
 
-All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
+1. `db/supabase-schema.sql` - **required, run first** - core tables (`users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`), the `uuid-ossp` extension, and the shared `update_updated_at_column()` trigger function that most later files reuse
+2. `db/supabase-board-only.sql` - **conditional fallback** - re-creates only the campus board tables plus `update_updated_at_column()`. Needed just when the board tables are missing separately, or when `board_posts.tags` / `.edited_at` never landed. Skip it if step 1 ran cleanly.
+3. `db/supabase-user-tasks.sql` - tasks tables: `user_task_completions`, `user_manual_tasks`
+4. `db/supabase-sessions.sql` - adds `user_sessions` so server sessions survive a backend restart (issue #111). Until this runs, the backend logs a warning at startup and keeps sessions in memory, which signs everyone out whenever Render spins down.
+5. `db/supabase-session-invalidation.sql` - adds `users.password_changed_at`, so changing a password invalidates every session issued before it (issue #132)
+6. `db/supabase-admin-users.sql` - adds `users.is_admin` plus a partial index; required before the deals, marketplace, guide, and soft-delete admin gates do anything
+7. `db/supabase-calendar-feed.sql` - adds `users.calendar_feed_token` for the subscribable calendar feed
+8. `db/supabase-calendar-indexes.sql` - adds composite `calendar_items` indexes for the calendar read path and drops the now-redundant `idx_calendar_items_user_id`
+9. `db/supabase-dashboard-layout.sql` - adds `users.dashboard_layout` for the customizable home dashboard
+10. `db/supabase-services-layout.sql` - adds `users.services_layout` for the customizable Student Services board
+11. `db/supabase-analytics.sql` - adds the `analytics_events` table and `users.analytics_opt_out` for first-party usage analytics (issue #51)
+12. *(optional)* `db/supabase-lost-found.sql` - adds the `lost_found_items` table for the Lost & Found feature
+13. *(optional)* `db/supabase-marketplace.sql` - adds `marketplace_listings` and `marketplace_reports` for the Student Marketplace
+14. *(optional)* `db/supabase-campus-deals.sql` - adds the `deals` table for Campus Perks (admin-curated local deals)
+15. *(optional)* `db/supabase-neighborhood-guide.sql` - adds `guide_recommendations` and `guide_upvotes` for the Neighborhood Guide
+16. *(optional)* `db/supabase-study-groups.sql` - adds `study_groups`, `study_group_members`, `study_group_courses`, and `users.study_groups_opt_in` for the Study Group Finder
+17. *(optional)* `db/supabase-friend-matching.sql` - adds `user_profiles`, `connections`, and `friend_match_courses` for Friend Matching
+18. *(optional)* `db/supabase-grade-tracker.sql` - adds the `user_grades` table for the Grade Tracker and GPA calculation
+19. *(optional)* `db/supabase-degree-plan.sql` - adds `users.major` for the degree planner
+20. *(optional)* `db/supabase-dining-favorites.sql` - adds the `user_dining_favorites` table for favorites on the Dining menu
+21. *(optional)* `db/supabase-soft-delete.sql` - adds `deleted_at` plus live/deleted partial indexes to `board_posts`, `marketplace_listings`, `lost_found_items`, `guide_recommendations`, and `deals`. **Run this after steps 12-15** - it does a plain `ALTER TABLE` on each and fails outright if one of those tables is missing.
+22. *(optional, advertiser portal)* `db/supabase-advertiser-portal.sql` - adds `advertisers` and `advertiser_leads`, the invite-only advertiser sign-in kept isolated from the student `users` table
+23. *(optional, advertiser portal)* `db/supabase-advertiser-campaigns.sql` - adds the `campaigns` table with its draft/review/active status column; needs step 22
+24. *(optional, advertiser portal)* `db/supabase-advertiser-side-rail.sql` - widens the `campaigns_placement_check` constraint to allow the desktop side-rail placement; needs step 23
+25. *(optional, advertiser portal)* `db/supabase-advertiser-ad-events.sql` - adds `ad_events`, the PII-free impression and tap log for served ads; needs step 23
+26. *(optional, advertiser portal)* `db/supabase-advertiser-password-resets.sql` - adds `advertiser_password_resets`, storing only SHA-256 hashes of single-use reset tokens; needs step 22
 
-> This list is **not exhaustive** - `db/` currently holds more files than are
-> listed here (feature tables for marketplace, study groups, grade tracker, the
-> advertiser portal, and others, plus later migrations such as
-> `supabase-session-invalidation.sql` and `supabase-calendar-indexes.sql`).
-> Check `db/` directly when setting up a fresh project or chasing a "relation
-> does not exist" error.
+All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
+
+> If you add a file to `db/`, add it here too. This list is the only place the
+> full run order is written down, and a migration missing from it is a migration
+> that goes unrun in production.
 
 ---
 
