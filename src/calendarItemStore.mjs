@@ -1,16 +1,23 @@
 // calendarItemStore.mjs
 //
 // The persistence edge for schedule sync. This is a plain module for locality
-// of the delete-then-batch-insert and status-update logic - NOT an injected
-// port. Because planSync (scheduleSync.mjs) is pure, the tests never touch this
-// module, so there is no second adapter to justify a swappable seam.
+// of the upsert-then-sweep and status-update logic - NOT an injected port.
+// Because planSync (scheduleSync.mjs) is pure, the sync tests never touch this
+// module; its own behaviour is covered by test/calendarItemStore.test.mjs.
 //
-// Identity (id / created_at / updated_at) is stamped HERE, at the I/O edge, so
-// the pure core stays deterministic.
+// Identity (id / created_at / updated_at) is owned by the DATABASE, not stamped
+// here. A row that survives a re-sync must keep its primary key:
+// user_task_completions.calendar_item_id references calendar_items(id) ON DELETE
+// CASCADE, so minting a fresh id per sync erased every task the user ticked off.
 
-import crypto from 'node:crypto'
+const UPSERT_BATCH_SIZE = 500
 
-const INSERT_BATCH_SIZE = 500
+// The sweep deletes rows this sync did not refresh, comparing updated_at (set by
+// the database clock, via the update_calendar_items_updated_at trigger) against a
+// threshold taken from this process's clock. The guard band absorbs skew between
+// the two: a stale row that survives one cycle is swept by the next, whereas a
+// refreshed row deleted by a fast database clock is simply gone.
+const SWEEP_SKEW_GUARD_MS = 5 * 60 * 1000
 
 function nowIso() {
   return new Date().toISOString()
@@ -18,43 +25,55 @@ function nowIso() {
 
 export function createCalendarItemStore(supabase) {
   /**
-   * Replace every calendar_item for a source with a fresh set. Deletes first,
-   * then inserts the stamped rows in batches. Throws on insert failure so the
-   * shell can mark the source 'error'; a delete failure is logged and tolerated
-   * (matches prior behaviour - a stale row is better than losing the sync).
+   * Bring a source's calendar_items in line with a freshly parsed feed.
+   *
+   * Upserts every row first, then deletes only what this sync did not touch.
+   * The old order (delete everything, then insert) meant any insert failure -
+   * including a unique-constraint collision - left the user with an empty
+   * calendar, because the delete had already committed. Writing first makes a
+   * failed sync a no-op instead of a wipe.
+   *
+   * Throws on upsert failure so the shell can mark the source 'error'; a sweep
+   * failure is logged and tolerated (a stale row beats losing the sync).
    *
    * @param {string} sourceId
    * @param {object[]} rows - plan items WITHOUT id/created_at/updated_at.
    */
   async function replaceItems(sourceId, rows) {
-    const { error: deleteError } = await supabase
+    const startedAt = Date.now()
+
+    if (rows.length) {
+      // calendar_items is UNIQUE(source_id, external_uid), but planSync dedupes
+      // on title/date/hour/location - a different key. Two VEVENTs sharing a UID
+      // at different hours cleared that filter and then collided here. Collapse
+      // on the key the table actually enforces so the write cannot self-conflict.
+      const byExternalUid = new Map()
+      for (const row of rows) byExternalUid.set(row.external_uid, row)
+      const deduped = [...byExternalUid.values()]
+
+      for (let i = 0; i < deduped.length; i += UPSERT_BATCH_SIZE) {
+        const batch = deduped.slice(i, i + UPSERT_BATCH_SIZE)
+        const { error: upsertError } = await supabase
+          .from('calendar_items')
+          .upsert(batch, { onConflict: 'source_id,external_uid' })
+        if (upsertError) {
+          console.error(`[calendarItemStore] Upsert failed for source=${sourceId} batch ${i}:`, upsertError)
+          throw new Error(upsertError.message)
+        }
+      }
+    }
+
+    // Anything still carrying an older updated_at is no longer in the feed.
+    // Runs only after every batch succeeded, so a partial write never prunes.
+    const staleBefore = new Date(startedAt - SWEEP_SKEW_GUARD_MS).toISOString()
+    const { error: sweepError } = await supabase
       .from('calendar_items')
       .delete()
       .eq('source_id', sourceId)
+      .lt('updated_at', staleBefore)
 
-    if (deleteError) {
-      console.error(`[calendarItemStore] Delete failed for source=${sourceId}:`, deleteError)
-    }
-
-    if (!rows.length) return
-
-    const ts = nowIso()
-    const stamped = rows.map((row) => ({
-      ...row,
-      id: crypto.randomUUID(),
-      created_at: ts,
-      updated_at: ts,
-    }))
-
-    for (let i = 0; i < stamped.length; i += INSERT_BATCH_SIZE) {
-      const batch = stamped.slice(i, i + INSERT_BATCH_SIZE)
-      const { error: insertError } = await supabase
-        .from('calendar_items')
-        .insert(batch)
-      if (insertError) {
-        console.error(`[calendarItemStore] Insert failed for source=${sourceId} batch ${i}:`, insertError)
-        throw new Error(insertError.message)
-      }
+    if (sweepError) {
+      console.error(`[calendarItemStore] Sweep failed for source=${sourceId}:`, sweepError)
     }
   }
 
