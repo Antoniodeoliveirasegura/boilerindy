@@ -1671,11 +1671,21 @@ app.delete('/api/sources/:sourceId', requireAuth, async (req, res) => {
   }
 })
 
+// Ascending order plus a row limit means an unbounded read returns the OLDEST
+// rows, so once a user accumulates more than `limit` historical items the
+// upcoming ones fall off the end and the page renders empty. Both of these
+// routes serve forward-looking views, so they default to a recent window; a
+// client that wants deeper history passes an explicit ?from=.
+const CALENDAR_DEFAULT_LOOKBACK_DAYS = 14
+function defaultCalendarFrom() {
+  return new Date(Date.now() - CALENDAR_DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
+}
+
 app.get('/api/me/calendar', requireAuth, async (req, res) => {
   const category = typeof req.query.category === 'string' ? req.query.category : null
   const categories = typeof req.query.categories === 'string' ? req.query.categories.split(',').filter(Boolean) : null
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 100
-  const from = typeof req.query.from === 'string' ? req.query.from : null
+  const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
   res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from }) })
 })
 
@@ -2038,7 +2048,8 @@ app.get('/api/me/classes', requireAuth, async (req, res) => {
 
 app.get('/api/me/events', requireAuth, async (req, res) => {
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
-  res.json({ items: await listCalendarItems(req.currentUser.id, { category: 'event', limit, order: 'asc' }) })
+  const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
+  res.json({ items: await listCalendarItems(req.currentUser.id, { category: 'event', limit, order: 'asc', from }) })
 })
 
 // ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
