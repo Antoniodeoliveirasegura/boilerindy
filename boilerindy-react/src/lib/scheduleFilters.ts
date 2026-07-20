@@ -14,16 +14,21 @@ export type CalendarItem = {
 
 export function isLikelyExamItem(item: CalendarItem | null | undefined): boolean {
   if (item == null || typeof item !== 'object') return false
-  const haystack = `${item.title || ''} ${item.description || ''}`.toLowerCase()
-  return /\b(midterm|final|exam|quiz|test)\b/.test(haystack)
+  // Title only. Searching the description too dropped entire courses whose iCal
+  // blurb merely mentioned a final, taking every lecture in the series with it.
+  // A row that exists only to hold an exam says so in its title.
+  return /\b(midterm|final|exam|quiz|test)\b/.test((item.title || '').toLowerCase())
 }
 
 export function isOnlineMeetingNoise(item: CalendarItem | null | undefined): boolean {
   if (item == null || typeof item !== 'object') return false
-  const title = (item.title || '').toLowerCase()
+  const title = (item.title || '').trim().toLowerCase()
   const haystack = `${title} ${item.description || ''} ${item.location || ''}`.toLowerCase()
   if (/\b(zoom|teams meeting|webex|microsoft teams|google meet)\b/.test(haystack)) return true
-  if (/\bonline\b/.test(title)) return true
+  // A bare "Online" row is a shell; "CS 25000 Online Lecture" is a real class.
+  // Matching \bonline\b anywhere in the title hid every online section a student
+  // had, which for a fully online term is the entire schedule.
+  if (title === 'online') return true
   if (/\b(synchronous online|online meeting|online session)\b/.test(haystack)) return true
   return false
 }
@@ -94,7 +99,11 @@ export function getHomeClassItems(items: CalendarItem[] | null | undefined): Cal
 export function filterClassItemsForSchedulePage(
   items: Array<CalendarItem | null> | null | undefined,
 ): CalendarItem[] {
-  return (items || []).filter(
-    (item): item is CalendarItem => item != null && !shouldExcludeFromSchedule(item),
-  )
+  const present = (items || []).filter((item): item is CalendarItem => item != null)
+  const kept = present.filter((item) => !shouldExcludeFromSchedule(item))
+  // Never let classification empty a schedule that has data. Showing a Zoom shell
+  // beats telling a student with 34 imported meetings that they have no classes.
+  // getHomeClassItems already falls back this way; this page did not, so one
+  // over-broad predicate could blank the whole page.
+  return kept.length ? kept : present
 }
