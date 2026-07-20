@@ -71,6 +71,7 @@ type DashboardWidgetProps = {
   canMoveUp: boolean
   canMoveDown: boolean
   onMove: (id: string, dir: number) => void
+  onMoveTop: (id: string) => void
   onResize: (id: string, size: string) => void
   onHide: (id: string) => void
   onDropReorder: (fromId: string, toId: string) => void
@@ -87,6 +88,7 @@ export default function DashboardWidget({
   canMoveUp,
   canMoveDown,
   onMove,
+  onMoveTop,
   onResize,
   onHide,
   onDropReorder,
@@ -198,9 +200,20 @@ export default function DashboardWidget({
           </button>
           <button
             type="button"
+            onClick={() => onMoveTop(id)}
+            disabled={!canMoveUp}
+            aria-label={`Move ${title} to top`}
+            title="Move to top"
+            className={ctrlClass}
+          >
+            <Icon name="chevronsUp" size={14} />
+          </button>
+          <button
+            type="button"
             onClick={() => onMove(id, -1)}
             disabled={!canMoveUp}
             aria-label={`Move ${title} up`}
+            title="Move up"
             className={ctrlClass}
           >
             <Icon name="chevronUp" size={14} />

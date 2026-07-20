@@ -67,9 +67,25 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE linked_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE calendar_items ENABLE ROW LEVEL SECURITY;
 
--- Note: Since we're using server-side auth (not Supabase Auth), 
--- we'll use the service role key which bypasses RLS.
--- If you want to enable RLS for additional security, you can create policies here.
+-- RLS posture (issue #114 Part 2). Read this before adding any policy.
+--
+-- Enabled with ZERO policies, deliberately. For the anon key that ships in the
+-- frontend bundle, "RLS on, no policy" denies everything on the Supabase Data
+-- API, which is the strictest posture available. Adding auth.uid() policies
+-- would LOOSEN it, so their absence is a conscious deferral, not an oversight.
+--
+-- The server holds SUPABASE_SERVICE_ROLE_KEY and bypasses RLS entirely, so no
+-- policy can protect against a server query that forgets its user_id filter.
+-- That risk is covered by code review and tests, not by RLS.
+--
+-- Add policies only when something legitimately needs the anon key against a
+-- table (Realtime subscriptions are the likely first reason). When that day
+-- comes: public.users.id is set from the Supabase Auth user id (server.mjs,
+-- ensureUserRowForSupabaseAuth), so `user_id = auth.uid()` is the correct
+-- predicate. Accounts migrated from the pre-Supabase-Auth scrypt store can
+-- have a mismatched id; those fail closed, which is the safe direction.
+--
+-- test/rlsCoverage.test.mjs fails CI if any table here lacks RLS.
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

@@ -251,7 +251,7 @@ export default function Services() {
   const { user } = useAuth()
   const userId = user?.id as string | undefined
   const reducedMotion = usePrefersReducedMotion()
-  const { layout, editing, setEditing, move, reorder, setVisible, setSize, reset } = useServicesLayout(userId)
+  const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset } = useServicesLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const visibleWidgets = layout.filter((w) => w.visible && servicesWidgets[w.id])
@@ -347,6 +347,7 @@ export default function Services() {
               canMoveUp={idx > 0}
               canMoveDown={idx < visibleWidgets.length - 1}
               onMove={move}
+              onMoveTop={moveToTop}
               onResize={setSize}
               onHide={(id) => setVisible(id, false)}
               onDropReorder={reorder}

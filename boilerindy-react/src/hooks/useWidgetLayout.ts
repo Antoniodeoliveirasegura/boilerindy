@@ -91,6 +91,21 @@ export function useWidgetLayout({
     [layout, commit],
   )
 
+  // Jump a widget straight to the top of the board. Goes to absolute index 0
+  // (above any hidden entries too), so "top" stays top even if a hidden widget
+  // above it is later un-hidden.
+  const moveToTop = useCallback(
+    (id: string) => {
+      const idx = layout.findIndex((w) => w.id === id)
+      if (idx <= 0) return
+      const next = layout.slice()
+      const [moved] = next.splice(idx, 1)
+      next.unshift(moved)
+      commit(next)
+    },
+    [layout, commit],
+  )
+
   // Drag-and-drop reorder: drop `fromId` onto `toId`'s slot.
   const reorder = useCallback(
     (fromId: string, toId: string) => {
@@ -123,5 +138,5 @@ export function useWidgetLayout({
 
   const reset = useCallback(() => commit(defaultLayout()), [commit, defaultLayout])
 
-  return { layout, editing, setEditing, move, reorder, setVisible, setSize, reset }
+  return { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset }
 }

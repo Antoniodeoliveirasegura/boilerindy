@@ -42,9 +42,16 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Navigations: network-first, fall back to the cached app shell when offline.
+  // The catch must always resolve to a real Response - returning undefined to
+  // respondWith() throws "Failed to convert value to 'Response'" (and shows the
+  // request as a network error), which happens on first load before the shell is
+  // cached. Response.error() is a valid last resort when we truly have nothing.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match(SHELL_URL).then((r) => r || caches.match('/'))),
+      fetch(request).catch(async () => {
+        const cached = (await caches.match(SHELL_URL)) || (await caches.match('/'))
+        return cached || Response.error()
+      }),
     )
     return
   }

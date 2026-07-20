@@ -157,6 +157,12 @@ const icons: Record<string, ReactNode> = {
   chevronDown: (
     <path d="M6 9l6 6 6-6"/>
   ),
+  chevronsUp: (
+    <>
+      <path d="M17 11l-5-5-5 5"/>
+      <path d="M17 18l-5-5-5 5"/>
+    </>
+  ),
   chevronLeft: (
     <path d="M15 18l-6-6 6-6"/>
   ),
