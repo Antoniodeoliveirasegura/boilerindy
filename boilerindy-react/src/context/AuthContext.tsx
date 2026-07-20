@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -70,10 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     purdueAuthMode: 'mock',
   })
 
-  const syncUserToBackend = useCallback(
+  const postSync = useCallback(
     async (supabaseSession: SupabaseSession): Promise<BackendSession | null> => {
-      if (!supabaseSession?.user) return null
-
       try {
         const response = (await authRequest('/api/auth/supabase-sync', {
           method: 'POST',
@@ -98,6 +97,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     [],
+  )
+
+  // One sync per login, not two (issue #111). Signing up and the OAuth callback
+  // each trigger the SIGNED_IN listener AND an explicit refreshSession(), and
+  // every POST re-validates the JWT with Supabase before upserting the same row.
+  // Callers racing on the same access token now share a single request.
+  //
+  // This coalesces in-flight calls only, it is NOT a cache. Once a sync settles
+  // the next call goes to the network again, which matters because
+  // ConnectSchedule, Settings and SessionExpiryWatcher call refreshSession()
+  // precisely because server state just changed; handing them a remembered
+  // payload would render stale onboarding.
+  const inFlightSync = useRef<{
+    token: string
+    promise: Promise<BackendSession | null>
+  } | null>(null)
+
+  const syncUserToBackend = useCallback(
+    async (supabaseSession: SupabaseSession): Promise<BackendSession | null> => {
+      if (!supabaseSession?.user) return null
+
+      const token = supabaseSession.access_token
+      const pending = inFlightSync.current
+      if (pending && pending.token === token) return pending.promise
+
+      const promise = postSync(supabaseSession)
+      inFlightSync.current = { token, promise }
+      try {
+        return await promise
+      } finally {
+        if (inFlightSync.current?.promise === promise) inFlightSync.current = null
+      }
+    },
+    [postSync],
   )
 
   const refreshSession = useCallback(async (): Promise<BackendSession | null> => {
