@@ -40,6 +40,7 @@ import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
+import { createCommunityCounters } from './src/communityCounters.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
@@ -762,6 +763,11 @@ function validateSourceUrl(sourceUrl) {
 // The pure plan lives in scheduleSync.mjs; this shell owns the fetch, the
 // database writes (via calendarItemStore), and item identity stamping.
 const calendarItemStore = createCalendarItemStore(supabase)
+
+// board_posts.reply_count / upvote_count and guide_recommendations.upvote_count
+// are denormalized counters recomputed atomically from their source rows here,
+// instead of the read-modify-write that lost updates under concurrent votes.
+const communityCounters = createCommunityCounters(supabase)
 
 async function runScheduleSync(source) {
   const syncedAt = nowIso()
@@ -3251,7 +3257,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
 
   const { data: post, error: postError } = await supabase
     .from('board_posts')
-    .select('id, reply_count')
+    .select('id')
     .eq('id', postId)
     .is('deleted_at', null)
     .single()
@@ -3268,10 +3274,11 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
 
   if (replyError) return respondBoardDbError(res, replyError)
 
-  await supabase
-    .from('board_posts')
-    .update({ reply_count: post.reply_count + 1, updated_at: nowIso() })
-    .eq('id', postId)
+  // Recompute reply_count from the reply rows atomically (was read-modify-write,
+  // which lost updates under concurrent replies). Best-effort: the reply is
+  // already saved, and the next reply - or the backfill - self-heals a miss.
+  const { error: countError } = await communityCounters.syncBoardPostReplies(postId)
+  if (countError) console.error('board reply_count sync failed:', countError?.message || countError)
 
   res.status(201).json({
     reply: {
@@ -3289,7 +3296,7 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
 
   const { data: post, error: postError } = await supabase
     .from('board_posts')
-    .select('id, upvote_count')
+    .select('id')
     .eq('id', postId)
     .is('deleted_at', null)
     .single()
@@ -3300,20 +3307,20 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
     .from('board_upvotes')
     .insert({ post_id: postId, user_id: userId, created_at: nowIso() })
 
-  let newCount, upvotedByMe
+  let upvotedByMe
   if (insertError && insertError.code === '23505') {
     await supabase.from('board_upvotes').delete().eq('post_id', postId).eq('user_id', userId)
-    newCount = Math.max(0, post.upvote_count - 1)
     upvotedByMe = false
   } else if (insertError) {
     return respondBoardDbError(res, insertError)
   } else {
-    newCount = post.upvote_count + 1
     upvotedByMe = true
   }
 
-  await supabase.from('board_posts').update({ upvote_count: newCount, updated_at: nowIso() }).eq('id', postId)
-  res.json({ upvotes: newCount, upvotedByMe })
+  // Derive the new total from the upvote rows atomically (was read-modify-write).
+  const { count, error: countError } = await communityCounters.syncBoardPostUpvotes(postId)
+  if (countError) return respondBoardDbError(res, countError)
+  res.json({ upvotes: count, upvotedByMe })
 })
 
 // Owner-only edit of a post's title/body (issue #7)
@@ -3469,7 +3476,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
   try {
     const { data: rec, error: recErr } = await supabase
       .from('guide_recommendations')
-      .select('id, upvote_count')
+      .select('id')
       .eq('id', recId)
       .is('deleted_at', null)
       .single()
@@ -3480,20 +3487,20 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
       .from('guide_upvotes')
       .insert({ rec_id: recId, user_id: userId, created_at: nowIso() })
 
-    let newCount
     let upvotedByMe
     if (insErr && insErr.code === '23505') {
       await supabase.from('guide_upvotes').delete().eq('rec_id', recId).eq('user_id', userId)
-      newCount = Math.max(0, rec.upvote_count - 1)
       upvotedByMe = false
     } else if (insErr) {
       throw insErr
     } else {
-      newCount = rec.upvote_count + 1
       upvotedByMe = true
     }
-    await supabase.from('guide_recommendations').update({ upvote_count: newCount }).eq('id', recId)
-    res.json({ upvotes: newCount, upvotedByMe })
+
+    // Derive the new total from the upvote rows atomically (was read-modify-write).
+    const { count, error: countError } = await communityCounters.syncGuideRecUpvotes(recId)
+    if (countError) throw countError
+    res.json({ upvotes: count, upvotedByMe })
   } catch (e) {
     return respondGuideDbError(res, e)
   }
