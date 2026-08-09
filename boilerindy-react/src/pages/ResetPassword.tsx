@@ -23,7 +23,7 @@ function readRecoveryError() {
 
 export default function ResetPassword() {
   const navigate = useNavigate()
-  const { refreshSession } = useAuth()
+  const { establishSession } = useAuth()
 
   const [linkState, setLinkState] = useState<'checking' | 'ready' | 'invalid'>(() =>
     readRecoveryError() ? 'invalid' : 'checking',
@@ -76,7 +76,7 @@ export default function ResetPassword() {
     setSubmitting(true)
     try {
       await updateUserPassword(password)
-      await refreshSession()
+      await establishSession()
       navigate(parseNextPath(''), { replace: true })
     } catch (error) {
       setMessage(

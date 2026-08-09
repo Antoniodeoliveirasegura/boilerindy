@@ -15,7 +15,7 @@ const asideFeatures = [
 ]
 
 export default function Login() {
-  const { user, loading, refreshSession, applySession } = useAuth()
+  const { user, loading, establishSession, applySession } = useAuth()
   const { dark, toggleTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -141,7 +141,7 @@ export default function Login() {
         } catch {
           /* Backend session from register is enough if client Supabase env is misconfigured */
         }
-        await refreshSession()
+        await establishSession()
         navigate(parseNextPath(window.location.search), { replace: true })
       } else {
         const response = await fetch('/api/auth/sign-in', {

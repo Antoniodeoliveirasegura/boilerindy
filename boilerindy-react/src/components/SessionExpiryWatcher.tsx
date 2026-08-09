@@ -13,7 +13,7 @@ const DISMISS_FOR_MS = 5 * 60 * 1000
  * rolling sessions - any authenticated request resets the cookie clock.
  */
 export default function SessionExpiryWatcher() {
-  const { session, refreshSession } = useAuth()
+  const { session, establishSession } = useAuth()
   const location = useLocation()
   const [now, setNow] = useState(() => Date.now())
   const [extending, setExtending] = useState(false)
@@ -43,7 +43,10 @@ export default function SessionExpiryWatcher() {
   const handleStaySignedIn = async () => {
     setExtending(true)
     try {
-      await refreshSession()
+      // Recover via establishSession, not the cheap refreshSession (issue #149):
+      // if the cookie has already lapsed, only re-minting it from the Supabase
+      // token brings the session back. A plain /api/session re-read cannot.
+      await establishSession()
       setNow(Date.now())
     } finally {
       setExtending(false)
