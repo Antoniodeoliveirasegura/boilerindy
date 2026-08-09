@@ -326,6 +326,15 @@ const adminWriteRateLimit = createRateLimiter({
   max: 60,
   message: 'Too many admin actions. Please slow down.',
 })
+// Marketplace listing detail reveals the seller's contact email (issue #114).
+// Per-user budget: generous for a buyer opening listings, but caps the bulk
+// id-enumeration that would otherwise harvest every seller's email.
+const marketplaceReadRateLimit = createRateLimiter({
+  name: 'marketplace-read',
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many marketplace requests. Please slow down.',
+})
 
 function nowIso() {
   return new Date().toISOString()
@@ -3893,8 +3902,9 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
   }
 })
 
-// Listing detail - reveals seller contact (name + Purdue email) to signed-in users.
-app.get('/api/marketplace/:id', requireAuth, async (req, res) => {
+// Listing detail - reveals seller contact (name + Purdue email) to signed-in
+// users, so it is rate-limited to blunt bulk id-enumeration harvesting (#114).
+app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).single()

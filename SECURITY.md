@@ -35,6 +35,8 @@ we will follow up privately.
 2. **Every user-scoped query** must filter on `user_id` (or the owning column)
    in the API layer - RLS is bypassed by the service role, so app-code filtering
    is the real access control. A missed `.eq('user_id', …)` is a cross-user leak.
+   (Audited 2026-08-09 for #114: all ~145 `supabase.from(...)` queries in
+   `server.mjs` were verified to constrain to the current principal - zero IDOR.)
 3. **Never log** tokens, session cookies, or the calendar-feed token. Sentry
    events are scrubbed in `src/sentryScrub.mjs`; keep it that way.
 4. **Secrets live in env only** - never commit keys. Run `pnpm audit` before a
@@ -51,6 +53,16 @@ we will follow up privately.
 - Residual exposure: anyone with the link sees ~6 months of the user's events
   (titles/times/locations). Available knobs if that ever needs tightening: lower
   `FEED_HORIZON_MONTHS` (`server.mjs`) or add an opt-in auth-gated variant.
+
+## Marketplace seller contact (`GET /api/marketplace/:id`)
+
+- Returns the seller's name and Purdue email to any signed-in student - the
+  intended buyer-to-seller contact path. Not an IDOR: the endpoint is auth-gated
+  and the id comes from the listing row, not raw user input.
+- Residual exposure: listing ids are enumerable, so a signed-in user could sweep
+  the detail endpoint to harvest seller emails. `marketplace-read` (`server.mjs`,
+  100 / 15 min per user) throttles that from a bulk scrape to a slow trickle.
+  Revisit with an in-app contact relay if harvesting is ever observed (#114).
 
 ## Dependency status
 
