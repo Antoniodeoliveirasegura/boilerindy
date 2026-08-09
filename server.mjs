@@ -39,6 +39,7 @@ import { createRateLimiter } from './src/rateLimiter.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
+import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
@@ -206,6 +207,12 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 // has not been run yet: express-session then keeps its in-memory default, which
 // is the old behaviour, and createSessionStore has already logged why.
 const sessionStore = await createSessionStore(supabase)
+
+// Caches the two onboarding count queries per user so session reads (every app
+// hydrate, every refreshSession) skip them on the hot path (issue #111 item 6).
+// Invalidated wherever those counts change; see getUserSummary and the source
+// mutation choke points below.
+const onboardingSummaryCache = createOnboardingSummaryCache()
 
 app.use(
   session({
@@ -508,6 +515,8 @@ async function deleteUserAccount(userRow, { password, confirmation }) {
     console.error('[deleteUserAccount] public.users delete failed:', dbError.message)
     throw new Error('Could not delete your profile data.')
   }
+
+  onboardingSummaryCache.invalidate(userId)
 }
 
 function getAcademicTerm(dateValue) {
@@ -602,27 +611,36 @@ async function getUserSummary(userOrId) {
   const user = userOrId && typeof userOrId === 'object' ? userOrId : await getUserById(userOrId)
   const userId = user?.id ?? userOrId
 
-  const [{ count: linkedSourceCount }, { count: classCount }] = await Promise.all([
-    supabase
-      .from('linked_sources')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId),
-    supabase
-      .from('calendar_items')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('category', 'class'),
-  ])
+  // The two counts are the only DB work here; cache them so session reads skip
+  // both queries on the hot path (issue #111). Capture the generation before the
+  // query so a mutation that invalidates mid-flight discards this stale result.
+  let counts = onboardingSummaryCache.get(userId)
+  if (!counts) {
+    const gen = onboardingSummaryCache.generation(userId)
+    const [{ count: linkedSourceCount }, { count: classCount }] = await Promise.all([
+      supabase
+        .from('linked_sources')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId),
+      supabase
+        .from('calendar_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('category', 'class'),
+    ])
+    counts = { linkedSourceCount: linkedSourceCount || 0, classCount: classCount || 0 }
+    onboardingSummaryCache.set(userId, counts, gen)
+  }
 
   const hasPurdueLinked = Boolean(user?.purdue_email)
   return {
-    linkedSourceCount: linkedSourceCount || 0,
-    classCount: classCount || 0,
+    linkedSourceCount: counts.linkedSourceCount,
+    classCount: counts.classCount,
     hasPurdueLinked,
     // When Purdue linking is off, never prompt a link and let users attach
     // calendar sources directly (no identity link required).
     needsPurdueConnection: purdueLinkingEnabled ? !hasPurdueLinked : false,
-    needsScheduleSource: (purdueLinkingEnabled ? hasPurdueLinked : true) && (linkedSourceCount || 0) === 0,
+    needsScheduleSource: (purdueLinkingEnabled ? hasPurdueLinked : true) && counts.linkedSourceCount === 0,
   }
 }
 
@@ -766,6 +784,10 @@ async function runScheduleSync(source) {
     throw new Error('Failed to save calendar events: ' + insertError.message)
   }
 
+  // The class count may have changed; drop the cached onboarding summary so the
+  // post-sync session re-read reflects it (issue #111).
+  onboardingSummaryCache.invalidate(source.user_id)
+
   await calendarItemStore.setStatus(sourceId, plan.sourceStatus, plan.statusMessage, { markSynced: true })
 
   console.log('[runScheduleSync] source=' + sourceId + ': ' + plan.meta.itemCount + ' items saved (' + plan.meta.skippedCount + ' skipped, ' + plan.meta.duplicateCount + ' duplicates removed)')
@@ -812,6 +834,7 @@ async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdu
     .single()
 
   if (error) throw new Error(error.message)
+  onboardingSummaryCache.invalidate(userId)
   return data
 }
 
@@ -1674,6 +1697,8 @@ app.delete('/api/sources/:sourceId', requireAuth, async (req, res) => {
       .from('linked_sources')
       .delete()
       .eq('id', source.id)
+
+    onboardingSummaryCache.invalidate(req.currentUser.id)
     
     res.json({ ok: true, message: 'Source and all associated items deleted.' })
   } catch (error) {
