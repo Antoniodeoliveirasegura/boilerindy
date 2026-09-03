@@ -1875,12 +1875,20 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   if (!t || t.length > 500) {
     return res.status(400).json({ error: { message: 'Title is required (max 500 characters)' } })
   }
-  if (!dueAt || typeof dueAt !== 'string') {
-    return res.status(400).json({ error: { message: 'dueAt ISO timestamp is required' } })
-  }
-  const due = new Date(dueAt)
-  if (Number.isNaN(due.getTime())) {
-    return res.status(400).json({ error: { message: 'Invalid dueAt date' } })
+  // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
+  // client creates undated to-dos from a title alone, which this used to reject outright. A
+  // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
+  // rather than being silently stored as no deadline at all.
+  let dueIso = null
+  if (dueAt !== undefined && dueAt !== null && dueAt !== '') {
+    if (typeof dueAt !== 'string') {
+      return res.status(400).json({ error: { message: 'dueAt must be an ISO timestamp string' } })
+    }
+    const due = new Date(dueAt)
+    if (Number.isNaN(due.getTime())) {
+      return res.status(400).json({ error: { message: 'Invalid dueAt date' } })
+    }
+    dueIso = due.toISOString()
   }
   try {
     const { data, error } = await supabase
@@ -1888,7 +1896,7 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
       .insert({
         user_id: userId,
         title: t,
-        due_at: due.toISOString(),
+        due_at: dueIso,
       })
       .select()
       .single()
