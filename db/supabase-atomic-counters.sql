@@ -20,8 +20,9 @@
 -- force-reset a count.
 --
 -- Run once in Supabase SQL Editor. Safe to re-run (CREATE OR REPLACE). No data
--- is deleted. Requires db/supabase-board-only.sql and
--- db/supabase-neighborhood-guide.sql to have been applied first.
+-- is deleted. Requires the board tables (db/supabase-schema.sql, or its
+-- db/supabase-board-only.sql fallback) and db/supabase-neighborhood-guide.sql
+-- to have been applied first.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION sync_board_post_upvote_count(p_post_id uuid)
