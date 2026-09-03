@@ -239,10 +239,10 @@ file in `db/`; running it in order satisfies each file's dependencies.
 
 - **Steps 1-11** are the core install. Step 1 is required before anything else;
   the rest back the always-on surfaces (tasks, sessions, calendar, dashboard, admin).
-- **Steps 12-21** are per-feature. Skip any page you are not running yet.
-- **Steps 22-26** are the advertiser portal, a separate product surface that most
+- **Steps 12-22** are per-feature. Skip any page you are not running yet.
+- **Steps 23-27** are the advertiser portal, a separate product surface that most
   installs never need.
-- **Step 27** is a follow-up alter to the tasks tables from step 3. It is appended
+- **Step 28** is a follow-up alter to the tasks tables from step 3. It is appended
   rather than slotted in next to step 3 so the numbering above stays stable.
 
 1. `db/supabase-schema.sql` - **required, run first** - core tables (`users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`), the `uuid-ossp` extension, and the shared `update_updated_at_column()` trigger function that most later files reuse
@@ -266,12 +266,13 @@ file in `db/`; running it in order satisfies each file's dependencies.
 19. *(optional)* `db/supabase-degree-plan.sql` - adds `users.major` for the degree planner
 20. *(optional)* `db/supabase-dining-favorites.sql` - adds the `user_dining_favorites` table for favorites on the Dining menu
 21. *(optional)* `db/supabase-soft-delete.sql` - adds `deleted_at` plus live/deleted partial indexes to `board_posts`, `marketplace_listings`, `lost_found_items`, `guide_recommendations`, and `deals`. **Run this after steps 12-15** - it does a plain `ALTER TABLE` on each and fails outright if one of those tables is missing.
-22. *(optional, advertiser portal)* `db/supabase-advertiser-portal.sql` - adds `advertisers` and `advertiser_leads`, the invite-only advertiser sign-in kept isolated from the student `users` table
-23. *(optional, advertiser portal)* `db/supabase-advertiser-campaigns.sql` - adds the `campaigns` table with its draft/review/active status column; needs step 22
-24. *(optional, advertiser portal)* `db/supabase-advertiser-side-rail.sql` - widens the `campaigns_placement_check` constraint to allow the desktop side-rail placement; needs step 23
-25. *(optional, advertiser portal)* `db/supabase-advertiser-ad-events.sql` - adds `ad_events`, the PII-free impression and tap log for served ads; needs step 23
-26. *(optional, advertiser portal)* `db/supabase-advertiser-password-resets.sql` - adds `advertiser_password_resets`, storing only SHA-256 hashes of single-use reset tokens; needs step 22
-27. `db/supabase-manual-task-due-optional.sql` - drops the `NOT NULL` on `user_manual_tasks.due_at` so a task can be created without a deadline; needs step 3. Until this runs, `POST /api/me/tasks/manual` rejects any create that omits `dueAt`, which is every task the mobile client makes
+22. `db/supabase-atomic-counters.sql` - adds `sync_board_post_upvote_count()`, `sync_board_post_reply_count()` and `sync_guide_rec_upvote_count()`, the row-locking recount functions the server calls instead of a read-modify-write on the denormalized board/guide counters (issue #151), and repairs whatever drift the old code already left behind. **Run this after steps 1 and 15** - the one-time repair statements at the bottom are plain `UPDATE`s against the board and guide tables, so it fails outright if either is missing. Until it runs the server still works: it falls back to a non-atomic count-then-write.
+23. *(optional, advertiser portal)* `db/supabase-advertiser-portal.sql` - adds `advertisers` and `advertiser_leads`, the invite-only advertiser sign-in kept isolated from the student `users` table
+24. *(optional, advertiser portal)* `db/supabase-advertiser-campaigns.sql` - adds the `campaigns` table with its draft/review/active status column; needs step 23
+25. *(optional, advertiser portal)* `db/supabase-advertiser-side-rail.sql` - widens the `campaigns_placement_check` constraint to allow the desktop side-rail placement; needs step 24
+26. *(optional, advertiser portal)* `db/supabase-advertiser-ad-events.sql` - adds `ad_events`, the PII-free impression and tap log for served ads; needs step 24
+27. *(optional, advertiser portal)* `db/supabase-advertiser-password-resets.sql` - adds `advertiser_password_resets`, storing only SHA-256 hashes of single-use reset tokens; needs step 23
+28. `db/supabase-manual-task-due-optional.sql` - drops the `NOT NULL` on `user_manual_tasks.due_at` so a task can be created without a deadline; needs step 3. Until this runs, `POST /api/me/tasks/manual` rejects any create that omits `dueAt`, which is every task the mobile client makes
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
