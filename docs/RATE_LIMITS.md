@@ -18,11 +18,15 @@ method, and path for abuse review.
 | `session-sync` | `POST /api/auth/supabase-sync` | 120 | 15 min | IP |
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id` | 30 | 10 min | user, falls back to IP |
 | `source-sync` | `POST /api/sync/:sourceId`, `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule` | 30 | 15 min | user, falls back to IP |
+| `marketplace-read` | `GET /api/marketplace/:id` (reveals seller email, enumeration-sensitive) | 100 | 15 min | user, falls back to IP |
 | Gemini assistant (pre-existing) | `POST /api/assistant` | 10 | 1 hour | user, falls back to IP |
 | Gemini board AI (pre-existing) | `POST /api/board/ai-suggestions` | 10 | 1 hour | user |
 
-Read-only endpoints (`GET /api/...`) are intentionally not limited: they are
-session-gated, cheap, and limiting them would hurt normal navigation.
+Read-only endpoints (`GET /api/...`) are generally not limited: they are
+session-gated, cheap, and limiting them would hurt normal navigation. The
+exception is `GET /api/marketplace/:id`, which returns the seller's contact
+email and is therefore enumeration-sensitive; `marketplace-read` throttles the
+bulk id-sweeps that would harvest every seller's address (#114).
 
 ## Configuration
 

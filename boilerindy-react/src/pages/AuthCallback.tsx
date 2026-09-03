@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 export default function AuthCallback() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { refreshSession } = useAuth()
+  const { establishSession } = useAuth()
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function AuthCallback() {
         }
 
         if (session) {
-          await refreshSession()
+          await establishSession()
           navigate('/', { replace: true })
         } else {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
@@ -37,7 +37,7 @@ export default function AuthCallback() {
             throw exchangeError
           }
 
-          await refreshSession()
+          await establishSession()
           navigate('/', { replace: true })
         }
       } catch (err) {
@@ -50,7 +50,7 @@ export default function AuthCallback() {
     }
 
     handleCallback()
-  }, [navigate, refreshSession, searchParams])
+  }, [navigate, establishSession, searchParams])
 
   if (error) {
     return (

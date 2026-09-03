@@ -1,0 +1,45 @@
+name: Keep backend warm
+
+# The API runs on Render's free tier, which spins down after ~15 min idle and
+# then cold-starts for ~50s on the next request - the dominant term in login
+# latency (issue #111). This pings the session-free /api/health probe often
+# enough to keep the instance awake.
+#
+# Caveats worth knowing:
+# - Scheduled workflows only run from the DEFAULT branch (main). On develop this
+#   file is inert until the next develop -> main release; use "Run workflow"
+#   (workflow_dispatch) to test it from any branch in the meantime.
+# - GitHub's scheduled runners are best-effort and can be delayed several minutes
+#   under load, so this is not a hard guarantee the instance never sleeps. For a
+#   firm SLA use an external monitor (e.g. UptimeRobot every 5 min) or an
+#   always-on Render tier.
+# - Override the target without editing this file by setting a repo variable
+#   WARM_URL (Settings -> Secrets and variables -> Actions -> Variables).
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every 10 min; Render sleeps after ~15
+  workflow_dispatch: {}
+
+# Never let a slow cold-start ping pile up on the next tick.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /api/health
+        env:
+          WARM_URL: ${{ vars.WARM_URL || 'https://boilerindy-api.onrender.com/api/health' }}
+        run: |
+          echo "Pinging $WARM_URL"
+          # The first hit after spin-down blocks ~50s while Render boots, so give
+          # curl room (--max-time) and let it retry transient boot errors. Fail
+          # only if the backend is still unreachable afterwards - a real signal.
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 10 --max-time 100 "$WARM_URL"
+          echo # newline after the {"ok":true} body

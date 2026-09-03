@@ -52,6 +52,7 @@ type AuthContextValue = {
   loading: boolean
   authConfig: AuthConfig
   refreshSession: () => Promise<BackendSession | null>
+  establishSession: () => Promise<BackendSession | null>
   applySession: (session: BackendSession | null) => void
   signOut: () => Promise<void>
   startPurdueLink: typeof startPurdueLink
@@ -100,15 +101,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   // One sync per login, not two (issue #111). Signing up and the OAuth callback
-  // each trigger the SIGNED_IN listener AND an explicit refreshSession(), and
+  // each trigger the SIGNED_IN listener AND an explicit establishSession(), and
   // every POST re-validates the JWT with Supabase before upserting the same row.
   // Callers racing on the same access token now share a single request.
   //
   // This coalesces in-flight calls only, it is NOT a cache. Once a sync settles
   // the next call goes to the network again, which matters because
-  // ConnectSchedule, Settings and SessionExpiryWatcher call refreshSession()
-  // precisely because server state just changed; handing them a remembered
-  // payload would render stale onboarding.
+  // establishSession() runs on auth events (signup, OAuth callback, password
+  // reset, session recovery) that each need a freshly validated session, not a
+  // remembered payload.
   const inFlightSync = useRef<{
     token: string
     promise: Promise<BackendSession | null>
@@ -133,7 +134,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [postSync],
   )
 
+  // Re-read the existing backend session after mutating server state. Cheap: a
+  // single GET /api/session, no Supabase auth round-trip. Used by callers that
+  // are already authenticated and only need fresh session data (e.g. after
+  // linking a schedule source or saving profile settings, issue #149). Does not
+  // regenerate the cookie, so it must not be used to establish a new session.
   const refreshSession = useCallback(async (): Promise<BackendSession | null> => {
+    try {
+      const data = (await authRequest('/api/session')) as { session?: BackendSession | null }
+      setSession(data.session ?? null)
+      return data.session ?? null
+    } catch {
+      setSession(null)
+      return null
+    }
+  }, [])
+
+  // Establish (or recover) the backend session from the current Supabase token:
+  // POST /api/auth/supabase-sync re-validates the JWT and regenerates the session
+  // cookie. Used on auth events (signup, OAuth callback, password reset, session
+  // recovery) where minting the cookie is the point. Falls back to a plain
+  // session re-read when there is no Supabase session. Issue #149.
+  const establishSession = useCallback(async (): Promise<BackendSession | null> => {
     try {
       // First check Supabase session
       const {
@@ -277,6 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       authConfig,
       refreshSession,
+      establishSession,
       applySession,
       signOut,
       startPurdueLink,
@@ -284,7 +307,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getDisplayName: () => getDisplayName(user),
       getFirstName: () => getFirstName(user),
     }),
-    [session, user, supabaseUser, onboarding, loading, authConfig, refreshSession, applySession, signOut],
+    [
+      session,
+      user,
+      supabaseUser,
+      onboarding,
+      loading,
+      authConfig,
+      refreshSession,
+      establishSession,
+      applySession,
+      signOut,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
