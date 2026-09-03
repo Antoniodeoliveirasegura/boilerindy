@@ -170,7 +170,7 @@ export const test = base.extend({
         const task = {
           id: `task-${state.manualTasks.length + 1}-${Date.now()}`,
           title,
-          due_at: dueAt,
+          due_at: dueAt ?? null,
           completed_at: null,
         }
         state.manualTasks.push(task)
