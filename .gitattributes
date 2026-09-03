@@ -1,0 +1,13 @@
+# Normalize line endings to LF in the repository, on every platform.
+#
+# Every blob here is already LF; this keeps it that way. Without it, a checkout on
+# Windows (or a Windows editor writing to a shared volume) rewrites files as CRLF,
+# and since nothing normalizes on the way back in, `git status` reports hundreds of
+# files as modified whose diffs are entirely invisible. That buries real changes and
+# makes branch switching fight the working tree.
+#
+# `text=auto` lets git detect text files and leave binaries alone; `eol=lf` fixes the
+# working-tree ending so a Windows checkout gets LF too, rather than only normalizing
+# on commit.
+
+* text=auto eol=lf
