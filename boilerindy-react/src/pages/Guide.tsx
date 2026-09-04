@@ -10,8 +10,10 @@ import { useConfirm } from '../hooks/useConfirm'
 
 // Neighborhood Guide (issue #31): student-submitted local recommendations.
 const CAMPUS_CENTER: [number, number] = [39.774, -86.172]
-const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+// Basemap: Esri's keyless gray canvases (issue #160); see Map.tsx for why.
+const TILE_DARK = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+const TILE_LIGHT = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
 
 type Rec = {
   id: string
@@ -292,7 +294,13 @@ export default function Guide() {
       {mapped.length > 0 && (
         <div className="card p-0 overflow-hidden mb-6 h-[260px]">
           <MapContainer center={CAMPUS_CENTER} zoom={14} className="h-full w-full">
-            <TileLayer key={dark ? 'dark' : 'light'} url={dark ? TILE_DARK : TILE_LIGHT} />
+            <TileLayer
+              key={dark ? 'dark' : 'light'}
+              url={dark ? TILE_DARK : TILE_LIGHT}
+              attribution={TILE_ATTRIBUTION}
+              maxNativeZoom={16}
+              maxZoom={19}
+            />
             {mapped.map((r) => (
               <CircleMarker
                 key={r.id}

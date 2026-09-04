@@ -203,8 +203,10 @@ function LiveMap({
 
       L.control.zoom({ position: 'bottomright' }).addTo(map)
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
+      // Basemap: Esri's keyless World Street Map (issue #160); CARTO's free tiles
+      // now carry an "API KEY REQUIRED" watermark.
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors',
         maxZoom: 19,
       }).addTo(map)
 

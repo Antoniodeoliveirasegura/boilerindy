@@ -25,8 +25,13 @@ type Building = {
 
 type FlyRequest = { lat: number | null; lng: number | null; zoom: number; seq: number }
 
-const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+// Basemap: Esri's keyless light/dark gray canvases (issue #160). CARTO's free
+// basemaps started returning "API KEY REQUIRED" watermarks in Sept 2026. The
+// canvases only have real data to zoom 16, so the layer upscales past that.
+const TILE_DARK = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+const TILE_LIGHT = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
+const TILE_MAX_NATIVE_ZOOM = 16
 
 // Official Purdue Indianapolis Building Shapes - has BUILDING_NAME, PU_ABBR, BuildingLabels
 const PURDUE_BUILDINGS_URL = "https://services1.arcgis.com/mLNdQKiKsj5Z5YMN/arcgis/rest/services/Indianapolis_Building_Shapes/FeatureServer/123/query?where=1%3D1&outFields=BUILDING_NAME,PU_ABBR,BuildingLabels,add_full&returnGeometry=true&outSR=4326&f=geojson"
@@ -397,7 +402,13 @@ export default function Map() {
           dark ? 'is-dark border-[#2A1E0A]' : 'is-light border-[var(--color-border-2)]'
         }`}>
           <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full">
-            <TileLayer key={dark ? 'dark' : 'light'} url={dark ? TILE_DARK : TILE_LIGHT} />
+            <TileLayer
+              key={dark ? 'dark' : 'light'}
+              url={dark ? TILE_DARK : TILE_LIGHT}
+              attribution={TILE_ATTRIBUTION}
+              maxNativeZoom={TILE_MAX_NATIVE_ZOOM}
+              maxZoom={19}
+            />
             
             {geoData && (
               <GeoJSON
