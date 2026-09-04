@@ -341,6 +341,8 @@ export const test = base.extend({
       // Parking status (#14): the payload shape mirrors src/parkingStatus.mjs.
       if (pathname === '/api/parking/garages') {
         return json(route, 200, state.parking ?? sampleParkingSnapshot())
+      }
+
       // Transit (issue #162): arrays seeded via seedTransit, empty by default.
       if (pathname === '/api/transit/routes') {
         return json(route, 200, state.transit.routes)
