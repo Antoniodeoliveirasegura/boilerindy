@@ -13,9 +13,15 @@ const DEFAULT_START_URL =
 const PURDUE_EXPORT_URL_RE =
   /https:\/\/timetable\.mypurdue\.purdue\.edu\/Timetabling\/[^\s"'<>]+/gi
 
+/**
+ * Off by default. The capture opens a visible Chromium on the machine running
+ * the server, so it is a local-dev convenience that can never work on a
+ * headless host like Render. Enable it explicitly with
+ * PURDUE_CALENDAR_AUTOMATION=1 (or true / on, case-insensitive).
+ */
 export function isCalendarAutomationEnabled() {
-  const v = (process.env.PURDUE_CALENDAR_AUTOMATION || '1').toLowerCase()
-  return v !== '0' && v !== 'false' && v !== 'off'
+  const v = String(process.env.PURDUE_CALENDAR_AUTOMATION || '').toLowerCase()
+  return v === '1' || v === 'true' || v === 'on'
 }
 
 function nowIso() {
@@ -226,7 +232,9 @@ export function getCalendarCaptureJob(userId) {
 
 export async function startCalendarCapture(userId) {
   if (!isCalendarAutomationEnabled()) {
-    throw new Error('Purdue calendar automation is disabled on this server (PURDUE_CALENDAR_AUTOMATION).')
+    throw new Error(
+      'Purdue schedule auto-capture is disabled on this server (set PURDUE_CALENDAR_AUTOMATION=1 to enable it locally). Paste your UniTime iCalendar URL instead.',
+    )
   }
   const existing = jobs.get(userId)
   if (existing && ['launching', 'awaiting_login', 'awaiting_export'].includes(existing.status)) {

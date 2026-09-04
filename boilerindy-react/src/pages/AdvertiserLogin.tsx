@@ -55,7 +55,7 @@ export default function AdvertiserLogin() {
         if (active && profile) navigate('/advertise/dashboard', { replace: true })
       })
       .catch(() => {
-        /* not signed in / backend unavailable - show the form */
+        /* backend unavailable - show the form (signed out resolves to null above) */
       })
     return () => {
       active = false

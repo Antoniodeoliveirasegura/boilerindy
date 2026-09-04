@@ -1,0 +1,234 @@
+<!DOCTYPE HTML>
+<html lang="en" class="">
+<head>
+    <meta charset="UTF-8">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible" />
+    <META HTTP-EQUIV="CACHE-CONTROL" CONTENT="NO-CACHE">
+
+
+    <script type="text/javascript">
+        if (typeof (Storage) !== "undefined") {
+
+            var myCount = (parseInt(localStorage["RefreshCount"]) || 0) + 1;
+
+            if (myCount < 60)
+                {
+            window.setTimeout(function () {
+                //refresh the page after 30000 miliseconds (30 secs)
+                location.reload();
+            }, 30000);
+            }
+            else
+            {
+                myCount = 0;//wait for manual refresh
+            }
+            localStorage["RefreshCount"] = myCount;
+            //alert(localStorage["RefreshCount"]);
+        } else {
+            // Sorry! No auto refresh
+        }
+
+    </script>
+   
+  
+     
+   
+ 
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>Parking Garages: Indiana University Indianapolis</title>
+
+    
+    <title>Site Name: Indiana University</title>
+    <link href="/INPARK_LotCount_V1_Online/Content/css?v=HGmQ-jHm38kIWkWNWBAqYBiWixDvvMHOxGjo8yuBkyA1" rel="stylesheet"/>
+
+    <script src="/INPARK_LotCount_V1_Online/bundles/modernizr?v=inCVuEFe6J4Q07A0AcRsbJic_UE5MwpRMNGcOtk94TE1"></script>
+
+
+    <meta content="" name="keywords" />
+    <meta content="" name="description" />
+
+    <link href="//www.iu.edu/favicon.ico" rel="icon" />
+    <link href="//www.iu.edu/favicon.ico" rel="shortcut icon" />
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="branding-bar" itemscope="itemscope" itemtype="http://schema.org/CollegeOrUniversity" role="complementary" aria-labelledby="campus-name">
+    <script type="text/javascript">
+             if (typeof (Storage) !== "undefined") {
+                 var myCount = (parseInt(localStorage["RefreshCount"]) || 0)
+                 if (myCount == 0 || myCount > 60)
+                     {
+                 var html = '<div class="row"><center><h4><a class="btn btn-warning" href="javascript:location.reload(true)"><span class="glyphicon glyphicon-refresh"></span> Refresh Page</a></h4></center><br /></div>';
+                 document.write(html);
+                 }
+             }
+    </script>
+    <div class="row pad">
+        <img src="//assets.iu.edu/brand/3.x/trident-large.png" alt="IU" />
+        <p id="iu-campus">
+            <a href="https://www.iupui.edu" title="Indiana University Indianapolis">
+                <span id="campus-name" class="show-on-desktop" itemprop="name">Indiana University Indianapolis</span>
+                <span class="show-on-tablet" itemprop="name">Indiana University Indianapolis</span>
+                <span class="show-on-mobile" itemprop="name">IUPUI</span>
+            </a>
+        </p>
+    </div>
+</div>
+
+
+    
+            
+<style>
+    #map_canvas_container {
+        position: relative;
+    }
+
+    #map_canvas {
+        position: absolute;
+        top: 50px;
+        right: 0;
+        bottom: 0;
+        left: 0;
+    }
+
+    #map_message {
+        position: fixed;
+        bottom: 5px;
+        left: 10px;
+        right:10px;
+        background-color: #f0f0f0;
+        border: 1px solid #dadada;
+        padding: 10px;
+        color: #ff3300;
+        font-weight: bold;
+        z-index: 2147483638;
+        text-align: center;
+    }
+</style>
+
+
+
+<div class="row-fluid">
+
+    <div class="container map_canvas_container">
+
+<div class="googlemap" id="map_canvas" style="height:100%"></div><div id="map_canvas-InfoWindowsHolder" style="display: none"><div class="content" id="map_canvasMarker0">
+<div>
+<h1>Blackford Garage</h1>
+<h3>725 W Michigan St</h3>
+<div>
+<p>
+Rates: <b>ST Permit Required</b> <br/>
+Capacity: <b>1143</b> <br/>
+Occupied: <b>168</b> <br/>
+Available: <b>975</b> <br/>
+Timestamp: 9/4/2026 2:46:41 AM <br/>
+</p>
+</div>
+</div>  
+</div><div class="content" id="map_canvasMarker1">
+<div>
+<h1>Barnhill Garage</h1>
+<h3>345 Barnhill Dr</h3>
+<div>
+<p>
+Rates: <b>ST Permit Required</b> <br/>
+Capacity: <b>1324</b> <br/>
+Timestamp: 9/4/2026 2:46:41 AM <br/>
+</p>
+</div>
+</div>  
+</div><div class="content" id="map_canvasMarker2">
+<div>
+<h1>Gateway Garage</h1>
+<h3>525 N Blackford St</h3>
+<div>
+<p>
+Rates: <b>ST Permit Required</b> <br/>
+Capacity: <b>1333</b> <br/>
+Occupied: <b>955</b> <br/>
+Available: <b>378</b> <br/>
+Timestamp: 9/4/2026 2:46:42 AM <br/>
+</p>
+</div>
+</div>  
+</div><div class="content" id="map_canvasMarker3">
+<div>
+<h1>Riverwalk Garage</h1>
+<h3>245 University Blvd</h3>
+<div>
+<p>
+Rates: <b>ST Permit Required</b> <br/>
+Capacity: <b>1584</b> <br/>
+Occupied: <b>6</b> <br/>
+Available: <b>1578</b> <br/>
+Timestamp: 9/4/2026 2:46:42 AM <br/>
+</p>
+</div>
+</div>  
+</div><div class="content" id="map_canvasMarker4">
+<div>
+<h1>Sports Garage</h1>
+<h3>875 W New York St</h3>
+<div>
+<p>
+Rates: <b>ST Permit Required</b> <br/>
+Capacity: <b>2891</b> <br/>
+Occupied: <b>2034</b> <br/>
+Available: <b>857</b> <br/>
+Timestamp: 9/4/2026 2:46:42 AM <br/>
+</p>
+</div>
+</div>  
+</div><div class="content" id="map_canvasMarker5">
+<div>
+<h1>Lockefield Student Garage</h1>
+<h3>951 Wishard Blvd</h3>
+<div>
+<p>
+Rates: <b>ST Permit Required</b> <br/>
+Capacity: <b>483</b> <br/>
+Occupied: <b>-1</b> <br/>
+Available: <b>484</b> <br/>
+Timestamp: 9/4/2026 2:46:42 AM <br/>
+</p>
+</div>
+</div>  
+</div></div>
+    </div>
+
+</div>
+
+
+
+
+        ><!-- /#main-wrap -->
+
+    <script src="/INPARK_LotCount_V1_Online/bundles/jquery?v=gkWyJthHPtwkFjvHuNinBjchIfwLwc_KbE-H26J2kAI1"></script>
+
+    <script src="/INPARK_LotCount_V1_Online/bundles/bootstrap?v=dTj_zmqA4Iw69ppQN9hmZ8M81pGsNbBntHoI-IQLzPs1"></script>
+
+    
+    <script src="https://maps.googleapis.com/maps/api/js?&key=REDACTED"></script>
+
+<script src="/INPARK_LotCount_V1_Online/jmelosegui/googlemap?v=lWMMw20zq85GJVF54F-kif8ScS-msM3h0tMm3vkSVU81"></script>
+
+<script type="text/javascript">
+//<![CDATA[
+jQuery(document).ready(function(){
+jQuery('#map_canvas').GoogleMap({clientId:'map_canvas', fitToMarkersBounds:true, center:{"latitude":23.0,"longitude":-82.0,"useCurrentPosition":false}, mapTypeId:'HYBRID', markers:[{"id":"0","title":"Blackford Garage","lat":39.77511025,"lng":-86.17058223,"zIndex":1,"icon":{"anchor":{"x":0,"y":22},"path":"https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online//Content/MapPercent/icon-10P.png","point":{"x":0,"y":0},"size":{"width":36,"height":22}},"window":{"content":"map_canvasMarker0"}},{"id":"1","title":"Barnhill Garage","lat":39.772546,"lng":-86.178061,"zIndex":1,"icon":{"anchor":{"x":0,"y":22},"path":"https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online//Content/MapPercent/icon-Full.png","point":{"x":0,"y":0},"size":{"width":36,"height":22}},"window":{"content":"map_canvasMarker1"}},{"id":"2","title":"Gateway Garage","lat":39.775222,"lng":-86.16931,"zIndex":1,"icon":{"anchor":{"x":0,"y":22},"path":"https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online//Content/MapPercent/icon-70P.png","point":{"x":0,"y":0},"size":{"width":36,"height":22}},"window":{"content":"map_canvasMarker2"}},{"id":"3","title":"Riverwalk Garage","lat":39.77010216,"lng":-86.17402427,"zIndex":1,"icon":{"anchor":{"x":0,"y":22},"path":"https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online//Content/MapPercent/icon-10P.png","point":{"x":0,"y":0},"size":{"width":36,"height":22}},"window":{"content":"map_canvasMarker3"}},{"id":"4","title":"Sports Garage","lat":39.77105619,"lng":-86.17398426,"zIndex":1,"icon":{"anchor":{"x":0,"y":22},"path":"https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online//Content/MapPercent/icon-70P.png","point":{"x":0,"y":0},"size":{"width":36,"height":22}},"window":{"content":"map_canvasMarker4"}},{"id":"5","title":"Lockefield Student Garage","lat":39.77791494,"lng":-86.17577506,"zIndex":1,"icon":{"anchor":{"x":0,"y":22},"path":"https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online//Content/MapPercent/icon-10P.png","point":{"x":0,"y":0},"size":{"width":36,"height":22}},"window":{"content":"map_canvasMarker5"}}], markerEvents:{}});
+});
+//]]>
+</script>
+
+
+</body>
+</html>

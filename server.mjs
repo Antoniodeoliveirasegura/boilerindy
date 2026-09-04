@@ -27,7 +27,8 @@ import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
-import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
+import { cancelCalendarCapture, getCalendarCaptureJob, isCalendarAutomationEnabled, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
+import { fetchParkingStatus } from './src/parkingStatus.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import {
@@ -114,6 +115,7 @@ import {
   isResetTokenExpired,
 } from './src/advertiserPasswordReset.mjs'
 import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
+import { apiNotFound } from './src/apiNotFound.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -131,6 +133,8 @@ if (nodeEnv !== undefined && !['production', 'development', 'test'].includes(nod
 const isProduction = nodeEnv === 'production'
 
 const app = express()
+// Drop the "X-Powered-By: Express" fingerprint header (#157).
+app.disable('x-powered-by')
 const port = Number(process.env.PORT || 3000)
 const host = process.env.HOST || '127.0.0.1'
 const publicBaseUrl = (process.env.BACKEND_PUBLIC_URL || process.env.BETTER_AUTH_URL || `http://${host}:${port}`).replace(/\/$/, '')
@@ -856,7 +860,7 @@ async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdu
 async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null } = {}) {
   let query = supabase
     .from('calendar_items')
-    .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type')
+    .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
     .eq('user_id', userId)
 
   if (category) {
@@ -885,6 +889,9 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
     category: row.category,
     externalUid: row.external_uid,
     sourceType: row.source_type,
+    // DATE-only feed items (no clock time). The client hides the time for these
+    // instead of rendering a meaningless midnight (issue #121).
+    allDay: Boolean(row.all_day),
     // Flag events that advertise free food (issue #46). Cheap per-row regex;
     // only meaningful for event categories but harmless elsewhere.
     freeFood: hasFreeFood(row.title, row.description),
@@ -1584,7 +1591,27 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/purdue/calendar-link/start', requireAuth, requirePurdueLinked, async (req, res) => {
+// Purdue schedule auto-capture (issue #120). The capture opens a visible
+// Chromium on the machine running the server, so it is a local-dev convenience
+// only: hidden in production (like /api/debug/source) and refused unless
+// PURDUE_CALENDAR_AUTOMATION is explicitly on, so /start never reaches
+// chromium.launch on a headless host such as Render.
+function requireCalendarAutomation(req, res, next) {
+  if (isProduction) {
+    return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
+  }
+  if (!isCalendarAutomationEnabled()) {
+    return res.status(409).json({
+      error: {
+        message: 'Purdue schedule auto-capture is disabled on this server. Paste your UniTime iCalendar URL instead.',
+        status: 409,
+      },
+    })
+  }
+  next()
+}
+
+app.post('/api/purdue/calendar-link/start', requireAuth, requireCalendarAutomation, requirePurdueLinked, async (req, res) => {
   try {
     const job = await startCalendarCapture(req.currentUser.id)
     res.status(202).json({ job })
@@ -1593,11 +1620,11 @@ app.post('/api/purdue/calendar-link/start', requireAuth, requirePurdueLinked, as
   }
 })
 
-app.get('/api/purdue/calendar-link/status', requireAuth, requirePurdueLinked, async (req, res) => {
+app.get('/api/purdue/calendar-link/status', requireAuth, requireCalendarAutomation, requirePurdueLinked, async (req, res) => {
   res.json({ job: getCalendarCaptureJob(req.currentUser.id) })
 })
 
-app.post('/api/purdue/calendar-link/cancel', requireAuth, requirePurdueLinked, async (req, res) => {
+app.post('/api/purdue/calendar-link/cancel', requireAuth, requireCalendarAutomation, requirePurdueLinked, async (req, res) => {
   res.json({ job: await cancelCalendarCapture(req.currentUser.id) })
 })
 
@@ -2861,6 +2888,24 @@ app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   } catch (error) {
     console.error('TransLoc routes error:', error)
     res.status(500).json({ error: 'Failed to fetch routes data' })
+  }
+})
+
+// Live garage availability (issue #14): IU Parking's public lot-count page,
+// parsed server-side (src/parkingStatus.mjs) and cached so the upstream sees
+// at most one request per TTL no matter how many students are looking. The
+// module never throws: an unreachable page yields a degraded snapshot with the
+// static garage list and status 'unknown'. See docs/parking-status.md.
+const PARKING_CACHE_MS = Math.max(15_000, Number(process.env.PARKING_STATUS_CACHE_MS) || 60_000)
+
+app.get('/api/parking/garages', publicReadRateLimit, async (_req, res) => {
+  try {
+    const data = await getCached('parking:garages', PARKING_CACHE_MS, () => fetchParkingStatus())
+    res.set('Cache-Control', 'no-store')
+    res.json(data)
+  } catch (error) {
+    console.error('Parking status error:', error)
+    res.status(500).json({ error: 'Failed to fetch parking status' })
   }
 })
 
@@ -4382,8 +4427,17 @@ app.post('/api/advertiser/sign-out', (req, res) => {
   })
 })
 
-app.get('/api/advertiser/me', requireAdvertiserAuth, (req, res) => {
-  res.json({ session: buildAdvertiserSessionPayload(req.currentAdvertiser, req) })
+// Session probe for the advertiser portal. Like /api/session, this answers 200
+// whether or not an advertiser is signed in - a signed-out visit to /advertise
+// used to log a 401 in the browser console on every load (#157).
+// Signed out (or suspended): { authenticated: false, advertiser: null }.
+// Signed in: { authenticated: true, session: { expiresAt, advertiser } }.
+app.get('/api/advertiser/me', async (req, res) => {
+  const advertiser = await getAdvertiserById(req.session.advertiserId)
+  if (!advertiser || advertiser.status !== 'active') {
+    return res.json({ authenticated: false, advertiser: null })
+  }
+  res.json({ authenticated: true, session: buildAdvertiserSessionPayload(advertiser, req) })
 })
 
 // Public (no auth): "Request advertiser access" from /advertise. Stores a lead
@@ -5061,6 +5115,12 @@ app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ ty
   }
   res.status(204).end()
 })
+
+// Unknown /api/* paths: JSON 404 in the standard error shape instead of
+// Express's HTML "Cannot GET" page (#157). Mounted after every API route (so it
+// only runs when nothing matched) and before the error handlers. Non-/api
+// routes (/, /auth/purdue/*, /feeds/calendar/*) are untouched.
+app.use('/api', apiNotFound)
 
 // Capture anything that escapes a route handler. Registered after all routes
 // (Express error-middleware ordering); no-op without a DSN.

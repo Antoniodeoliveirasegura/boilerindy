@@ -32,21 +32,21 @@ function normalizeCategory(sourceType, event) {
   const summary = rawSummary.toLowerCase()
   const location = icalText(event.location).toLowerCase()
 
-  // FIRST: Check for resources/available items (solutions, posted materials)
+  // FIRST: Check for resources/available items (solutions, posted materials).
+  // D2L also emits "- Availability Starts" / "- Availability Ends" markers for
+  // each deliverable; those describe the availability window, not the due item.
   // These should NOT be categorized as exams/assignments even if they contain those words
-  if (/- available\b|solution|posted|released/i.test(rawSummary)) {
+  if (/- available\b|- availability (starts|ends)\b|solution|posted|released/i.test(rawSummary)) {
     return 'resource'
   }
 
-  // Campus events - career fairs, workshops, social events (check before academic items)
-  if (/career fair|workshop|showcase|networking|info session|call out|social|tailgate|bash|celebration|week\b|speaker|panel|mixer|party|resumania|block party/i.test(summary) ||
-      location.includes('ece indy resources') ||
-      location.includes('boiler park')) {
-    return 'campus_event'
-  }
-
-  // Due items - assignments that are actually due
+  // Due items - assignments that are actually due. Checked BEFORE campus events
+  // so a "- Due" title that happens to contain "week", "social" etc.
+  // (e.g. "Lab Report - Week 4 - Due") still reaches the due-item logic (#121).
   if (/- due\b/i.test(rawSummary)) {
+    if (/\bquiz\b/i.test(summary)) {
+      return 'quiz'
+    }
     if (/\blab\b|\bprelab\b|\bwriteup\b|\bnotebook\b/i.test(summary)) {
       return 'lab'
     }
@@ -54,6 +54,14 @@ function normalizeCategory(sourceType, event) {
       return 'project'
     }
     return 'assignment'
+  }
+
+  // Campus events - career fairs, workshops, social events (check before the
+  // remaining academic keywords)
+  if (/career fair|workshop|showcase|networking|info session|call out|social|tailgate|bash|celebration|week\b|speaker|panel|mixer|party|resumania|block party/i.test(summary) ||
+      location.includes('ece indy resources') ||
+      location.includes('boiler park')) {
+    return 'campus_event'
   }
 
   // Exams (only if not a resource/available item - already filtered above)

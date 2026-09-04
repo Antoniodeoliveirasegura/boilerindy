@@ -120,7 +120,10 @@ Auth (separate from student auth):
 - `POST /api/advertiser/sign-out`
 - `POST /api/advertiser/request-access` - insert into `advertiser_leads`
   (rate-limited). This is what the `/advertise` "Request access" button should call.
-- `GET  /api/advertiser/me` - current advertiser (gated by `requireAdvertiserAuth`).
+- `GET  /api/advertiser/me` - session probe. NOT gated: answers 200 either way
+  (like `/api/session`) so a signed-out `/advertise` load logs no 401.
+  `{ authenticated: false, advertiser: null }` when signed out or suspended,
+  `{ authenticated: true, session: { expiresAt, advertiser } }` when signed in.
 
 Campaigns (all `requireAdvertiserAuth`, scoped to `req.session.advertiserId`):
 - `GET    /api/advertiser/campaigns`

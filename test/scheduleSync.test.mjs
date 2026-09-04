@@ -114,6 +114,23 @@ test('planSync treats posted solutions as resources', () => {
   assert.equal(categoryOf('Exam 1 Solutions posted'), 'resource')
 })
 
+test('planSync classifies "- Due" items before the campus-event keywords (#121)', () => {
+  // "week" / "social" used to hijack these into campus_event.
+  assert.equal(categoryOf('Lab Report - Week 4 - Due'), 'lab')
+  assert.equal(categoryOf('Project 2 - Week 6 - Due'), 'project')
+  assert.equal(categoryOf('Homework 3 - Social Studies - Due'), 'assignment')
+  assert.equal(categoryOf('Quiz 2 - Due'), 'quiz')
+  // genuine campus events carry no "- Due" marker and are unaffected.
+  assert.equal(categoryOf('Career Fair - Indy Tech Employers'), 'campus_event')
+  assert.equal(categoryOf('Welcome Week Social'), 'campus_event')
+})
+
+test('planSync treats D2L availability markers as resources (#121)', () => {
+  assert.equal(categoryOf('Homework 3 - Availability Starts'), 'resource')
+  assert.equal(categoryOf('Homework 3 - Availability Ends'), 'resource')
+  assert.equal(categoryOf('Quiz 1 - Available'), 'resource')
+})
+
 test('icalText coerces node-ical string, object-shaped, and empty values', () => {
   assert.equal(icalText('Plain title'), 'Plain title')
   assert.equal(icalText({ params: { LANGUAGE: 'en-US' }, val: 'Tagged title' }), 'Tagged title')
@@ -157,6 +174,21 @@ test('planSync drops resource items for Brightspace feeds', () => {
 
   const titles = plan.itemsToInsert.map((i) => i.title)
   assert.deepEqual(titles, ['HW1 - Due'])
+})
+
+test('planSync keeps only the due item from a Brightspace availability/due triple (#121)', () => {
+  const source = purdueSource({ source_type: 'brightspace_ical', source_url: 'https://x.brightspace.com/feed.ics' })
+  const feed = {
+    starts: vevent({ uid: 's', summary: 'Homework 3 - Availability Starts', start: new Date('2026-01-12T05:00:00.000Z'), end: new Date('2026-01-12T05:00:00.000Z') }),
+    ends: vevent({ uid: 'e', summary: 'Homework 3 - Availability Ends', start: new Date('2026-01-20T04:59:00.000Z'), end: new Date('2026-01-20T04:59:00.000Z') }),
+    due: vevent({ uid: 'd', summary: 'Homework 3 - Due', start: new Date('2026-01-19T04:59:00.000Z'), end: new Date('2026-01-19T04:59:00.000Z') }),
+  }
+  const plan = planSync(feed, source)
+
+  assert.equal(plan.itemsToInsert.length, 1)
+  assert.equal(plan.itemsToInsert[0].title, 'Homework 3 - Due')
+  assert.equal(plan.itemsToInsert[0].category, 'assignment')
+  assert.equal(plan.meta.itemCount, 1)
 })
 
 // ── Deduplication ───────────────────────────────────────────────────────────

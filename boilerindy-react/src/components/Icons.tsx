@@ -1,6 +1,20 @@
 import type { ReactNode } from 'react'
 
 const icons: Record<string, ReactNode> = {
+  parking: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="3"/>
+      <path d="M9 17V7h4a3 3 0 010 6H9"/>
+    </>
+  ),
+  car: (
+    <>
+      <path d="M5 11l1.6-4.5A2 2 0 018.5 5h7a2 2 0 011.9 1.5L19 11"/>
+      <path d="M3 11h18v6a1 1 0 01-1 1h-1a2 2 0 01-4 0H9a2 2 0 01-4 0H4a1 1 0 01-1-1v-6z"/>
+      <circle cx="7" cy="17" r="1"/>
+      <circle cx="17" cy="17" r="1"/>
+    </>
+  ),
   home: (
     <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
   ),
@@ -379,6 +393,13 @@ const icons: Record<string, ReactNode> = {
     <>
       <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
       <path d="M13.73 21a2 2 0 01-3.46 0"/>
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
     </>
   ),
   edit: (

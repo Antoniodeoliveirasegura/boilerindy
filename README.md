@@ -99,6 +99,8 @@ Open `.env` and fill in the values:
 | `CLIENT_APP_URL` | Leave as `http://localhost:5173` |
 | `PURDUE_AUTH_MODE` | Leave as `mock` for local dev |
 | `DEV_PURDUE_EMAIL` | Any `@purdue.edu` address, used on the mock link screen |
+| `PURDUE_CALENDAR_AUTOMATION` | Leave as `0`. Dev-only: `1` lets the server open a local browser to capture your UniTime schedule URL; it cannot work on Render |
+| `PURDUE_UNITIME_PERSONAL_SCHEDULE_URL` | Leave blank to open the default UniTime personal schedule page |
 
 > **Note:** `GEMINI_API_KEY` is optional. If omitted, the campus assistant and board AI features return a 503 but everything else works.
 

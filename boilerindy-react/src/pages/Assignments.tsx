@@ -27,6 +27,7 @@ type CalItem = {
   id: string
   category?: string
   startTime?: string | null
+  allDay?: boolean
   title?: string
   description?: string
   location?: string
@@ -36,6 +37,7 @@ type MergedItem = {
   id: string
   category?: string
   startTime?: string | null
+  allDay?: boolean
   title?: string
   description?: string
   location?: string
@@ -164,6 +166,16 @@ function formatDate(dateString: string | null | undefined) {
 function formatTime(dateString: string | null | undefined) {
   if (!dateString) return ''
   return new Date(dateString).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+// Due-time label. D2L stamps deadlines at 23:59 local, which reads better as an
+// end-of-day deadline than as a literal "11:59 PM". All-day items carry no
+// clock time at all; callers skip the label for those (issue #121).
+function formatDueTime(dateString: string | null | undefined) {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  if (date.getHours() === 23 && date.getMinutes() === 59) return 'Due by end of day'
+  return formatTime(dateString)
 }
 
 function getRelativeTime(dateString: string | null | undefined) {
@@ -848,10 +860,12 @@ export default function Assignments() {
                               </div>
                             </div>
                             <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[var(--color-txt-2)]">
-                              <span className="flex items-center gap-1">
-                                <Icon name="clock" size={12} />
-                                {formatTime(item.startTime)}
-                              </span>
+                              {!item.allDay && (
+                                <span className="flex items-center gap-1">
+                                  <Icon name="clock" size={12} />
+                                  {formatDueTime(item.startTime)}
+                                </span>
+                              )}
                               {item.location && (
                                 <span className="flex items-center gap-1 truncate">
                                   <Icon name="mapPin" size={12} />
@@ -949,7 +963,9 @@ export default function Assignments() {
                     </div>
                     <div>
                       <div className="text-[var(--color-txt-1)]">{formatDate(selectedItem.startTime)}</div>
-                      <div className="text-[var(--color-txt-3)] text-[12px]">{formatTime(selectedItem.startTime)}</div>
+                      {!selectedItem.allDay && (
+                        <div className="text-[var(--color-txt-3)] text-[12px]">{formatDueTime(selectedItem.startTime)}</div>
+                      )}
                     </div>
                   </div>
                   
