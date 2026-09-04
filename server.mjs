@@ -115,6 +115,7 @@ import {
   isResetTokenExpired,
 } from './src/advertiserPasswordReset.mjs'
 import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
+import { apiNotFound } from './src/apiNotFound.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -132,6 +133,8 @@ if (nodeEnv !== undefined && !['production', 'development', 'test'].includes(nod
 const isProduction = nodeEnv === 'production'
 
 const app = express()
+// Drop the "X-Powered-By: Express" fingerprint header (#157).
+app.disable('x-powered-by')
 const port = Number(process.env.PORT || 3000)
 const host = process.env.HOST || '127.0.0.1'
 const publicBaseUrl = (process.env.BACKEND_PUBLIC_URL || process.env.BETTER_AUTH_URL || `http://${host}:${port}`).replace(/\/$/, '')
@@ -4421,8 +4424,17 @@ app.post('/api/advertiser/sign-out', (req, res) => {
   })
 })
 
-app.get('/api/advertiser/me', requireAdvertiserAuth, (req, res) => {
-  res.json({ session: buildAdvertiserSessionPayload(req.currentAdvertiser, req) })
+// Session probe for the advertiser portal. Like /api/session, this answers 200
+// whether or not an advertiser is signed in - a signed-out visit to /advertise
+// used to log a 401 in the browser console on every load (#157).
+// Signed out (or suspended): { authenticated: false, advertiser: null }.
+// Signed in: { authenticated: true, session: { expiresAt, advertiser } }.
+app.get('/api/advertiser/me', async (req, res) => {
+  const advertiser = await getAdvertiserById(req.session.advertiserId)
+  if (!advertiser || advertiser.status !== 'active') {
+    return res.json({ authenticated: false, advertiser: null })
+  }
+  res.json({ authenticated: true, session: buildAdvertiserSessionPayload(advertiser, req) })
 })
 
 // Public (no auth): "Request advertiser access" from /advertise. Stores a lead
@@ -5100,6 +5112,12 @@ app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ ty
   }
   res.status(204).end()
 })
+
+// Unknown /api/* paths: JSON 404 in the standard error shape instead of
+// Express's HTML "Cannot GET" page (#157). Mounted after every API route (so it
+// only runs when nothing matched) and before the error handlers. Non-/api
+// routes (/, /auth/purdue/*, /feeds/calendar/*) are untouched.
+app.use('/api', apiNotFound)
 
 // Capture anything that escapes a route handler. Registered after all routes
 // (Express error-middleware ordering); no-op without a DSN.

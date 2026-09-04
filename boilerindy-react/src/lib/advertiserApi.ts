@@ -42,17 +42,18 @@ export function advertiserSignOut(): Promise<unknown> {
   return advertiserRequest('/api/advertiser/sign-out', { method: 'POST' })
 }
 
-/** Resolve the current advertiser session, or null if not signed in. */
+/**
+ * Resolve the current advertiser session, or null if not signed in.
+ * GET /api/advertiser/me answers 200 either way (like /api/session), so a
+ * signed-out probe never logs a 401 in the console: { authenticated: false }
+ * when signed out, { authenticated: true, session: { advertiser } } otherwise.
+ */
 export async function getAdvertiserSession(): Promise<unknown> {
-  try {
-    const data = (await advertiserRequest('/api/advertiser/me')) as
-      | { session?: { advertiser?: unknown } }
-      | null
-    return data?.session?.advertiser || null
-  } catch (error) {
-    if ((error as { status?: number }).status === 401) return null
-    throw error
-  }
+  const data = (await advertiserRequest('/api/advertiser/me')) as
+    | { authenticated?: boolean; session?: { advertiser?: unknown } }
+    | null
+  if (!data || data.authenticated === false) return null
+  return data.session?.advertiser || null
 }
 
 export function requestAdvertiserAccess(input: {
