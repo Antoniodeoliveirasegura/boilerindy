@@ -860,7 +860,7 @@ async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdu
 async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null } = {}) {
   let query = supabase
     .from('calendar_items')
-    .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type')
+    .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
     .eq('user_id', userId)
 
   if (category) {
@@ -889,6 +889,9 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
     category: row.category,
     externalUid: row.external_uid,
     sourceType: row.source_type,
+    // DATE-only feed items (no clock time). The client hides the time for these
+    // instead of rendering a meaningless midnight (issue #121).
+    allDay: Boolean(row.all_day),
     // Flag events that advertise free food (issue #46). Cheap per-row regex;
     // only meaningful for event categories but harmless elsewhere.
     freeFood: hasFreeFood(row.title, row.description),
