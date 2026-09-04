@@ -34,6 +34,66 @@ function defaultOnboarding(overrides = {}) {
   }
 }
 
+// Parking (#14): two garages with live counts, one without (sensor offline),
+// plus the permit block the page renders. Mirrors buildSnapshot()'s output.
+function sampleParkingGarage(overrides) {
+  return {
+    id: 'blackford',
+    name: 'Blackford Garage',
+    sourceName: 'Blackford Garage',
+    code: 'XF',
+    address: '725 W Michigan St',
+    type: 'Permit only',
+    stRule: 'All ST spaces',
+    lat: 39.77511025,
+    lng: -86.17058223,
+    capacity: 1143,
+    occupied: 168,
+    available: 975,
+    percentFull: 15,
+    status: 'open',
+    icon: 'icon-10P',
+    updatedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+    stale: false,
+    ...overrides,
+  }
+}
+
+export function sampleParkingSnapshot(overrides = {}) {
+  return {
+    ok: true,
+    source: 'iu-parking-lotcount',
+    sourceUrl: 'https://v2.aitapps.iu.edu/INPARK_LotCount_V1_Online/IN',
+    fetchedAt: new Date().toISOString(),
+    garages: [
+      sampleParkingGarage(),
+      sampleParkingGarage({
+        id: 'gateway', name: 'Gateway Garage', sourceName: 'Gateway Garage', code: 'XL', address: '525 N Blackford St',
+        type: 'Student permit and visitor', lat: 39.775222, lng: -86.16931,
+        capacity: 1333, occupied: 955, available: 378, percentFull: 72, status: 'busy', icon: 'icon-70P',
+      }),
+      sampleParkingGarage({
+        id: 'barnhill', name: 'Barnhill Garage', sourceName: 'Barnhill Garage', code: 'XH', address: '345 Barnhill Dr',
+        type: 'Student permit only', lat: 39.772546, lng: -86.178061,
+        capacity: 1324, occupied: null, available: null, percentFull: null, status: 'unknown', icon: 'icon-Full', updatedAt: null, stale: true,
+      }),
+    ],
+    permits: {
+      reviewedOn: '2026-09-03',
+      permits: [
+        { code: 'ST', name: 'ST commuter student permit', eligibility: 'Any student not living in campus housing.', valid: 'ST and NC surface spaces plus the student garages.', afterHours: 'EM surface spaces after 4 pm on weekdays and all weekend.' },
+        { code: 'NCS', name: 'NCS north campus student permit', eligibility: 'Any student.', valid: 'NC surface spaces on Indiana Avenue.', afterHours: 'ST and EM surface spaces after 4 pm on weekdays and all weekend.' },
+      ],
+      links: [
+        { label: 'Buy or manage a permit (IU Parking Portal)', href: 'https://parkingiu.t2hosted.com/Account/Portal' },
+        { label: 'Permit types and rules', href: 'https://parking.indianapolis.iu.edu/parking/permits/index.html' },
+      ],
+      notes: ['Counts come from IU Parking garage sensors and can lag or drift.'],
+    },
+    ...overrides,
+  }
+}
+
 function sessionPayload(state) {
   return {
     expiresAt: null,
@@ -81,6 +141,8 @@ export const test = base.extend({
       grades: [],
       gradeSeq: 0,
       major: null,
+      // Parking status (#14). null === use the built-in sample snapshot.
+      parking: null,
     }
 
     const json = (route, status, body) =>
@@ -271,6 +333,11 @@ export const test = base.extend({
         return json(route, 200, { feedUrl: state.feedUrl })
       }
 
+      // Parking status (#14): the payload shape mirrors src/parkingStatus.mjs.
+      if (pathname === '/api/parking/garages') {
+        return json(route, 200, state.parking ?? sampleParkingSnapshot())
+      }
+
       // Unmapped endpoints: a benign empty success so pages that fan out extra
       // reads (sources, profile, dining, transit) render instead of erroring.
       return json(route, 200, { items: [], ok: true })
@@ -309,6 +376,9 @@ export const test = base.extend({
       },
       setMajor(major) {
         state.major = major || null
+      },
+      seedParking(snapshot) {
+        state.parking = snapshot
       },
     }
 

@@ -38,6 +38,7 @@ const Marketplace = lazy(() => import('./pages/Marketplace'))
 const Friends = lazy(() => import('./pages/Friends'))
 const Dining = lazy(() => import('./pages/Dining'))
 const Transit = lazy(() => import('./pages/Transit'))
+const Parking = lazy(() => import('./pages/Parking'))
 const Services = lazy(() => import('./pages/Services'))
 const Board = lazy(() => import('./pages/Board'))
 const ConnectSchedule = lazy(() => import('./pages/ConnectSchedule'))
@@ -212,6 +213,14 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Transit />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/parking"
+                element={
+                  <RequireAuth>
+                    <Parking />
                   </RequireAuth>
                 }
               />

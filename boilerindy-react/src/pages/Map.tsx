@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker } from 'react-leaflet'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
 import { useTheme } from '../context/ThemeContext'
 import { extractBuildingCode } from '../lib/buildingCode'
+import MapLayerToggle from '../components/map/MapLayerToggle'
+import ParkingGarageLayer from '../components/map/ParkingGarageLayer'
+import { useMapLayers, type MapLayerId } from '../components/map/mapLayers'
 
 const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
@@ -195,6 +199,14 @@ export default function Map() {
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
 
+  // Toggleable overlays (issue #158). `/map?layer=parking` opens with that layer on.
+  const [searchParams] = useSearchParams()
+  const forcedLayers = useMemo(
+    () => (searchParams.get('layer') || '').split(',').filter((v): v is MapLayerId => v === 'parking' || v === 'buildings'),
+    [searchParams],
+  )
+  const { layers, toggle: toggleLayer } = useMapLayers(forcedLayers)
+
   const locateUser = useCallback(() => {
     if (!navigator.geolocation) {
       setLocationError('Geolocation not supported')
@@ -346,6 +358,7 @@ export default function Map() {
             placeholder="Search buildings..."
             className="w-full px-3 py-2.5 rounded-xl text-sm bg-[var(--color-bg-2)] border border-[var(--color-border-2)] outline-none focus:border-[var(--color-gold)] transition-colors"
           />
+          <MapLayerToggle layers={layers} onToggle={toggleLayer} />
           {loading && (
             <div className="text-xs text-[var(--color-txt-2)]">Loading buildings...</div>
           )}
@@ -410,7 +423,7 @@ export default function Map() {
               maxZoom={19}
             />
             
-            {geoData && (
+            {geoData && layers.buildings && (
               <GeoJSON
                 key={`geojson-${selectedId}`}
                 data={geoData}
@@ -419,7 +432,8 @@ export default function Map() {
               />
             )}
             
-            <BuildingLabels buildings={buildings} dark={dark} selectedId={selectedId} />
+            {layers.buildings && <BuildingLabels buildings={buildings} dark={dark} selectedId={selectedId} />}
+            <ParkingGarageLayer visible={layers.parking} />
             <MapController flyRequest={flyRequest} />
             
             {/* User location marker */}
@@ -460,6 +474,11 @@ export default function Map() {
           <Icon name="search" size={20} />
         </button>
         
+        {/* Mobile: layer chips next to the search button (desktop has them in the sidebar) */}
+        <div className="lg:hidden absolute top-4 left-20 right-20 z-[1000]">
+          <MapLayerToggle layers={layers} onToggle={toggleLayer} />
+        </div>
+
         {/* Locate Me Button */}
         <button
           type="button"

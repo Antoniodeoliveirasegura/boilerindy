@@ -1,6 +1,20 @@
 import type { ReactNode } from 'react'
 
 const icons: Record<string, ReactNode> = {
+  parking: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="3"/>
+      <path d="M9 17V7h4a3 3 0 010 6H9"/>
+    </>
+  ),
+  car: (
+    <>
+      <path d="M5 11l1.6-4.5A2 2 0 018.5 5h7a2 2 0 011.9 1.5L19 11"/>
+      <path d="M3 11h18v6a1 1 0 01-1 1h-1a2 2 0 01-4 0H9a2 2 0 01-4 0H4a1 1 0 01-1-1v-6z"/>
+      <circle cx="7" cy="17" r="1"/>
+      <circle cx="17" cy="17" r="1"/>
+    </>
+  ),
   home: (
     <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
   ),

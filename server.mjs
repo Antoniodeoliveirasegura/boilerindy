@@ -28,6 +28,7 @@ import session from 'express-session'
 import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
 import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
+import { fetchParkingStatus } from './src/parkingStatus.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import {
@@ -2861,6 +2862,24 @@ app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   } catch (error) {
     console.error('TransLoc routes error:', error)
     res.status(500).json({ error: 'Failed to fetch routes data' })
+  }
+})
+
+// Live garage availability (issue #14): IU Parking's public lot-count page,
+// parsed server-side (src/parkingStatus.mjs) and cached so the upstream sees
+// at most one request per TTL no matter how many students are looking. The
+// module never throws: an unreachable page yields a degraded snapshot with the
+// static garage list and status 'unknown'. See docs/parking-status.md.
+const PARKING_CACHE_MS = Math.max(15_000, Number(process.env.PARKING_STATUS_CACHE_MS) || 60_000)
+
+app.get('/api/parking/garages', publicReadRateLimit, async (_req, res) => {
+  try {
+    const data = await getCached('parking:garages', PARKING_CACHE_MS, () => fetchParkingStatus())
+    res.set('Cache-Control', 'no-store')
+    res.json(data)
+  } catch (error) {
+    console.error('Parking status error:', error)
+    res.status(500).json({ error: 'Failed to fetch parking status' })
   }
 })
 

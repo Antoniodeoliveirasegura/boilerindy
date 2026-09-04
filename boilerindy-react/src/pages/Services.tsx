@@ -54,6 +54,7 @@ const resourceGroups: ResourceGroup[] = [
       { name: 'CrimsonCard For Purdue', desc: 'Card setup, account access, and Purdue Indianapolis card information.', icon: 'building', href: 'https://crimsoncard.iu.edu/purdue.html' },
       { name: 'Campus Map', desc: 'Find buildings, rooms, and directions inside the app.', icon: 'mapPin', link: '/map' },
       { name: 'Transit Tab', desc: 'Open the app transit page for local routing and campus movement.', icon: 'bus', link: '/transit' },
+      { name: 'Parking Status', desc: 'Live space counts in the six ST-permit garages, plus permit rules.', icon: 'parking', link: '/parking' },
     ],
   },
   {
@@ -98,6 +99,7 @@ const shortcuts: Shortcut[] = [
   { to: '/schedule', icon: 'schedule', label: 'Schedule', desc: 'View imported classes and weekly meetings.' },
   { to: '/grade-tracker', icon: 'graduation', label: 'Grade Tracker', desc: 'Track courses and your term & cumulative GPA.' },
   { to: '/transit', icon: 'bus', label: 'Transit', desc: 'Open campus movement tools and shuttle info.' },
+  { to: '/parking', icon: 'parking', label: 'Parking', desc: 'Live garage counts and ST permit rules.' },
   { to: '/dining', icon: 'dining', label: 'Dining', desc: 'Check menus, hours, and dining context.' },
   { to: '/free-food', emoji: '🍕', label: 'Free Food', desc: 'Upcoming events serving free food on campus.' },
   { to: '/lost-found', icon: 'search', label: 'Lost & Found', desc: 'Report or find lost items around campus.' },
