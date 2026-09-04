@@ -27,7 +27,7 @@ import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
-import { cancelCalendarCapture, getCalendarCaptureJob, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
+import { cancelCalendarCapture, getCalendarCaptureJob, isCalendarAutomationEnabled, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
 import { fetchParkingStatus } from './src/parkingStatus.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
@@ -1585,7 +1585,27 @@ app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/purdue/calendar-link/start', requireAuth, requirePurdueLinked, async (req, res) => {
+// Purdue schedule auto-capture (issue #120). The capture opens a visible
+// Chromium on the machine running the server, so it is a local-dev convenience
+// only: hidden in production (like /api/debug/source) and refused unless
+// PURDUE_CALENDAR_AUTOMATION is explicitly on, so /start never reaches
+// chromium.launch on a headless host such as Render.
+function requireCalendarAutomation(req, res, next) {
+  if (isProduction) {
+    return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
+  }
+  if (!isCalendarAutomationEnabled()) {
+    return res.status(409).json({
+      error: {
+        message: 'Purdue schedule auto-capture is disabled on this server. Paste your UniTime iCalendar URL instead.',
+        status: 409,
+      },
+    })
+  }
+  next()
+}
+
+app.post('/api/purdue/calendar-link/start', requireAuth, requireCalendarAutomation, requirePurdueLinked, async (req, res) => {
   try {
     const job = await startCalendarCapture(req.currentUser.id)
     res.status(202).json({ job })
@@ -1594,11 +1614,11 @@ app.post('/api/purdue/calendar-link/start', requireAuth, requirePurdueLinked, as
   }
 })
 
-app.get('/api/purdue/calendar-link/status', requireAuth, requirePurdueLinked, async (req, res) => {
+app.get('/api/purdue/calendar-link/status', requireAuth, requireCalendarAutomation, requirePurdueLinked, async (req, res) => {
   res.json({ job: getCalendarCaptureJob(req.currentUser.id) })
 })
 
-app.post('/api/purdue/calendar-link/cancel', requireAuth, requirePurdueLinked, async (req, res) => {
+app.post('/api/purdue/calendar-link/cancel', requireAuth, requireCalendarAutomation, requirePurdueLinked, async (req, res) => {
   res.json({ job: await cancelCalendarCapture(req.currentUser.id) })
 })
 
