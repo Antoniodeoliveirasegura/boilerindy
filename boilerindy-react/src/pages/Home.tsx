@@ -965,7 +965,9 @@ export default function Home() {
               <div className="text-[13px] sm:text-[14px] font-medium text-[var(--color-txt-0)] group-hover:text-[var(--color-accent)] transition-colors">
                 {label}
               </div>
-              <div className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)] mt-0.5 truncate">{sub}</div>
+              {/* Two lines at phone widths so the caption stays readable in the
+                  2x2 grid (issue #162); one clamped line from sm up as before. */}
+              <div className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)] mt-0.5 line-clamp-2 sm:line-clamp-1">{sub}</div>
             </div>
             <Icon name="arrowUpRight" size={14} className="text-[var(--color-txt-3)] group-hover:text-[var(--color-accent)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all hidden sm:block" />
           </Link>

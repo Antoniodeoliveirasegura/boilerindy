@@ -292,6 +292,8 @@ export default function Schedule() {
         </div>
       )}
 
+      {/* Weekday strip scrolls inside the card on narrow screens (issue #162);
+          the day buttons keep their minimum width instead of compressing. */}
       <div className="card p-1.5 mb-6 animate-fade-in-up stagger-1">
         <div className="flex gap-1 overflow-x-auto">
           {DAYS.map((day) => {
@@ -301,7 +303,7 @@ export default function Schedule() {
               <button
                 key={day}
                 onClick={() => setSelectedDay(day)}
-                className={`flex-1 min-w-[88px] text-[13px] py-2.5 rounded-xl transition-all duration-300 relative
+                className={`flex-1 shrink-0 min-w-[88px] whitespace-nowrap text-[13px] py-2.5 rounded-xl transition-all duration-300 relative
                   ${isSelected
                     ? 'bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-light)] text-[var(--color-gold-dark)] font-semibold shadow-sm'
                     : 'text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]'

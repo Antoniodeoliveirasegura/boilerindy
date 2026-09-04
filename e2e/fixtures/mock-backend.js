@@ -143,6 +143,11 @@ export const test = base.extend({
       major: null,
       // Parking status (#14). null === use the built-in sample snapshot.
       parking: null,
+      // Live transit relay (server.mjs proxies TransLoc GetRoutes / GetStops /
+      // GetMapVehiclePoints). Plain arrays like the upstream feed: Transit.tsx
+      // stores them as-is and would throw on the generic `{ items: [] }`
+      // fallback below.
+      transit: { routes: [], stops: [], vehicles: [] },
     }
 
     const json = (route, status, body) =>
@@ -336,10 +341,19 @@ export const test = base.extend({
       // Parking status (#14): the payload shape mirrors src/parkingStatus.mjs.
       if (pathname === '/api/parking/garages') {
         return json(route, 200, state.parking ?? sampleParkingSnapshot())
+      // Transit (issue #162): arrays seeded via seedTransit, empty by default.
+      if (pathname === '/api/transit/routes') {
+        return json(route, 200, state.transit.routes)
+      }
+      if (pathname === '/api/transit/stops') {
+        return json(route, 200, state.transit.stops)
+      }
+      if (pathname === '/api/transit/vehicles') {
+        return json(route, 200, state.transit.vehicles)
       }
 
       // Unmapped endpoints: a benign empty success so pages that fan out extra
-      // reads (sources, profile, dining, transit) render instead of erroring.
+      // reads (sources, profile, dining) render instead of erroring.
       return json(route, 200, { items: [], ok: true })
     })
 
@@ -379,6 +393,8 @@ export const test = base.extend({
       },
       seedParking(snapshot) {
         state.parking = snapshot
+      seedTransit({ routes = [], stops = [], vehicles = [] } = {}) {
+        state.transit = { routes, stops, vehicles }
       },
     }
 
