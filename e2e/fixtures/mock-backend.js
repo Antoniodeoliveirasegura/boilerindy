@@ -395,6 +395,7 @@ export const test = base.extend({
       },
       seedParking(snapshot) {
         state.parking = snapshot
+      },
       seedTransit({ routes = [], stops = [], vehicles = [] } = {}) {
         state.transit = { routes, stops, vehicles }
       },
