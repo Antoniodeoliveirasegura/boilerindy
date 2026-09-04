@@ -376,6 +376,12 @@ the build if either character appears anywhere in the source (the "No em/en
 dashes" step in `.github/workflows/ci.yml`). When you would reach for one, use a
 spaced hyphen ( - ), a comma, or a colon.
 
+**LF line endings everywhere.** `.gitattributes` sets `* text=auto eol=lf`, so git
+normalizes text files to LF in the repository and checks them out as LF on every
+platform. Without it a Windows checkout rewrites files as CRLF and `git status` shows
+hundreds of modified files whose diffs are invisible. If you hit that state on an
+existing clone, `git add --renormalize .` followed by `git checkout -- .` clears it.
+
 ## License
 
 This repository does not include a license file. Add one if you intend to share or publish the project.
