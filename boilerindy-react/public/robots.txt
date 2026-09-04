@@ -1,0 +1,5 @@
+# BoilerIndy - https://www.boilerindy.app
+User-agent: *
+Allow: /
+
+Sitemap: https://www.boilerindy.app/sitemap.xml
