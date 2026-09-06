@@ -1,24 +1,35 @@
 name: Keep backend warm
 
 # The API runs on Render's free tier, which spins down after ~15 min idle and
-# then cold-starts for ~50s on the next request - the dominant term in login
-# latency (issue #111). This pings the session-free /api/health probe often
-# enough to keep the instance awake.
+# then cold-starts on the next request - the dominant term in login latency
+# (issues #111, #164). Measured 2026-09-06: the first request after an idle
+# spell took 21.6 s, a warm one 0.29 s. This pings the session-free /api/health
+# probe to keep the instance awake.
+#
+# This workflow is the BACKSTOP, not the primary pinger. GitHub throttles
+# scheduled workflows: on the previous */10 schedule it ran 12 times in 31 hours,
+# with gaps of 1.75 to 4.5 hours between runs, so the instance slept for most of
+# the day anyway. The primary pinger is now a Supabase pg_cron job
+# (db/supabase-keep-warm.sql) that hits the same URL every 5 minutes from a
+# database that never sleeps. docs/keep-warm.md describes the whole setup.
 #
 # Caveats worth knowing:
 # - Scheduled workflows only run from the DEFAULT branch (main). On develop this
 #   file is inert until the next develop -> main release; use "Run workflow"
 #   (workflow_dispatch) to test it from any branch in the meantime.
-# - GitHub's scheduled runners are best-effort and can be delayed several minutes
-#   under load, so this is not a hard guarantee the instance never sleeps. For a
-#   firm SLA use an external monitor (e.g. UptimeRobot every 5 min) or an
-#   always-on Render tier.
+# - GitHub's scheduled runners are best-effort and can be delayed several
+#   minutes under load, or hours (see above), so this is not a hard guarantee
+#   the instance never sleeps. For a firm SLA use an external monitor (e.g.
+#   UptimeRobot every 5 min) or an always-on Render tier.
+# - The schedule starts at minute 2 rather than 0: GitHub documents that jobs
+#   scheduled on the top of the hour are the first to be delayed, and 5 minutes
+#   is the shortest interval it allows.
 # - Override the target without editing this file by setting a repo variable
 #   WARM_URL (Settings -> Secrets and variables -> Actions -> Variables).
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # every 10 min; Render sleeps after ~15
+    - cron: '2-59/5 * * * *' # every 5 min, off the top of the hour; Render sleeps after ~15
   workflow_dispatch: {}
 
 # Never let a slow cold-start ping pile up on the next tick.
