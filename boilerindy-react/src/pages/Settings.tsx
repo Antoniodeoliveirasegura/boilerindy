@@ -5,6 +5,7 @@ import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
+import PushNotificationsCard from '../components/settings/PushNotificationsCard'
 import { useConfirm } from '../hooks/useConfirm'
 
 export default function Settings() {
@@ -417,6 +418,8 @@ export default function Settings() {
               </button>
             )}
           </div>
+
+          <PushNotificationsCard />
 
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">

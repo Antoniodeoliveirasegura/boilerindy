@@ -34,6 +34,24 @@ function defaultOnboarding(overrides = {}) {
   }
 }
 
+// Web Push (#9). config mirrors GET /api/push/config; notConfigured makes
+// GET /api/push/settings answer the 503 the server sends before the push
+// tables exist. Subscriptions keep their endpoint so DELETE can match them.
+function defaultPush(overrides = {}) {
+  return {
+    config: { enabled: true, publicKey: 'BNo-real-key-just-for-tests', ...(overrides.config || {}) },
+    settings: { deadlineReminders: true, leadMinutes: 60, ...(overrides.settings || {}) },
+    subscriptions: (overrides.subscriptions || []).map((s, i) => ({
+      id: s.id || `push-seed-${i + 1}`,
+      endpoint: s.endpoint || `https://push.example/seed/${i + 1}`,
+      createdAt: s.createdAt || new Date().toISOString(),
+      userAgent: s.userAgent ?? null,
+      lastUsedAt: s.lastUsedAt ?? null,
+    })),
+    notConfigured: overrides.notConfigured === true,
+  }
+}
+
 // Parking (#14): two garages with live counts, one without (sensor offline),
 // plus the permit block the page renders. Mirrors buildSnapshot()'s output.
 function sampleParkingGarage(overrides) {
@@ -143,6 +161,9 @@ export const test = base.extend({
       major: null,
       // Parking status (#14). null === use the built-in sample snapshot.
       parking: null,
+      // Web Push (#9): see defaultPush / seedPush.
+      push: defaultPush(),
+      pushSeq: 0,
       // Live transit relay (server.mjs proxies TransLoc GetRoutes / GetStops /
       // GetMapVehiclePoints). Plain arrays like the upstream feed: Transit.tsx
       // stores them as-is and would throw on the generic `{ items: [] }`
@@ -343,6 +364,79 @@ export const test = base.extend({
         return json(route, 200, state.parking ?? sampleParkingSnapshot())
       }
 
+      // Web Push (#9): shapes mirror the /api/push/* routes in server.mjs.
+      if (pathname === '/api/push/config') {
+        return json(route, 200, { ...state.push.config })
+      }
+      if (pathname === '/api/push/settings' && method === 'GET') {
+        if (state.push.notConfigured) {
+          return json(route, 503, {
+            error: {
+              code: 'push_not_configured',
+              message: 'Push notifications are not set up on this server yet: the push tables are missing.',
+              status: 503,
+            },
+          })
+        }
+        return json(route, 200, {
+          enabled: state.push.config.enabled,
+          settings: { ...state.push.settings },
+          subscriptions: state.push.subscriptions.map(({ id, createdAt, userAgent, lastUsedAt }) => ({
+            id,
+            createdAt,
+            userAgent,
+            lastUsedAt,
+          })),
+        })
+      }
+      if (pathname === '/api/push/settings' && method === 'PUT') {
+        const b = bodyOf()
+        if (b.leadMinutes !== undefined) {
+          const lead = Number(b.leadMinutes)
+          if (!Number.isInteger(lead) || lead < 5 || lead > 10080) {
+            return json(route, 400, {
+              error: { code: 'invalid_lead_minutes', message: 'leadMinutes must be a whole number between 5 and 10080.', status: 400 },
+            })
+          }
+          state.push.settings.leadMinutes = lead
+        }
+        if (b.deadlineReminders !== undefined) state.push.settings.deadlineReminders = Boolean(b.deadlineReminders)
+        return json(route, 200, { settings: { ...state.push.settings } })
+      }
+      if (pathname === '/api/push/subscriptions' && method === 'POST') {
+        const { subscription, userAgent } = bodyOf()
+        const endpoint = subscription && subscription.endpoint
+        if (!endpoint) {
+          return json(route, 400, {
+            error: { code: 'invalid_subscription', message: 'A push subscription with an endpoint is required.', status: 400 },
+          })
+        }
+        // Upsert by endpoint, like the real table's unique index.
+        let existing = state.push.subscriptions.find((s) => s.endpoint === endpoint)
+        if (!existing) {
+          existing = {
+            id: `push-${++state.pushSeq}`,
+            endpoint,
+            createdAt: new Date().toISOString(),
+            userAgent: userAgent || null,
+            lastUsedAt: null,
+          }
+          state.push.subscriptions.push(existing)
+        } else if (userAgent) {
+          existing.userAgent = userAgent
+        }
+        return json(route, 201, { subscription: { id: existing.id, createdAt: existing.createdAt } })
+      }
+      if (pathname === '/api/push/subscriptions' && method === 'DELETE') {
+        const { endpoint } = bodyOf()
+        const before = state.push.subscriptions.length
+        state.push.subscriptions = state.push.subscriptions.filter((s) => s.endpoint !== endpoint)
+        return json(route, 200, { removed: state.push.subscriptions.length < before })
+      }
+      if (pathname === '/api/push/test' && method === 'POST') {
+        return json(route, 200, { sent: state.push.subscriptions.length, failed: 0, removed: 0 })
+      }
+
       // Transit (issue #162): arrays seeded via seedTransit, empty by default.
       if (pathname === '/api/transit/routes') {
         return json(route, 200, state.transit.routes)
@@ -395,6 +489,10 @@ export const test = base.extend({
       },
       seedParking(snapshot) {
         state.parking = snapshot
+      },
+      seedPush(overrides = {}) {
+        state.push = defaultPush(overrides)
+        state.pushSeq = state.push.subscriptions.length
       },
       seedTransit({ routes = [], stops = [], vehicles = [] } = {}) {
         state.transit = { routes, stops, vehicles }
