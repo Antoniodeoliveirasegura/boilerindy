@@ -9,14 +9,21 @@ import { test, expect } from './fixtures/mock-backend.js'
 test.describe('Push notifications settings card', () => {
   test('shows the controls when push is enabled and saves reminder changes', async ({ page, mockApi }) => {
     mockApi.login()
+    // A fresh Playwright context reports Notification.permission as "denied",
+    // which the card renders as the blocked state; grant it so the device
+    // button appears (it is never clicked: there is no push service here).
+    await page.context().grantPermissions(['notifications'])
     await page.goto('/settings')
 
     const card = page.getByTestId('push-card')
     await expect(card.getByText('Push notifications', { exact: true })).toBeVisible()
     await expect(page.getByTestId('push-status')).toContainText('On for 0 devices')
-    // Chromium exposes PushManager, so the device button renders; clicking it
-    // would open a permission prompt that cannot be answered here.
-    await expect(page.getByTestId('push-enable')).toBeVisible()
+    const pushSupported = await page.evaluate(() => 'PushManager' in window && 'serviceWorker' in navigator)
+    if (pushSupported) {
+      await expect(page.getByTestId('push-enable')).toBeVisible()
+    } else {
+      await expect(card).toContainText('does not support push notifications')
+    }
     await expect(page.getByTestId('push-test')).toBeDisabled()
 
     const toggle = page.getByTestId('push-deadline-toggle')

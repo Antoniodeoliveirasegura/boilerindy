@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import {
   base64UrlDecode,
   base64UrlEncode,
@@ -81,6 +82,26 @@ test('generateVapidKeys and loadVapidKeys round-trip, and mismatches are rejecte
     () => loadVapidKeys({ VAPID_PUBLIC_KEY: pair.publicKey, VAPID_PRIVATE_KEY: pair.privateKey, VAPID_SUBJECT: 'support@x' }),
     /VAPID_SUBJECT/,
   )
+})
+
+test('private scalars with a leading zero byte are padded to 32 bytes and accepted either way', () => {
+  // 0x00 0x01 0x01 ... is a valid scalar whose minimal encoding is 31 bytes.
+  const short = Buffer.alloc(31, 1)
+  const ecdh = crypto.createECDH('prime256v1')
+  ecdh.setPrivateKey(Buffer.concat([Buffer.alloc(1), short]))
+  const publicKey = base64UrlEncode(ecdh.getPublicKey())
+  const fromShort = loadVapidKeys({ VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: base64UrlEncode(short) })
+  const fromPadded = loadVapidKeys({
+    VAPID_PUBLIC_KEY: publicKey,
+    VAPID_PRIVATE_KEY: base64UrlEncode(Buffer.concat([Buffer.alloc(1), short])),
+  })
+  assert.equal(fromShort.privateKeyBytes.length, 32)
+  assert.equal(fromShort.privateKey, fromPadded.privateKey)
+  for (let i = 0; i < 40; i += 1) {
+    const pair = generateVapidKeys()
+    assert.equal(base64UrlDecode(pair.privateKey).length, 32)
+  }
+  assert.throws(() => loadVapidKeys({ VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: base64UrlEncode(Buffer.alloc(33, 1)) }), /32-byte/)
 })
 
 test('createVapidAuthorization signs a verifiable ES256 token scoped to the endpoint origin', () => {

@@ -57,8 +57,16 @@ export function generateVapidKeys() {
   ecdh.generateKeys()
   return {
     publicKey: base64UrlEncode(ecdh.getPublicKey()),
-    privateKey: base64UrlEncode(ecdh.getPrivateKey()),
+    privateKey: base64UrlEncode(padScalar(ecdh.getPrivateKey())),
   }
+}
+
+// ECDH.getPrivateKey() returns the scalar as a minimal big-endian integer, so
+// roughly one key in 256 comes back 31 bytes long. The wire format is always
+// 32 bytes; pad on the way out and accept the short form on the way in.
+function padScalar(bytes) {
+  if (bytes.length >= 32) return bytes
+  return Buffer.concat([Buffer.alloc(32 - bytes.length), bytes])
 }
 
 /**
@@ -78,10 +86,11 @@ export function loadVapidKeys(env = process.env) {
   if (!isUncompressedPoint(publicKeyBytes)) {
     throw new Error('VAPID_PUBLIC_KEY must be a base64url 65-byte uncompressed P-256 point')
   }
-  const privateKeyBytes = base64UrlDecode(privateKey)
-  if (privateKeyBytes.length !== 32) {
+  const rawPrivate = base64UrlDecode(privateKey)
+  if (rawPrivate.length === 0 || rawPrivate.length > 32) {
     throw new Error('VAPID_PRIVATE_KEY must be a base64url 32-byte P-256 scalar')
   }
+  const privateKeyBytes = padScalar(rawPrivate)
   const ecdh = crypto.createECDH(CURVE)
   try {
     ecdh.setPrivateKey(privateKeyBytes)
