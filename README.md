@@ -101,6 +101,8 @@ Open `.env` and fill in the values:
 | `DEV_PURDUE_EMAIL` | Any `@purdue.edu` address, used on the mock link screen |
 | `PURDUE_CALENDAR_AUTOMATION` | Leave as `0`. Dev-only: `1` lets the server open a local browser to capture your UniTime schedule URL; it cannot work on Render |
 | `PURDUE_UNITIME_PERSONAL_SCHEDULE_URL` | Leave blank to open the default UniTime personal schedule page |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional. `pnpm run vapid:generate` prints a pair; leave blank to keep push notifications off. See [docs/push-notifications.md](docs/push-notifications.md) |
+| `PUSH_CRON_SECRET` | Optional. Bearer token the Supabase cron job uses to trigger deadline reminders; blank disables that endpoint |
 
 > **Note:** `GEMINI_API_KEY` is optional. If omitted, the campus assistant and board AI features return a 503 but everything else works.
 

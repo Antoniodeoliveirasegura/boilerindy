@@ -29,6 +29,14 @@ import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
 import { cancelCalendarCapture, getCalendarCaptureJob, isCalendarAutomationEnabled, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
 import { fetchParkingStatus } from './src/parkingStatus.mjs'
+import { isValidSubscription, loadVapidKeys, sendWebPush } from './src/webPush.mjs'
+import {
+  buildTestPayload,
+  isMissingTableError,
+  parseSettingsPatch,
+  runDeadlineReminders,
+  settingsFromRow,
+} from './src/pushReminders.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import {
@@ -318,6 +326,18 @@ const publicReadRateLimit = createRateLimiter({
   max: 120,
   keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
+})
+const pushWriteRateLimit = createRateLimiter({
+  name: 'push-write',
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many notification changes. Please try again shortly.',
+})
+const pushTestRateLimit = createRateLimiter({
+  name: 'push-test',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: 'Too many test notifications. Try again in an hour.',
 })
 const analyticsRateLimit = createRateLimiter({
   name: 'analytics',
@@ -2906,6 +2926,261 @@ app.get('/api/parking/garages', publicReadRateLimit, async (_req, res) => {
   } catch (error) {
     console.error('Parking status error:', error)
     res.status(500).json({ error: 'Failed to fetch parking status' })
+  }
+})
+
+// ── Push notifications (issue #9): Web Push subscriptions, settings, reminders ──
+// See docs/push-notifications.md. Keys come from VAPID_PUBLIC_KEY /
+// VAPID_PRIVATE_KEY (node scripts/generate-vapid-keys.mjs); without them every
+// route reports enabled:false and nothing is ever sent. Tables: db/supabase-push.sql,
+// and until that runs the routes answer 503 push_not_configured instead of failing.
+
+let vapidKeys = null
+try {
+  vapidKeys = loadVapidKeys()
+  if (!vapidKeys) {
+    console.warn('[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set: push notifications are disabled (issue #9).')
+  }
+} catch (err) {
+  console.error(`[push] VAPID keys rejected (${err.message}): push notifications are disabled.`)
+}
+const PUSH_CRON_SECRET = String(process.env.PUSH_CRON_SECRET || '').trim()
+const PUSH_MAX_SUBSCRIPTIONS_PER_USER = 10
+
+function pushNotConfigured(res) {
+  return res.status(503).json({
+    error: {
+      code: 'push_not_configured',
+      message: 'Push notifications are not set up on this server yet. Run db/supabase-push.sql (issue #9).',
+      status: 503,
+    },
+  })
+}
+
+function pushDisabledResponse(res) {
+  return res.status(503).json({
+    error: { code: 'push_disabled', message: 'Push notifications are switched off on this server.', status: 503 },
+  })
+}
+
+async function loadPushSettingsRow(userId) {
+  const { data, error } = await supabase
+    .from('push_settings')
+    .select('deadline_reminders, lead_minutes')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+function summarizePushSubscription(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    userAgent: row.user_agent || null,
+    lastUsedAt: row.last_used_at || null,
+  }
+}
+
+app.get('/api/push/config', publicReadRateLimit, (_req, res) => {
+  res.set('Cache-Control', 'no-store')
+  res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null })
+})
+
+app.get('/api/push/settings', requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  try {
+    const [settingsRow, subsRes] = await Promise.all([
+      loadPushSettingsRow(userId),
+      supabase
+        .from('push_subscriptions')
+        .select('id, created_at, user_agent, last_used_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true }),
+    ])
+    if (subsRes.error) throw subsRes.error
+    res.set('Cache-Control', 'no-store')
+    res.json({
+      enabled: Boolean(vapidKeys),
+      settings: settingsFromRow(settingsRow),
+      subscriptions: (subsRes.data || []).map(summarizePushSubscription),
+    })
+  } catch (error) {
+    if (isMissingTableError(error)) return pushNotConfigured(res)
+    console.error('GET /api/push/settings:', error?.message || error)
+    res.status(500).json({ error: { message: 'Could not load notification settings.', status: 500 } })
+  }
+})
+
+app.put('/api/push/settings', pushWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const parsed = parseSettingsPatch(req.body)
+  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.error, status: 400 } })
+  try {
+    const current = settingsFromRow(await loadPushSettingsRow(userId))
+    const row = {
+      user_id: userId,
+      deadline_reminders:
+        'deadline_reminders' in parsed.patch ? parsed.patch.deadline_reminders : current.deadlineReminders,
+      lead_minutes: 'lead_minutes' in parsed.patch ? parsed.patch.lead_minutes : current.leadMinutes,
+      updated_at: nowIso(),
+    }
+    const { error } = await supabase.from('push_settings').upsert(row, { onConflict: 'user_id' })
+    if (error) throw error
+    res.json({ settings: settingsFromRow(row) })
+  } catch (error) {
+    if (isMissingTableError(error)) return pushNotConfigured(res)
+    console.error('PUT /api/push/settings:', error?.message || error)
+    res.status(500).json({ error: { message: 'Could not save notification settings.', status: 500 } })
+  }
+})
+
+app.post('/api/push/subscriptions', pushWriteRateLimit, requireAuth, async (req, res) => {
+  if (!vapidKeys) return pushDisabledResponse(res)
+  const userId = req.currentUser.id
+  const subscription = req.body?.subscription
+  if (!isValidSubscription(subscription)) {
+    return res.status(400).json({
+      error: { message: 'A valid push subscription (https endpoint, p256dh and auth keys) is required.', status: 400 },
+    })
+  }
+  const userAgent = (
+    typeof req.body?.userAgent === 'string' ? req.body.userAgent : req.get('user-agent') || ''
+  ).slice(0, 300)
+  const expiration = Number.isFinite(subscription.expirationTime)
+    ? new Date(subscription.expirationTime).toISOString()
+    : null
+  try {
+    const existingRes = await supabase.from('push_subscriptions').select('id, endpoint').eq('user_id', userId)
+    if (existingRes.error) throw existingRes.error
+    const existing = existingRes.data || []
+    const known = existing.some((row) => row.endpoint === subscription.endpoint)
+    if (!known && existing.length >= PUSH_MAX_SUBSCRIPTIONS_PER_USER) {
+      return res.status(409).json({
+        error: {
+          message: `You can register at most ${PUSH_MAX_SUBSCRIPTIONS_PER_USER} devices. Turn notifications off on an old device first.`,
+          status: 409,
+        },
+      })
+    }
+    const { data, error } = await supabase
+      .from('push_subscriptions')
+      .upsert(
+        {
+          user_id: userId,
+          endpoint: subscription.endpoint,
+          p256dh: subscription.keys.p256dh,
+          auth: subscription.keys.auth,
+          expiration_time: expiration,
+          user_agent: userAgent || null,
+          last_used_at: nowIso(),
+          failure_count: 0,
+        },
+        { onConflict: 'endpoint' },
+      )
+      .select('id, created_at')
+      .single()
+    if (error) throw error
+    res.status(201).json({ subscription: { id: data.id, createdAt: data.created_at } })
+  } catch (error) {
+    if (isMissingTableError(error)) return pushNotConfigured(res)
+    console.error('POST /api/push/subscriptions:', error?.message || error)
+    res.status(500).json({ error: { message: 'Could not register this device.', status: 500 } })
+  }
+})
+
+app.delete('/api/push/subscriptions', pushWriteRateLimit, requireAuth, async (req, res) => {
+  const userId = req.currentUser.id
+  const endpoint = req.body?.endpoint
+  if (typeof endpoint !== 'string' || !endpoint) {
+    return res.status(400).json({ error: { message: 'endpoint is required.', status: 400 } })
+  }
+  try {
+    const { data, error } = await supabase
+      .from('push_subscriptions')
+      .delete()
+      .eq('user_id', userId)
+      .eq('endpoint', endpoint)
+      .select('id')
+    if (error) throw error
+    res.json({ removed: (data || []).length > 0 })
+  } catch (error) {
+    if (isMissingTableError(error)) return pushNotConfigured(res)
+    console.error('DELETE /api/push/subscriptions:', error?.message || error)
+    res.status(500).json({ error: { message: 'Could not remove this device.', status: 500 } })
+  }
+})
+
+async function deliverPushToUser(userId, payload, { topic = null } = {}) {
+  const { data, error } = await supabase
+    .from('push_subscriptions')
+    .select('id, endpoint, p256dh, auth, failure_count')
+    .eq('user_id', userId)
+  if (error) throw error
+  const outcome = { sent: 0, failed: 0, removed: 0 }
+  for (const row of data || []) {
+    const result = await sendWebPush({
+      subscription: { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+      payload,
+      keys: vapidKeys,
+      topic,
+    })
+    if (result.ok) {
+      outcome.sent += 1
+      await supabase.from('push_subscriptions').update({ last_used_at: nowIso(), failure_count: 0 }).eq('id', row.id)
+      continue
+    }
+    outcome.failed += 1
+    if (result.gone) {
+      await supabase.from('push_subscriptions').delete().eq('id', row.id)
+      outcome.removed += 1
+    } else {
+      console.warn(`[push] delivery failed (${result.status}): ${result.error}`)
+      await supabase
+        .from('push_subscriptions')
+        .update({ failure_count: (row.failure_count || 0) + 1 })
+        .eq('id', row.id)
+    }
+  }
+  return outcome
+}
+
+app.post('/api/push/test', pushTestRateLimit, requireAuth, async (req, res) => {
+  if (!vapidKeys) return pushDisabledResponse(res)
+  try {
+    const outcome = await deliverPushToUser(req.currentUser.id, buildTestPayload(), { topic: 'test' })
+    res.json(outcome)
+  } catch (error) {
+    if (isMissingTableError(error)) return pushNotConfigured(res)
+    console.error('POST /api/push/test:', error?.message || error)
+    res.status(500).json({ error: { message: 'Could not send a test notification.', status: 500 } })
+  }
+})
+
+function pushCronSecretMatches(header) {
+  if (!PUSH_CRON_SECRET) return false
+  const token = String(header || '').replace(/^Bearer\s+/i, '').trim()
+  if (!token) return false
+  const given = crypto.createHash('sha256').update(token).digest()
+  const expected = crypto.createHash('sha256').update(PUSH_CRON_SECRET).digest()
+  return crypto.timingSafeEqual(given, expected)
+}
+
+// Called by the Supabase pg_cron job in db/supabase-push.sql every 5 minutes.
+// Bearer token, not a session: PUSH_CRON_SECRET. With the secret unset the
+// route falls through to the JSON 404, so nothing can trigger sends by accident.
+app.post('/api/internal/push/run-reminders', async (req, res, next) => {
+  if (!PUSH_CRON_SECRET) return next()
+  if (!pushCronSecretMatches(req.get('authorization'))) {
+    return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
+  }
+  try {
+    const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys })
+    if (summary.sent || summary.failed) console.log(`[push] reminders: ${JSON.stringify(summary)}`)
+    res.json(summary)
+  } catch (error) {
+    console.error('POST /api/internal/push/run-reminders:', error?.message || error)
+    res.status(500).json({ ok: false, error: 'Reminder run failed.' })
   }
 })
 

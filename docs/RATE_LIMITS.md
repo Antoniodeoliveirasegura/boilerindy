@@ -19,7 +19,9 @@ method, and path for abuse review.
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id` | 30 | 10 min | user, falls back to IP |
 | `source-sync` | `POST /api/sync/:sourceId`, `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule` | 30 | 15 min | user, falls back to IP |
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals seller email, enumeration-sensitive) | 100 | 15 min | user, falls back to IP |
-| `public-read` | `GET /api/dining`, `GET /api/transit/vehicles`, `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages` (session-free reads that proxy an upstream) | 120 | 15 min | IP |
+| `public-read` | `GET /api/dining`, `GET /api/transit/vehicles`, `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config` (session-free reads) | 120 | 15 min | IP |
+| `push-write` | `PUT /api/push/settings`, `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | 30 | 15 min | user, falls back to IP |
+| `push-test` | `POST /api/push/test` (sends a real notification to every registered device) | 10 | 1 hour | user, falls back to IP |
 | Gemini assistant (pre-existing) | `POST /api/assistant` | 10 | 1 hour | user, falls back to IP |
 | Gemini board AI (pre-existing) | `POST /api/board/ai-suggestions` | 10 | 1 hour | user |
 

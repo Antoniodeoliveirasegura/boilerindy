@@ -9,7 +9,8 @@
     "test": "node --test \"test/**/*.test.mjs\" && pnpm -C boilerindy-react test",
     "test:backend": "node --test \"test/**/*.test.mjs\"",
     "test:e2e": "playwright test",
-    "playwright:install": "playwright install chromium"
+    "playwright:install": "playwright install chromium",
+    "vapid:generate": "node scripts/generate-vapid-keys.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.57.0",
