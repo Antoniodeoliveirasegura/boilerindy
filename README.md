@@ -280,6 +280,7 @@ file in `db/`; running it in order satisfies each file's dependencies.
 27. *(optional, advertiser portal)* `db/supabase-advertiser-password-resets.sql` - adds `advertiser_password_resets`, storing only SHA-256 hashes of single-use reset tokens; needs step 23
 28. `db/supabase-manual-task-due-optional.sql` - drops the `NOT NULL` on `user_manual_tasks.due_at` so a task can be created without a deadline; needs step 3. Until this runs, `POST /api/me/tasks/manual` rejects any create that omits `dueAt`, which is every task the mobile client makes
 29. *(optional, production only)* `db/supabase-keep-warm.sql` - schedules a `pg_cron` job that pings the Render API every 5 minutes so it stops cold-starting (issue #164). Creates no tables and needs no other step. See [docs/keep-warm.md](docs/keep-warm.md).
+30. *(optional)* `db/supabase-push.sql` - adds `push_subscriptions`, `push_settings` and `push_deliveries` for Web Push deadline reminders (issue #9); needs step 1. Until it runs, `/api/push/*` answers `503 push_not_configured` and the Settings card says notifications are not set up yet. The commented block at the bottom schedules the reminder cron and needs the extensions from step 29. See [docs/push-notifications.md](docs/push-notifications.md).
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
