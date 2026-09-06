@@ -9,20 +9,24 @@ import { test, expect } from './fixtures/mock-backend.js'
 test.describe('Push notifications settings card', () => {
   test('shows the controls when push is enabled and saves reminder changes', async ({ page, mockApi }) => {
     mockApi.login()
-    // A fresh Playwright context reports Notification.permission as "denied",
-    // which the card renders as the blocked state; grant it so the device
-    // button appears (it is never clicked: there is no push service here).
     await page.context().grantPermissions(['notifications'])
     await page.goto('/settings')
 
     const card = page.getByTestId('push-card')
     await expect(card.getByText('Push notifications', { exact: true })).toBeVisible()
     await expect(page.getByTestId('push-status')).toContainText('On for 0 devices')
-    const pushSupported = await page.evaluate(() => 'PushManager' in window && 'serviceWorker' in navigator)
-    if (pushSupported) {
-      await expect(page.getByTestId('push-enable')).toBeVisible()
-    } else {
+    // Headless Chromium reports Notification.permission as "denied" even after
+    // grantPermissions, so the card (correctly) shows the blocked copy there;
+    // headed runs get the device button. Neither path clicks it: there is no
+    // push service to subscribe with.
+    const permission = await page.evaluate(() => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission))
+    if (permission === 'denied') {
+      await expect(card).toContainText('Notifications are blocked for BoilerIndy in this browser')
+      await expect(page.getByTestId('push-enable')).toHaveCount(0)
+    } else if (permission === 'unsupported') {
       await expect(card).toContainText('does not support push notifications')
+    } else {
+      await expect(page.getByTestId('push-enable')).toBeVisible()
     }
     await expect(page.getByTestId('push-test')).toBeDisabled()
 
