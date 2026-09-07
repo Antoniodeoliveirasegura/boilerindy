@@ -47,7 +47,7 @@ export const PLATFORM_LABEL: Record<InstallPlatform, string> = {
 export const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
   ios: [
     'Open boilerindy.app in Safari. Other browsers on iPhone cannot add web apps with notifications.',
-    'Tap the Share button (the square with an arrow pointing up) at the bottom of the screen.',
+    'Tap the Share button (the square with an arrow pointing up). On the newest iOS it lives inside the "..." menu at the bottom right: tap "...", then "Share".',
     'Scroll the sheet and tap "Add to Home Screen".',
     'Leave "Open as Web App" switched on, then tap "Add" in the top corner.',
     'Close Safari and open BoilerIndy from the new icon on your Home Screen. Always open it from there.',
