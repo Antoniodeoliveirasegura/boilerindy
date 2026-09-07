@@ -303,9 +303,6 @@ export default function Navbar() {
           })}
         </div>
       </nav>
-      
-      {/* Bottom nav spacer for mobile */}
-      <div className="md:hidden h-16" />
     </>
   )
 }

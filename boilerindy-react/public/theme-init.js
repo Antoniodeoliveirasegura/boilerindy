@@ -9,6 +9,9 @@ try {
       : 'dark'
   }
   if (t === 'dark') document.documentElement.classList.add('dark')
+  // Keep the browser chrome / installed-app status bar in step with the theme.
+  var meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#151514' : '#EEEFF5')
 } catch {
   document.documentElement.classList.add('dark')
 }

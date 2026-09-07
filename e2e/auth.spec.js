@@ -54,8 +54,27 @@ test.describe('Authentication', () => {
     await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
     await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
 
-    // parseNextPath sends a fresh sign-in to /setup when no ?next is present.
-    await expect(page).toHaveURL(/\/setup/)
+    // The mock account already has a schedule source, so a fresh sign-in with
+    // no ?next lands on the dashboard rather than the setup screen.
+    await expect(page).toHaveURL(/\/dashboard/)
     await expect(page).not.toHaveURL(/\/login/)
+  })
+
+  test('a fresh sign-in without a schedule source still lands on setup', async ({ page, mockApi }) => {
+    mockApi.logout()
+    mockApi.setOnboarding({ linkedSourceCount: 0, classCount: 0, needsScheduleSource: true })
+    await page.goto('/login')
+
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+
+    await expect(page).toHaveURL(/\/setup/)
+  })
+
+  test('an already signed-in visit to /login skips setup when a source is connected', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/login')
+    await expect(page).toHaveURL(/\/dashboard/)
   })
 })
