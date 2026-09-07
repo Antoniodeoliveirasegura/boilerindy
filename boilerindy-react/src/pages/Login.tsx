@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, type BackendSession } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { parseNextPath, registerSupabaseUser } from '../lib/authApi'
+import { parseNextPath, registerSupabaseUser, resolvePostLoginPath } from '../lib/authApi'
 import { sendPasswordResetEmail, signInWithEmail, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
@@ -15,7 +15,7 @@ const asideFeatures = [
 ]
 
 export default function Login() {
-  const { user, loading, establishSession, applySession } = useAuth()
+  const { user, loading, onboarding, establishSession, applySession } = useAuth()
   const { dark, toggleTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -59,9 +59,11 @@ export default function Login() {
   useEffect(() => {
     if (loading) return
     if (user) {
-      navigate(parseNextPath(window.location.search), { replace: true })
+      // Already signed in (e.g. the installed app opening on /login): skip the
+      // setup screen when a schedule source is already connected.
+      navigate(resolvePostLoginPath(window.location.search, onboarding), { replace: true })
     }
-  }, [loading, user, navigate])
+  }, [loading, user, onboarding, navigate])
 
   function clearErrors() {
     setBanner('')
@@ -165,7 +167,8 @@ export default function Login() {
         // returned the full payload. Apply it directly so the app is usable after
         // a single round-trip - no client re-sign-in + refreshSession waterfall
         // (issue #111).
-        applySession((data as { session?: BackendSession | null } | null)?.session ?? null)
+        const signedIn = (data as { session?: BackendSession | null } | null)?.session ?? null
+        applySession(signedIn)
 
         // Establish the client Supabase session in the background - only needed
         // for OAuth and silent re-hydration after a backend restart. Its
@@ -175,7 +178,7 @@ export default function Login() {
           void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
         })
 
-        navigate(parseNextPath(window.location.search), { replace: true })
+        navigate(resolvePostLoginPath(window.location.search, signedIn?.onboarding), { replace: true })
       }
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'Authentication failed. Please try again.')

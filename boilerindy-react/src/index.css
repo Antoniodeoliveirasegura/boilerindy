@@ -657,6 +657,14 @@ body {
   }
 }
 
+/* Leaflet's zoom buttons sit under the map search button on phones (issue #9
+   visual pass); touch users pinch to zoom, so hide the control there. */
+@media (max-width: 767px) {
+  .leaflet-control-zoom {
+    display: none;
+  }
+}
+
 /* Touch-friendly minimum sizes */
 @media (max-width: 768px) {
   /* Ensure buttons are at least 44px for touch */

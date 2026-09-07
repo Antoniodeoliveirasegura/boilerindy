@@ -101,6 +101,23 @@ export function parseNextPath(search: string): string {
   return shouldSkipSetup() ? '/dashboard' : '/setup'
 }
 
+export type OnboardingLike = { needsScheduleSource?: boolean } | null | undefined
+
+/**
+ * Where to send a signed-in user who arrived at /login: an explicit safe
+ * `next` wins; otherwise students who already connected a schedule source (or
+ * chose to skip setup) go to the dashboard, and everyone else to setup. Before
+ * this, every launch of the installed app landed on the setup screen because
+ * parseNextPath only knew about the skip flag.
+ */
+export function resolvePostLoginPath(search: string, onboarding?: OnboardingLike): string {
+  const next = new URLSearchParams(search).get('next')
+  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return next
+  if (shouldSkipSetup()) return '/dashboard'
+  if (onboarding && onboarding.needsScheduleSource === false) return '/dashboard'
+  return '/setup'
+}
+
 export function startPurdueLink(nextPath = '/setup'): void {
   const safeNext =
     nextPath.startsWith('/') && !nextPath.startsWith('//') && !nextPath.startsWith('/\\') ? nextPath : '/setup'
