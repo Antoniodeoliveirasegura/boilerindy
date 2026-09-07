@@ -101,6 +101,8 @@ Open `.env` and fill in the values:
 | `DEV_PURDUE_EMAIL` | Any `@purdue.edu` address, used on the mock link screen |
 | `PURDUE_CALENDAR_AUTOMATION` | Leave as `0`. Dev-only: `1` lets the server open a local browser to capture your UniTime schedule URL; it cannot work on Render |
 | `PURDUE_UNITIME_PERSONAL_SCHEDULE_URL` | Leave blank to open the default UniTime personal schedule page |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional. `pnpm run vapid:generate` prints a pair; leave blank to keep push notifications off. See [docs/push-notifications.md](docs/push-notifications.md) |
+| `PUSH_CRON_SECRET` | Optional. Bearer token the Supabase cron job uses to trigger deadline reminders; blank disables that endpoint |
 
 > **Note:** `GEMINI_API_KEY` is optional. If omitted, the campus assistant and board AI features return a 503 but everything else works.
 
@@ -246,6 +248,8 @@ file in `db/`; running it in order satisfies each file's dependencies.
   installs never need.
 - **Step 28** is a follow-up alter to the tasks tables from step 3. It is appended
   rather than slotted in next to step 3 so the numbering above stays stable.
+- **Step 29** is operational rather than schema: the cron job that keeps the
+  production API awake. Skip it for a local install.
 
 1. `db/supabase-schema.sql` - **required, run first** - core tables (`users`, `linked_sources`, `calendar_items`, `board_posts`, `board_replies`, `board_upvotes`), the `uuid-ossp` extension, and the shared `update_updated_at_column()` trigger function that most later files reuse
 2. `db/supabase-board-only.sql` - **conditional fallback** - re-creates only the campus board tables plus `update_updated_at_column()`. Needed just when the board tables are missing separately, or when `board_posts.tags` / `.edited_at` never landed. Skip it if step 1 ran cleanly.
@@ -275,6 +279,8 @@ file in `db/`; running it in order satisfies each file's dependencies.
 26. *(optional, advertiser portal)* `db/supabase-advertiser-ad-events.sql` - adds `ad_events`, the PII-free impression and tap log for served ads; needs step 24
 27. *(optional, advertiser portal)* `db/supabase-advertiser-password-resets.sql` - adds `advertiser_password_resets`, storing only SHA-256 hashes of single-use reset tokens; needs step 23
 28. `db/supabase-manual-task-due-optional.sql` - drops the `NOT NULL` on `user_manual_tasks.due_at` so a task can be created without a deadline; needs step 3. Until this runs, `POST /api/me/tasks/manual` rejects any create that omits `dueAt`, which is every task the mobile client makes
+29. *(optional, production only)* `db/supabase-keep-warm.sql` - schedules a `pg_cron` job that pings the Render API every 5 minutes so it stops cold-starting (issue #164). Creates no tables and needs no other step. See [docs/keep-warm.md](docs/keep-warm.md).
+30. *(optional)* `db/supabase-push.sql` - adds `push_subscriptions`, `push_settings` and `push_deliveries` for Web Push deadline reminders (issue #9); needs step 1. Until it runs, `/api/push/*` answers `503 push_not_configured` and the Settings card says notifications are not set up yet. The commented block at the bottom schedules the reminder cron and needs the extensions from step 29. See [docs/push-notifications.md](docs/push-notifications.md).
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
@@ -289,6 +295,8 @@ All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT E
 - **Frontend** - Vercel, auto-deploys from `main`
 - **Backend** - Render, running `node server.mjs`
 - **Routing** - `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
+
+The Render free tier sleeps after ~15 minutes idle and takes 20 to 50 s to wake, which every first page load used to pay (issue #164). A Supabase `pg_cron` job (`db/supabase-keep-warm.sql`, step 29 above) pings `/api/health` every 5 minutes to keep it awake, the GitHub keep-warm workflow is the backstop, and the app shows a "waking up" notice whenever a request is slow. Setup and verification: [docs/keep-warm.md](docs/keep-warm.md).
 
 Do not merge dev-only env variables into `main`. Production secrets are configured in the Vercel and Render dashboards, not in this repo.
 
