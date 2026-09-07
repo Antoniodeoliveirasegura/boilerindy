@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import Icon from '../Icons'
 import {
   DEFAULT_PUSH_SETTINGS,
@@ -249,7 +250,18 @@ export default function PushNotificationsCard() {
         </div>
 
         {!support.supported && (
-          <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{support.message}</p>
+          <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+            {support.message}
+            {support.reason === 'ios-not-installed' && (
+              <>
+                {' '}
+                <Link to="/install" className="text-[var(--color-accent)] hover:underline">
+                  See the step-by-step guide
+                </Link>
+                .
+              </>
+            )}
+          </p>
         )}
         {blocked && <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{BLOCKED_MESSAGE}</p>}
 

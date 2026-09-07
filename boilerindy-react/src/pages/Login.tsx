@@ -406,6 +406,11 @@ export default function Login() {
           )}
 
           <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
+            On your phone?{' '}
+            <Link to="/install" className="text-[var(--color-accent)] hover:underline">Add BoilerIndy to your Home Screen</Link>{' '}
+            for full screen and deadline reminders.
+          </p>
+          <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
             Want to advertise on BoilerIndy?{' '}
             <Link to="/advertise" className="text-[var(--color-accent)] hover:underline">Advertiser sign in</Link>.
           </p>

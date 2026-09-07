@@ -102,7 +102,9 @@ are deleted on the spot; other failures increment `failure_count`.
 ## Platform notes
 
 - iPhone and iPad deliver web push only to apps added to the Home Screen
-  (iOS 16.4+). The Settings card detects that case and explains the steps.
+  (iOS 16.4+). The Settings card detects that case and links to `/install`,
+  the public walkthrough for iPhone, Android and desktop. The manifest's
+  `start_url` is `/login`, which forwards signed-in users to their dashboard.
 - The service worker is registered in production builds only, so the card
   cannot subscribe on `vite dev`; use `vite preview` or the deployed site.
 - Reminders fire only when the runner is called while the API is awake. The
