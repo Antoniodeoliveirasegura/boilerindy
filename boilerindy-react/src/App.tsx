@@ -23,6 +23,7 @@ const AdvertiserDashboard = lazy(() => import('./pages/advertiser/Dashboard'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const Privacy = lazy(() => import('./pages/Privacy'))
 const Terms = lazy(() => import('./pages/Terms'))
+const Install = lazy(() => import('./pages/Install'))
 const AuthCallback = lazy(() => import('./pages/AuthCallback'))
 const Home = lazy(() => import('./pages/Home'))
 const Map = lazy(() => import('./pages/Map'))
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/install" element={<Install />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route element={<AppLayout />}>
               <Route

@@ -393,6 +393,12 @@ export default function Landing() {
           BoilerIndy
         </div>
         <div className="text-[12px] mb-2.5">
+          <Link to="/install" className="inline-flex items-center gap-1.5 text-[var(--color-accent)] hover:underline">
+            <Icon name="plus" size={13} />
+            Add the app to your phone
+          </Link>
+        </div>
+        <div className="text-[12px] mb-2.5">
           <Link to="/advertise" className="inline-flex items-center gap-1.5 text-[var(--color-accent)] hover:underline">
             <Icon name="briefcase" size={13} />
             Advertise with us
