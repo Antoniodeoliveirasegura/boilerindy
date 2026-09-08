@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import { localIsoDate } from '../lib/localDate'
 
 type EventItem = {
   id: string
@@ -81,8 +82,9 @@ function isPast(dateString: string) {
   return new Date(dateString) < new Date()
 }
 
+// Keyed by the local calendar day; lib/localDate explains why not toISOString().
 function getRecsCacheKey() {
-  return `ai-event-recs-${new Date().toISOString().slice(0, 10)}`
+  return `ai-event-recs-${localIsoDate()}`
 }
 
 export default function Events() {
