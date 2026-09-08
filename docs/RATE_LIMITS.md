@@ -55,3 +55,9 @@ RATE_LIMIT_<NAME>_WINDOW_MS=<ms>      # window length in milliseconds
 - When deploying behind a reverse proxy or CDN, configure Express
   `trust proxy` so `req.ip` reflects the real client address; otherwise all
   anonymous traffic shares one bucket.
+
+Marketplace photo authorization uses `marketplace-photo`: 20 requests per hour
+per signed-in user on `POST /api/marketplace/photos/authorize`. Override using
+`RATE_LIMIT_MARKETPLACE_PHOTO_MAX` and `RATE_LIMIT_MARKETPLACE_PHOTO_WINDOW_MS`.
+Like the other in-memory limits, this budget is per process and resets on restart.
+See [photo setup and lifecycle](marketplace-photos.md).
