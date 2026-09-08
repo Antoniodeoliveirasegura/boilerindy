@@ -71,6 +71,7 @@ import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
+import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { validateProfileInput, rankMatches, mapMatchCard } from './src/friendMatching.mjs'
 import {
   matchIntent,
@@ -4211,8 +4212,22 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
 
 const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
 const MARKETPLACE_PAGE_SIZE = 24
+const marketplacePhotos = createMarketplacePhotos({ supabase, secret: sessionSecret })
+const marketplacePhotoRateLimit = createRateLimiter({
+  name: 'marketplace-photo', windowMs: 60 * 60 * 1000, max: 20,
+  message: 'Too many photo uploads. Please try again in an hour.',
+})
+async function findOwnedMarketplaceListing(id, userId) {
+  const { data, error } = await supabase.from('marketplace_listings').select('*')
+    .eq('id', id).eq('user_id', userId).is('deleted_at', null).maybeSingle()
+  if (error) throw error
+  return data
+}
+app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
+  photoAuthorizationHandler({ photos: marketplacePhotos, findOwnedListing: findOwnedMarketplaceListing }))
 
 function respondMarketplaceDbError(res, err) {
+  if (err instanceof PhotoError) return respondPhotoError(res, err)
   console.error('Marketplace DB error:', err?.message || err, err?.code)
   if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
     return res.status(503).json({
@@ -4299,6 +4314,7 @@ app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) 
   const profanity = assertBoardPostTextAllowed(value.title, value.description)
   if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
   try {
+    Object.assign(value, await marketplacePhotos.resolve(req.body || {}, req.currentUser.id))
     const { data, error } = await supabase
       .from('marketplace_listings')
       .insert({ user_id: req.currentUser.id, ...value })
@@ -4316,7 +4332,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
   const userId = req.currentUser.id
   const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  if (Object.keys(value).length === 0) {
+  if (Object.keys(value).length === 0 && req.body?.imageUploadReceipt === undefined) {
     return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
   }
   if (value.title || value.description) {
@@ -4324,6 +4340,9 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
     if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
   }
   try {
+    const current = await findOwnedMarketplaceListing(req.params.id, userId)
+    if (!current) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
+    Object.assign(value, await marketplacePhotos.resolve(req.body || {}, userId, req.params.id, current.image_url))
     const { data, error } = await supabase
       .from('marketplace_listings')
       .update({ ...value, updated_at: nowIso() })
