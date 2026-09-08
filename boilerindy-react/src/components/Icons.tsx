@@ -1,6 +1,31 @@
 import type { ReactNode } from 'react'
 
 const icons: Record<string, ReactNode> = {
+  camera: (
+    <>
+      <path d="M14.5 4h-5L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2h-3l-2.5-3z"/>
+      <circle cx="12" cy="13" r="3"/>
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+      <circle cx="9" cy="9" r="2"/>
+      <path d="M21 15l-5-5L5 21"/>
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+      <path d="M7 7h.01"/>
+    </>
+  ),
+  laptop: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="2"/>
+      <path d="M2 20h20"/>
+    </>
+  ),
   parking: (
     <>
       <rect x="4" y="3" width="16" height="18" rx="3"/>

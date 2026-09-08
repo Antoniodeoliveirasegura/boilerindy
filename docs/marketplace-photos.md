@@ -1,9 +1,9 @@
 # Marketplace photo uploads
 
-The mobile app prepares a JPEG (maximum 1600-pixel edge, 5 MiB). The Express API
-uses the existing student session to authorize a direct Supabase Storage upload.
-The website can display the resulting image through its existing `imageUrl` field.
-There is no database migration and no new upload UI on the website.
+The mobile app and the website both prepare a JPEG (maximum 1600-pixel edge,
+5 MiB) on the device. The Express API uses the existing student session to
+authorize a direct Supabase Storage upload, and either client attaches the
+verified photo through the create / edit API. There is no database migration.
 
 ## Server configuration and rollout
 
@@ -55,6 +55,28 @@ and selected photo on failure. A successful upload is reused on a save retry unt
 near expiry; selecting another photo clears it. Unmounting during upload prevents
 a subsequent listing save. Cancelled/failed/abandoned objects are swept later.
 Demo mode never sends photo bytes to live Storage.
+
+## Website
+
+`boilerindy-react/src/lib/marketplacePhotos.ts` runs the same pipeline in the
+browser: `prepareListingPhoto` decodes the picked file (`createImageBitmap`
+with EXIF orientation applied, `<img>` as the fallback), draws it onto a canvas
+inside 1600 px and re-encodes to JPEG, stepping quality and size down until it
+fits 5 MiB. That also turns PNG, WebP and (where the browser can decode it,
+i.e. Safari) HEIC into JPEG, and drops the trailer data some phone cameras
+append after the end-of-image marker, which the server's check would reject.
+`uploadListingPhoto` then calls the authorize route, PUTs the bytes with the
+existing browser Supabase client (`uploadToSignedUrl`), and returns the
+receipt. `reuploadListingPhoto` refreshes a receipt that sat open past its
+two-hour life without asking for the photo again.
+
+`pages/Marketplace.tsx` renders photos the way the app does (category tile
+underneath, image on top, hero on the detail panel) and owns the photo field:
+choosing a photo hides the link box (the server refuses both at once), a
+failed upload keeps the draft and the photo and offers Retry, and posting is
+held until the photo is ready or removed. Edit uses the same form; the
+authorize call carries the `listingId`, and clearing the photo sends
+`imageUrl: ""`. `blob:` is allowed in the site's `img-src` for the previews.
 
 ## Cleanup
 
