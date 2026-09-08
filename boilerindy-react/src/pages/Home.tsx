@@ -32,6 +32,7 @@ import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
+import { localIsoDate, startOfWeek } from '../lib/localDate'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -492,12 +493,9 @@ export default function Home() {
   const [boardLoading, setBoardLoading] = useState(true)
   const [boardError, setBoardError] = useState('')
 
+  // Keyed by the local week's Monday; lib/localDate explains why not toISOString().
   function getWeekDigestStorageKey() {
-    const d = new Date()
-    const day = d.getDay()
-    const monday = new Date(d)
-    monday.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
-    return `ai-week-ahead-${monday.toISOString().slice(0, 10)}`
+    return `ai-week-ahead-${localIsoDate(startOfWeek())}`
   }
 
   function readCachedWeekDigest(): string | null {

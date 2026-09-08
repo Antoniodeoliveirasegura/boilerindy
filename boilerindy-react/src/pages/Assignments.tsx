@@ -7,6 +7,7 @@ import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
+import { localIsoDate, startOfWeek } from '../lib/localDate'
 
 type Category = { id: string; label?: string; count?: number }
 type Completion = { calendar_item_id?: string; completed_at?: string }
@@ -201,12 +202,12 @@ function isPastDue(dateString: string | null | undefined) {
 // Categories that belong on the Events page, not Tasks
 const eventCategories = ['campus_event', 'event', 'deadline']
 
+// One cache entry per local week, keyed by that week's Monday. The key has to
+// come from local date parts: toISOString() gives the UTC date, which lags a
+// day behind between local midnight and 09:00 on KST (and runs a day ahead in
+// the Indianapolis evening), so the same week would flip between two keys.
 function getInsightsCacheKey(mode: string) {
-  const d = new Date()
-  const day = d.getDay()
-  const monday = new Date(d)
-  monday.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
-  return `ai-assignments-${mode}-${monday.toISOString().slice(0, 10)}`
+  return `ai-assignments-${mode}-${localIsoDate(startOfWeek())}`
 }
 
 export default function Assignments() {
@@ -235,7 +236,9 @@ export default function Assignments() {
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
   const [sortByPriority, setSortByPriority] = useState(false)
   const [newTitle, setNewTitle] = useState('')
-  const [newDueDate, setNewDueDate] = useState(() => new Date().toISOString().slice(0, 10))
+  // Local calendar day, not the UTC one: east of UTC the ISO date is still
+  // yesterday until mid-morning, which made a fresh task past due on arrival.
+  const [newDueDate, setNewDueDate] = useState(() => localIsoDate())
   const [addSubmitting, setAddSubmitting] = useState(false)
   const [taskError, setTaskError] = useState('')
 
