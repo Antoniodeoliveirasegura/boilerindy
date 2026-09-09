@@ -13,17 +13,46 @@ import {
   matchProgress,
 } from '../src/degreePrograms.mjs'
 
-test('listPrograms returns id/name/degree for every program', () => {
+test('listPrograms returns id/name/degree for every major, sorted by name', () => {
   const list = listPrograms()
-  assert.equal(list.length, DEGREE_PROGRAMS.length)
+  assert.ok(list.length > DEGREE_PROGRAMS.length, 'catalogue majors are included')
   for (const p of list) {
     assert.ok(p.id && p.name && p.degree)
   }
+  const names = list.map((p) => p.name)
+  assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)))
+})
+
+test('listPrograms ids are unique', () => {
+  const ids = listPrograms().map((p) => p.id)
+  assert.equal(new Set(ids).size, ids.length)
+})
+
+test('listPrograms marks curated programs as tracked', () => {
+  const list = listPrograms()
+  const tracked = list.filter((p) => p.tracked)
+  assert.equal(tracked.length, DEGREE_PROGRAMS.length)
+  assert.ok(tracked.some((p) => p.id === 'computer-science'))
 })
 
 test('getProgram resolves a known id and null otherwise', () => {
   assert.equal(getProgram('computer-science').name, 'Computer Science')
   assert.equal(getProgram('nope'), null)
+})
+
+test('getProgram returns a requirement-free stub for a catalogue-only major', () => {
+  const nursing = getProgram('nursing')
+  assert.equal(nursing.name, 'Nursing')
+  assert.equal(nursing.tracked, false)
+  assert.deepEqual(nursing.requirementGroups, [])
+})
+
+test('matchProgress on a catalogue-only major yields an empty plan', () => {
+  const p = matchProgress(getProgram('nursing'), [
+    { courseName: 'CS 18000', letterGrade: 'A', creditHours: 4 },
+  ])
+  assert.deepEqual(p.groups, [])
+  assert.equal(p.listedCourses, 0)
 })
 
 test('extractCourseCode normalizes spacing and case', () => {
