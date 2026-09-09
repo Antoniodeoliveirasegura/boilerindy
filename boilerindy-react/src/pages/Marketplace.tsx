@@ -6,14 +6,20 @@ import { useConfirm } from '../hooks/useConfirm'
 import {
   FORM_DEFAULT_CATEGORY,
   MARKETPLACE_CATEGORIES,
+  MAX_LISTING_PHOTOS,
+  PRICE_MODES,
   categoryFor,
   centsToInput,
   formatPrice,
   labelForCategory,
   listingImage,
+  listingImages,
+  parseImageLinks,
   parsePriceInput,
+  priceModeOf,
   type CategoryTone,
   type Listing,
+  type PriceMode,
 } from '../lib/marketplace'
 import {
   PHOTO_ACCEPT,
@@ -30,12 +36,14 @@ import {
 // Student Marketplace (issue #32, Phase 1). No payments / no messaging - contact
 // is the seller's name + Purdue email, shown on the detail panel. Listing photos
 // (#171) go straight to Supabase Storage from the browser and are attached by a
-// signed receipt; cards and the detail hero render them the way the mobile app
-// does, with the category tile underneath so a broken link degrades gracefully.
+// signed receipt; a listing carries up to six ordered photos with the first as
+// the cover, and a price is a set amount, Free, or Best offer (#177). Cards and
+// the detail gallery render photos the way the mobile app does.
 
-const EMPTY_FORM = { title: '', description: '', category: FORM_DEFAULT_CATEGORY, price: '', imageUrl: '' }
+const EMPTY_FORM = { title: '', description: '', category: FORM_DEFAULT_CATEGORY, price: '', priceMode: 'fixed' as PriceMode, imageLinks: '' }
 type FormState = typeof EMPTY_FORM
 type BrowseOpts = { category?: string; query?: string; page?: number }
+type PhotoRef = { url: string } | { receipt: string }
 
 type PhotoState =
   | { status: 'idle' }
@@ -62,13 +70,22 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 function formFromListing(listing: Listing): FormState {
+  const priceMode = priceModeOf(listing)
   return {
     title: listing.title || '',
     description: listing.description || '',
     category: categoryFor(listing.category).slug,
-    price: centsToInput(listing.priceCents),
-    imageUrl: listing.imageUrl || '',
+    price: priceMode === 'fixed' ? centsToInput(listing.priceCents) : '',
+    priceMode,
+    imageLinks: listingImages(listing).join('\n'),
   }
+}
+
+/** What the API stores for a price: Free is zero, Best offer is null, a set price is cents or unspecified. */
+function priceCentsFor(priceMode: PriceMode, price: string): number | null | undefined {
+  if (priceMode === 'free') return 0
+  if (priceMode === 'best_offer') return null
+  return parsePriceInput(price)
 }
 
 function photoPreview(photo: PhotoState): string | null {
@@ -77,7 +94,7 @@ function photoPreview(photo: PhotoState): string | null {
   return null
 }
 
-/** Category tile with the photo on top, so a slow or broken URL shows the tile. */
+/** Category tile with the cover on top, so a slow or broken URL shows the tile. */
 function ListingImage({ listing, className, iconSize = 28 }: { listing: Listing; className: string; iconSize?: number }) {
   const url = listingImage(listing)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
@@ -90,61 +107,72 @@ function ListingImage({ listing, className, iconSize = 28 }: { listing: Listing;
     >
       <Icon name={cat.icon} size={iconSize} />
       {showImage && url ? (
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailedUrl(url)}
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+        <img src={url} alt="" loading="lazy" decoding="async" onError={() => setFailedUrl(url)} className="absolute inset-0 w-full h-full object-cover" />
       ) : null}
+    </div>
+  )
+}
+
+/** Every photo of a listing, cover first, the way the app's detail screen shows them. */
+function ListingGallery({ listing }: { listing: Listing }) {
+  const images = listingImages(listing)
+  if (images.length === 0) return <ListingImage listing={listing} className="w-full rounded-xl mb-4 h-28" iconSize={44} />
+  const title = listing.title || 'Listing'
+  return (
+    <div className="flex gap-3 overflow-x-auto mb-4 -mx-1 px-1 pb-1" data-listing-gallery={images.length}>
+      {images.map((url, i) => (
+        <img
+          key={url}
+          src={url}
+          alt={`${title} photo ${i + 1}`}
+          loading={i === 0 ? 'eager' : 'lazy'}
+          decoding="async"
+          className={`rounded-xl object-cover bg-[var(--color-stat)] shrink-0 ${images.length === 1 ? 'w-full h-56 sm:h-72' : 'h-48 sm:h-64 max-w-[85%]'}`}
+        />
+      ))}
     </div>
   )
 }
 
 type PhotoFieldProps = {
   photo: PhotoState
-  currentUrl: string
   disabled: boolean
   verb: 'post' | 'save'
-  linkValue: string
+  links: string
   onPick: (file: File) => void
   onRetry: () => void
   onRemove: () => void
-  onLinkChange: (value: string) => void
+  onLinksChange: (value: string) => void
 }
 
-function PhotoField({ photo, currentUrl, disabled, verb, linkValue, onPick, onRetry, onRemove, onLinkChange }: PhotoFieldProps) {
+function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, onLinksChange }: PhotoFieldProps) {
   const busy = photo.status === 'working'
-  const preview = photoPreview(photo) || (photo.status === 'idle' ? currentUrl : '')
-  const hasPhoto = photo.status !== 'idle' || Boolean(currentUrl)
+  const linkUrls = parseImageLinks(links)
+  const preview = photoPreview(photo) || linkUrls[0] || ''
+  const hasPicked = photo.status !== 'idle'
+  const count = linkUrls.length + (photo.status === 'ready' ? 1 : 0)
 
   let message = ''
   let messageTone = 'text-[var(--color-txt-3)]'
   if (photo.status === 'working') {
     message = `${STEP_TEXT[photo.step]}…`
   } else if (photo.status === 'ready') {
-    message = `Photo ready (${formatBytes(photo.photo.byteSize)}). It is attached when you ${verb}.`
+    message = `Photo ready (${formatBytes(photo.photo.byteSize)}). It is the cover when you ${verb}.`
     messageTone = 'text-[var(--color-success)]'
   } else if (photo.status === 'error') {
     message = photo.message
     messageTone = 'text-[var(--color-error)]'
-  } else if (currentUrl) {
-    message = 'Current photo. Choose another to replace it.'
+  } else if (linkUrls.length) {
+    message = `${linkUrls.length} photo${linkUrls.length === 1 ? '' : 's'} from links. Upload one to make it the cover.`
   } else {
     message = `Photos are resized to ${PHOTO_MAX_EDGE} px and converted to JPEG in your browser before upload.`
   }
 
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-3 sm:p-4" data-photo-status={photo.status}>
+    <div className="rounded-xl border border-[var(--color-border)] p-3 sm:p-4" data-photo-status={photo.status} data-photo-count={count}>
       <div className="flex items-start gap-4">
         <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-[var(--color-stat)] flex items-center justify-center shrink-0">
-          {preview ? (
-            <img src={preview} alt="" className="w-full h-full object-cover" data-photo-preview />
-          ) : (
-            <Icon name="image" size={26} className="text-[var(--color-txt-3)]" />
-          )}
+          {preview ? <img src={preview} alt="" className="w-full h-full object-cover" data-photo-preview /> : <Icon name="image" size={26} className="text-[var(--color-txt-3)]" />}
           {busy ? (
             <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
               <Icon name="refresh" size={18} className="text-white animate-spin" />
@@ -152,7 +180,7 @@ function PhotoField({ photo, currentUrl, disabled, verb, linkValue, onPick, onRe
           ) : null}
         </div>
         <div className="min-w-0 flex-1 space-y-2">
-          <div className="text-[12px] font-semibold text-[var(--color-txt-1)]">Photo</div>
+          <div className="text-[12px] font-semibold text-[var(--color-txt-1)]">Photos (up to {MAX_LISTING_PHOTOS}, the first is the cover)</div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               id="listing-photo"
@@ -167,18 +195,15 @@ function PhotoField({ photo, currentUrl, disabled, verb, linkValue, onPick, onRe
                 e.target.value = ''
               }}
             />
-            <label
-              htmlFor="listing-photo"
-              className={`btn btn-secondary text-[12px] px-3 py-1.5 cursor-pointer ${disabled || busy ? 'opacity-60 pointer-events-none' : ''}`}
-            >
-              <Icon name="camera" size={14} /> {hasPhoto ? 'Change photo' : 'Choose photo'}
+            <label htmlFor="listing-photo" className={`btn btn-secondary text-[12px] px-3 py-1.5 cursor-pointer ${disabled || busy ? 'opacity-60 pointer-events-none' : ''}`}>
+              <Icon name="camera" size={14} /> {hasPicked ? 'Change photo' : 'Upload a photo'}
             </label>
             {photo.status === 'error' && photo.retryable ? (
               <button type="button" onClick={onRetry} disabled={disabled} className="btn btn-secondary text-[12px] px-3 py-1.5">
                 <Icon name="refresh" size={14} /> Retry
               </button>
             ) : null}
-            {hasPhoto && !busy ? (
+            {hasPicked && !busy ? (
               <button type="button" onClick={onRemove} disabled={disabled} className="btn btn-ghost text-[12px] px-3 py-1.5 text-[var(--color-error)]">
                 <Icon name="trash" size={14} /> Remove
               </button>
@@ -189,21 +214,20 @@ function PhotoField({ photo, currentUrl, disabled, verb, linkValue, onPick, onRe
           </p>
         </div>
       </div>
-      {photo.status === 'idle' ? (
-        <div className="mt-3">
-          <label className="sr-only" htmlFor="listing-image-url">
-            Image link
-          </label>
-          <input
-            id="listing-image-url"
-            value={linkValue}
-            onChange={(e) => onLinkChange(e.target.value)}
-            disabled={disabled}
-            placeholder="Or paste an image link (optional)"
-            className="input w-full text-[13px] px-3 py-2"
-          />
-        </div>
-      ) : null}
+      <div className="mt-3">
+        <label className="sr-only" htmlFor="listing-image-links">
+          Image links
+        </label>
+        <textarea
+          id="listing-image-links"
+          value={links}
+          onChange={(e) => onLinksChange(e.target.value)}
+          disabled={disabled}
+          rows={2}
+          placeholder={`Image links, one per line (optional, up to ${MAX_LISTING_PHOTOS})`}
+          className="input w-full text-[13px] px-3 py-2 resize-y"
+        />
+      </div>
     </div>
   )
 }
@@ -364,7 +388,6 @@ export default function Marketplace() {
     const previewUrl = URL.createObjectURL(file)
     previewUrls.current.add(previewUrl)
     releasePreviews(previewUrl)
-    setForm((f) => ({ ...f, imageUrl: '' }))
     setFormError('')
     setPhoto({ status: 'working', step: 'preparing', previewUrl })
     try {
@@ -395,7 +418,6 @@ export default function Marketplace() {
 
   function removePhoto() {
     resetPhoto()
-    setForm((f) => ({ ...f, imageUrl: '' }))
   }
 
   async function submitForm(e: React.FormEvent<HTMLFormElement>) {
@@ -406,18 +428,27 @@ export default function Marketplace() {
       setFormError('A title is required.')
       return
     }
-    const priceCents = parsePriceInput(form.price)
+    const priceCents = priceCentsFor(form.priceMode, form.price)
     if (priceCents === undefined) {
-      setFormError('Enter a price like 25 or 12.50, or leave it blank for free.')
+      setFormError('Enter a price like 25 or 12.50, or leave it blank.')
       return
     }
+    const links = parseImageLinks(form.imageLinks)
     if (photo.status === 'working') return
     if (photo.status === 'error') {
       setFormError(`Retry the photo upload or remove the photo before you ${editing ? 'save' : 'post'}.`)
       return
     }
+    if (links.length + (photo.status === 'ready' ? 1 : 0) > MAX_LISTING_PHOTOS) {
+      setFormError(`Choose up to ${MAX_LISTING_PHOTOS} photos.`)
+      return
+    }
     setSubmitting(true)
     try {
+      // An older deployment would silently drop galleries and price modes.
+      const capabilities = (await authRequest('/api/marketplace/capabilities')) as { gallery?: boolean; pricing?: boolean }
+      if (!capabilities?.gallery || !capabilities?.pricing) throw new Error('Marketplace update is not ready. Please retry later.')
+
       let ready = photo.status === 'ready' ? photo.photo : null
       if (ready && !isReceiptUsable(ready)) {
         // The form sat open past the receipt's life: upload the same bytes again.
@@ -433,28 +464,29 @@ export default function Marketplace() {
         if (photoRun.current !== run) return
         setPhoto({ status: 'ready', photo: ready })
       }
-      const imageUrl = form.imageUrl.trim()
+      const photos: PhotoRef[] = [...(ready ? [{ receipt: ready.receipt }] : []), ...links.map((url) => ({ url }))]
       const description = form.description.trim()
       if (editing) {
         const patch: Record<string, unknown> = {}
         if (title !== (editing.title || '')) patch.title = title
         if (description !== (editing.description || '')) patch.description = description
         if (form.category !== categoryFor(editing.category).slug) patch.category = form.category
-        if (priceCents !== (editing.priceCents ?? null)) patch.priceCents = priceCents
-        if (ready) patch.imageUploadReceipt = ready.receipt
-        else if (imageUrl !== (editing.imageUrl || '')) patch.imageUrl = imageUrl
+        if (form.priceMode !== priceModeOf(editing) || priceCents !== (editing.priceCents ?? null)) {
+          patch.priceMode = form.priceMode
+          patch.priceCents = priceCents
+        }
+        const currentPhotos = listingImages(editing)
+        const photosChanged = Boolean(ready) || links.join('\n') !== currentPhotos.join('\n')
+        if (photosChanged) patch.photos = photos
         if (Object.keys(patch).length === 0) {
           closeForm()
           return
         }
-        const data = (await authRequest(`/api/marketplace/${editing.id}`, { method: 'PATCH', body: JSON.stringify(patch) })) as {
-          listing?: Listing
-        }
+        const data = (await authRequest(`/api/marketplace/${editing.id}`, { method: 'PATCH', body: JSON.stringify(patch) })) as { listing?: Listing }
         if (data?.listing && selected?.id === editing.id) setSelected({ ...selected, ...data.listing })
       } else {
-        const body: Record<string, unknown> = { title, description, category: form.category, priceCents }
-        if (ready) body.imageUploadReceipt = ready.receipt
-        else if (imageUrl) body.imageUrl = imageUrl
+        const body: Record<string, unknown> = { title, description, category: form.category, priceMode: form.priceMode, priceCents }
+        if (photos.length) body.photos = photos
         await authRequest('/api/marketplace', { method: 'POST', body: JSON.stringify(body) })
       }
       closeForm()
@@ -498,7 +530,7 @@ export default function Marketplace() {
           <ListingImage listing={listing} className="aspect-[1.35] w-full" />
           <div className="p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[15px] font-bold text-[var(--color-txt-0)]">{formatPrice(listing.priceCents)}</span>
+              <span className="text-[15px] font-bold text-[var(--color-txt-0)]">{formatPrice(listing.priceCents, listing.priceMode)}</span>
               {listing.status === 'sold' ? (
                 <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-error)]/15 text-[var(--color-error)]">Sold</span>
               ) : null}
@@ -557,35 +589,59 @@ export default function Marketplace() {
               </button>
             ) : null}
           </div>
+          <div>
+            <label className="sr-only" htmlFor="listing-title">
+              Title
+            </label>
+            <input
+              id="listing-title"
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              maxLength={120}
+              placeholder="What are you selling?"
+              disabled={submitting}
+              className="input w-full text-[13px] px-3 py-2"
+            />
+          </div>
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <label className="sr-only" htmlFor="listing-title">
-                Title
+              <label className="sr-only" htmlFor="listing-price-mode">
+                Pricing
               </label>
-              <input
-                id="listing-title"
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                maxLength={120}
-                placeholder="What are you selling?"
+              <select
+                id="listing-price-mode"
+                value={form.priceMode}
+                onChange={(e) => setForm((f) => ({ ...f, priceMode: e.target.value as PriceMode }))}
                 disabled={submitting}
                 className="input w-full text-[13px] px-3 py-2"
-              />
+              >
+                {PRICE_MODES.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="sr-only" htmlFor="listing-price">
-                Price in dollars
-              </label>
-              <input
-                id="listing-price"
-                value={form.price}
-                onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
-                inputMode="decimal"
-                placeholder="Price in $ (blank for free)"
-                disabled={submitting}
-                className="input w-full text-[13px] px-3 py-2"
-              />
-            </div>
+            {form.priceMode === 'fixed' ? (
+              <div>
+                <label className="sr-only" htmlFor="listing-price">
+                  Price in dollars
+                </label>
+                <input
+                  id="listing-price"
+                  value={form.price}
+                  onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                  inputMode="decimal"
+                  placeholder="Price in $ (blank for unspecified)"
+                  disabled={submitting}
+                  className="input w-full text-[13px] px-3 py-2"
+                />
+              </div>
+            ) : (
+              <p className="text-[12px] text-[var(--color-txt-2)] self-center m-0" data-price-hint>
+                {form.priceMode === 'free' ? 'Listed as Free.' : 'Buyers will send offers.'}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Category">
             {MARKETPLACE_CATEGORIES.map((c) => (
@@ -596,9 +652,7 @@ export default function Marketplace() {
                 onClick={() => setForm((f) => ({ ...f, category: c.slug }))}
                 disabled={submitting}
                 className={`text-[12px] px-3 py-1.5 rounded-full border inline-flex items-center gap-1.5 ${
-                  form.category === c.slug
-                    ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
-                    : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
+                  form.category === c.slug ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]' : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
                 }`}
               >
                 <Icon name={c.icon} size={12} /> {c.label}
@@ -622,14 +676,13 @@ export default function Marketplace() {
           </div>
           <PhotoField
             photo={photo}
-            currentUrl={form.imageUrl.trim()}
             disabled={submitting}
             verb={editing ? 'save' : 'post'}
-            linkValue={form.imageUrl}
+            links={form.imageLinks}
             onPick={(file) => void pickPhoto(file)}
             onRetry={retryPhoto}
             onRemove={removePhoto}
-            onLinkChange={(value) => setForm((f) => ({ ...f, imageUrl: value }))}
+            onLinksChange={(value) => setForm((f) => ({ ...f, imageLinks: value }))}
           />
           {formError ? (
             <p className="text-[12px] text-[var(--color-error)]" data-form-error>
@@ -645,12 +698,12 @@ export default function Marketplace() {
       {/* Detail panel */}
       {selected ? (
         <div className="card p-5 mb-6 border-[var(--color-accent)]/30" data-listing-detail={selected.id}>
-          <ListingImage listing={selected} className={`w-full rounded-xl mb-4 ${listingImage(selected) ? 'h-56 sm:h-72' : 'h-28'}`} iconSize={44} />
+          <ListingGallery listing={selected} />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)]">{labelForCategory(selected.category)}</span>
               <h2 className="text-[18px] font-semibold text-[var(--color-txt-0)] mt-1.5 break-words">
-                {selected.title} <span className="text-[var(--color-txt-2)] font-normal">&middot; {formatPrice(selected.priceCents)}</span>
+                {selected.title} <span className="text-[var(--color-txt-2)] font-normal">&middot; {formatPrice(selected.priceCents, selected.priceMode)}</span>
               </h2>
             </div>
             <button type="button" onClick={() => setSelected(null)} aria-label="Close listing" className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)]">
@@ -708,9 +761,7 @@ export default function Marketplace() {
                   type="button"
                   onClick={() => applyFilter(c, query)}
                   className={`text-[12px] px-3 py-1.5 rounded-full border ${
-                    category === c
-                      ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
-                      : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
+                    category === c ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]' : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
                   }`}
                 >
                   {c === 'all' ? 'All' : labelForCategory(c)}

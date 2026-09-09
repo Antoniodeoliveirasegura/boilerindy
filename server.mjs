@@ -4287,6 +4287,18 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
   }
 })
 
+// Clients check this before uploading a gallery to avoid older servers dropping fields.
+app.get('/api/marketplace/capabilities', requireAuth, async (_req, res) => {
+  res.set('Cache-Control', 'no-store')
+  try {
+    const { error } = await supabase.from('marketplace_listings').select('image_urls,price_mode').limit(0)
+    if (error) throw error
+    res.json({ gallery: true, pricing: true, maxPhotos: 6 })
+  } catch {
+    res.status(503).json({ error: { message: 'Marketplace photo and pricing setup is not complete. Please try again later.', status: 503 } })
+  }
+})
+
 // Listing detail - reveals seller contact (name + Purdue email) to signed-in
 // users, so it is rate-limited to blunt bulk id-enumeration harvesting (#114).
 app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireAuth, async (req, res) => {
@@ -4332,7 +4344,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
   const userId = req.currentUser.id
   const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  if (Object.keys(value).length === 0 && req.body?.imageUploadReceipt === undefined) {
+  if (Object.keys(value).length === 0 && req.body?.imageUploadReceipt === undefined && req.body?.photos === undefined) {
     return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
   }
   if (value.title || value.description) {
@@ -4342,7 +4354,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
   try {
     const current = await findOwnedMarketplaceListing(req.params.id, userId)
     if (!current) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
-    Object.assign(value, await marketplacePhotos.resolve(req.body || {}, userId, req.params.id, current.image_url))
+    Object.assign(value, await marketplacePhotos.resolve(req.body || {}, userId, req.params.id, current.image_url, current.image_urls))
     const { data, error } = await supabase
       .from('marketplace_listings')
       .update({ ...value, updated_at: nowIso() })

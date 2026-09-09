@@ -207,7 +207,9 @@ function sampleListing(overrides) {
     description: 'Barely used, no highlights.',
     category: 'textbooks',
     priceCents: 4500,
+    priceMode: 'fixed',
     imageUrl: SAMPLE_PHOTO,
+    images: [SAMPLE_PHOTO],
     status: 'active',
     createdAt: '2026-09-07T12:00:00.000Z',
     isMine: false,
@@ -218,8 +220,8 @@ function sampleListing(overrides) {
 export function sampleListings() {
   return [
     sampleListing(),
-    sampleListing({ id: 'listing-2', title: 'Desk lamp', description: 'Warm white LED.', category: 'furniture', priceCents: 1250, imageUrl: null, isMine: true }),
-    sampleListing({ id: 'listing-3', title: 'Bus pass, spring', description: '', category: 'rideshare', priceCents: 0, imageUrl: null }),
+    sampleListing({ id: 'listing-2', title: 'Desk lamp', description: 'Warm white LED.', category: 'furniture', priceCents: 1250, imageUrl: null, images: [], isMine: true }),
+    sampleListing({ id: 'listing-3', title: 'Bus pass, spring', description: '', category: 'rideshare', priceCents: 0, priceMode: 'free', imageUrl: null, images: [] }),
   ]
 }
 
@@ -243,18 +245,68 @@ function defaultMarketplace() {
   }
 }
 
-// Same rules as marketplacePhotos.resolve() on the server: a receipt replaces
-// the image link, must match the seller's listing and a finished upload, and
-// cannot be combined with a link.
-function resolveMockPhoto(m, body, listingId) {
-  if (body.imageUploadReceipt === undefined) {
-    return body.imageUrl !== undefined ? { imageUrl: String(body.imageUrl || '').trim() || null } : {}
-  }
-  if (body.imageUrl) return { error: 'Choose either an uploaded photo or an image link.' }
-  const receipt = m.receipts.get(body.imageUploadReceipt)
+// Same rules as marketplacePhotos.resolve() on the server. The ordered
+// `photos` list (#177) mixes { url } and { receipt } entries, at most six, the
+// first being the cover; a receipt must match the seller's listing and a
+// finished upload; a bucket URL can only be kept if the listing already had it.
+// The legacy single-image fields still work for older clients.
+function resolveMockReceipt(m, value, listingId) {
+  const receipt = m.receipts.get(value)
   if (!receipt || receipt.listingId !== (listingId || null)) return { error: 'This photo belongs to another seller or listing.' }
   if (!m.uploads.has(receipt.path)) return { error: 'The uploaded photo is missing or incomplete. Choose it again and retry.' }
-  return { imageUrl: `${STORAGE_PUBLIC_BASE}/${receipt.path}` }
+  return { url: `${STORAGE_PUBLIC_BASE}/${receipt.path}` }
+}
+
+function resolveMockPhoto(m, body, listingId, existingImages = []) {
+  if (body.photos !== undefined) {
+    if (body.imageUrl !== undefined || body.imageUploadReceipt !== undefined) return { error: 'Choose one photo format.' }
+    if (!Array.isArray(body.photos) || body.photos.length > 6) return { error: 'Choose up to 6 photos.' }
+    const urls = []
+    for (const photo of body.photos) {
+      if (!photo || typeof photo !== 'object') return { error: 'Each photo needs one image link or upload receipt.' }
+      if (typeof photo.receipt === 'string') {
+        const resolved = resolveMockReceipt(m, photo.receipt, listingId)
+        if (resolved.error) return resolved
+        urls.push(resolved.url)
+      } else if (typeof photo.url === 'string') {
+        const value = photo.url.trim()
+        if (value.startsWith(STORAGE_PUBLIC_BASE) && !existingImages.includes(value)) return { error: 'Select the photo to upload it to this listing.' }
+        urls.push(value)
+      } else {
+        return { error: 'Each photo needs one image link or upload receipt.' }
+      }
+    }
+    if (new Set(urls).size !== urls.length) return { error: 'Choose each photo only once.' }
+    return { imageUrl: urls[0] || null, images: urls }
+  }
+  if (body.imageUploadReceipt !== undefined) {
+    if (body.imageUrl) return { error: 'Choose either an uploaded photo or an image link.' }
+    const resolved = resolveMockReceipt(m, body.imageUploadReceipt, listingId)
+    if (resolved.error) return resolved
+    return { imageUrl: resolved.url, images: [resolved.url] }
+  }
+  if (body.imageUrl !== undefined) {
+    const value = String(body.imageUrl || '').trim()
+    return { imageUrl: value || null, images: value ? [value] : [] }
+  }
+  return {}
+}
+
+// Price modes (#177): Free is zero, Best offer is null, a set price is cents or
+// unspecified; older clients that send only priceCents get a mode inferred.
+function applyMockPricing(listing, body) {
+  if (body.priceMode !== undefined) {
+    if (!['fixed', 'free', 'best_offer'].includes(body.priceMode)) return 'Choose a valid price option'
+    listing.priceMode = body.priceMode
+    if (body.priceMode === 'free') listing.priceCents = 0
+    else if (body.priceMode === 'best_offer') listing.priceCents = null
+    else listing.priceCents = body.priceCents == null ? null : Number(body.priceCents)
+  } else if (body.priceCents !== undefined) {
+    listing.priceCents = body.priceCents == null ? null : Number(body.priceCents)
+    listing.priceMode = listing.priceCents === 0 ? 'free' : 'fixed'
+  }
+  if (listing.priceCents === 0) listing.priceMode = 'free'
+  return null
 }
 
 // Parking (#14): two garages with live counts, one without (sensor offline),
@@ -606,30 +658,37 @@ export const test = base.extend({
       if (pathname === '/api/marketplace/mine' && method === 'GET') {
         return json(route, 200, { listings: state.marketplace.listings.filter((l) => l.isMine) })
       }
+      if (pathname === '/api/marketplace/capabilities' && method === 'GET') {
+        return json(route, 200, { gallery: true, pricing: true, maxPhotos: 6 })
+      }
       if (pathname === '/api/marketplace' && method === 'POST') {
         const m = state.marketplace
         const b = bodyOf()
         m.bodies.push({ method, body: b })
         const title = String(b.title || '').trim()
         if (!title) return json(route, 400, { error: { message: 'Title is required (max 120 characters)', status: 400 } })
-        const photo = resolveMockPhoto(m, b, null)
+        const photo = resolveMockPhoto(m, b, null, [])
         if (photo.error) return json(route, 400, { error: { message: photo.error, status: 400 } })
         const listing = {
           id: `listing-${++m.listingSeq}`,
           title,
           description: String(b.description || '').trim(),
           category: String(b.category || 'misc'),
-          priceCents: b.priceCents == null ? null : Number(b.priceCents),
+          priceCents: null,
+          priceMode: 'fixed',
           imageUrl: photo.imageUrl ?? null,
+          images: photo.images ?? [],
           status: 'active',
           createdAt: new Date().toISOString(),
           isMine: true,
         }
+        const priceError = applyMockPricing(listing, b)
+        if (priceError) return json(route, 400, { error: { message: priceError, status: 400 } })
         m.listings.unshift(listing)
         return json(route, 201, { listing })
       }
       const listingMatch = pathname.match(/^\/api\/marketplace\/([^/]+)(\/report)?$/)
-      if (listingMatch && listingMatch[1] !== 'mine' && listingMatch[1] !== 'photos') {
+      if (listingMatch && !['mine', 'photos', 'capabilities'].includes(listingMatch[1])) {
         const m = state.marketplace
         const listing = m.listings.find((l) => l.id === listingMatch[1])
         if (listingMatch[2] && method === 'POST') return json(route, 200, { ok: true })
@@ -644,13 +703,15 @@ export const test = base.extend({
           const b = bodyOf()
           m.bodies.push({ method, id: listing.id, body: b })
           if (!listing.isMine) return json(route, 404, { error: { message: 'Listing not found or not yours.', status: 404 } })
-          const photo = resolveMockPhoto(m, b, listing.id)
+          const photo = resolveMockPhoto(m, b, listing.id, listing.images || [])
           if (photo.error) return json(route, 400, { error: { message: photo.error, status: 400 } })
+          const priceError = applyMockPricing(listing, b)
+          if (priceError) return json(route, 400, { error: { message: priceError, status: 400 } })
           for (const key of ['title', 'description', 'category', 'status']) {
             if (b[key] !== undefined) listing[key] = String(b[key])
           }
-          if (b.priceCents !== undefined) listing.priceCents = b.priceCents == null ? null : Number(b.priceCents)
           if (photo.imageUrl !== undefined) listing.imageUrl = photo.imageUrl
+          if (photo.images !== undefined) listing.images = photo.images
           return json(route, 200, { listing: { ...listing } })
         }
         if (method === 'DELETE') {

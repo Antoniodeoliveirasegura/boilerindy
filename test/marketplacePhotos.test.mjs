@@ -82,13 +82,37 @@ test('cleanup preserves referenced (including soft-deleted), recent and unmanage
   const { supabase, bucket } = fixture()
   const now = 1788900000000
   const name = (age, id = listingId) => `${now - age}-${id}.jpg`
-  const old = name(2 * 86400000), referenced = name(3 * 86400000), recent = name(1000)
+  const old = name(2 * 86400000), referenced = name(3 * 86400000), recent = name(1000), secondary = name(4 * 86400000)
   const removed = []
-  bucket.list = async (prefix) => ({ data: prefix === 'managed' ? [{ name: user.id, id: null }] : [old, referenced, recent, 'legacy.jpg'].map(name => ({ name, id: 'object' })) })
+  bucket.list = async (prefix) => ({ data: prefix === 'managed' ? [{ name: user.id, id: null }] : [old, referenced, secondary, recent, 'legacy.jpg'].map(name => ({ name, id: 'object' })) })
   bucket.remove = async (paths) => { removed.push(...paths); return {} }
-  supabase.from = () => ({ select: () => ({ eq: (_, url) => ({ limit: async () => ({ data: url.endsWith(referenced) ? [{ id: 'retained' }] : [] }) }) }) })
+  supabase.from = () => ({ select: () => ({ eq: (_, url) => ({ limit: async () => ({ data: url.endsWith(referenced) ? [{ id: 'retained' }] : [] }) }), contains: (_, urls) => ({ limit: async () => ({ data: urls[0].endsWith(secondary) ? [{ id: 'gallery-reference' }] : [] }) }) }) })
   assert.deepEqual(await cleanupMarketplacePhotos(supabase, { now }), { candidates: 1, removed: 0 })
   assert.equal(removed.length, 0)
   assert.deepEqual(await cleanupMarketplacePhotos(supabase, { now, dryRun: false }), { candidates: 1, removed: 1 })
   assert.deepEqual(removed, [`managed/${user.id}/${old}`])
+})
+
+test('gallery mixes verified uploads and retained images in cover order, with explicit clearing', async () => {
+  const { photos } = fixture()
+  const upload = await photos.authorize(user, { ...input, listingId })
+  const existing = photos.publicUrl(`managed/${user.id}/existing.jpg`)
+  const resolved = await photos.resolve({ photos: [{ receipt: upload.receipt }, { url: existing }] }, user.id, listingId, existing, [existing])
+  assert.deepEqual(resolved, { image_url: photos.publicUrl(upload.path), image_urls: [photos.publicUrl(upload.path), existing] })
+  assert.deepEqual(await photos.resolve({ photos: [] }, user.id, listingId, existing, [existing]), { image_url: null, image_urls: [] })
+  assert.deepEqual(await photos.resolve({ title: 'Edited' }, user.id, listingId, existing, [existing, 'https://example.com/b.jpg']), {})
+  assert.deepEqual(await photos.resolve({ imageUrl: existing }, user.id, listingId, existing, [existing, 'https://example.com/b.jpg']), {})
+})
+test('gallery rejects stolen images, wrong-listing receipts, duplicate images and oversized lists', async () => {
+  const { photos } = fixture()
+  const upload = await photos.authorize(user, { ...input, listingId })
+  await assert.rejects(photos.resolve({ photos: [{ url: photos.publicUrl(upload.path) }] }, user.id), /Select the photo/)
+  await assert.rejects(photos.resolve({ photos: [{ receipt: upload.receipt }] }, user.id), /another seller/)
+  for (const body of [
+    { photos: Array(7).fill({ url: 'https://example.com/a.jpg' }) },
+    { photos: [{ url: 'https://example.com/a.jpg' }, { url: 'https://example.com/a.jpg' }] },
+    { photos: [{ url: 'file:///a.jpg' }] }, { photos: [null] }, { photos: 'bad' },
+    { photos: [{ url: 'https://example.com/a.jpg', receipt: upload.receipt }] },
+    { photos: [], imageUrl: 'https://example.com/a.jpg' },
+  ]) await assert.rejects(photos.resolve(body, user.id))
 })
