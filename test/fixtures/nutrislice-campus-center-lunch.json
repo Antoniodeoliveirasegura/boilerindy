@@ -1,0 +1,46 @@
+{
+  "id": null,
+  "last_updated": null,
+  "start_date": "2026-09-07",
+  "menu_type_id": 13262,
+  "published": true,
+  "display_name": null,
+  "days": [
+    {
+      "date": "2026-09-06",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-07",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-08",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-09",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-10",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-11",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-12",
+      "has_unpublished_menus": false,
+      "menu_items": []
+    }
+  ],
+  "bold_all_entrees_enabled": false
+}

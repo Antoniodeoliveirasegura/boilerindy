@@ -309,6 +309,95 @@ function applyMockPricing(listing, body) {
   return null
 }
 
+// Dining (#119): the snapshot renderSnapshot() in src/nutrisliceDining.mjs
+// produces. Tower Dining is a dining hall with two stations; the Campus Center
+// is the retail food court (hours only, no menu), currently before opening.
+const WEEKDAY_HOURS = {
+  Monday: '7:00 AM - 9:00 PM',
+  Tuesday: '7:00 AM - 9:00 PM',
+  Wednesday: '7:00 AM - 9:00 PM',
+  Thursday: '7:00 AM - 9:00 PM',
+  Friday: '7:00 AM - 9:00 PM',
+  Saturday: 'Closed',
+  Sunday: 'Closed',
+}
+
+export function sampleDiningLocation(overrides = {}) {
+  return {
+    id: 'tower-dining',
+    slug: 'tower-dining',
+    name: 'Tower Dining',
+    kind: 'dining-hall',
+    address: 'University Tower, 911 W North St, Indianapolis, IN 46202',
+    is_open: true,
+    hours: '7:00 AM - 9:00 PM',
+    closes_at: '9:00 PM',
+    opens_at: null,
+    open24h: false,
+    weekly_hours: { ...WEEKDAY_HOURS },
+    timezone: 'America/Indiana/Indianapolis',
+    meal: 'Menus: breakfast, lunch, dinner',
+    menusPublished: true,
+    stations: [
+      {
+        name: 'Daily Grill',
+        items: [
+          { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] },
+          { name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
+        ],
+      },
+      { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
+    ],
+    ...overrides,
+  }
+}
+
+export function sampleDining(overrides = {}) {
+  return {
+    ok: true,
+    date: '2026-09-09',
+    weekday: 'Wednesday',
+    timezone: 'America/Indiana/Indianapolis',
+    apiBase: 'https://iupui.api.nutrislice.com',
+    fetchedAt: '2026-09-09T11:00:00.000Z',
+    cacheTtlMs: 43200000,
+    cached: false,
+    stale: false,
+    cacheExpiresAt: '2026-09-09T23:00:00.000Z',
+    missing: [],
+    locations: [
+      sampleDiningLocation(),
+      sampleDiningLocation({
+        id: 'campus-center',
+        slug: 'campus-center',
+        name: 'Campus Center',
+        kind: 'retail',
+        address: '420 University Blvd, Indianapolis, IN 46202',
+        is_open: false,
+        closes_at: null,
+        opens_at: '7:00 AM',
+        meal: 'Retail dining, no posted menu',
+        menusPublished: false,
+        stations: [],
+      }),
+    ],
+    ...overrides,
+  }
+}
+
+function unavailableDining() {
+  return {
+    ok: false,
+    error: 'schools_fetch_failed',
+    status: 503,
+    locations: [],
+    date: '2026-09-09',
+    weekday: 'Wednesday',
+    timezone: 'America/Indiana/Indianapolis',
+    cached: false,
+  }
+}
+
 // Parking (#14): two garages with live counts, one without (sensor offline),
 // plus the permit block the page renders. Mirrors buildSnapshot()'s output.
 function sampleParkingGarage(overrides) {
@@ -422,6 +511,10 @@ export const test = base.extend({
       clubs: null,
       // Marketplace (#32) + listing photos (#171): see defaultMarketplace / seedMarketplace.
       marketplace: defaultMarketplace(),
+      // Dining (#119): { snapshot, unavailable }. null === the built-in sample snapshot.
+      dining: null,
+      // Dining favorites (#49): normalized item names the mock user starred.
+      diningFavorites: [],
       // Web Push (#9): see defaultPush / seedPush.
       push: defaultPush(),
       pushSeq: 0,
@@ -618,6 +711,21 @@ export const test = base.extend({
       if (pathname === '/api/me/calendar-feed/token' && method === 'POST') {
         state.feedUrl = 'http://localhost:4173/feeds/calendar/11111111-1111-4111-8111-111111111111.ics'
         return json(route, 200, { feedUrl: state.feedUrl })
+      }
+
+      // Dining (#119): the public snapshot, plus the favorites routes (#49) so
+      // starring an item persists across a reload the way the DB does.
+      if (pathname === '/api/dining') {
+        const seed = state.dining || {}
+        if (seed.unavailable) return json(route, 200, unavailableDining())
+        return json(route, 200, seed.snapshot || sampleDining())
+      }
+      if (pathname === '/api/me/dining/favorites') {
+        if (method === 'GET') return json(route, 200, { favorites: [...state.diningFavorites] })
+        const name = String(bodyOf().itemName || '').trim().toLowerCase()
+        if (method === 'POST' && name && !state.diningFavorites.includes(name)) state.diningFavorites.push(name)
+        if (method === 'DELETE') state.diningFavorites = state.diningFavorites.filter((n) => n !== name)
+        return json(route, 200, { ok: true, favorites: [...state.diningFavorites] })
       }
 
       // Marketplace (#32) and listing photos (#171): shapes mirror mapListingRow
@@ -892,6 +1000,9 @@ export const test = base.extend({
       },
       seedClubs({ clubs = null, degraded = false } = {}) {
         state.clubs = { clubs, degraded }
+      },
+      seedDining({ snapshot = null, unavailable = false } = {}) {
+        state.dining = { snapshot, unavailable }
       },
       seedMarketplace({ listings, photosUnavailable } = {}) {
         if (listings) state.marketplace.listings = listings

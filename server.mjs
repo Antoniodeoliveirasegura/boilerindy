@@ -2566,7 +2566,9 @@ function buildDiningContext(dining) {
         if (items.length) lines.push(`  ${station.name}: ${items.join(', ')}`)
       }
     } else if (loc.meal) {
-      lines.push(`  Menus: ${loc.meal}`)
+      // The hint is already a sentence: "Menus: lunch, dinner", "Menu not
+      // posted yet" or "Retail dining, no posted menu".
+      lines.push(`  ${loc.meal}`)
     }
   }
   return lines.join('\n')

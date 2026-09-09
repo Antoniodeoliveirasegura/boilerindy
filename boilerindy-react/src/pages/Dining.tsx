@@ -3,64 +3,23 @@ import Icon from '../components/Icons'
 import { track } from '../lib/usageStats'
 import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
+import {
+  SHORT_DAY,
+  WEEKDAY_ORDER,
+  diningDirectionsUrl,
+  emptyMenuState,
+  headerBlurb,
+  snapshotWeekday,
+  statusLine,
+  type DiningLocation,
+  type DiningSnapshot,
+  type Station,
+} from '../lib/dining'
 
-type MenuItem = { name: string; calories?: number | null; icons?: string[] }
-type Station = { name: string; items: MenuItem[] }
-type NutrisliceLoc = {
-  slug: string
-  name: string
-  is_open?: boolean
-  hours?: string
-  weekly_hours?: Record<string, string> | null
-  meal?: string
-  stations?: Station[]
-  warnings?: unknown
-}
-type Location = {
-  id: string
-  slug: string
-  name: string
-  source: string
-  status: string
-  hours?: string
-  weekly_hours: Record<string, string> | null
-  meal?: string
-  rating: number | null
-  stations: Station[]
-  warnings?: unknown
-}
-type LiveData = { ok?: boolean; locations?: NutrisliceLoc[]; date?: string; cached?: boolean }
-
-const STATIC_LOCATIONS: Location[] = []
-
-const GENERIC_HOURS = [
-  { meal: 'Breakfast', time: '7:00 - 10:30 AM', icon: 'coffee' },
-  { meal: 'Lunch', time: '11:00 AM - 2:00 PM', icon: 'dining' },
-  { meal: 'Dinner', time: '4:30 - 8:00 PM', icon: 'moon' },
-]
-
-const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const SHORT_DAY: Record<string, string> = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }
-
-function nutrisliceToLocation(loc: NutrisliceLoc): Location {
-  return {
-    id: loc.slug,
-    slug: loc.slug,
-    name: loc.name,
-    source: 'nutrislice',
-    status: loc.is_open ? 'open' : 'closed',
-    hours: loc.hours,
-    weekly_hours: loc.weekly_hours || null,
-    meal: loc.meal,
-    rating: null,
-    stations: loc.stations || [],
-    warnings: loc.warnings,
-  }
-}
-
-function getTodayDayName() {
-  return new Date().toLocaleDateString('en-US', { weekday: 'long' })
-}
+// Campus Dining (issue #119): the live Nutrislice snapshot from /api/dining,
+// nothing else. Every hour shown comes from the feed; when the feed is down
+// the page says so instead of inventing hours, and a retail food court is
+// presented as one rather than as a hall with a missing menu.
 
 const STATION_ICONS = ['dining', 'grid', 'star', 'coffee', 'moon', 'book', 'building', 'users', 'navigation', 'bus']
 const STATION_CAP = 10
@@ -81,70 +40,55 @@ function StationCard({
   const visible = expanded ? station.items : station.items.slice(0, STATION_CAP)
 
   return (
-    <div className="card p-5 flex flex-col">
+    <div className="card p-5 flex flex-col" data-dining-station={station.name}>
       <div className="flex items-center gap-2.5 mb-3">
         <div className="w-6 h-6 rounded-lg bg-[var(--color-dining-bg)] flex items-center justify-center flex-shrink-0">
-          <Icon
-            name={STATION_ICONS[index % STATION_ICONS.length]}
-            size={12}
-            className="text-[var(--color-dining-color)]"
-          />
+          <Icon name={STATION_ICONS[index % STATION_ICONS.length]} size={12} className="text-[var(--color-dining-color)]" />
         </div>
-        <span className="text-[11px] font-semibold text-[var(--color-txt-0)] uppercase tracking-wide leading-tight">
-          {station.name}
-        </span>
+        <span className="text-[11px] font-semibold text-[var(--color-txt-0)] uppercase tracking-wide leading-tight">{station.name}</span>
       </div>
       <div className="space-y-1.5">
-        {visible.map((item, idx) => (
-          <div
-            key={`${item.name}-${idx}`}
-            className="text-[13px] bg-[var(--color-stat)] hover:bg-[var(--color-bg-3)] rounded-xl px-3 py-2 transition-colors"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[var(--color-txt-0)] leading-snug">{item.name}</span>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {item.calories != null && (
-                  <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap">
-                    {item.calories} cal
-                  </span>
-                )}
-                {(() => {
-                  const isFav = favorites.has(normalizeItemName(item.name))
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => onToggleFavorite(item.name)}
-                      aria-pressed={isFav}
-                      aria-label={isFav ? `Remove ${item.name} from favorites` : `Add ${item.name} to favorites`}
-                      title={isFav ? 'Remove favorite' : 'Add to favorites'}
-                      className="leading-none transition-transform hover:scale-110"
-                    >
-                      <Icon
-                        name="star"
-                        size={14}
-                        className={isFav
-                          ? 'text-[var(--color-gold)] fill-current'
-                          : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
-                      />
-                    </button>
-                  )
-                })()}
-              </div>
-            </div>
-            {item.icons && item.icons.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
-                {item.icons.slice(0, 4).map((ic) => (
-                  <span
-                    key={ic}
-                    className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-bg-2)] text-[var(--color-txt-2)]"
+        {visible.map((item, idx) => {
+          const isFav = favorites.has(normalizeItemName(item.name))
+          return (
+            <div
+              key={`${item.name}-${idx}`}
+              className="text-[13px] bg-[var(--color-stat)] hover:bg-[var(--color-bg-3)] rounded-xl px-3 py-2 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--color-txt-0)] leading-snug">{item.name}</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {item.calories != null && (
+                    <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap">{item.calories} cal</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onToggleFavorite(item.name)}
+                    aria-pressed={isFav}
+                    aria-label={isFav ? `Remove ${item.name} from favorites` : `Add ${item.name} to favorites`}
+                    title={isFav ? 'Remove favorite' : 'Add to favorites'}
+                    className="leading-none transition-transform hover:scale-110"
                   >
-                    {ic}
-                  </span>
-                ))}
+                    <Icon
+                      name="star"
+                      size={14}
+                      className={isFav ? 'text-[var(--color-gold)] fill-current' : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
+                    />
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+              {item.icons && item.icons.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {item.icons.slice(0, 4).map((ic) => (
+                    <span key={ic} className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-bg-2)] text-[var(--color-txt-2)]">
+                      {ic}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
       {overflow && (
         <button
@@ -164,7 +108,7 @@ export default function Dining() {
     track('dining_viewed')
   }, [])
 
-  const [live, setLive] = useState<LiveData | null>(null)
+  const [live, setLive] = useState<DiningSnapshot | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -228,28 +172,40 @@ export default function Dining() {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{
-          role: 'user',
-          content: "Based on what's currently being served at open dining locations on campus, give me a quick meal recommendation. Mention the specific location, a dish or two, and a short reason. Keep it to 2-3 sentences. No markdown.",
-        }],
+        messages: [
+          {
+            role: 'user',
+            content:
+              "Based on what's currently being served at open dining locations on campus, give me a quick meal recommendation. Mention the specific location, a dish or two, and a short reason. Keep it to 2-3 sentences. No markdown.",
+          },
+        ],
       }),
     })
       .then((r) => r.json())
-      .then((d) => { if (d.reply) setAiSuggestion(d.reply) })
+      .then((d) => {
+        if (d.reply) setAiSuggestion(d.reply)
+      })
       .catch(() => {})
       .finally(() => setAiLoading(false))
   }
 
-  function loadMenu(force: boolean = false) {
+  const applySnapshot = useCallback((data: unknown) => {
+    const d = data as DiningSnapshot
+    if (d?.ok && Array.isArray(d.locations)) {
+      setLive(d)
+      setLoadError('')
+    } else {
+      setLoadError('Live menus are temporarily unavailable.')
+    }
+  }, [])
+
+  function loadMenu(force = false) {
     if (force) setRefreshing(true)
     else setLoading(true)
     setLoadError('')
     fetch(`/api/dining${force ? '?refresh=1' : ''}`)
       .then((r) => r.json())
-      .then((data) => {
-        if (data?.ok && Array.isArray(data.locations)) setLive(data)
-        else setLoadError('Live menus are temporarily unavailable.')
-      })
+      .then(applySnapshot)
       .catch(() => setLoadError('Could not reach the dining server.'))
       .finally(() => {
         setLoading(false)
@@ -258,16 +214,12 @@ export default function Dining() {
   }
 
   useEffect(() => {
-    // Initial menu load. `loading` already starts true, so we fetch directly and
-    // only setState inside async callbacks - no synchronous setState in the effect
-    // body. The Refresh button still calls loadMenu(force) for the spinner path.
+    // Initial load: `loading` starts true, so only async callbacks set state.
     let cancelled = false
     fetch('/api/dining')
       .then((r) => r.json())
       .then((data) => {
-        if (cancelled) return
-        if (data?.ok && Array.isArray(data.locations)) setLive(data)
-        else setLoadError('Live menus are temporarily unavailable.')
+        if (!cancelled) applySnapshot(data)
       })
       .catch(() => {
         if (!cancelled) setLoadError('Could not reach the dining server.')
@@ -281,18 +233,15 @@ export default function Dining() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applySnapshot])
 
-  const locations = useMemo(() => {
-    if (loading) return []
-    const api = (live?.locations || []).map(nutrisliceToLocation)
-    return [...api, ...STATIC_LOCATIONS]
-  }, [live, loading])
+  const locations = useMemo<DiningLocation[]>(() => (loading ? [] : live?.locations || []), [live, loading])
+  const weekday = snapshotWeekday(live)
 
   // Default the selected location once the list loads, keeping any still-valid
   // choice. Adjusting during render (guarded by a locations identity check)
   // avoids the setState-in-effect cascading-render warning.
-  const [prevLocations, setPrevLocations] = useState<Location[] | null>(null)
+  const [prevLocations, setPrevLocations] = useState<DiningLocation[] | null>(null)
   if (locations !== prevLocations) {
     setPrevLocations(locations)
     if (locations.length) {
@@ -304,17 +253,11 @@ export default function Dining() {
     }
   }
 
-  const favoritesToday = useMemo(
-    () => favoritesOnTodaysMenu(favorites, live?.locations || []),
-    [favorites, live],
-  )
+  const favoritesToday = useMemo(() => favoritesOnTodaysMenu(favorites, live?.locations || []), [favorites, live])
 
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
-  const todayHours = selected?.weekly_hours?.[getTodayDayName()]
-  const headerBlurb =
-    selected?.source === 'nutrislice'
-      ? `Today: ${todayHours || selected.hours}${selected.meal ? ` · ${selected.meal}` : ''}`
-      : 'Sample location (not on Nutrislice)'
+  const withHours = locations.filter((l) => l.weekly_hours)
+  const empty = selected ? emptyMenuState(selected) : null
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
@@ -322,15 +265,18 @@ export default function Dining() {
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Dining</h1>
           <p className="text-[14px] text-[var(--color-txt-2)] mt-1">
-            {live?.date ? `Menu for ${live.date}` : "Today's menu"}
-            {live?.cached ? ' · cached' : ''}
+            {live?.date ? `Menu for ${weekday}, ${live.date}` : "Today's menu"}
+            {live?.cached && !live?.stale ? ' · cached' : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {selected && !loading && (
-            <div className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 shadow-sm">
+            <div
+              className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 shadow-sm"
+              data-dining-blurb
+            >
               <Icon name="clock" size={14} className="text-[var(--color-txt-3)]" />
-              {headerBlurb}
+              {headerBlurb(selected, weekday)}
             </div>
           )}
           <button
@@ -338,7 +284,7 @@ export default function Dining() {
             onClick={askWhatToEat}
             disabled={aiLoading || loading}
             title="AI meal recommendation"
-            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-sm hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-sm hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40 whitespace-nowrap"
           >
             <Icon name="sparkles" size={13} />
             {aiLoading ? 'Thinking…' : 'What should I eat?'}
@@ -348,39 +294,45 @@ export default function Dining() {
             onClick={() => loadMenu(true)}
             disabled={refreshing || loading}
             title="Force-refresh menu"
+            aria-label="Refresh menus"
             className="flex items-center justify-center w-10 h-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm hover:bg-[var(--color-bg-3)] transition-colors disabled:opacity-40"
           >
-            <Icon
-              name="refresh"
-              size={14}
-              className={`text-[var(--color-txt-2)] ${refreshing ? 'animate-spin' : ''}`}
-            />
+            <Icon name="refresh" size={14} className={`text-[var(--color-txt-2)] ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
       {loadError && (
-        <div className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]">
-          {loadError} Showing sample venues below.
+        <div
+          className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
+          data-dining-error
+        >
+          {loadError} Nutrislice, which publishes the campus menus, is not answering. Try again in a few minutes.
+        </div>
+      )}
+
+      {live?.stale && !loadError && (
+        <div
+          className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
+          data-dining-stale
+        >
+          Nutrislice is not answering right now, so this is the last menu we fetched{live.date ? ` (${live.date})` : ''}. Hours and open
+          status are still live.
         </div>
       )}
 
       {/* Your favorites on today's menu (issue #49) */}
       {favoritesToday.length > 0 && (
-        <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up">
+        <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up" data-dining-favorites>
           <div className="flex items-center gap-2 mb-2.5">
             <Icon name="star" size={14} className="text-[var(--color-gold)] fill-current" />
-            <span className="text-[13px] font-semibold text-[var(--color-txt-0)]">
-              Your favorites on today&apos;s menu
-            </span>
+            <span className="text-[13px] font-semibold text-[var(--color-txt-0)]">Your favorites on today&apos;s menu</span>
           </div>
           <div className="space-y-1.5">
             {favoritesToday.map((fav) => (
               <div key={fav.name} className="flex items-center justify-between gap-3 text-[13px]">
                 <span className="text-[var(--color-txt-0)]">{fav.name}</span>
-                <span className="text-[12px] text-[var(--color-txt-2)] text-right">
-                  {fav.locations.join(', ')}
-                </span>
+                <span className="text-[12px] text-[var(--color-txt-2)] text-right">{fav.locations.join(', ')}</span>
               </div>
             ))}
           </div>
@@ -397,10 +349,7 @@ export default function Dining() {
             <div className="flex-1 min-w-0">
               <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{aiSuggestion}</p>
             </div>
-            <button
-              onClick={() => setAiSuggestion(null)}
-              className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] shrink-0"
-            >
+            <button onClick={() => setAiSuggestion(null)} className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] shrink-0" aria-label="Dismiss suggestion">
               <Icon name="close" size={14} />
             </button>
           </div>
@@ -408,7 +357,7 @@ export default function Dining() {
       )}
 
       {loading ? (
-        /* ── Skeleton ── */
+        /* Skeleton */
         <div className="animate-pulse">
           <div className="flex gap-2 mb-6">
             <div className="h-11 w-36 rounded-xl bg-[var(--color-stat)]" />
@@ -436,118 +385,105 @@ export default function Dining() {
         </div>
       ) : (
         <>
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-1 -mx-1 px-1 animate-fade-in-up stagger-1">
-        {locations.map((loc) => {
-          const isSelected = selected && loc.id === selected.id
-          return (
-            <button
-              key={loc.id}
-              type="button"
-              onClick={() => setSelectedId(loc.id)}
-              className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border whitespace-nowrap transition-all duration-300
-                ${
-                  isSelected
-                    ? 'bg-[var(--color-surface)] border-[var(--color-border-2)] shadow-md'
-                    : 'bg-transparent border-transparent hover:bg-[var(--color-surface)] hover:border-[var(--color-border)]'
-                }`}
-            >
-              <div className={`status-dot ${loc.status === 'open' ? 'status-open' : 'status-closed'}`} />
-              <span
-                className={`text-[13px] font-medium ${isSelected ? 'text-[var(--color-txt-0)]' : 'text-[var(--color-txt-1)]'}`}
-              >
-                {loc.name}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      {selected && (
-        <div className="mb-6 animate-fade-in-up stagger-2">
-          {/* Location header */}
-          <div className="card p-5 mb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-xl font-semibold text-[var(--color-txt-0)]">{selected.name}</h2>
-                  {selected.rating != null && (
-                    <div className="flex items-center gap-1 text-[12px] text-[var(--color-gold-muted)]">
-                      <Icon name="star" size={12} className="fill-current" />
-                      {selected.rating}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className={`status-dot ${selected.status === 'open' ? 'status-open' : 'status-closed'}`} />
-                  <span className="text-[13px] text-[var(--color-txt-2)]">
-                    {selected.status === 'open' ? 'Open now' : 'Closed'} · {selected.hours}
-                  </span>
-                </div>
-                {selected.source === 'static' && (
-                  <p className="text-[12px] text-[var(--color-txt-3)] mt-1.5">Demo menu - not live data.</p>
-                )}
-              </div>
-              <button type="button" className="btn btn-primary text-[12px] px-4 py-2.5 w-fit">
-                <Icon name="mapPin" size={14} />
-                Get Directions
-              </button>
-            </div>
-          </div>
-
-          {/* Station grid */}
-          {selected.stations.length === 0 ? (
-            <div className="card p-10 flex flex-col items-center gap-3 text-center">
-              <div className="w-10 h-10 rounded-xl bg-[var(--color-stat)] flex items-center justify-center">
-                <Icon name="dining" size={18} className="text-[var(--color-txt-3)]" />
-              </div>
-              <p className="text-[14px] font-medium text-[var(--color-txt-0)]">No menu posted yet</p>
-              <p className="text-[13px] text-[var(--color-txt-2)]">Check back closer to meal time.</p>
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {selected.stations.map((station, i) => (
-                <StationCard
-                  key={station.name}
-                  station={station}
-                  index={i}
-                  favorites={favorites}
-                  onToggleFavorite={toggleFavorite}
-                />
-              ))}
+          {locations.length > 0 && (
+            <div className="flex gap-2 mb-6 overflow-x-auto pb-1 -mx-1 px-1 animate-fade-in-up stagger-1">
+              {locations.map((loc) => {
+                const isSelected = selected && loc.id === selected.id
+                return (
+                  <button
+                    key={loc.id}
+                    type="button"
+                    onClick={() => setSelectedId(loc.id)}
+                    aria-pressed={Boolean(isSelected)}
+                    data-dining-location={loc.slug}
+                    className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border whitespace-nowrap transition-all duration-300 ${
+                      isSelected
+                        ? 'bg-[var(--color-surface)] border-[var(--color-border-2)] shadow-md'
+                        : 'bg-transparent border-transparent hover:bg-[var(--color-surface)] hover:border-[var(--color-border)]'
+                    }`}
+                  >
+                    <div className={`status-dot ${loc.is_open ? 'status-open' : 'status-closed'}`} />
+                    <span className={`text-[13px] font-medium ${isSelected ? 'text-[var(--color-txt-0)]' : 'text-[var(--color-txt-1)]'}`}>{loc.name}</span>
+                  </button>
+                )
+              })}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Weekly Hours for all locations */}
-      <div className="card p-6 animate-fade-in-up stagger-3">
-        <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-5">
-          Weekly Hours of Operation
-        </div>
-
-        {locations.filter((l) => l.weekly_hours).length > 0 ? (
-          <div className="space-y-6">
-            {locations
-              .filter((l) => l.weekly_hours)
-              .map((loc) => {
-                const today = getTodayDayName()
-                return (
-                  <div key={loc.id}>
-                    <div className="flex items-center gap-2.5 mb-3">
-                      <div className={`status-dot ${loc.status === 'open' ? 'status-open' : 'status-closed'}`} />
-                      <span className="text-[14px] font-semibold text-[var(--color-txt-0)]">{loc.name}</span>
-                      <span className="text-[12px] text-[var(--color-txt-2)]">
-                        · {loc.status === 'open' ? 'Open now' : 'Closed'} · {loc.hours}
+          {selected && empty && (
+            <div className="mb-6 animate-fade-in-up stagger-2" data-dining-selected={selected.slug}>
+              {/* Location header */}
+              <div className="card p-5 mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-xl font-semibold text-[var(--color-txt-0)]">{selected.name}</h2>
+                      {selected.kind === 'retail' && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-stat)] text-[var(--color-txt-2)]">
+                          Food court
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className={`status-dot ${selected.is_open ? 'status-open' : 'status-closed'}`} />
+                      <span className="text-[13px] text-[var(--color-txt-2)]" data-dining-status>
+                        {statusLine(selected)}
                       </span>
+                    </div>
+                  </div>
+                  <a
+                    href={diningDirectionsUrl(selected)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-primary text-[12px] px-4 py-2.5 w-fit no-underline"
+                  >
+                    <Icon name="mapPin" size={14} />
+                    Get Directions
+                  </a>
+                </div>
+              </div>
+
+              {/* Station grid, or the honest reason there is none */}
+              {(selected.stations || []).length === 0 ? (
+                <div className="card p-10 flex flex-col items-center gap-3 text-center" data-dining-empty={empty.kind}>
+                  <div className="w-10 h-10 rounded-xl bg-[var(--color-stat)] flex items-center justify-center">
+                    <Icon name={empty.icon} size={18} className="text-[var(--color-txt-3)]" />
+                  </div>
+                  <p className="text-[14px] font-medium text-[var(--color-txt-0)]">{empty.title}</p>
+                  <p className="text-[13px] text-[var(--color-txt-2)] max-w-md">{empty.body}</p>
+                </div>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {(selected.stations || []).map((station, i) => (
+                    <StationCard key={station.name} station={station} index={i} favorites={favorites} onToggleFavorite={toggleFavorite} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Weekly hours for every location, straight from the feed */}
+          <div className="card p-6 animate-fade-in-up stagger-3" data-dining-hours>
+            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-5">Weekly Hours of Operation</div>
+
+            {withHours.length > 0 ? (
+              <div className="space-y-6">
+                {withHours.map((loc) => (
+                  <div key={loc.id} data-dining-hours-for={loc.slug}>
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className={`status-dot ${loc.is_open ? 'status-open' : 'status-closed'}`} />
+                      <span className="text-[14px] font-semibold text-[var(--color-txt-0)]">{loc.name}</span>
+                      <span className="text-[12px] text-[var(--color-txt-2)]">· {statusLine(loc)}</span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
                       {WEEKDAY_ORDER.map((day) => {
-                        const hrs = loc.weekly_hours?.[day] || 'N/A'
-                        const isToday = day === today
+                        const hrs = loc.weekly_hours?.[day] || 'Not posted'
+                        const isToday = day === weekday
                         const isClosed = /closed/i.test(hrs)
                         return (
                           <div
                             key={day}
+                            data-hours-today={isToday ? 'true' : undefined}
                             className={`rounded-xl p-3 text-center transition-all ${
                               isToday
                                 ? 'bg-gradient-to-br from-[var(--color-dining-bg)] to-[var(--color-dining-bg)]/50 border border-[var(--color-dining-color)]/15 ring-1 ring-[var(--color-dining-color)]/10'
@@ -560,17 +496,11 @@ export default function Dining() {
                               }`}
                             >
                               {SHORT_DAY[day]}
-                              {isToday && (
-                                <span className="ml-1 inline-flex w-1.5 h-1.5 rounded-full bg-[var(--color-success)] align-middle" />
-                              )}
+                              {isToday && <span className="ml-1 inline-flex w-1.5 h-1.5 rounded-full bg-[var(--color-success)] align-middle" />}
                             </div>
                             <div
                               className={`text-[12px] leading-snug ${
-                                isClosed
-                                  ? 'text-[var(--color-txt-3)]'
-                                  : isToday
-                                    ? 'text-[var(--color-dining-color)] font-medium'
-                                    : 'text-[var(--color-txt-1)]'
+                                isClosed ? 'text-[var(--color-txt-3)]' : isToday ? 'text-[var(--color-dining-color)] font-medium' : 'text-[var(--color-txt-1)]'
                               }`}
                             >
                               {isClosed ? 'Closed' : hrs}
@@ -580,28 +510,14 @@ export default function Dining() {
                       })}
                     </div>
                   </div>
-                )
-              })}
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-3 gap-4">
-            {GENERIC_HOURS.map(({ meal, time, icon }) => (
-              <div
-                key={meal}
-                className="bg-[var(--color-stat)] rounded-xl p-4 flex items-center gap-4 hover:bg-[var(--color-bg-3)] transition-colors"
-              >
-                <div className="w-10 h-10 rounded-xl bg-[var(--color-bg-2)] flex items-center justify-center">
-                  <Icon name={icon} size={18} className="text-[var(--color-txt-2)]" />
-                </div>
-                <div>
-                  <div className="text-[12px] text-[var(--color-txt-2)]">{meal}</div>
-                  <div className="text-[14px] font-medium text-[var(--color-txt-0)]">{time}</div>
-                </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <p className="text-[13px] text-[var(--color-txt-2)]" data-dining-no-hours>
+                Hours are not posted right now. They come from the same live feed as the menus, so they will reappear when it does.
+              </p>
+            )}
           </div>
-        )}
-      </div>
         </>
       )}
     </div>

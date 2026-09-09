@@ -560,7 +560,9 @@ export default function Home() {
         if (cancelled || !data?.ok || !Array.isArray(data.locations)) return
         const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
         if (!tower) return
-        const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+        // The snapshot names the Indianapolis calendar day it was built for; the
+        // browser's own weekday is only a fallback (a student can be on another date).
+        const todayName = (typeof data.weekday === 'string' && data.weekday) || new Date().toLocaleDateString('en-US', { weekday: 'long' })
         const todayHrs = tower.weekly_hours?.[todayName]
         setDiningStatus({
           name: tower.name,
