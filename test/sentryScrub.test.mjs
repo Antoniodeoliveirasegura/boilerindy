@@ -46,12 +46,15 @@ test('redacts the calendar-feed token, UUIDs, and API keys in URLs', () => {
     breadcrumbs: [
       { data: { url: 'https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r' } },
       { message: 'transit ?apiKey=8882812681 fetched' },
+      { message: 'xAI 429 for key xai-Ab3dEf9GhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCd' },
     ],
   })
   assert.ok(!event.request.url.includes('2f1c9e7a-4b6d-4a1e-9c3f-8d2b7e5a1f04'), 'feed token survived scrubbing')
   assert.ok(event.request.url.includes('[redacted]'))
-  assert.ok(!event.breadcrumbs[0].data.url.includes('AIzaSy'), 'Gemini key survived scrubbing')
+  assert.ok(!event.breadcrumbs[0].data.url.includes('AIzaSy'), 'Google key survived scrubbing')
   assert.ok(!event.breadcrumbs[1].message.includes('8882812681'), 'transit key survived scrubbing')
+  assert.ok(!event.breadcrumbs[2].message.includes('xai-Ab3d'), 'xAI key survived scrubbing')
+  assert.equal(event.breadcrumbs[2].message, 'xAI 429 for key [token]')
 })
 
 test('returns null/undefined unchanged and never throws on odd shapes', () => {

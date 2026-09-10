@@ -40,6 +40,7 @@ import {
 } from './src/pushReminders.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
+import { createGrokClient, GrokUpstreamError } from './src/grokClient.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -2492,24 +2493,30 @@ app.get('/', (_req, res) => {
 })
 
 // ============================================================
-// Gemini campus assistant
+// Grok (xAI) campus assistant
 // ============================================================
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
+const XAI_API_KEY = process.env.XAI_API_KEY
+// Model and (reasoning models only) effort come from the env so a model swap
+// needs no deploy; src/grokClient.mjs holds the default and the wire format.
+const grok = createGrokClient({
+  apiKey: XAI_API_KEY,
+  model: process.env.XAI_MODEL,
+  reasoningEffort: process.env.XAI_REASONING_EFFORT,
+})
 const TZ = 'America/Indiana/Indianapolis'
 
-// In-memory rate limiter: keyed by user ID (authed) or IP (anon)
-const _geminiWindows = new Map()
+// In-memory rate limiter for the AI routes: keyed by user ID (authed) or IP (anon)
+const _aiWindows = new Map()
 setInterval(() => {
   const now = Date.now()
-  for (const [k, v] of _geminiWindows) if (now >= v.resetAt) _geminiWindows.delete(k)
+  for (const [k, v] of _aiWindows) if (now >= v.resetAt) _aiWindows.delete(k)
 }, 60 * 60 * 1000)
 
-function geminiAllowed(key, max) {
+function aiAllowed(key, max) {
   const now = Date.now()
-  const win = _geminiWindows.get(key)
+  const win = _aiWindows.get(key)
   if (!win || now >= win.resetAt) {
-    _geminiWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
+    _aiWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
     return true
   }
   if (win.count >= max) return false
@@ -2705,7 +2712,7 @@ function buildAssistantCalendarContext(calendarData, now) {
 }
 
 // Intent router (issue #45): answer common questions straight from the DB so
-// they cost zero Gemini tokens. Returns a reply string, or null to fall through.
+// they cost zero Grok tokens. Returns a reply string, or null to fall through.
 async function buildAssistantRouterReply(intent, req, now) {
   const userId = req.currentUser.id
   if (intent === 'next_class' || intent === 'classes_today') {
@@ -2755,13 +2762,13 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
   }
 
-  if (!GEMINI_API_KEY) {
+  if (!XAI_API_KEY) {
     // Friendly fallback instead of a bare 503 - the router still handles asks above.
     return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
   }
 
   const rlKey = req.session?.userId || req.ip || 'anon'
-  if (!geminiAllowed(rlKey, 10)) {
+  if (!aiAllowed(rlKey, 10)) {
     return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
   }
 
@@ -2821,34 +2828,20 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
 
   const systemPrompt = CAMPUS_SYSTEM_PROMPT + '\n\n' + contextBlock
 
-  const contents = messages
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }))
-
   try {
-    const response = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        generationConfig: { maxOutputTokens: 2800, temperature: 0.52 },
-      }),
+    // The client keeps user/assistant turns only and puts the system prompt first.
+    const text = await grok.reply({
+      system: systemPrompt,
+      messages,
+      maxOutputTokens: 2800,
+      temperature: 0.52,
     })
-
-    if (!response.ok) {
-      const err = await response.text()
-      console.error('Gemini error:', err)
+    res.json({ reply: text ?? "Sorry, I couldn't generate a response." })
+  } catch (err) {
+    if (err instanceof GrokUpstreamError) {
+      console.error('Grok error:', err.body)
       return res.status(502).json({ error: 'AI service error' })
     }
-
-    const data = await response.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "Sorry, I couldn't generate a response."
-    res.json({ reply: text })
-  } catch (err) {
     console.error('Assistant error:', err)
     res.status(500).json({ error: 'Assistant request failed' })
   }
@@ -3421,13 +3414,13 @@ const BOARD_TAG_CANDIDATES = [
 ]
 
 app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
-  if (!GEMINI_API_KEY) {
+  if (!XAI_API_KEY) {
     return res.status(503).json({
       error: { message: 'AI suggestions are not configured.', status: 503 },
     })
   }
 
-  if (!geminiAllowed(req.session.userId, 10)) {
+  if (!aiAllowed(req.session.userId, 10)) {
     return res.status(429).json({
       error: { message: 'Rate limit reached. Try again in an hour.', status: 429 },
     })
@@ -3454,20 +3447,11 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       : `Campus board thread title: ${postTitle}\nOriginal post:\n${postBody || '(no body)'}\n\nStudent's reply draft:\n${draft}\n\nReturn ONLY JSON: {"replyTip":string|null} - one concise coaching sentence (tone, specificity, or missing info), or null if the draft is fine.`
 
   try {
-    const response = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: userText }] }],
-        generationConfig: { maxOutputTokens: 350, temperature: 0.35 },
-      }),
-    })
-    if (!response.ok) {
-      console.error('Board AI suggestions:', await response.text())
-      return res.status(502).json({ error: { message: 'AI service error', status: 502 } })
-    }
-    const data = await response.json()
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+    const raw = (await grok.reply({
+      messages: [{ role: 'user', content: userText }],
+      maxOutputTokens: 350,
+      temperature: 0.35,
+    })) ?? '{}'
     const match = raw.match(/\{[\s\S]*\}/)
     if (!match) {
       return context === 'compose'
@@ -3505,31 +3489,25 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       res.json({ replyTip: replyTip || null })
     }
   } catch (e) {
+    if (e instanceof GrokUpstreamError) {
+      console.error('Board AI suggestions:', e.body)
+      return res.status(502).json({ error: { message: 'AI service error', status: 502 } })
+    }
     console.error('Board AI suggestions:', e?.message || e)
     return res.status(500).json({ error: { message: 'Suggestion request failed', status: 500 } })
   }
 })
 
 async function autoTagBoardPost(postId, title, body) {
-  if (!GEMINI_API_KEY) return []
+  if (!XAI_API_KEY) return []
   const combined = `${title}\n${body}`.slice(0, 400)
   try {
-    const resp = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{
-            text: `You are a campus board post auto-tagger. Given a student's post, pick 1-3 of the most relevant tags from this list: ${BOARD_TAG_CANDIDATES.join(', ')}. Return ONLY a JSON array of strings, e.g. ["dining","parking"]. If nothing fits, return [].`,
-          }],
-        },
-        contents: [{ role: 'user', parts: [{ text: combined }] }],
-        generationConfig: { maxOutputTokens: 60, temperature: 0.1 },
-      }),
-    })
-    if (!resp.ok) return []
-    const data = await resp.json()
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
+    const raw = (await grok.reply({
+      system: `You are a campus board post auto-tagger. Given a student's post, pick 1-3 of the most relevant tags from this list: ${BOARD_TAG_CANDIDATES.join(', ')}. Return ONLY a JSON array of strings, e.g. ["dining","parking"]. If nothing fits, return [].`,
+      messages: [{ role: 'user', content: combined }],
+      maxOutputTokens: 60,
+      temperature: 0.1,
+    })) ?? '[]'
     const match = raw.match(/\[.*\]/)
     if (!match) return []
     const parsed = JSON.parse(match[0])
