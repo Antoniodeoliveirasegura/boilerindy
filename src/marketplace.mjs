@@ -64,6 +64,16 @@ export function validateListingInput(body, { partial = false } = {}) {
       updates.price_cents = n
     }
   }
+  if (has('priceMode')) {
+    if (!['fixed', 'free', 'best_offer'].includes(body.priceMode)) return { error: 'Choose a valid price option' }
+    updates.price_mode = body.priceMode
+    if (body.priceMode === 'free') updates.price_cents = 0
+    if (body.priceMode === 'best_offer') updates.price_cents = null
+    if (body.priceMode === 'fixed' && !has('priceCents')) updates.price_cents = null
+  } else if (has('priceCents')) {
+    updates.price_mode = updates.price_cents === 0 ? 'free' : 'fixed'
+  }
+  if (updates.price_cents === 0) updates.price_mode = 'free'
   if (has('imageUrl')) {
     const url = String(body.imageUrl ?? '').trim()
     if (url && !isHttpUrl(url)) return { error: 'Image URL must be a valid http(s) link' }
@@ -88,7 +98,9 @@ export function mapListingRow(row, currentUserId, seller = null) {
     description: row.description || '',
     category: row.category,
     priceCents: row.price_cents ?? null,
+    priceMode: row.price_cents === 0 ? 'free' : row.price_mode || 'fixed',
     imageUrl: row.image_url || null,
+    images: row.image_urls?.length ? row.image_urls : row.image_url ? [row.image_url] : [],
     status: row.status,
     createdAt: row.created_at,
     isMine: row.user_id === currentUserId,

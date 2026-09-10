@@ -1,0 +1,778 @@
+{
+  "id": 294540,
+  "last_updated": "2026-08-25T02:33:07.581844Z",
+  "start_date": "2026-09-07",
+  "menu_type_id": 13262,
+  "bold_all_entrees_enabled": false,
+  "days": [
+    {
+      "date": "2026-09-08",
+      "menu_items": []
+    },
+    {
+      "date": "2026-09-09",
+      "menu_items": [
+        {
+          "id": 425117459,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429369591,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3097179,
+            "name": "Jalapeno Cheddar Sausage",
+            "rounded_nutrition_info": {
+              "calories": 198
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117463,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2577983,
+            "name": "Herb Roasted Wedge Potatoes",
+            "rounded_nutrition_info": {
+              "calories": 209
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117464,
+          "position": 3,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2070403,
+            "name": "Mushroom Medley",
+            "rounded_nutrition_info": {
+              "calories": 65
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117474,
+          "position": 8,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 425117476,
+          "position": 9,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117478,
+          "position": 10,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117480,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 427315914,
+          "position": 20,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 427315915,
+          "position": 21,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 427315916,
+          "position": 22,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929032,
+            "name": "Sliced Tomatoes",
+            "rounded_nutrition_info": {
+              "calories": 5
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 427315917,
+          "position": 23,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929035,
+            "name": "Dill Pickle Slices",
+            "rounded_nutrition_info": {
+              "calories": 3
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117496,
+          "position": 25,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Pizza",
+          "food": null
+        },
+        {
+          "id": 425117498,
+          "position": 26,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929116,
+            "name": "Cheese Pizza",
+            "rounded_nutrition_info": {
+              "calories": 195
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117499,
+          "position": 27,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929118,
+            "name": "Pepperoni Pizza",
+            "rounded_nutrition_info": {
+              "calories": 212
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117501,
+          "position": 28,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926114,
+            "name": "Crushed Red Pepper",
+            "rounded_nutrition_info": {
+              "calories": 6
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429644990,
+          "position": 32,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Hasta La Pasta",
+          "food": null
+        },
+        {
+          "id": 429644992,
+          "position": 33,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926114,
+            "name": "Crushed Red Pepper",
+            "rounded_nutrition_info": {
+              "calories": 6
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429644995,
+          "position": 34,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929215,
+            "name": "Fresh Chopped Garlic",
+            "rounded_nutrition_info": {
+              "calories": 13
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429644997,
+          "position": 35,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801792,
+            "name": "Black Pepper",
+            "rounded_nutrition_info": {
+              "calories": 1
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117509,
+          "position": 52,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Salad Bar",
+          "food": null
+        },
+        {
+          "id": 425117510,
+          "position": 53,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929068,
+            "name": "Baby Spinach",
+            "rounded_nutrition_info": {
+              "calories": 7
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Climate Friendly",
+                  "name": "Climate Friendly",
+                  "slug": "climate-friendly"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117512,
+          "position": 54,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2371763,
+            "name": "Sliced Cucumber",
+            "rounded_nutrition_info": {
+              "calories": 4
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 425117513,
+          "position": 55,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926012,
+            "name": "Cherry Tomatoes",
+            "rounded_nutrition_info": {
+              "calories": 5
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429645052,
+          "position": 96,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 429645053,
+          "position": 97,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429645054,
+          "position": 98,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429645056,
+          "position": 99,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027914,
+            "name": "Banana Pudding",
+            "rounded_nutrition_info": {
+              "calories": 301
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429645063,
+          "position": 102,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Innovation",
+          "food": null
+        },
+        {
+          "id": 429645064,
+          "position": 103,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3051473,
+            "name": "Queso Beef Burrito, Chipotle Sauce",
+            "rounded_nutrition_info": {
+              "calories": 1108
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

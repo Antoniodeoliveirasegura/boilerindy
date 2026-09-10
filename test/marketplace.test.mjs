@@ -58,3 +58,15 @@ test('mapListingRow hides contact in list view, shows it on detail', () => {
 test('MARKETPLACE_CATEGORIES is the canonical list', () => {
   assert.deepEqual(MARKETPLACE_CATEGORIES, ['textbooks', 'furniture', 'electronics', 'housing', 'rideshare', 'tutoring', 'tickets', 'misc'])
 })
+
+test('normalizes zero, free and best offer, preserving pricing on unrelated patches', () => {
+  const validate = (body) => validateListingInput(body, { partial: true })
+  assert.deepEqual(validate({ priceCents: 0 }).value, { price_cents: 0, price_mode: 'free' })
+  assert.deepEqual(validate({ priceMode: 'best_offer', priceCents: 2500 }).value, { price_cents: null, price_mode: 'best_offer' })
+  assert.deepEqual(validate({ priceMode: 'free', priceCents: 2500 }).value, { price_cents: 0, price_mode: 'free' })
+  assert.deepEqual(validate({ status: 'sold' }).value, { status: 'sold' })
+  assert.ok(validate({ priceMode: 'best deal' }).error)
+  assert.equal(mapListingRow({ price_cents: 0 }).priceMode, 'free')
+  assert.deepEqual(mapListingRow({ image_url: 'old' }).images, ['old'])
+  assert.deepEqual(mapListingRow({ image_url: 'a', image_urls: ['a', 'b'] }).images, ['a', 'b'])
+})

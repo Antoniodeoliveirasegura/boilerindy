@@ -1,10 +1,11 @@
 import { test, expect, sampleListings } from './fixtures/mock-backend.js'
 
-// Marketplace photos (#171) on the website. Drives the real /marketplace page
-// against the mocked API and a mocked Supabase Storage: listings render their
-// photo the way the app does, a seller attaches a photo when posting (the
-// browser re-encodes it, PUTs it to Storage, and sends the receipt instead of a
-// link), edits an existing listing's photo, falls back to a link, sees the
+// Marketplace photos (#171) and galleries / pricing (#177) on the website.
+// Drives the real /marketplace page against the mocked API and a mocked
+// Supabase Storage: listings render their cover the way the app does, a seller
+// attaches a photo when posting (the browser re-encodes it, PUTs it to Storage,
+// and sends the receipt inside the ordered photos list), edits an existing
+// listing's photos, adds image links, picks Free / Best offer, sees the
 // server's message when photo storage is off, and can retry a failed upload.
 
 // A real JPEG drawn in the page, so the browser-side re-encode has something to decode.
@@ -29,9 +30,9 @@ const card = (page, id) => page.locator(`[data-listing-id="${id}"]`)
 
 // The fixture is 48 px wide; seeing that width back proves the bytes that were
 // uploaded are the bytes the bucket serves, not just that some image loaded.
+// Works for a card (tile with the cover on top) and for the detail gallery.
 async function expectRenderedPhoto(locator) {
-  await expect(locator.locator('[data-listing-image]')).toHaveAttribute('data-listing-image', 'photo')
-  const img = locator.locator('img')
+  const img = locator.locator('img').first()
   await expect(img).toHaveAttribute('src', /marketplace-images\/managed\//)
   await expect.poll(() => img.evaluate((el) => el.naturalWidth)).toBe(48)
 }
@@ -57,7 +58,9 @@ test.describe('Marketplace photos', () => {
     await textbook.getByRole('button').first().click()
     const detail = page.locator('[data-listing-detail="listing-1"]')
     await expect(detail).toContainText('Calculus textbook, 9th edition')
-    await expect(detail.locator('[data-listing-image]')).toHaveAttribute('data-listing-image', 'photo')
+    // The detail shows the whole gallery, the way the app does.
+    await expect(detail.locator('[data-listing-gallery]')).toHaveAttribute('data-listing-gallery', '1')
+    await expect(detail.getByAltText('Calculus textbook, 9th edition photo 1')).toBeVisible()
     await expect(detail.getByRole('link', { name: 'riley@purdue.edu' })).toBeVisible()
   })
 
@@ -73,8 +76,7 @@ test.describe('Marketplace photos', () => {
     await expect(photoStatus(page)).toHaveAttribute('data-photo-status', 'ready')
     await expect(photoMessage(page)).toContainText('Photo ready')
     await expect(page.locator('[data-photo-preview]')).toBeVisible()
-    // A chosen photo replaces the link box: the server refuses both at once.
-    await expect(page.getByPlaceholder('Or paste an image link (optional)')).toHaveCount(0)
+    await expect(page.locator('[data-photo-status]')).toHaveAttribute('data-photo-count', '1')
     expect(mockApi.state.marketplace.uploads.size).toBe(1)
 
     await page.getByRole('button', { name: 'Post listing' }).click()
@@ -83,15 +85,19 @@ test.describe('Marketplace photos', () => {
     const created = mockApi.state.marketplace.listings[0]
     expect(created.title).toBe('Standing desk')
     expect(created.imageUrl).toMatch(/marketplace-images\/managed\//)
+    expect(created.images).toEqual([created.imageUrl])
     const body = mockApi.state.marketplace.bodies.at(-1).body
-    expect(body.imageUploadReceipt).toMatch(/^receipt-/)
+    expect(body.photos).toEqual([{ receipt: expect.stringMatching(/^receipt-/) }])
     expect(body).not.toHaveProperty('imageUrl')
+    expect(body).not.toHaveProperty('imageUploadReceipt')
+    expect(body.priceMode).toBe('fixed')
     expect(body.priceCents).toBe(8000)
     expect(body.category).toBe('furniture')
 
+    await expect(card(page, created.id).locator('[data-listing-image]')).toHaveAttribute('data-listing-image', 'photo')
     await expectRenderedPhoto(card(page, created.id))
 
-    // The detail hero shows the same photo, served from the bucket URL.
+    // The detail gallery shows the same photo, served from the bucket URL.
     await card(page, created.id).getByRole('button').first().click()
     const detail = page.locator(`[data-listing-detail="${created.id}"]`)
     await expect(detail).toContainText('Standing desk')
@@ -116,34 +122,64 @@ test.describe('Marketplace photos', () => {
 
     const receipts = [...mockApi.state.marketplace.receipts.values()]
     expect(receipts.at(-1).listingId).toBe('listing-2')
-    expect(mockApi.state.marketplace.bodies.at(-1).body).toMatchObject({ imageUploadReceipt: expect.stringMatching(/^receipt-/) })
+    expect(mockApi.state.marketplace.bodies.at(-1).body).toEqual({ photos: [{ receipt: expect.stringMatching(/^receipt-/) }] })
     await expectRenderedPhoto(card(page, 'listing-2'))
 
-    // Remove: the form shows the current photo, Remove clears it, save sends an empty link.
+    // Remove: the form lists the current photo as a link; clearing the box sends an empty gallery.
     await card(page, 'listing-2').getByRole('button', { name: 'Edit' }).click()
-    await expect(photoMessage(page)).toContainText('Current photo')
-    await page.getByRole('button', { name: 'Remove' }).click()
-    await expect(page.getByPlaceholder('Or paste an image link (optional)')).toHaveValue('')
+    await expect(page.getByLabel('Image links')).toHaveValue(/marketplace-images\/managed\//)
+    await expect(photoMessage(page)).toContainText('1 photo from links')
+    await page.getByLabel('Image links').fill('')
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(page.locator('[data-listing-form]')).toHaveCount(0)
-    expect(mockApi.state.marketplace.bodies.at(-1).body).toEqual({ imageUrl: '' })
-    expect(mockApi.state.marketplace.listings.find((l) => l.id === 'listing-2').imageUrl).toBeNull()
+    expect(mockApi.state.marketplace.bodies.at(-1).body).toEqual({ photos: [] })
+    const cleared = mockApi.state.marketplace.listings.find((l) => l.id === 'listing-2')
+    expect(cleared.imageUrl).toBeNull()
+    expect(cleared.images).toEqual([])
     await expect(card(page, 'listing-2').locator('[data-listing-image]')).toHaveAttribute('data-listing-image', 'placeholder')
   })
 
-  test('a link still works when no photo is chosen', async ({ page, mockApi }) => {
+  test('image links make an ordered gallery, and Free is a price choice', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/marketplace')
     await page.getByRole('button', { name: 'Post a listing' }).click()
     await page.getByLabel('Title').fill('Bike lock')
-    await page.getByPlaceholder('Or paste an image link (optional)').fill('https://example.test/lock.jpg')
+    await page.getByLabel('Pricing').selectOption('free')
+    await expect(page.locator('[data-price-hint]')).toHaveText('Listed as Free.')
+    await page.getByLabel('Image links').fill('https://example.test/lock.jpg\nhttps://example.test/lock-2.jpg')
+    await expect(photoMessage(page)).toContainText('2 photos from links')
     await page.getByRole('button', { name: 'Post listing' }).click()
     await expect(page.locator('[data-listing-form]')).toHaveCount(0)
 
     const created = mockApi.state.marketplace.listings[0]
     expect(created.title).toBe('Bike lock')
+    expect(created.images).toEqual(['https://example.test/lock.jpg', 'https://example.test/lock-2.jpg'])
     expect(created.imageUrl).toBe('https://example.test/lock.jpg')
-    expect(mockApi.state.marketplace.bodies.at(-1).body).not.toHaveProperty('imageUploadReceipt')
+    expect(created.priceMode).toBe('free')
+    expect(created.priceCents).toBe(0)
+    const body = mockApi.state.marketplace.bodies.at(-1).body
+    expect(body).toMatchObject({ priceMode: 'free', priceCents: 0, photos: [{ url: 'https://example.test/lock.jpg' }, { url: 'https://example.test/lock-2.jpg' }] })
+    await expect(card(page, created.id)).toContainText('Free')
+
+    // Best offer shows as such on the card and in the detail.
+    await card(page, created.id).getByRole('button').first().click()
+    await expect(page.locator(`[data-listing-detail="${created.id}"] [data-listing-gallery]`)).toHaveAttribute('data-listing-gallery', '2')
+    await expect(page.getByAltText('Bike lock photo 2')).toHaveAttribute('src', 'https://example.test/lock-2.jpg')
+  })
+
+  test('Best offer posts a null price and reads as Best offer', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/marketplace')
+    await page.getByRole('button', { name: 'Post a listing' }).click()
+    await page.getByLabel('Title').fill('Textbook bundle')
+    await page.getByLabel('Pricing').selectOption('best_offer')
+    await expect(page.locator('[data-price-hint]')).toHaveText('Buyers will send offers.')
+    await page.getByRole('button', { name: 'Post listing' }).click()
+    await expect(page.locator('[data-listing-form]')).toHaveCount(0)
+    const created = mockApi.state.marketplace.listings[0]
+    expect(created.priceMode).toBe('best_offer')
+    expect(created.priceCents).toBeNull()
+    await expect(card(page, created.id)).toContainText('Best offer')
   })
 
   test('when photo storage is off the server message shows and the draft survives', async ({ page, mockApi }) => {
@@ -163,10 +199,11 @@ test.describe('Marketplace photos', () => {
     await expect(page.locator('[data-form-error]')).toContainText('Retry the photo upload or remove the photo')
 
     await page.getByRole('button', { name: 'Remove' }).click()
-    await page.getByPlaceholder('Or paste an image link (optional)').fill('https://example.test/fridge.jpg')
+    await page.getByLabel('Image links').fill('https://example.test/fridge.jpg')
     await page.getByRole('button', { name: 'Post listing' }).click()
     await expect(page.locator('[data-listing-form]')).toHaveCount(0)
     expect(mockApi.state.marketplace.listings[0].imageUrl).toBe('https://example.test/fridge.jpg')
+    expect(mockApi.state.marketplace.bodies.at(-1).body.photos).toEqual([{ url: 'https://example.test/fridge.jpg' }])
   })
 
   test('a failed upload keeps the photo and offers a retry', async ({ page, mockApi }) => {

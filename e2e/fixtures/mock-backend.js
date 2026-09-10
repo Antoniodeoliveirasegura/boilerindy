@@ -207,7 +207,9 @@ function sampleListing(overrides) {
     description: 'Barely used, no highlights.',
     category: 'textbooks',
     priceCents: 4500,
+    priceMode: 'fixed',
     imageUrl: SAMPLE_PHOTO,
+    images: [SAMPLE_PHOTO],
     status: 'active',
     createdAt: '2026-09-07T12:00:00.000Z',
     isMine: false,
@@ -218,8 +220,8 @@ function sampleListing(overrides) {
 export function sampleListings() {
   return [
     sampleListing(),
-    sampleListing({ id: 'listing-2', title: 'Desk lamp', description: 'Warm white LED.', category: 'furniture', priceCents: 1250, imageUrl: null, isMine: true }),
-    sampleListing({ id: 'listing-3', title: 'Bus pass, spring', description: '', category: 'rideshare', priceCents: 0, imageUrl: null }),
+    sampleListing({ id: 'listing-2', title: 'Desk lamp', description: 'Warm white LED.', category: 'furniture', priceCents: 1250, imageUrl: null, images: [], isMine: true }),
+    sampleListing({ id: 'listing-3', title: 'Bus pass, spring', description: '', category: 'rideshare', priceCents: 0, priceMode: 'free', imageUrl: null, images: [] }),
   ]
 }
 
@@ -243,18 +245,157 @@ function defaultMarketplace() {
   }
 }
 
-// Same rules as marketplacePhotos.resolve() on the server: a receipt replaces
-// the image link, must match the seller's listing and a finished upload, and
-// cannot be combined with a link.
-function resolveMockPhoto(m, body, listingId) {
-  if (body.imageUploadReceipt === undefined) {
-    return body.imageUrl !== undefined ? { imageUrl: String(body.imageUrl || '').trim() || null } : {}
-  }
-  if (body.imageUrl) return { error: 'Choose either an uploaded photo or an image link.' }
-  const receipt = m.receipts.get(body.imageUploadReceipt)
+// Same rules as marketplacePhotos.resolve() on the server. The ordered
+// `photos` list (#177) mixes { url } and { receipt } entries, at most six, the
+// first being the cover; a receipt must match the seller's listing and a
+// finished upload; a bucket URL can only be kept if the listing already had it.
+// The legacy single-image fields still work for older clients.
+function resolveMockReceipt(m, value, listingId) {
+  const receipt = m.receipts.get(value)
   if (!receipt || receipt.listingId !== (listingId || null)) return { error: 'This photo belongs to another seller or listing.' }
   if (!m.uploads.has(receipt.path)) return { error: 'The uploaded photo is missing or incomplete. Choose it again and retry.' }
-  return { imageUrl: `${STORAGE_PUBLIC_BASE}/${receipt.path}` }
+  return { url: `${STORAGE_PUBLIC_BASE}/${receipt.path}` }
+}
+
+function resolveMockPhoto(m, body, listingId, existingImages = []) {
+  if (body.photos !== undefined) {
+    if (body.imageUrl !== undefined || body.imageUploadReceipt !== undefined) return { error: 'Choose one photo format.' }
+    if (!Array.isArray(body.photos) || body.photos.length > 6) return { error: 'Choose up to 6 photos.' }
+    const urls = []
+    for (const photo of body.photos) {
+      if (!photo || typeof photo !== 'object') return { error: 'Each photo needs one image link or upload receipt.' }
+      if (typeof photo.receipt === 'string') {
+        const resolved = resolveMockReceipt(m, photo.receipt, listingId)
+        if (resolved.error) return resolved
+        urls.push(resolved.url)
+      } else if (typeof photo.url === 'string') {
+        const value = photo.url.trim()
+        if (value.startsWith(STORAGE_PUBLIC_BASE) && !existingImages.includes(value)) return { error: 'Select the photo to upload it to this listing.' }
+        urls.push(value)
+      } else {
+        return { error: 'Each photo needs one image link or upload receipt.' }
+      }
+    }
+    if (new Set(urls).size !== urls.length) return { error: 'Choose each photo only once.' }
+    return { imageUrl: urls[0] || null, images: urls }
+  }
+  if (body.imageUploadReceipt !== undefined) {
+    if (body.imageUrl) return { error: 'Choose either an uploaded photo or an image link.' }
+    const resolved = resolveMockReceipt(m, body.imageUploadReceipt, listingId)
+    if (resolved.error) return resolved
+    return { imageUrl: resolved.url, images: [resolved.url] }
+  }
+  if (body.imageUrl !== undefined) {
+    const value = String(body.imageUrl || '').trim()
+    return { imageUrl: value || null, images: value ? [value] : [] }
+  }
+  return {}
+}
+
+// Price modes (#177): Free is zero, Best offer is null, a set price is cents or
+// unspecified; older clients that send only priceCents get a mode inferred.
+function applyMockPricing(listing, body) {
+  if (body.priceMode !== undefined) {
+    if (!['fixed', 'free', 'best_offer'].includes(body.priceMode)) return 'Choose a valid price option'
+    listing.priceMode = body.priceMode
+    if (body.priceMode === 'free') listing.priceCents = 0
+    else if (body.priceMode === 'best_offer') listing.priceCents = null
+    else listing.priceCents = body.priceCents == null ? null : Number(body.priceCents)
+  } else if (body.priceCents !== undefined) {
+    listing.priceCents = body.priceCents == null ? null : Number(body.priceCents)
+    listing.priceMode = listing.priceCents === 0 ? 'free' : 'fixed'
+  }
+  if (listing.priceCents === 0) listing.priceMode = 'free'
+  return null
+}
+
+// Dining (#119): the snapshot renderSnapshot() in src/nutrisliceDining.mjs
+// produces. Tower Dining is a dining hall with two stations; the Campus Center
+// is the retail food court (hours only, no menu), currently before opening.
+const WEEKDAY_HOURS = {
+  Monday: '7:00 AM - 9:00 PM',
+  Tuesday: '7:00 AM - 9:00 PM',
+  Wednesday: '7:00 AM - 9:00 PM',
+  Thursday: '7:00 AM - 9:00 PM',
+  Friday: '7:00 AM - 9:00 PM',
+  Saturday: 'Closed',
+  Sunday: 'Closed',
+}
+
+export function sampleDiningLocation(overrides = {}) {
+  return {
+    id: 'tower-dining',
+    slug: 'tower-dining',
+    name: 'Tower Dining',
+    kind: 'dining-hall',
+    address: 'University Tower, 911 W North St, Indianapolis, IN 46202',
+    is_open: true,
+    hours: '7:00 AM - 9:00 PM',
+    closes_at: '9:00 PM',
+    opens_at: null,
+    open24h: false,
+    weekly_hours: { ...WEEKDAY_HOURS },
+    timezone: 'America/Indiana/Indianapolis',
+    meal: 'Menus: breakfast, lunch, dinner',
+    menusPublished: true,
+    stations: [
+      {
+        name: 'Daily Grill',
+        items: [
+          { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] },
+          { name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
+        ],
+      },
+      { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
+    ],
+    ...overrides,
+  }
+}
+
+export function sampleDining(overrides = {}) {
+  return {
+    ok: true,
+    date: '2026-09-09',
+    weekday: 'Wednesday',
+    timezone: 'America/Indiana/Indianapolis',
+    apiBase: 'https://iupui.api.nutrislice.com',
+    fetchedAt: '2026-09-09T11:00:00.000Z',
+    cacheTtlMs: 43200000,
+    cached: false,
+    stale: false,
+    cacheExpiresAt: '2026-09-09T23:00:00.000Z',
+    missing: [],
+    locations: [
+      sampleDiningLocation(),
+      sampleDiningLocation({
+        id: 'campus-center',
+        slug: 'campus-center',
+        name: 'Campus Center',
+        kind: 'retail',
+        address: '420 University Blvd, Indianapolis, IN 46202',
+        is_open: false,
+        closes_at: null,
+        opens_at: '7:00 AM',
+        meal: 'Retail dining, no posted menu',
+        menusPublished: false,
+        stations: [],
+      }),
+    ],
+    ...overrides,
+  }
+}
+
+function unavailableDining() {
+  return {
+    ok: false,
+    error: 'schools_fetch_failed',
+    status: 503,
+    locations: [],
+    date: '2026-09-09',
+    weekday: 'Wednesday',
+    timezone: 'America/Indiana/Indianapolis',
+    cached: false,
+  }
 }
 
 // Parking (#14): two garages with live counts, one without (sensor offline),
@@ -370,6 +511,10 @@ export const test = base.extend({
       clubs: null,
       // Marketplace (#32) + listing photos (#171): see defaultMarketplace / seedMarketplace.
       marketplace: defaultMarketplace(),
+      // Dining (#119): { snapshot, unavailable }. null === the built-in sample snapshot.
+      dining: null,
+      // Dining favorites (#49): normalized item names the mock user starred.
+      diningFavorites: [],
       // Web Push (#9): see defaultPush / seedPush.
       push: defaultPush(),
       pushSeq: 0,
@@ -568,6 +713,21 @@ export const test = base.extend({
         return json(route, 200, { feedUrl: state.feedUrl })
       }
 
+      // Dining (#119): the public snapshot, plus the favorites routes (#49) so
+      // starring an item persists across a reload the way the DB does.
+      if (pathname === '/api/dining') {
+        const seed = state.dining || {}
+        if (seed.unavailable) return json(route, 200, unavailableDining())
+        return json(route, 200, seed.snapshot || sampleDining())
+      }
+      if (pathname === '/api/me/dining/favorites') {
+        if (method === 'GET') return json(route, 200, { favorites: [...state.diningFavorites] })
+        const name = String(bodyOf().itemName || '').trim().toLowerCase()
+        if (method === 'POST' && name && !state.diningFavorites.includes(name)) state.diningFavorites.push(name)
+        if (method === 'DELETE') state.diningFavorites = state.diningFavorites.filter((n) => n !== name)
+        return json(route, 200, { ok: true, favorites: [...state.diningFavorites] })
+      }
+
       // Marketplace (#32) and listing photos (#171): shapes mirror mapListingRow
       // and the /api/marketplace/* routes in server.mjs, including the receipt
       // flow (authorize here, PUT to the mocked Storage below, receipt instead
@@ -606,30 +766,37 @@ export const test = base.extend({
       if (pathname === '/api/marketplace/mine' && method === 'GET') {
         return json(route, 200, { listings: state.marketplace.listings.filter((l) => l.isMine) })
       }
+      if (pathname === '/api/marketplace/capabilities' && method === 'GET') {
+        return json(route, 200, { gallery: true, pricing: true, maxPhotos: 6 })
+      }
       if (pathname === '/api/marketplace' && method === 'POST') {
         const m = state.marketplace
         const b = bodyOf()
         m.bodies.push({ method, body: b })
         const title = String(b.title || '').trim()
         if (!title) return json(route, 400, { error: { message: 'Title is required (max 120 characters)', status: 400 } })
-        const photo = resolveMockPhoto(m, b, null)
+        const photo = resolveMockPhoto(m, b, null, [])
         if (photo.error) return json(route, 400, { error: { message: photo.error, status: 400 } })
         const listing = {
           id: `listing-${++m.listingSeq}`,
           title,
           description: String(b.description || '').trim(),
           category: String(b.category || 'misc'),
-          priceCents: b.priceCents == null ? null : Number(b.priceCents),
+          priceCents: null,
+          priceMode: 'fixed',
           imageUrl: photo.imageUrl ?? null,
+          images: photo.images ?? [],
           status: 'active',
           createdAt: new Date().toISOString(),
           isMine: true,
         }
+        const priceError = applyMockPricing(listing, b)
+        if (priceError) return json(route, 400, { error: { message: priceError, status: 400 } })
         m.listings.unshift(listing)
         return json(route, 201, { listing })
       }
       const listingMatch = pathname.match(/^\/api\/marketplace\/([^/]+)(\/report)?$/)
-      if (listingMatch && listingMatch[1] !== 'mine' && listingMatch[1] !== 'photos') {
+      if (listingMatch && !['mine', 'photos', 'capabilities'].includes(listingMatch[1])) {
         const m = state.marketplace
         const listing = m.listings.find((l) => l.id === listingMatch[1])
         if (listingMatch[2] && method === 'POST') return json(route, 200, { ok: true })
@@ -644,13 +811,15 @@ export const test = base.extend({
           const b = bodyOf()
           m.bodies.push({ method, id: listing.id, body: b })
           if (!listing.isMine) return json(route, 404, { error: { message: 'Listing not found or not yours.', status: 404 } })
-          const photo = resolveMockPhoto(m, b, listing.id)
+          const photo = resolveMockPhoto(m, b, listing.id, listing.images || [])
           if (photo.error) return json(route, 400, { error: { message: photo.error, status: 400 } })
+          const priceError = applyMockPricing(listing, b)
+          if (priceError) return json(route, 400, { error: { message: priceError, status: 400 } })
           for (const key of ['title', 'description', 'category', 'status']) {
             if (b[key] !== undefined) listing[key] = String(b[key])
           }
-          if (b.priceCents !== undefined) listing.priceCents = b.priceCents == null ? null : Number(b.priceCents)
           if (photo.imageUrl !== undefined) listing.imageUrl = photo.imageUrl
+          if (photo.images !== undefined) listing.images = photo.images
           return json(route, 200, { listing: { ...listing } })
         }
         if (method === 'DELETE') {
@@ -831,6 +1000,9 @@ export const test = base.extend({
       },
       seedClubs({ clubs = null, degraded = false } = {}) {
         state.clubs = { clubs, degraded }
+      },
+      seedDining({ snapshot = null, unavailable = false } = {}) {
+        state.dining = { snapshot, unavailable }
       },
       seedMarketplace({ listings, photosUnavailable } = {}) {
         if (listings) state.marketplace.listings = listings
