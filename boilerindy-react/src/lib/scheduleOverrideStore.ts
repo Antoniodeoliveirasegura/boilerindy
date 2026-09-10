@@ -225,4 +225,83 @@ export function formatHmRange(startHm: string, endHm: string): string {
   return `${toLabel(startHm)} - ${toLabel(endHm)}`
 }
 
+/** Stable key for a scraped meeting series (must match Schedule page grouping). */
+export function classSeriesKey(item: {
+  title?: string | null
+  description?: string | null
+  location?: string | null
+}): string {
+  return [item.title || '', item.description || '', item.location || ''].join('|')
+}
+
+type OverridableClassItem = {
+  title?: string
+  description?: string
+  location?: string
+  startTime?: string
+  endTime?: string | null
+  [key: string]: unknown
+}
+
+/**
+ * Apply schedule edits/deletes to raw class rows so Home and Schedule stay in sync.
+ * Hidden series are dropped; field/time/day overrides are applied in place.
+ */
+export function applyScheduleOverridesToItems<T extends OverridableClassItem>(
+  items: T[] | null | undefined,
+  overrides: ScheduleOverrideState,
+): T[] {
+  const out: T[] = []
+  for (const item of items || []) {
+    const key = classSeriesKey(item)
+    const override = overrides.series[key]
+    if (override?.hidden) continue
+
+    if (override?.days?.length && item.startTime) {
+      const day = new Date(item.startTime).toLocaleDateString(undefined, { weekday: 'long' })
+      if (!override.days.includes(day)) continue
+    }
+
+    if (!override) {
+      out.push(item)
+      continue
+    }
+
+    const next: T = { ...item }
+    if (override.code != null) next.title = override.code
+    if (override.name != null) next.description = override.name
+    if (override.room != null) next.location = override.room
+    if (override.startHm && item.startTime) {
+      next.startTime = applyHmToIso(item.startTime, override.startHm)
+    }
+    if (override.endHm) {
+      const base = item.endTime || item.startTime
+      if (base) next.endTime = applyHmToIso(base, override.endHm)
+    }
+    out.push(next)
+  }
+  return out
+}
+
+/** Turn manual schedule classes into dated items for a given calendar day (Home today strip). */
+export function manualClassesAsItems(
+  manual: ManualClass[],
+  dayDate: Date = new Date(),
+): OverridableClassItem[] {
+  const dayName = dayDate.toLocaleDateString(undefined, { weekday: 'long' })
+  return (manual || [])
+    .filter((row) => row.days.includes(dayName))
+    .map((row) => {
+      const anchor = new Date(dayDate)
+      return {
+        id: `manual-${row.id}`,
+        title: row.code,
+        description: row.name,
+        location: row.room || 'Location unavailable',
+        startTime: applyHmToIso(anchor.toISOString(), row.startHm),
+        endTime: applyHmToIso(anchor.toISOString(), row.endHm),
+      }
+    })
+}
+
 export { EMPTY as EMPTY_SCHEDULE_OVERRIDES }

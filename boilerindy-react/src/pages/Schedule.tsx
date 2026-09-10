@@ -469,13 +469,13 @@ export default function Schedule() {
       setOverrides(removeManualClass(uid, cls.manualId))
       setSelectedClass(null)
       setEditing(false)
-      setBanner('Removed that class from your schedule.')
+      setBanner('Deleted that class from your schedule.')
       return
     }
     setOverrides(hideSeries(uid, cls.seriesKey, true))
     setSelectedClass(null)
     setEditing(false)
-    setBanner('Hidden from your schedule. Re-sync will not bring it back until you restore it.')
+    setBanner('Deleted from your schedule. Re-sync will not bring it back — use Restore if you change your mind.')
   }
 
   function handleReset(cls: ClassEntry) {
@@ -531,7 +531,7 @@ export default function Schedule() {
               onClick={restoreHidden}
               className="btn btn-secondary text-[13px] px-4 py-2.5"
             >
-              Restore {hiddenCount} hidden
+              Restore {hiddenCount} deleted
             </button>
           ) : null}
           <button type="button" onClick={openAdd} className="btn btn-primary text-[13px] px-4 py-2.5">
@@ -807,17 +807,33 @@ export default function Schedule() {
                             </span>
                           </div>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openEdit(cls)
-                            setSelectedClass(cls)
-                          }}
-                          className={`shrink-0 p-2 rounded-lg ${config.bg} hover:ring-2 hover:ring-[var(--color-gold)] transition-all`}
-                          title="Edit class"
-                        >
-                          <Icon name="edit" size={16} className={config.text} />
-                        </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openEdit(cls)
+                              setSelectedClass(cls)
+                            }}
+                            className={`p-2 rounded-lg ${config.bg} hover:ring-2 hover:ring-[var(--color-gold)] transition-all`}
+                            title="Edit class"
+                            aria-label={`Edit ${cls.code}`}
+                          >
+                            <Icon name="edit" size={16} className={config.text} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleHide(cls)
+                            }}
+                            className="p-2 rounded-lg hover:bg-red-500/10 hover:ring-2 hover:ring-red-500/40 transition-all"
+                            title="Delete from schedule"
+                            aria-label={`Delete ${cls.code} from schedule`}
+                          >
+                            <Icon name="trash" size={16} className="text-red-600 dark:text-red-400" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -887,19 +903,20 @@ export default function Schedule() {
                   <button
                     type="button"
                     onClick={() => handleHide(selectedClass)}
-                    className="text-[12px] px-4 py-2.5 rounded-xl border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                    className="text-[12px] px-4 py-2.5 rounded-xl border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 inline-flex items-center justify-center gap-2"
                   >
-                    {selectedClass.isManual ? 'Remove class' : 'Hide from schedule'}
+                    <Icon name="trash" size={14} />
+                    Delete from schedule
                   </button>
-                  {(selectedClass.hasOverride || selectedClass.isManual) && (
+                  {selectedClass.hasOverride && !selectedClass.isManual ? (
                     <button
                       type="button"
                       onClick={() => handleReset(selectedClass)}
                       className="text-[12px] px-4 py-2.5 rounded-xl border border-[var(--color-border)] text-[var(--color-txt-2)] hover:bg-[var(--color-bg-2)]"
                     >
-                      {selectedClass.isManual ? 'Delete added class' : 'Reset to imported'}
+                      Reset to imported
                     </button>
-                  )}
+                  ) : null}
                   <Link to="/setup" className="btn btn-secondary text-[12px] px-4 py-2.5 w-full">
                     <Icon name="calendar" size={14} />
                     Resync Feed
