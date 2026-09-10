@@ -3,7 +3,7 @@ import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
 import { useGradeTracker } from '../hooks/useGradeTracker'
 import { useMajor } from '../hooks/useMajor'
-import DegreeProgress from '../components/DegreeProgress'
+import DegreeProgress, { type ReqCourse } from '../components/DegreeProgress'
 import { LETTER_GRADES, DEFAULT_CREDIT_HOURS, isGpaLetter } from '../lib/gradeTrackerStore'
 
 const EMPTY_FORM = {
@@ -87,6 +87,22 @@ export default function GradeTracker() {
     if (ok) resetForm()
   }
 
+  // Log a course straight from the degree checklist. Re-grading an already
+  // tracked course only patches the letter; a new one is filed under the term
+  // the student last used (normalizeGrade falls back to "Other").
+  const logRequirement = (course: ReqCourse, letterGrade: string, existingId: string | null) => {
+    if (existingId) {
+      void updateGrade(existingId, { letterGrade })
+      return
+    }
+    void addGrade({
+      courseName: `${course.code} ${course.name}`,
+      letterGrade,
+      creditHours: course.credits,
+      term: grades.length ? grades[grades.length - 1].term : '',
+    })
+  }
+
   const startEdit = (course: Course) => {
     setEditingId(course.id)
     setForm({
@@ -146,7 +162,13 @@ export default function GradeTracker() {
       </div>
 
       {/* Degree progress */}
-      <DegreeProgress major={major} onChangeMajor={setMajor} grades={grades} />
+      <DegreeProgress
+        major={major}
+        onChangeMajor={setMajor}
+        grades={grades}
+        onLogCourse={logRequirement}
+        onRemoveCourse={deleteGrade}
+      />
 
       {/* Add / edit form */}
       <form onSubmit={submit} className="card p-4 mb-6">

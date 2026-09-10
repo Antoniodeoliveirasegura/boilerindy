@@ -53,6 +53,14 @@ test.describe('Grade tracker', () => {
   })
 })
 
+// The major selector is a searchable combobox (every Purdue major is listed),
+// so pick by typing and clicking the matching option.
+async function selectMajor(page, majorId, search) {
+  await page.getByTestId('major-picker').click()
+  await page.getByPlaceholder(/Search all Purdue majors/).fill(search)
+  await page.locator(`[data-major-id="${majorId}"]`).click()
+}
+
 test.describe('Degree planner', () => {
   test('selecting a major auto-checks passed courses, including alternates', async ({ page, mockApi }) => {
     mockApi.login()
@@ -63,7 +71,7 @@ test.describe('Degree planner', () => {
     ])
     await page.goto('/grade-tracker')
 
-    await page.getByLabel('Select your major').selectOption('computer-science')
+    await selectMajor(page, 'computer-science', 'computer science')
 
     // The required CS 18000 row is marked done; CS 24000 (not taken) is not.
     await expect(page.locator('[data-req-code="CS 18000"]')).toHaveAttribute('data-done', 'true')
@@ -88,10 +96,36 @@ test.describe('Degree planner', () => {
     mockApi.login()
     await page.goto('/grade-tracker')
 
-    await page.getByLabel('Select your major').selectOption('data-science')
+    await selectMajor(page, 'data-science', 'data science')
     await expect(page.locator('[data-req-code="CS 38003"]')).toBeVisible()
 
     await page.reload()
-    await expect(page.getByLabel('Select your major')).toHaveValue('data-science')
+    await expect(page.getByTestId('major-picker')).toContainText('Data Science')
+  })
+
+  test('searching narrows the major list to every Purdue major', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/grade-tracker')
+
+    await page.getByTestId('major-picker').click()
+    // Nursing has no curated plan of study, but is still selectable.
+    await page.getByPlaceholder(/Search all Purdue majors/).fill('nursing')
+    await page.locator('[data-major-id="nursing"]').click()
+
+    await expect(page.getByTestId('major-picker')).toContainText('Nursing')
+    await expect(page.getByText(/haven't mapped this major/i)).toBeVisible()
+  })
+
+  test('tapping a requirement logs that course with the grade you pick', async ({ page, mockApi }) => {
+    mockApi.login()
+    mockApi.setMajor('computer-science')
+    await page.goto('/grade-tracker')
+
+    await page.locator('[data-req-code="CS 24000"]').click()
+    await page.getByRole('button', { name: 'B+', exact: true }).click()
+
+    await expect(page.locator('[data-req-code="CS 24000"]')).toHaveAttribute('data-done', 'true')
+    // It lands in the course list below as a real tracked course.
+    await expect(page.getByText('CS 24000 Programming in C')).toBeVisible()
   })
 })

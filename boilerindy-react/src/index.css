@@ -950,6 +950,142 @@ body {
   .hero-bg__aurora { animation: none !important; }
 }
 
+/* ── Task check-off reward ───────────────────────────────────────────────── */
+@keyframes taskCheckPop {
+  0% { transform: scale(0.7); }
+  55% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@keyframes taskRewardBurstRing {
+  0% { opacity: 0.7; transform: translate(-50%, -50%) scale(0.35); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.1); }
+}
+
+@keyframes taskRewardParticle {
+  0% {
+    opacity: 1;
+    transform: rotate(calc(var(--i) * 45deg)) translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(calc(var(--i) * 45deg)) translateY(-42px) scale(0.35);
+  }
+}
+
+@keyframes taskRewardToastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes taskRewardToastOut {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.98);
+  }
+}
+
+.task-check-pop {
+  animation: taskCheckPop 0.38s var(--ease-out-back);
+}
+
+.task-reward-burst {
+  position: fixed;
+  z-index: 80;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.task-reward-burst__ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 2px solid var(--color-gold, #cfb991);
+  animation: taskRewardBurstRing 0.55s var(--ease-out-expo) forwards;
+}
+
+.task-reward-burst__particle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 999px;
+  background: var(--color-gold, #cfb991);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent, #8e6f3e) 35%, transparent);
+  animation: taskRewardParticle 0.7s var(--ease-out-expo) forwards;
+  animation-delay: calc(var(--i) * 12ms);
+}
+
+.task-reward-burst__particle:nth-child(odd) {
+  background: var(--color-accent, #8e6f3e);
+  width: 5px;
+  height: 5px;
+}
+
+.task-reward-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(5.5rem, env(safe-area-inset-bottom, 0px) + 4.5rem);
+  z-index: 81;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-gold, #cfb991) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-gold, #cfb991));
+  color: var(--color-txt-0);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 18%, transparent);
+  pointer-events: none;
+  animation:
+    taskRewardToastIn 0.28s var(--ease-out-back) forwards,
+    taskRewardToastOut 0.28s var(--ease-out-expo) 1.05s forwards;
+}
+
+.task-reward-toast__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: var(--color-accent, #8e6f3e);
+  color: var(--color-bg-0, #fff);
+  font-size: 11px;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-check-pop,
+  .task-reward-burst__ring,
+  .task-reward-burst__particle {
+    animation: none !important;
+  }
+
+  .task-reward-toast {
+    animation: fadeIn 0.2s ease forwards;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    PURDUE GOLD MAP - ARCHITECTURAL EDITION (theme-aware)
 ═══════════════════════════════════════════════════════════════════════════ */
