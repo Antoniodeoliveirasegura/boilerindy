@@ -93,7 +93,9 @@ const colorConfig: Record<string, { bg: string; border: string; text: string; ac
 }
 
 function getDayName(dateValue: string | Date) {
-  return new Date(dateValue).toLocaleDateString(undefined, { weekday: 'long' })
+  // 'en-US' on purpose: DAYS and DAY_CODES below are English, so a browser set
+  // to another locale would return "lunes" and match nothing.
+  return new Date(dateValue).toLocaleDateString('en-US', { weekday: 'long' })
 }
 
 function getTimeRange(startTime: string, endTime: string | null | undefined) {
@@ -126,6 +128,11 @@ function getPatternLabel(days: string[]) {
 
 function makeSeriesKey(item: Pick<ClassItem, 'title' | 'description' | 'location'>) {
   return [item.title || '', item.description || '', item.location || ''].join('|')
+}
+
+function hmToMinutes(hm: string): number {
+  const [h, m] = hm.split(':').map(Number)
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
 }
 
 function emptySchedule(): Record<string, ClassEntry[]> {
@@ -399,15 +406,22 @@ export default function Schedule() {
     })
   }
 
+  /** Returns the first problem with the editor form, or '' when it is valid. */
+  function validateForm(): string {
+    if (!form.code.trim()) return 'Course code is required.'
+    if (!form.days.length) return 'Pick at least one day.'
+    if (hmToMinutes(form.endHm) <= hmToMinutes(form.startHm)) {
+      return 'End time must be after the start time.'
+    }
+    return ''
+  }
+
   function saveEdit() {
     const uid = requireUser()
     if (!uid || !selectedClass) return
-    if (!form.code.trim()) {
-      setFormError('Course code is required.')
-      return
-    }
-    if (!form.days.length) {
-      setFormError('Pick at least one day.')
+    const invalid = validateForm()
+    if (invalid) {
+      setFormError(invalid)
       return
     }
 
@@ -440,12 +454,9 @@ export default function Schedule() {
   function saveAdd() {
     const uid = requireUser()
     if (!uid) return
-    if (!form.code.trim()) {
-      setFormError('Course code is required.')
-      return
-    }
-    if (!form.days.length) {
-      setFormError('Pick at least one day.')
+    const invalid = validateForm()
+    if (invalid) {
+      setFormError(invalid)
       return
     }
     const next = addManualClass(uid, {

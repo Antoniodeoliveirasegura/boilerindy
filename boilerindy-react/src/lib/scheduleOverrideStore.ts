@@ -35,6 +35,21 @@ export type ScheduleOverrideState = {
 
 const EMPTY: ScheduleOverrideState = { series: {}, manual: [] }
 
+/**
+ * Weekdays the Schedule editor can show a checkbox for. A day override narrows
+ * this set; it must never silently drop a meeting outside it (e.g. a Saturday
+ * lab), because the student was never offered a box to keep it.
+ */
+const EDITABLE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+/**
+ * Weekday name in English. DAYS/EDITABLE_DAYS are hardcoded English, so the
+ * lookup must not follow the browser locale or every comparison fails.
+ */
+function weekdayName(date: Date): string {
+  return date.toLocaleDateString('en-US', { weekday: 'long' })
+}
+
 function storageKey(userId: string): string {
   return `boilerindy-schedule-overrides-v1-${userId}`
 }
@@ -258,8 +273,8 @@ export function applyScheduleOverridesToItems<T extends OverridableClassItem>(
     if (override?.hidden) continue
 
     if (override?.days?.length && item.startTime) {
-      const day = new Date(item.startTime).toLocaleDateString(undefined, { weekday: 'long' })
-      if (!override.days.includes(day)) continue
+      const day = weekdayName(new Date(item.startTime))
+      if (EDITABLE_DAYS.includes(day) && !override.days.includes(day)) continue
     }
 
     if (!override) {
@@ -288,7 +303,7 @@ export function manualClassesAsItems(
   manual: ManualClass[],
   dayDate: Date = new Date(),
 ): OverridableClassItem[] {
-  const dayName = dayDate.toLocaleDateString(undefined, { weekday: 'long' })
+  const dayName = weekdayName(dayDate)
   return (manual || [])
     .filter((row) => row.days.includes(dayName))
     .map((row) => {
