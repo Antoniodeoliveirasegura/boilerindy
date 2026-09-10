@@ -11,8 +11,12 @@ const BEARER_RE = /\bBearer\s+[\w.~+/-]+=*/gi
 const HEX_TOKEN_RE = /\b[0-9a-f]{32,}\b/gi
 // UUIDs (e.g. the calendar-feed capability token): hyphens mean HEX_TOKEN_RE misses them.
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
-// Google API keys (GEMINI_API_KEY): AIza + 35 url-safe chars, not JWT/Bearer/hex-shaped.
+// Google API keys: AIza + 35 url-safe chars, not JWT/Bearer/hex-shaped. Kept after
+// the move off Gemini so any Google key that reaches a log still vanishes.
 const GOOGLE_KEY_RE = /AIza[0-9A-Za-z_-]{35}/g
+// xAI API keys (XAI_API_KEY): "xai-" plus a long alphanumeric tail. The key travels
+// in an Authorization header (dropped above), but scrub the bare form too.
+const XAI_KEY_RE = /\bxai-[0-9A-Za-z]{20,}/g
 // Credentials carried in a URL query string (?key=, &apiKey=, token=, ...) - Sentry
 // re-attaches the raw query string to fetch breadcrumbs as http.query.
 const URL_SECRET_PARAM_RE = /([?&](?:key|api[_-]?key|token|access_token|password|secret)=)[^&\s#]+/gi
@@ -28,6 +32,7 @@ function scrubString(value) {
     .replace(JWT_RE, '[token]')
     .replace(BEARER_RE, 'Bearer [token]')
     .replace(GOOGLE_KEY_RE, '[token]')
+    .replace(XAI_KEY_RE, '[token]')
     .replace(HEX_TOKEN_RE, '[token]')
     .replace(UUID_RE, '[token]')
     .replace(EMAIL_RE, '[email]')

@@ -64,7 +64,7 @@ const HOME_CALENDAR_CATEGORIES =
   'campus_event,event,deadline,activity,assignment,task,homework,submission,quiz,project,exam,lab,midterm,paper,presentation'
 
 /** User message for /api/assistant - server already attaches schedule & calendar context. */
-const WEEK_AHEAD_GEMINI_PROMPT = `Write a concise "Week Ahead" summary for my dashboard using ONLY the class schedule, assignments, deadlines, and events in your context. Do not invent courses, due dates, or events.
+const WEEK_AHEAD_PROMPT = `Write a concise "Week Ahead" summary for my dashboard using ONLY the class schedule, assignments, deadlines, and events in your context. Do not invent courses, due dates, or events.
 
 Requirements:
 - Plain text only. No markdown, no bullets, no numbered lists, no emoji.
@@ -528,7 +528,7 @@ export default function Home() {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ role: 'user', content: WEEK_AHEAD_GEMINI_PROMPT }],
+        messages: [{ role: 'user', content: WEEK_AHEAD_PROMPT }],
       }),
     })
       .then((r) => r.json())
@@ -901,7 +901,7 @@ export default function Home() {
                 {now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}
               </span>
               <p className="text-[11px] text-[var(--color-txt-3)] mt-0.5">
-                Gemini · from your linked schedule & calendar
+                Grok · from your linked schedule & calendar
               </p>
             </div>
           </div>
