@@ -22,7 +22,7 @@ bugs found - ~~ICS sync crashes on object-valued `summary` (node-ical)~~ **FIXED
 (`icalText` coercion in `scheduleSync.mjs`, commit b63c013 + regression tests; the
 dev `/api/debug/source` endpoint was also hardened), ~~missing `VITE_SUPABASE_*`
 env for the frontend client in dev~~ **RESOLVED** (frontend `.env` recreated),
-invalid `GEMINI_API_KEY` (still open - check Week Ahead).
+invalid `GEMINI_API_KEY` (moot: the assistant moved to xAI Grok and reads `XAI_API_KEY`).
 
 ## Deferred (25 issues), grouped
 
@@ -88,7 +88,7 @@ orgs API + deep-link to BoilerLink for events; (b) a **paste-a-URL** ICS subscri
 | #33 | Study group finder | Course matching from existing schedule data + new groups tables |
 | #17 | Friend matching | Profiles, matching, privacy controls; after #33 |
 | #18 | Degree planner | Blocker is degree-requirement data, not code |
-| #19 | Voice input | Web Speech API + Gemini command parsing |
+| #19 | Voice input | Web Speech API + Grok command parsing |
 | #26 | Public beta / App Store launch | A gate, not a feature: needs core stability, one Purdue feature (#12/#13/#14), #9, #21 |
 
 ## Suggested sequencing

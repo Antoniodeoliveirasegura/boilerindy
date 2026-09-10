@@ -1,5 +1,5 @@
 // Grounded assistant intent router (issue #45). Answers common questions from
-// the DB with ZERO Gemini tokens. matchIntent is a pure keyword/regex matcher;
+// the DB with ZERO Grok tokens. matchIntent is a pure keyword/regex matcher;
 // the formatters take already-fetched data and return a reply string (or null
 // to fall through to the LLM). All pure → unit-testable without DB/HTTP.
 
