@@ -80,7 +80,7 @@ export default function TaskCompleteReward({
           <span className="task-reward-toast__check" aria-hidden="true">
             ✓
           </span>
-          Nice — one less thing
+          Nice - one less thing
         </div>
       ) : null}
     </>,

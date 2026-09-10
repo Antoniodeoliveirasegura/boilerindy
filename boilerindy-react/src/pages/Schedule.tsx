@@ -486,7 +486,7 @@ export default function Schedule() {
     setOverrides(hideSeries(uid, cls.seriesKey, true))
     setSelectedClass(null)
     setEditing(false)
-    setBanner('Deleted from your schedule. Re-sync will not bring it back — use Restore if you change your mind.')
+    setBanner('Deleted from your schedule. Re-sync will not bring it back - use Restore if you change your mind.')
   }
 
   function handleReset(cls: ClassEntry) {

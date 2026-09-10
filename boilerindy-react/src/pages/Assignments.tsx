@@ -316,7 +316,7 @@ export default function Assignments() {
         const meta = (await authRequest('/api/me/tasks/meta')) as TaskMeta & { unavailable?: boolean }
         if (meta.unavailable) {
           // After an optimistic toggle, keep in-memory state if the meta endpoint
-          // is temporarily unavailable — localStorage may still be stale.
+          // is temporarily unavailable - localStorage may still be stale.
           if (retainOnError) return
           if (uid) {
             setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
