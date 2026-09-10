@@ -1,10 +1,14 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import TaskCompleteReward, {
+  rewardOriginFromEvent,
+  type RewardOrigin,
+} from '../components/TaskCompleteReward'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
@@ -50,6 +54,29 @@ type MergedItem = {
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
+}
+
+type EnsureToggle = { id: string; isManual: boolean; completed: boolean }
+
+/** Re-apply a just-confirmed toggle so a stale meta read cannot snap the UI back. */
+function withEnsuredToggle(meta: TaskMeta, ensure: EnsureToggle | null | undefined): TaskMeta {
+  if (!ensure) return meta
+  const now = new Date().toISOString()
+  if (ensure.isManual) {
+    return {
+      ...meta,
+      manualTasks: (meta.manualTasks || []).map((t) =>
+        t.id === ensure.id
+          ? { ...t, completedAt: ensure.completed ? t.completedAt || now : null }
+          : t,
+      ),
+    }
+  }
+  const completions = (meta.completions || []).filter((c) => c.calendar_item_id !== ensure.id)
+  if (ensure.completed) {
+    completions.push({ calendar_item_id: ensure.id, completed_at: now })
+  }
+  return { ...meta, completions }
 }
 
 const priorityConfig: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -241,6 +268,9 @@ export default function Assignments() {
   const [newDueDate, setNewDueDate] = useState(() => localIsoDate())
   const [addSubmitting, setAddSubmitting] = useState(false)
   const [taskError, setTaskError] = useState('')
+  const [rewardOrigin, setRewardOrigin] = useState<RewardOrigin | null>(null)
+  const [poppingId, setPoppingId] = useState<string | null>(null)
+  const popClearRef = useRef<number | null>(null)
 
   const generateInsights = (mode: string) => {
     setInsightsLoading(true)
@@ -272,28 +302,41 @@ export default function Assignments() {
 
   const activeInsight = insightsMode === 'study' ? studyPlan : insightsText
 
-  const loadTaskMeta = useCallback(async () => {
-    const uid = userId
-    setTaskError('')
-    try {
-      const meta = (await authRequest('/api/me/tasks/meta')) as TaskMeta & { unavailable?: boolean }
-      if (meta.unavailable) {
+  const loadTaskMeta = useCallback(
+    async (opts?: {
+      retainOnError?: boolean
+      /** Keep this toggle even if the meta response is briefly stale. */
+      ensureToggle?: { id: string; isManual: boolean; completed: boolean } | null
+    }) => {
+      const uid = userId
+      const retainOnError = opts?.retainOnError === true
+      const ensureToggle = opts?.ensureToggle || null
+      if (!retainOnError) setTaskError('')
+      try {
+        const meta = (await authRequest('/api/me/tasks/meta')) as TaskMeta & { unavailable?: boolean }
+        if (meta.unavailable) {
+          // After an optimistic toggle, keep in-memory state if the meta endpoint
+          // is temporarily unavailable - localStorage may still be stale.
+          if (retainOnError) return
+          if (uid) {
+            setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
+          } else {
+            setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
+          }
+          return
+        }
+        setTaskMeta(withEnsuredToggle({ ...meta, unavailable: false, local: false }, ensureToggle))
+      } catch {
+        if (retainOnError) return
         if (uid) {
           setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
         } else {
           setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
         }
-        return
       }
-      setTaskMeta({ ...meta, unavailable: false, local: false })
-    } catch {
-      if (uid) {
-        setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
-      } else {
-        setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
-      }
-    }
-  }, [userId])
+    },
+    [userId],
+  )
 
   async function loadData() {
     setLoading(true)
@@ -429,18 +472,63 @@ export default function Assignments() {
   }
 
   function applyLocalToggle(uid: string, item: MergedItem, nextDone: boolean) {
+    mirrorToggleToLocalStore(uid, item, nextDone)
+    setTaskMeta(taskMetaFromLocalStore(uid))
+  }
+
+  /** Persist completion to localStorage without flipping UI into local-only mode. */
+  function mirrorToggleToLocalStore(uid: string, item: MergedItem, nextDone: boolean) {
     const raw = loadLocalTasks(uid)
     if (item.isManual) {
-      raw.manualTasks = raw.manualTasks.map((t) =>
-        t.id === item.id ? { ...t, completedAt: nextDone ? new Date().toISOString() : null } : t,
-      )
+      const exists = raw.manualTasks.some((t) => t.id === item.id)
+      if (exists) {
+        raw.manualTasks = raw.manualTasks.map((t) =>
+          t.id === item.id ? { ...t, completedAt: nextDone ? new Date().toISOString() : null } : t,
+        )
+      } else {
+        raw.manualTasks = [
+          ...raw.manualTasks,
+          {
+            id: item.id,
+            title: item.title || 'Task',
+            startTime: item.startTime ?? null,
+            completedAt: nextDone ? new Date().toISOString() : null,
+          },
+        ]
+      }
     } else if (nextDone) {
       raw.completions[item.id] = new Date().toISOString()
     } else {
       delete raw.completions[item.id]
     }
     saveLocalTasks(uid, raw)
-    setTaskMeta(taskMetaFromLocalStore(uid))
+  }
+
+  function applyOptimisticToggle(item: MergedItem, nextDone: boolean) {
+    const now = new Date().toISOString()
+    setTaskMeta((prev) => {
+      if (item.isManual) {
+        return {
+          ...prev,
+          manualTasks: (prev.manualTasks || []).map((t) =>
+            t.id === item.id ? { ...t, completedAt: nextDone ? now : null } : t,
+          ),
+        }
+      }
+      const completions = (prev.completions || []).filter((c) => c.calendar_item_id !== item.id)
+      if (nextDone) {
+        completions.push({ calendar_item_id: item.id, completed_at: now })
+      }
+      return { ...prev, completions }
+    })
+    setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, completed: nextDone } : prev))
+  }
+
+  function playCompleteReward(itemId: string, e?: React.MouseEvent) {
+    setRewardOrigin(rewardOriginFromEvent(e))
+    setPoppingId(itemId)
+    if (popClearRef.current) window.clearTimeout(popClearRef.current)
+    popClearRef.current = window.setTimeout(() => setPoppingId(null), 420)
   }
 
   async function toggleItemComplete(item: MergedItem, nextDone: boolean, e?: React.MouseEvent) {
@@ -453,9 +541,14 @@ export default function Assignments() {
       return
     }
 
+    // Flip UI immediately so the checkbox never waits on the network.
+    applyOptimisticToggle(item, nextDone)
+    if (nextDone) playCompleteReward(item.id, e)
+
     const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
     if (useLocalOnly) {
       applyLocalToggle(uid, item, nextDone)
+      if (nextDone) track('task_completed')
       return
     }
 
@@ -474,7 +567,13 @@ export default function Assignments() {
         })
       }
       if (nextDone) track('task_completed')
-      await loadTaskMeta()
+      // Keep local cache aligned so any later fallback cannot snap the checkbox back.
+      mirrorToggleToLocalStore(uid, item, nextDone)
+      // Reconcile in the background; keep this toggle if meta is briefly stale.
+      void loadTaskMeta({
+        retainOnError: true,
+        ensureToggle: { id: item.id, isManual: item.isManual, completed: nextDone },
+      })
     } catch (err) {
       console.error(err)
       setTaskError(errorText(err, 'Server sync failed - saved on this device.'))
@@ -568,8 +667,18 @@ export default function Assignments() {
 
   const hasNoSources = onboarding?.linkedSourceCount === 0
 
+  useEffect(() => {
+    return () => {
+      if (popClearRef.current) window.clearTimeout(popClearRef.current)
+    }
+  }, [])
+
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <TaskCompleteReward
+        origin={rewardOrigin}
+        onDone={() => setRewardOrigin(null)}
+      />
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Assignments</h1>
@@ -831,7 +940,7 @@ export default function Assignments() {
                               item.completed
                                 ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-[var(--color-bg-0)]'
                                 : 'border-[var(--color-border-2)] hover:border-[var(--color-accent)] bg-[var(--color-surface)]'
-                            }`}
+                            } ${poppingId === item.id ? 'task-check-pop' : ''}`}
                             aria-label={item.completed ? 'Mark as not done' : 'Mark as done'}
                           >
                             {item.completed ? <Icon name="check" size={14} /> : null}
@@ -943,7 +1052,7 @@ export default function Assignments() {
                 <div className="flex flex-wrap gap-2 mb-5">
                   <button
                     type="button"
-                    onClick={() => toggleItemComplete(selectedItem, !selectedItem.completed)}
+                    onClick={(e) => toggleItemComplete(selectedItem, !selectedItem.completed, e)}
                     className="btn btn-secondary text-[12px] px-3 py-1.5"
                   >
                     {selectedItem.completed ? 'Mark not done' : 'Mark done'}

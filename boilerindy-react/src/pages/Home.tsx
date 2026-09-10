@@ -23,6 +23,11 @@ import {
   isOnlineMeetingNoise,
   shouldExcludeFromSchedule,
 } from '../lib/scheduleFilters'
+import {
+  applyScheduleOverridesToItems,
+  loadScheduleOverrides,
+  manualClassesAsItems,
+} from '../lib/scheduleOverrideStore'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
 import { allowedSizesFor } from '../lib/dashboardLayoutStore'
 import { useGradeTracker } from '../hooks/useGradeTracker'
@@ -700,7 +705,13 @@ export default function Home() {
     () => calendarItems.filter((i) => i && !isOnlineMeetingNoise(i)),
     [calendarItems],
   )
-  const homeClasses = useMemo(() => getHomeClassItems(classes), [classes])
+  const homeClasses = useMemo(() => {
+    // Re-read overrides whenever Home recalculates so deletes/edits from
+    // Schedule apply to today's class strip and free-time suggestions.
+    const overrides = loadScheduleOverrides(userId)
+    const filtered = applyScheduleOverridesToItems(getHomeClassItems(classes), overrides)
+    return [...filtered, ...manualClassesAsItems(overrides.manual, now)]
+  }, [classes, userId, now])
   const scheduleState = useMemo(() => deriveScheduleState(homeClasses, now), [homeClasses, now])
   const suggestions = useMemo(() => buildSuggestions({
     freeMinutes: scheduleState.freeMinutes,

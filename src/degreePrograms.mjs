@@ -12,6 +12,7 @@
 // / MyPurduePlan.
 
 import { gradePoints } from './gradeTracker.mjs'
+import { PURDUE_MAJORS } from './purdueMajors.mjs'
 
 export const DEGREE_PROGRAMS = [
   {
@@ -229,14 +230,34 @@ export const DEGREE_PROGRAMS = [
 
 const PROGRAM_BY_ID = new Map(DEGREE_PROGRAMS.map((p) => [p.id, p]))
 
-/** Lightweight list for a selector: [{ id, name, degree }]. */
+// Every major a student can select, sorted by name. Majors with curated
+// requirement data above are `tracked`; the rest come from the Purdue catalogue
+// (purdueMajors.mjs) and are selectable so a student can still record their
+// major - we just have no plan of study to check off yet.
+const MAJOR_OPTIONS = [
+  ...DEGREE_PROGRAMS.map(({ id, name, degree }) => ({ id, name, degree, tracked: true })),
+  ...PURDUE_MAJORS.filter((m) => !PROGRAM_BY_ID.has(m.id)).map((m) => ({ ...m, tracked: false })),
+].sort((a, b) => a.name.localeCompare(b.name))
+
+const MAJOR_BY_ID = new Map(MAJOR_OPTIONS.map((m) => [m.id, m]))
+
+/** Every selectable major: [{ id, name, degree, tracked }]. */
 export function listPrograms() {
-  return DEGREE_PROGRAMS.map(({ id, name, degree }) => ({ id, name, degree }))
+  return MAJOR_OPTIONS.map((m) => ({ ...m }))
 }
 
-/** Full program by id, or null. */
+/**
+ * A major by id, or null when unknown. Majors without curated requirements
+ * resolve to a stub (`tracked: false`, no requirement groups) so callers -
+ * including the server's validation of PUT /api/me/degree - treat every
+ * catalogue major as a legitimate choice.
+ */
 export function getProgram(id) {
-  return PROGRAM_BY_ID.get(id) || null
+  const detailed = PROGRAM_BY_ID.get(id)
+  if (detailed) return { ...detailed, tracked: true }
+  const major = MAJOR_BY_ID.get(id)
+  if (!major) return null
+  return { ...major, totalCredits: null, sourceUrl: null, sourceNote: null, requirementGroups: [] }
 }
 
 // Purdue course codes are 2-4 subject letters + a 5-digit number, e.g. "CS 18000".
