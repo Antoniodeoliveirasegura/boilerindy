@@ -10,7 +10,7 @@ export class PhotoError extends Error {
 }
 
 // Receipts survive server restarts and bind a unique, non-overwritable object to
-// the authenticated seller, target listing and expected byte count. No DB migration.
+// the authenticated seller, target listing and expected byte count.
 export function createMarketplacePhotos({ supabase, secret, now = Date.now }) {
   const bucket = supabase.storage.from(PHOTO_BUCKET)
   const publicUrl = (path) => bucket.getPublicUrl(path).data.publicUrl
@@ -55,7 +55,29 @@ export function createMarketplacePhotos({ supabase, secret, now = Date.now }) {
       const payload = Buffer.from(JSON.stringify(details)).toString('base64url')
       return { bucket: PHOTO_BUCKET, path, token: data.token, receipt: `${payload}.${sign(payload)}`, expiresAt: details.expiresAt }
     },
-    async resolve(body, userId, listingId = null, existingUrl = null) {
+    async resolve(body, userId, listingId = null, existingUrl = null, existingImages = []) {
+      const retained = existingImages.length ? existingImages : existingUrl ? [existingUrl] : []
+      if (body.photos !== undefined) {
+        if (body.imageUrl !== undefined || body.imageUploadReceipt !== undefined) throw new PhotoError('Choose one photo format.')
+        if (!Array.isArray(body.photos) || body.photos.length > 6) throw new PhotoError('Choose up to 6 photos.')
+        const urls = []
+        for (const photo of body.photos) {
+          if (!photo || typeof photo !== 'object' || Array.isArray(photo) || (typeof photo.url === 'string') === (typeof photo.receipt === 'string')) throw new PhotoError('Each photo needs one image link or upload receipt.')
+          if (photo.receipt !== undefined) {
+            const resolved = await this.resolve({ imageUploadReceipt: photo.receipt }, userId, listingId)
+            urls.push(resolved.image_url)
+          } else {
+            let url
+            try { url = new URL(photo.url) } catch { throw new PhotoError('Image URL must be a valid http(s) link') }
+            if (!['http:', 'https:'].includes(url.protocol)) throw new PhotoError('Image URL must be a valid http(s) link')
+            const value = photo.url.trim()
+            if (isBucketUrl(value) && !retained.includes(value)) throw new PhotoError('Select the photo to upload it to this listing.')
+            urls.push(value)
+          }
+        }
+        if (new Set(urls).size !== urls.length) throw new PhotoError('Choose each photo only once.')
+        return { image_url: urls[0] || null, image_urls: urls }
+      }
       if (body.imageUploadReceipt !== undefined) {
         if (body.imageUrl) throw new PhotoError('Choose either an uploaded photo or an image link.')
         const data = readReceipt(body.imageUploadReceipt, userId, listingId)
@@ -65,9 +87,11 @@ export function createMarketplacePhotos({ supabase, secret, now = Date.now }) {
         if (error || !file || file.size !== data.byteSize) throw new PhotoError('Could not verify the uploaded photo. Please retry.')
         const bytes = new Uint8Array(await file.arrayBuffer())
         if (bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255 || bytes[bytes.length - 2] !== 255 || bytes[bytes.length - 1] !== 217) throw new PhotoError('The uploaded file is not a JPEG photo.')
-        return { image_url: publicUrl(data.path) }
+        return { image_url: publicUrl(data.path), image_urls: [publicUrl(data.path)] }
       }
-      if (body.imageUrl && body.imageUrl !== existingUrl && isBucketUrl(body.imageUrl)) throw new PhotoError('Select the photo to upload it to this listing.')
+      const legacyUrl = String(body.imageUrl ?? '').trim()
+      if (legacyUrl && legacyUrl !== existingUrl && isBucketUrl(legacyUrl)) throw new PhotoError('Select the photo to upload it to this listing.')
+      if (body.imageUrl !== undefined && (legacyUrl || null) !== existingUrl) return { image_urls: legacyUrl ? [legacyUrl] : [] }
       return {}
     },
   }
@@ -113,6 +137,9 @@ export async function cleanupMarketplacePhotos(supabase, { now = Date.now(), dry
       const { data, error } = await supabase.from('marketplace_listings').select('id').eq('image_url', url).limit(1)
       if (error) throw error
       if (data.length) continue
+      const { data: gallery, error: galleryError } = await supabase.from('marketplace_listings').select('id').contains('image_urls', [url]).limit(1)
+      if (galleryError) throw galleryError
+      if (gallery.length) continue
       result.candidates++
       if (!dryRun) {
         const { error: removeError } = await bucket.remove([path])
