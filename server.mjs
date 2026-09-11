@@ -72,6 +72,7 @@ import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } f
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
+import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
 import { validateProfileInput, rankMatches, mapMatchCard } from './src/friendMatching.mjs'
 import {
   matchIntent,
@@ -204,6 +205,14 @@ if (isProduction) {
   }
 }
 
+// Native app Purdue link handoff (#214): short-lived signed tokens let the
+// system browser complete the link without holding the app's session cookie.
+// See docs/purdue-link.md. NATIVE_APP_SCHEME defaults to boilerindyapp.
+const purdueLinkHandoff = createPurdueLinkHandoff({
+  secret: sessionSecret,
+  scheme: process.env.NATIVE_APP_SCHEME,
+})
+
 console.log(`[startup] mode=${isProduction ? 'production' : (nodeEnv || 'development')} secureCookies=${isProduction} trustProxy=${isProduction || process.env.TRUST_PROXY === '1'}`)
 
 app.use(express.json())
@@ -280,6 +289,13 @@ const sessionSyncRateLimit = createRateLimiter({
   max: 120,
   keyBy: 'ip',
   message: 'Too many session requests. Please slow down and try again shortly.',
+})
+// One handoff token per native Purdue link attempt (#214); tokens live 10 min.
+const purdueLinkTokenRateLimit = createRateLimiter({
+  name: 'purdue-link-token',
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: 'Too many Purdue link attempts. Please wait a few minutes and try again.',
 })
 const boardWriteRateLimit = createRateLimiter({
   name: 'board-write',
@@ -1053,14 +1069,23 @@ async function linkPurdueIdentity(userId, { email }) {
   return data
 }
 
-async function validateCasTicket(ticket, nextPath) {
+// The CAS service URL must match byte for byte between the login redirect and
+// ticket validation. The website variant carries the post-link path; the
+// native variant carries the handoff token so the callback can identify the
+// student without a session cookie (#214).
+function casServiceUrl({ nextPath, token }) {
+  return token
+    ? `${publicBaseUrl}/auth/purdue/callback?t=${encodeURIComponent(token)}`
+    : `${publicBaseUrl}/auth/purdue/callback?next=${encodeURIComponent(nextPath)}`
+}
+
+async function validateCasTicket(ticket, serviceUrl) {
   const loginUrl = process.env.PURDUE_CAS_LOGIN_URL
   const validateUrl = process.env.PURDUE_CAS_VALIDATE_URL
   if (!loginUrl || !validateUrl) {
     throw new Error('CAS mode requires PURDUE_CAS_LOGIN_URL and PURDUE_CAS_VALIDATE_URL.')
   }
 
-  const serviceUrl = `${publicBaseUrl}/auth/purdue/callback?next=${encodeURIComponent(nextPath)}`
   const response = await fetch(`${validateUrl}?service=${encodeURIComponent(serviceUrl)}&ticket=${encodeURIComponent(ticket)}`)
   const xml = await response.text()
   const userMatch = xml.match(/<cas:user>([^<]+)<\/cas:user>/i)
@@ -1071,7 +1096,7 @@ async function validateCasTicket(ticket, nextPath) {
   return { email }
 }
 
-function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '') {
+function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', token = '') {
   const defaultEmail = currentEmail || process.env.DEV_PURDUE_EMAIL || 'student@purdue.edu'
   return `<!doctype html>
 <html lang="en">
@@ -1097,6 +1122,7 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '') {
     <h1>Link your Purdue account</h1>
     <p>This development screen stands in for Purdue CAS account linking until official CAS service registration is available.</p>
     <input type="hidden" name="next" value="${escapeHtml(nextPath)}" />
+    ${token ? `<input type="hidden" name="t" value="${escapeHtml(token)}" />` : ''}
     <label for="email">Purdue email</label>
     <input id="email" name="email" type="email" value="${escapeHtml(defaultEmail)}" required />
     <button type="submit">Link Purdue account</button>
@@ -1453,39 +1479,80 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
   }
 })
 
-app.get('/auth/purdue/connect', requireAuth, (req, res) => {
+// Purdue link routes accept either the signed-in cookie session (website) or a
+// handoff token minted by POST /api/purdue/link-token (native app, #214). The
+// token path never reads or writes req.session, so the system browser that
+// completes the link is not signed in to the website afterwards.
+function nativeLinkRedirect(res, error) {
+  const reason = error instanceof HandoffError ? error.reason : 'link-failed'
+  const message = error instanceof HandoffError ? error.message : (error?.message || 'Could not link Purdue account.')
+  return res.redirect(purdueLinkHandoff.returnUrl('error', { reason, message }))
+}
+
+async function resolvePurdueLinkActor(req, res, next) {
+  const raw = req.query?.t ?? req.body?.t
+  const token = typeof raw === 'string' ? raw : ''
+  if (!token) return requireAuth(req, res, next)
+  try {
+    const { userId } = purdueLinkHandoff.verify(token)
+    const user = await getUserById(userId)
+    if (!user) {
+      throw new HandoffError('This link no longer matches a student account. Start again from the app.', 410, 'unauthorized')
+    }
+    req.currentUser = user
+    req.linkHandoff = { token }
+    next()
+  } catch (error) {
+    nativeLinkRedirect(res, error)
+  }
+}
+
+app.get('/auth/purdue/connect', resolvePurdueLinkActor, (req, res) => {
+  const native = req.linkHandoff
   const nextPath = sanitizeNext(req.query.next)
   if (!purdueLinkingEnabled) {
+    if (native) return nativeLinkRedirect(res, new HandoffError('Purdue linking is currently disabled.', 400, 'disabled'))
     return res.redirect(`${clientAppUrl}/settings`)
   }
   if (purdueAuthMode === 'cas') {
     const loginUrl = process.env.PURDUE_CAS_LOGIN_URL
     const validateUrl = process.env.PURDUE_CAS_VALIDATE_URL
     if (!loginUrl || !validateUrl) {
+      if (native) return nativeLinkRedirect(res, new HandoffError('Purdue login is not configured on the server.', 503, 'cas-config'))
       return res.redirect(`${clientAppUrl}/settings?error=cas-config`)
     }
-    const serviceUrl = `${publicBaseUrl}/auth/purdue/callback?next=${encodeURIComponent(nextPath)}`
+    const serviceUrl = casServiceUrl(native ? { token: native.token } : { nextPath })
     return res.redirect(`${loginUrl}?service=${encodeURIComponent(serviceUrl)}`)
   }
 
-  res.type('html').send(renderMockPurdueLinkPage(nextPath, '', req.currentUser.purdue_email))
+  res.type('html').send(renderMockPurdueLinkPage(nextPath, '', req.currentUser.purdue_email, native?.token))
 })
 
-app.post('/auth/purdue/dev/link', requireAuth, async (req, res) => {
+app.post('/auth/purdue/dev/link', resolvePurdueLinkActor, async (req, res) => {
+  const native = req.linkHandoff
   const nextPath = sanitizeNext(req.body.next)
   if (!purdueLinkingEnabled) {
+    if (native) return nativeLinkRedirect(res, new HandoffError('Purdue linking is currently disabled.', 400, 'disabled'))
     return res.status(404).send('Purdue linking is currently disabled.')
   }
   if (purdueAuthMode === 'cas') {
+    if (native) return nativeLinkRedirect(res, new HandoffError('Mock Purdue linking is disabled while CAS mode is active.', 404, 'cas-mode'))
     return res.status(404).send('Mock Purdue linking is disabled while CAS mode is active.')
   }
   try {
     await linkPurdueIdentity(req.currentUser.id, {
       email: req.body.email,
     })
+    if (native) {
+      // Consumed only after a successful link so the mock form can be retried
+      // with a corrected email inside the token's window.
+      purdueLinkHandoff.consume(native.token)
+      return res.redirect(purdueLinkHandoff.returnUrl('ok'))
+    }
     res.redirect(`${clientAppUrl}${nextPath}`)
   } catch (error) {
-    res.type('html').send(renderMockPurdueLinkPage(nextPath, error.message || 'Could not link Purdue account.', req.body.email))
+    if (error instanceof HandoffError) return nativeLinkRedirect(res, error)
+    res.type('html').send(renderMockPurdueLinkPage(nextPath, error.message || 'Could not link Purdue account.', req.body.email, native?.token))
   }
 })
 
@@ -1505,18 +1572,48 @@ app.post('/api/purdue/mock-link', requireAuth, async (req, res) => {
   }
 })
 
-app.get('/auth/purdue/callback', requireAuth, async (req, res) => {
+// Native app handoff (#214): the app calls this with its session cookie, opens
+// connectUrl in an auth session (ASWebAuthenticationSession / Custom Tab) and
+// waits for returnUrl, which carries ?status=ok or ?status=error&reason=...
+app.post('/api/purdue/link-token', purdueLinkTokenRateLimit, requireAuth, (req, res) => {
+  if (!purdueLinkingEnabled) {
+    return res.status(400).json({ error: { message: 'Purdue linking is currently disabled.', status: 400, code: 'purdue_linking_disabled' } })
+  }
+  try {
+    const { token, expiresAt } = purdueLinkHandoff.issue(req.currentUser.id)
+    res.json({
+      token,
+      expiresAt,
+      connectUrl: `${publicBaseUrl}/auth/purdue/connect?t=${encodeURIComponent(token)}`,
+      returnUrl: purdueLinkHandoff.returnUrlBase,
+    })
+  } catch (error) {
+    const status = error instanceof HandoffError ? error.status : 500
+    const code = error instanceof HandoffError ? `purdue_link_${error.reason}` : undefined
+    res.status(status).json({ error: { message: error.message || 'Could not start Purdue linking.', status, code } })
+  }
+})
+
+app.get('/auth/purdue/callback', resolvePurdueLinkActor, async (req, res) => {
+  const native = req.linkHandoff
   const nextPath = sanitizeNext(req.query.next)
   const ticket = req.query.ticket
   if (!ticket) {
+    if (native) return nativeLinkRedirect(res, new HandoffError('Purdue login did not return a ticket. Start again from the app.', 400, 'missing-ticket'))
     return res.redirect(`${clientAppUrl}/settings?error=missing-ticket`)
   }
   try {
-    const identity = await validateCasTicket(String(ticket), nextPath)
+    const serviceUrl = casServiceUrl(native ? { token: native.token } : { nextPath })
+    const identity = await validateCasTicket(String(ticket), serviceUrl)
+    // The token is spent once Purdue has vouched for the ticket, before the
+    // account write, so a replayed callback URL cannot link twice.
+    if (native) purdueLinkHandoff.consume(native.token)
     await linkPurdueIdentity(req.currentUser.id, identity)
+    if (native) return res.redirect(purdueLinkHandoff.returnUrl('ok'))
     res.redirect(`${clientAppUrl}${nextPath}`)
   } catch (error) {
     console.error('[auth/purdue/callback]', error)
+    if (native) return nativeLinkRedirect(res, error)
     const message = encodeURIComponent(error.message || 'Could not link Purdue account.')
     res.redirect(`${clientAppUrl}/setup?error=purdue-link&message=${message}`)
   }
