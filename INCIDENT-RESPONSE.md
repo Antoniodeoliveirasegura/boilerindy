@@ -60,7 +60,7 @@ never in the repo.
 - Supabase SQL editor: `DELETE FROM advertiser_password_resets;`
 
 **e. Rotate any other exposed secret**
-- `RESEND_API_KEY`, `GEMINI_API_KEY`, `TRANSLOC_API_KEY`, `SENTRY_DSN` - roll at
+- `RESEND_API_KEY`, `XAI_API_KEY`, `TRANSLOC_API_KEY`, `SENTRY_DSN` - roll at
   the provider, update the host env, redeploy.
 
 **f. Cut off a specific abused surface**

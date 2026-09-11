@@ -10,7 +10,7 @@ import {
 
 const TZ = 'America/Indiana/Indianapolis'
 
-// Issue #45 - the intent matcher routes common asks to DB answers (no Gemini).
+// Issue #45 - the intent matcher routes common asks to DB answers (no LLM call).
 
 test('matchIntent recognizes class questions', () => {
   assert.equal(matchIntent("when's my next class?"), 'next_class')

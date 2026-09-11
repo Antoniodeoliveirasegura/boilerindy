@@ -21,7 +21,7 @@ export function stripHtml(html: string | null | undefined): string {
 }
 
 /**
- * Clean AI-generated text: strip markdown formatting Gemini sometimes adds.
+ * Clean AI-generated text: strip markdown formatting the model sometimes adds.
  */
 export function cleanAiText(text: unknown): string {
   if (text == null || text === '') return ''
