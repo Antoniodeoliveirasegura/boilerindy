@@ -16,6 +16,7 @@ method, and path for abuse review.
 | `sign-in` | `POST /api/auth/sign-in` | 20 | 15 min | IP |
 | `account-create` | `POST /api/auth/sign-up`, `POST /api/auth/register-supabase` | 10 | 1 hour | IP |
 | `session-sync` | `POST /api/auth/supabase-sync` | 120 | 15 min | IP |
+| `purdue-link-token` | `POST /api/purdue/link-token` (native app Purdue link handoff, issue #214) | 20 | 15 min | user, falls back to IP |
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id` | 30 | 10 min | user, falls back to IP |
 | `source-sync` | `POST /api/sync/:sourceId`, `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule` | 30 | 15 min | user, falls back to IP |
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals seller email, enumeration-sensitive) | 100 | 15 min | user, falls back to IP |
