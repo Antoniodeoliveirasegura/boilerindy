@@ -164,7 +164,7 @@ export default function CampusAssistant() {
                 <div className="text-[14px] font-semibold text-[var(--color-gold)]">BoilerIndy</div>
                 <div className="text-[11px] text-[var(--color-gold)]/60 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
-                  Powered by Gemini
+                  Powered by Grok
                 </div>
               </div>
             </div>

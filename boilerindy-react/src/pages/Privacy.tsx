@@ -49,7 +49,7 @@ you, so only share what you're comfortable making visible on campus.`,
   {
     title: 'AI assistant',
     body: `When you use the Campus Assistant, your message and relevant context from your own
-calendar (event titles, times, and locations) are sent to Google's Gemini API to generate a
+calendar (event titles, times, and locations) are sent to xAI's Grok API to generate a
 reply. We do not send your email, password, or device location to the AI. If you don't use the
 assistant, nothing is sent to it.`,
   },
@@ -72,7 +72,7 @@ no Meta pixel). You can opt out anytime in Settings → Privacy, and raw events 
     title: 'Who we share data with',
     body: `We don't sell your data or share it with advertisers - advertisers see only aggregate
 impression and tap counts for their own campaigns. We rely on a few service providers to run the
-app: Supabase (database and authentication), Google Gemini (only the AI-assistant requests
+app: Supabase (database and authentication), xAI Grok (only the AI-assistant requests
 described above), Sentry (crash and error reports, with emails, tokens, and cookies stripped out
 before they are sent), Vercel (hosting and anonymous page-performance metrics), and Resend (email
 delivery for advertiser accounts only). Public info shown in the app - transit, dining menus, and
@@ -115,7 +115,7 @@ export default function Privacy() {
         </Link>
         <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Privacy policy</h1>
         <p className="text-[13px] text-[var(--color-txt-2)] mb-8">
-          Last updated July 16, 2026. The short version: your data stays in our own database, we
+          Last updated September 10, 2026. The short version: your data stays in our own database, we
           use no advertising trackers, we never store your Purdue password, and you can opt out of
           analytics or delete your account anytime.
         </p>

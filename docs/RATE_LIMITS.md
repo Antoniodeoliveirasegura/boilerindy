@@ -24,8 +24,8 @@ method, and path for abuse review.
 | `clubs-read` | `GET /api/clubs` (club directory search; served from an hours-long cache, never hits BoilerLink per request, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
 | `push-write` | `PUT /api/push/settings`, `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | 30 | 15 min | user, falls back to IP |
 | `push-test` | `POST /api/push/test` (sends a real notification to every registered device) | 10 | 1 hour | user, falls back to IP |
-| Gemini assistant (pre-existing) | `POST /api/assistant` | 10 | 1 hour | user, falls back to IP |
-| Gemini board AI (pre-existing) | `POST /api/board/ai-suggestions` | 10 | 1 hour | user |
+| Grok assistant (pre-existing) | `POST /api/assistant` | 10 | 1 hour | user, falls back to IP |
+| Grok board AI (pre-existing) | `POST /api/board/ai-suggestions` | 10 | 1 hour | user |
 
 Read-only endpoints (`GET /api/...`) are generally not limited: they are
 session-gated, cheap, and limiting them would hurt normal navigation. Two

@@ -93,7 +93,7 @@ Open `.env` and fill in the values:
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Settings → API → service_role key |
 | `SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
 | `SESSION_SECRET` | Any long random string (e.g. `openssl rand -hex 32`) |
-| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com/app/apikey) - free tier works |
+| `XAI_API_KEY` | [console.x.ai](https://console.x.ai) → API Keys. Optional `XAI_MODEL` picks the model (default `grok-4.3`) |
 | `PORT` | Leave as `3000` |
 | `HOST` | Leave as `127.0.0.1` |
 | `CLIENT_APP_URL` | Leave as `http://localhost:5173` |
@@ -105,7 +105,7 @@ Open `.env` and fill in the values:
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional. `pnpm run vapid:generate` prints a pair; leave blank to keep push notifications off. See [docs/push-notifications.md](docs/push-notifications.md) |
 | `PUSH_CRON_SECRET` | Optional. Bearer token the Supabase cron job uses to trigger deadline reminders; blank disables that endpoint |
 
-> **Note:** `GEMINI_API_KEY` is optional. If omitted, the campus assistant and board AI features return a 503 but everything else works.
+> **Note:** `XAI_API_KEY` is optional. If omitted, the campus assistant replies with an offline notice, board AI suggestions return a 503, new posts are not auto-tagged, and everything else works.
 
 ---
 
@@ -221,7 +221,7 @@ Vite automatically tries 5174, 5175, etc. Check which port Vite actually started
 This should not happen with the Vite proxy active. If you see CORS errors, make sure you're accessing the app through Vite (`http://localhost:5173`) and not directly from `http://localhost:3000`.
 
 **`fetch failed` errors in the backend console**
-The backend makes outbound requests to Nutrislice (dining), TransLoc (transit), and Gemini (AI). These can fail when external services are down - it does not affect auth, calendar, or board features.
+The backend makes outbound requests to Nutrislice (dining), TransLoc (transit), and xAI Grok (AI). These can fail when external services are down - it does not affect auth, calendar, or board features.
 
 **Supabase errors - `table does not exist` or `schema cache`**
 The database schema hasn't been applied. See the [Database setup](#database-setup) section below.
@@ -310,7 +310,7 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 - Session: `express-session` (cookie-based, `httpOnly`, `sameSite: lax`)
 - Database: Supabase (Postgres via `@supabase/supabase-js`)
 - Auth: local email/password + optional Purdue CAS
-- External integrations: Nutrislice dining API, TransLoc transit API, Google Gemini
+- External integrations: Nutrislice dining API, TransLoc transit API, xAI Grok
 
 ### Calendar feed (subscribable .ics)
 
