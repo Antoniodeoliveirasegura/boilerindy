@@ -49,6 +49,7 @@ import {
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
+import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
@@ -1259,18 +1260,25 @@ async function verifySupabasePassword(email, password) {
   const gotrue = `${supabaseUrl}/auth/v1/token?grant_type=password`
   const anonKey = supabaseAnonKey || (isProduction ? null : supabaseServiceKey)
   if (!anonKey) {
-    throw new Error('Supabase auth is not configured.')
+    throw new UpstreamError('Supabase Auth', 'config')
   }
-  const resp = await fetch(gotrue, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: anonKey,
+  // 400/401/403/422 are GoTrue's "wrong credentials" answers and mean null;
+  // anything else (5xx, a stall, a network error) is an outage and throws an
+  // UpstreamError so sign-in answers 503 instead of "invalid password" (#205).
+  const resp = await fetchUpstream('Supabase Auth', gotrue, {
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: anonKey,
+      },
+      body: JSON.stringify({ email, password }),
     },
-    body: JSON.stringify({ email, password }),
+    timeoutMs: 8000,
+    acceptStatus: (status) => status === 400 || status === 401 || status === 403 || status === 422,
   })
   if (!resp.ok) return null
-  const data = await resp.json()
+  const data = await resp.json().catch(() => null)
   return data?.user ?? null
 }
 
@@ -1394,7 +1402,14 @@ app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
       })
     })
   } catch (error) {
-    res.status(401).json({ error: { message: error.message || 'Could not sign in.', status: 401 } })
+    if (error instanceof UpstreamError) {
+      console.error('[sign-in] upstream failure:', error.message)
+      return res.status(503).json({
+        error: { message: 'Sign-in is temporarily unavailable. Please try again in a moment.', status: 503 },
+      })
+    }
+    console.error('[sign-in] failed:', error?.message || error)
+    res.status(401).json({ error: { message: 'Could not sign in.', status: 401 } })
   }
 })
 
@@ -2977,16 +2992,13 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
 
 // ── Tiny in-memory TTL cache for quasi-static upstream/DB reads (perf) ──────
 // Repeat calls within the TTL return instantly instead of re-hitting TransLoc /
-// Supabase on every page load. Failures are never cached. Process-local - fine
-// for a single instance; swap for Redis if the backend is ever horizontally scaled.
-const _ttlCache = new Map() // key -> { value, expiresAt }
+// Supabase on every page load. Concurrent misses share one fill, a failed
+// refresh serves the last good value (#205), and failures are never cached.
+// Process-local - fine for a single instance; swap for Redis if the backend is
+// ever horizontally scaled. See src/upstreamFetch.mjs.
+const upstreamCache = createStaleCache()
 async function getCached(key, ttlMs, producer) {
-  const now = Date.now()
-  const hit = _ttlCache.get(key)
-  if (hit && now < hit.expiresAt) return hit.value
-  const value = await producer()
-  _ttlCache.set(key, { value, expiresAt: now + ttlMs })
-  return value
+  return upstreamCache.get(key, ttlMs, producer)
 }
 
 // TransLoc API proxy endpoints (to avoid CORS issues)
@@ -2994,12 +3006,24 @@ const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.sv
 const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY
 const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
 const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
+const TRANSLOC_TIMEOUT_MS = 8000
+
+// A TransLoc failure after the first successful fill is served from the cache
+// (see getCached); this only answers when there is nothing good to serve.
+function respondTranslocError(res, what, error) {
+  if (error instanceof UpstreamError) {
+    console.error(`TransLoc ${what}:`, error.message)
+    return res.status(502).json({ error: { message: 'Transit data is temporarily unavailable.', status: 502 } })
+  }
+  console.error(`TransLoc ${what} error:`, error?.message || error)
+  return res.status(500).json({ error: { message: `Failed to fetch ${what} data.`, status: 500 } })
+}
 
 // Fail closed when the key isn't configured rather than calling TransLoc with an
 // undefined key (and caching the error). Transit requires TRANSLOC_API_KEY to be set.
 function translocReady(res) {
   if (!TRANSLOC_API_KEY) {
-    res.status(503).json({ error: 'Transit is not configured.' })
+    res.status(503).json({ error: { message: 'Transit is not configured.', status: 503 } })
     return false
   }
   return true
@@ -3008,45 +3032,41 @@ function translocReady(res) {
 app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
-    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, async () => {
-      const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
-      return response.json()
-    })
+    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, () =>
+      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`, {
+        timeoutMs: TRANSLOC_TIMEOUT_MS,
+      }),
+    )
     // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
     // /api rewrite) absorb the 10 s polling so repeats never reach this process.
     res.set('Cache-Control', 'public, max-age=10, s-maxage=10')
     res.json(data)
   } catch (error) {
-    console.error('TransLoc vehicles error:', error)
-    res.status(500).json({ error: 'Failed to fetch vehicle data' })
+    respondTranslocError(res, 'vehicles', error)
   }
 })
 
 app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
-    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, async () => {
-      const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
-      return response.json()
-    })
+    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, () =>
+      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
+    )
     res.json(data)
   } catch (error) {
-    console.error('TransLoc stops error:', error)
-    res.status(500).json({ error: 'Failed to fetch stops data' })
+    respondTranslocError(res, 'stops', error)
   }
 })
 
 app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
-    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, async () => {
-      const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
-      return response.json()
-    })
+    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, () =>
+      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
+    )
     res.json(data)
   } catch (error) {
-    console.error('TransLoc routes error:', error)
-    res.status(500).json({ error: 'Failed to fetch routes data' })
+    respondTranslocError(res, 'routes', error)
   }
 })
 
