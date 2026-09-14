@@ -23,6 +23,13 @@ if (process.env.SENTRY_DSN) {
   })
 }
 
+// A rejected promise nobody awaited must not take the process down (Node's
+// default) or vanish: log it and keep serving. Sentry, when configured, also
+// records it through its own handler (issue #197).
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason?.stack || reason?.message || reason)
+})
+
 import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
@@ -131,6 +138,7 @@ import {
 } from './src/advertiserPasswordReset.mjs'
 import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
+import { wrapAsyncRoutes } from './src/asyncRoutes.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -5632,6 +5640,13 @@ app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ ty
 // Express's HTML "Cannot GET" page (#157). Mounted after every API route (so it
 // only runs when nothing matched) and before the error handlers. Non-/api
 // routes (/, /auth/purdue/*, /feeds/calendar/*) are untouched.
+// Express 4 drops rejected promises from async handlers on the floor; wrap
+// every registered route handler and route-level middleware so they reach the
+// error handlers below instead of hanging the request (#197). Must run after
+// the last app.get/post/... and before the error middleware.
+const wrappedHandlers = wrapAsyncRoutes(app)
+console.log(`[boot] ${wrappedHandlers} route handlers wrapped for async error propagation`)
+
 app.use('/api', apiNotFound)
 
 // Capture anything that escapes a route handler. Registered after all routes
