@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
-
-export type RewardOrigin = { x: number; y: number }
+import type { RewardOrigin } from '../lib/rewardOrigin'
 
 type Burst = RewardOrigin & { id: number }
 
@@ -24,8 +23,13 @@ export default function TaskCompleteReward({
   const reducedMotion = usePrefersReducedMotion()
   const [burst, setBurst] = useState<Burst | null>(null)
   const [toast, setToast] = useState(false)
+  // Kept in a ref so the timers below always call the latest onDone without
+  // restarting the animation when the parent re-renders; written in an effect,
+  // not during render (react-hooks/refs).
   const onDoneRef = useRef(onDone)
-  onDoneRef.current = onDone
+  useEffect(() => {
+    onDoneRef.current = onDone
+  }, [onDone])
 
   useEffect(() => {
     if (!origin) return undefined
@@ -86,20 +90,4 @@ export default function TaskCompleteReward({
     </>,
     document.body,
   )
-}
-
-/** Prefer the checkbox center; fall back to the click point. */
-export function rewardOriginFromEvent(e?: ReactMouseEvent | null): RewardOrigin {
-  const target = e?.currentTarget
-  if (target instanceof HTMLElement) {
-    const rect = target.getBoundingClientRect()
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-  }
-  if (e && typeof e.clientX === 'number') {
-    return { x: e.clientX, y: e.clientY }
-  }
-  return {
-    x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
-    y: typeof window !== 'undefined' ? window.innerHeight * 0.35 : 0,
-  }
 }
