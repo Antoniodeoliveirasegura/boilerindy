@@ -104,6 +104,7 @@ Open `.env` and fill in the values:
 | `NATIVE_APP_SCHEME` | Optional. URL scheme the native app registers (default `boilerindyapp`); the Purdue link handoff returns to `<scheme>://purdue-linked`. See [docs/purdue-link.md](docs/purdue-link.md) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional. `pnpm run vapid:generate` prints a pair; leave blank to keep push notifications off. See [docs/push-notifications.md](docs/push-notifications.md) |
 | `PUSH_CRON_SECRET` | Optional. Bearer token the Supabase cron jobs use to trigger deadline reminders and the hourly calendar re-sync; blank disables both endpoints. See [docs/source-resync.md](docs/source-resync.md) |
+| `SENTRY_DSN` | Optional. Node project DSN from sentry.io; blank keeps error tracking off (zero events locally). See [docs/error-tracking.md](docs/error-tracking.md) |
 
 > **Note:** `XAI_API_KEY` is optional. If omitted, the campus assistant replies with an offline notice, board AI suggestions return a 503, new posts are not auto-tagged, and everything else works.
 

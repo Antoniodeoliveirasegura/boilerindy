@@ -1109,12 +1109,12 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', tok
   <style>
     body{font-family:system-ui,-apple-system,sans-serif;background:#f5f4f1;color:#1a1918;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}
     .card{width:min(100%,420px);background:#fff;border:1px solid rgba(26,25,24,.08);border-radius:16px;padding:24px;box-shadow:0 8px 32px rgba(26,25,24,.08)}
-    .badge{display:inline-block;background:#CFB991;color:#3E2200;font-size:10px;font-weight:700;padding:4px 10px;border-radius:999px;letter-spacing:.08em;text-transform:uppercase}
+    .badge{display:inline-block;background:#D4A84B;color:#3E2200;font-size:10px;font-weight:700;padding:4px 10px;border-radius:999px;letter-spacing:.08em;text-transform:uppercase}
     h1{font-size:24px;margin:16px 0 8px}
     p{font-size:14px;line-height:1.6;color:#4A4844}
     label{display:block;font-size:12px;font-weight:600;margin:16px 0 6px}
     input{width:100%;box-sizing:border-box;border:1px solid rgba(26,25,24,.14);border-radius:10px;padding:12px 14px;font:inherit}
-    button{margin-top:20px;width:100%;border:0;border-radius:10px;background:#CFB991;color:#3E2200;padding:12px 14px;font:inherit;font-weight:700;cursor:pointer}
+    button{margin-top:20px;width:100%;border:0;border-radius:10px;background:#D4A84B;color:#3E2200;padding:12px 14px;font:inherit;font-weight:700;cursor:pointer}
     .msg{margin-top:12px;color:#b42318;font-size:13px}
   </style>
 </head>
@@ -5513,6 +5513,19 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, req
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.status(204).end()
+})
+
+// Sentry smoke test (issue #50). Proves the backend error path end to end
+// without editing code: passing the error to next() runs it through
+// Sentry.setupExpressErrorHandler and the final safety net below, exactly the
+// route a real escaped exception takes, and the client gets the generic 500.
+// Admin-only, and only with ?confirm=1 so an idle browser tab cannot raise it.
+// With no SENTRY_DSN it just demonstrates the 500 shape. See docs/error-tracking.md.
+app.get('/api/admin/sentry-test', requireAuth, requireAdmin, (req, res, next) => {
+  if (req.query.confirm !== '1') {
+    return res.status(400).json({ error: { message: 'Add ?confirm=1 to raise a test error.', status: 400 } })
+  }
+  next(new Error(`Sentry smoke test raised via GET /api/admin/sentry-test at ${new Date().toISOString()}`))
 })
 
 // ── First-party product analytics (issue #51) ───────────────────────────────

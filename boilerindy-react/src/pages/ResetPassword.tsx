@@ -91,7 +91,7 @@ export default function ResetPassword() {
 
   if (linkState === 'invalid') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)] text-center">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)] text-center">
         <h1 className="text-xl font-semibold text-[var(--color-txt-0)] mb-2">Link expired or invalid</h1>
         <p className="text-sm text-[var(--color-txt-1)] mb-6 max-w-sm">
           Reset links only work once and expire after a short while. Request a new one from the sign-in page.
@@ -105,7 +105,7 @@ export default function ResetPassword() {
 
   if (linkState === 'checking') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-1)]">
+      <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-1)]">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <div className="text-[var(--color-txt-1)]">Checking your reset link…</div>
@@ -115,7 +115,7 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)]">
+    <div className="flex-1 flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)]">
       <div className="w-full max-w-[400px]">
         <h1 className="text-2xl font-bold text-[var(--color-txt-0)] mb-1">Set a new password</h1>
         <p className="text-[13px] text-[var(--color-txt-1)] mb-6">Choose a strong password for your account.</p>

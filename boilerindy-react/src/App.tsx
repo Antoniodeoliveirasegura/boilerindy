@@ -4,6 +4,7 @@ import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import AppLayout from './components/AppLayout'
+import PublicLayout from './components/PublicLayout'
 import RequireAuth from './components/RequireAuth'
 import RequireAdmin from './components/RequireAdmin'
 import UsageListener from './components/UsageListener'
@@ -64,26 +65,29 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/advertise" element={<AdvertiserLogin />} />
-            <Route path="/advertise/reset-password" element={<AdvertiserResetPassword />} />
-            <Route
-              path="/advertise/dashboard"
-              element={
-                <RequireAdvertiser>
-                  {/* advertiser is injected by RequireAdvertiser via cloneElement; passed
-                      here only to satisfy the prop type while Dashboard's typed version
-                      (optional advertiser) lands in its own PR. */}
-                  <AdvertiserDashboard advertiser={undefined} />
-                </RequireAdvertiser>
-              }
-            />
             {/* /demo was the old marketing preview; advertisers land on the portal now. */}
             <Route path="/demo" element={<Navigate to="/advertise" replace />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/install" element={<Install />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
+            {/* Routes with no footer of their own get the disclaimer from PublicLayout (issue #112). */}
+            <Route element={<PublicLayout />}>
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/advertise/reset-password" element={<AdvertiserResetPassword />} />
+              <Route
+                path="/advertise/dashboard"
+                element={
+                  <RequireAdvertiser>
+                    {/* advertiser is injected by RequireAdvertiser via cloneElement; passed
+                        here only to satisfy the prop type while Dashboard's typed version
+                        (optional advertiser) lands in its own PR. */}
+                    <AdvertiserDashboard advertiser={undefined} />
+                  </RequireAdvertiser>
+                }
+              />
+            </Route>
             <Route element={<AppLayout />}>
               <Route
                 path="/setup"
