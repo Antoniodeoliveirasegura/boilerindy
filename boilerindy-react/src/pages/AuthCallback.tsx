@@ -54,7 +54,7 @@ export default function AuthCallback() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-1)]">
+      <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-1)]">
         <div className="text-center">
           <div className="text-[var(--color-error)] mb-2">Authentication failed</div>
           <div className="text-[var(--color-txt-2)] text-sm">{error}</div>
@@ -65,7 +65,7 @@ export default function AuthCallback() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-1)]">
+    <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-1)]">
       <div className="text-center">
         <div className="w-8 h-8 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
         <div className="text-[var(--color-txt-1)]">Completing sign in...</div>

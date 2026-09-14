@@ -11,6 +11,7 @@ import {
   expandRecurringEvents,
   detectTimezoneFromFeed,
   icalText,
+  cleanTitle,
 } from '../src/scheduleSync.mjs'
 
 const TZ = 'America/Indiana/Indianapolis'
@@ -173,7 +174,8 @@ test('planSync drops resource items for Brightspace feeds', () => {
   const plan = planSync(feed, source)
 
   const titles = plan.itemsToInsert.map((i) => i.title)
-  assert.deepEqual(titles, ['HW1 - Due'])
+  assert.deepEqual(titles, ['HW1']) // "- Due" marker stripped (#121)
+  assert.equal(plan.itemsToInsert[0].raw_json.summary, 'HW1 - Due')
 })
 
 test('planSync keeps only the due item from a Brightspace availability/due triple (#121)', () => {
@@ -186,7 +188,8 @@ test('planSync keeps only the due item from a Brightspace availability/due tripl
   const plan = planSync(feed, source)
 
   assert.equal(plan.itemsToInsert.length, 1)
-  assert.equal(plan.itemsToInsert[0].title, 'Homework 3 - Due')
+  assert.equal(plan.itemsToInsert[0].title, 'Homework 3')
+  assert.equal(plan.itemsToInsert[0].raw_json.summary, 'Homework 3 - Due')
   assert.equal(plan.itemsToInsert[0].category, 'assignment')
   assert.equal(plan.meta.itemCount, 1)
 })
@@ -267,4 +270,49 @@ test('classifyFetchError maps error text to a user-facing message', () => {
   assert.match(classifyFetchError(new Error('getaddrinfo ENOTFOUND host')).message, /could not reach/i)
   assert.equal(classifyFetchError(new Error('weird')).message, 'Could not fetch the calendar feed.')
   assert.equal(classifyFetchError(new Error('weird')).status, 'error')
+})
+
+// ── Title cleanup (#121) ────────────────────────────────────────────────────
+
+test('cleanTitle strips the D2L trailing status markers and nothing else', () => {
+  assert.equal(cleanTitle('Homework 5 - ENGR 13300 - Due'), 'Homework 5 - ENGR 13300')
+  assert.equal(cleanTitle('Quiz 2 - Availability Ends'), 'Quiz 2')
+  assert.equal(cleanTitle('Homework 3 - Availability Starts'), 'Homework 3')
+  assert.equal(cleanTitle('Lab 1 - available'), 'Lab 1')
+  assert.equal(cleanTitle('HW1 - Due - Due'), 'HW1')
+  // Whitespace is normalised; the course code and bracket prefix are kept
+  // until real feed samples (Step 0) say otherwise.
+  assert.equal(cleanTitle('  Project   2  '), 'Project 2')
+  assert.equal(cleanTitle('[CS 18000] Project 2 - Due'), '[CS 18000] Project 2')
+  // Not markers: no " - " separator, or the word inside the title.
+  assert.equal(cleanTitle('CS 180 Lecture'), 'CS 180 Lecture')
+  assert.equal(cleanTitle('Reading due Friday'), 'Reading due Friday')
+  assert.equal(cleanTitle('Due'), 'Due')
+  // A title that is only a marker falls back to the raw summary.
+  assert.equal(cleanTitle('- Due'), '- Due')
+  assert.equal(cleanTitle(null), '')
+})
+
+test('planSync stores the cleaned title but classifies and dedupes on the raw summary (#121)', () => {
+  const source = purdueSource({ source_type: 'brightspace_ical', source_url: 'https://x.brightspace.com/feed.ics' })
+  const feed = {
+    lab: vevent({ uid: 'l', summary: 'Lab Report - Week 4 - Due', start: new Date('2026-01-19T04:59:00.000Z'), end: new Date('2026-01-19T04:59:00.000Z') }),
+    labDup: vevent({ uid: 'l2', summary: 'Lab Report - Week 4 - Due', start: new Date('2026-01-19T04:59:00.000Z'), end: new Date('2026-01-19T04:59:00.000Z') }),
+    quiz: vevent({ uid: 'q', summary: 'Quiz 2 - ENGR 13300 - Due', start: new Date('2026-01-21T04:59:00.000Z'), end: new Date('2026-01-21T04:59:00.000Z') }),
+  }
+  const plan = planSync(feed, source)
+
+  assert.deepEqual(
+    plan.itemsToInsert.map((i) => [i.title, i.category, i.raw_json.summary]),
+    [
+      ['Lab Report - Week 4', 'lab', 'Lab Report - Week 4 - Due'],
+      ['Quiz 2 - ENGR 13300', 'quiz', 'Quiz 2 - ENGR 13300 - Due'],
+    ],
+  )
+  assert.equal(plan.meta.duplicateCount, 1)
+})
+
+test('planSync leaves Purdue class titles untouched (#121)', () => {
+  const plan = planSync({ a: vevent({ summary: 'CS 180 Lecture' }) }, purdueSource())
+  assert.equal(plan.itemsToInsert[0].title, 'CS 180 Lecture')
 })

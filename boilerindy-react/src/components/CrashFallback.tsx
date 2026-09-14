@@ -13,7 +13,7 @@ export default function CrashFallback() {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          style={{ padding: '10px 18px', borderRadius: 10, border: 0, background: '#CFB991', color: '#3E2200', fontWeight: 600, cursor: 'pointer' }}
+          style={{ padding: '10px 18px', borderRadius: 10, border: 0, background: '#D4A84B', color: '#3E2200', fontWeight: 600, cursor: 'pointer' }}
         >
           Reload BoilerIndy
         </button>

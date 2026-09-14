@@ -1014,7 +1014,7 @@ body {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 2px solid var(--color-gold, #cfb991);
+  border: 2px solid var(--color-gold, #d4a84b);
   animation: taskRewardBurstRing 0.55s var(--ease-out-expo) forwards;
 }
 
@@ -1026,7 +1026,7 @@ body {
   height: 6px;
   margin: -3px 0 0 -3px;
   border-radius: 999px;
-  background: var(--color-gold, #cfb991);
+  background: var(--color-gold, #d4a84b);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent, #8e6f3e) 35%, transparent);
   animation: taskRewardParticle 0.7s var(--ease-out-expo) forwards;
   animation-delay: calc(var(--i) * 12ms);
@@ -1048,8 +1048,8 @@ body {
   gap: 0.45rem;
   padding: 0.55rem 0.9rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-gold, #cfb991) 45%, var(--color-border));
-  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-gold, #cfb991));
+  border: 1px solid color-mix(in srgb, var(--color-gold, #d4a84b) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-gold, #d4a84b));
   color: var(--color-txt-0);
   font-size: 13px;
   font-weight: 600;

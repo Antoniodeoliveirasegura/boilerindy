@@ -19,10 +19,10 @@
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "express-session": "^1.19.0",
-    "node-ical": "^0.26.1",
-    "playwright": "^1.58.2"
+    "node-ical": "^0.26.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0"
+    "@playwright/test": "1.60.0",
+    "playwright": "1.60.0"
   }
 }

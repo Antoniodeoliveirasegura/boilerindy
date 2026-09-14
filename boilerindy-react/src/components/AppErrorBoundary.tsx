@@ -1,13 +1,14 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import CrashFallback from './CrashFallback'
+import { reportError } from '../lib/errorReporting'
 
 type Props = { children: ReactNode }
 type State = { hasError: boolean }
 
 // Plain React error boundary so @sentry/react stays out of the initial bundle.
-// Caught errors are still forwarded to Sentry, but lazily - captureException is
-// a no-op until Sentry has initialized (see main.jsx), and the dynamic import
-// never blocks the fallback UI from rendering.
+// Caught errors go through the errorReporting seam: forwarded at once when
+// Sentry is up, buffered until it is when the crash happens during the first
+// render (issue #50), and never allowed to delay the fallback UI.
 export default class AppErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false }
 
@@ -16,13 +17,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    import('@sentry/react')
-      .then((Sentry) =>
-        Sentry.captureException?.(error, {
-          contexts: { react: info as unknown as Record<string, unknown> },
-        }),
-      )
-      .catch(() => {})
+    reportError(error, { contexts: { react: { componentStack: info.componentStack ?? '' } } })
   }
 
   render() {

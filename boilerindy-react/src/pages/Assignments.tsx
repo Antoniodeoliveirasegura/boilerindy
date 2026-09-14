@@ -5,6 +5,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import SourceErrorNotice from '../components/SourceErrorNotice'
 import TaskCompleteReward, {
   rewardOriginFromEvent,
   type RewardOrigin,
@@ -679,6 +680,8 @@ export default function Assignments() {
         origin={rewardOrigin}
         onDone={() => setRewardOrigin(null)}
       />
+      {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
+      <SourceErrorNotice className="mb-6" />
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Assignments</h1>
