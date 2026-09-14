@@ -36,6 +36,22 @@ function envNumber(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
+/** The bucket a request lands in for a given keyBy strategy. */
+export function bucketKey(req, keyBy = 'userOrIp') {
+  if (typeof keyBy === 'function') {
+    let custom = null
+    try {
+      custom = keyBy(req)
+    } catch {
+      custom = null
+    }
+    if (typeof custom === 'string' && custom) return `k:${custom}`
+    return `ip:${req.ip}`
+  }
+  if (keyBy !== 'ip' && req.session?.userId) return `u:${req.session.userId}`
+  return `ip:${req.ip}`
+}
+
 function formatRetry(seconds) {
   if (seconds < 90) return `${seconds} seconds`
   return `about ${Math.ceil(seconds / 60)} minutes`
@@ -48,7 +64,10 @@ function formatRetry(seconds) {
  * @param {string} options.name      Limiter name (used for env overrides + logs)
  * @param {number} options.windowMs  Window length in milliseconds
  * @param {number} options.max       Allowed requests per window
- * @param {'userOrIp'|'ip'} [options.keyBy='userOrIp']  Bucket key strategy
+ * @param {'userOrIp'|'ip'|((req: object) => string|null)} [options.keyBy='userOrIp']
+ *   Bucket key strategy. A function returns its own key (prefixed `k:`) or
+ *   null to fall back to the client IP; used where the caller is identified
+ *   by something other than the cookie session (issue #217).
  * @param {string} [options.message] User-facing message on 429
  */
 export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message }) {
@@ -61,8 +80,7 @@ export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', mes
   return function rateLimit(req, res, next) {
     if (!globalEnabled) return next()
 
-    const isAuthed = keyBy !== 'ip' && req.session?.userId
-    const key = isAuthed ? `u:${req.session.userId}` : `ip:${req.ip}`
+    const key = bucketKey(req, keyBy)
     const now = Date.now()
 
     let win = windows.get(key)

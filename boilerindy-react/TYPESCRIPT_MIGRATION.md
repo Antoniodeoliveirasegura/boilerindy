@@ -39,7 +39,8 @@ container components/pages → `App.tsx`/`main.tsx`.
 
 ## Follow-ups
 
-- Add **typescript-eslint** so `.ts`/`.tsx` are linted (the current ESLint flat config
-  only matches `**/*.{js,jsx}`, so `.ts` files are type-checked by `tsc` but not yet linted).
+- ~~Add **typescript-eslint** so `.ts`/`.tsx` are linted~~ Done (issue #183, 2026-09-14):
+  `eslint.config.js` has a `**/*.{ts,tsx}` block with `typescript-eslint`'s recommended
+  rules plus the same react-hooks and react-refresh configs as the JS block.
 - Once coverage is high, flip `checkJs: true` (then remove `allowJs`) to type-check the
   remaining `.js` and finish the migration.
