@@ -23,7 +23,7 @@ const bentoTiles = [
     span: '',
     icon: 'sparkles',
     title: 'Ask anything',
-    desc: '“When’s my next bus?” Grok answers in plain language.',
+    desc: '“When’s my next bus?” the assistant answers in plain language.',
     tone: 'accent',
   },
   {
@@ -99,7 +99,7 @@ const integrations = [
   ['bus', 'IndyGo Transit'],
   ['calendar', 'Events Feed'],
   ['mapPin', 'Campus Map'],
-  ['sparkles', 'xAI Grok'],
+  ['sparkles', 'Groq AI'],
   ['book', 'University Library'],
   ['document', 'Assignment Tracker'],
   ['message', 'Community Board'],
@@ -204,7 +204,7 @@ export default function Landing() {
             <div className="mkt-reveal grid grid-cols-4 gap-5 max-w-[440px]" style={{ '--mkt-delay': '320ms' } as React.CSSProperties}>
               <Stat value="12+" label="Campus features" />
               <Stat value="Live" label="Bus & dining" />
-              <Stat value="AI" label="by Grok" />
+              <Stat value="AI" label="by Groq" />
               <Stat value="$0" label="For students" />
             </div>
           </div>
