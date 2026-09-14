@@ -50,6 +50,7 @@ import { describeFailure, runCronTick } from './src/cronTick.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
+import { tidyAssistantReply } from './src/assistantReply.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -2696,14 +2697,27 @@ You help students with:
 - General student life at Purdue Indy
 
 Rules:
-- Be concise and friendly. For simple questions: 2-4 sentences. For "what should I do now?", "plan my afternoon", or similar planning questions: give a short prioritized plan (3-6 sentences or brief bullets), because multiple commitments may apply.
+- Be concise and friendly. Short replies only; the reply format rules at the end are strict.
 - Answer directly from the context data when available - do not hedge or defer.
 - When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
 - For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
 - For "next class" questions only count regular lectures/labs/discussions, not exams or office hours (unless asked).
 - If something is genuinely unknown (not in context and not general knowledge), say so briefly.
-- If asked about something totally unrelated to campus life, briefly redirect.`
+- If asked about something totally unrelated to campus life, briefly redirect.
+
+Reply format (strict, overrides anything above):
+- Plain text only. No markdown: no **bold**, no # headings, no tables. A short list with "- " lines is fine for 2 to 5 items.
+- Keep it short. Simple question: one to three sentences, under 60 words. Planning question ("what should I do", "what's the play", "plan my afternoon"): at most 4 lines or 4 sentences, under 90 words, covering only the next few hours, most important thing first.
+- Never use em dashes or en dashes. Use a comma, a period, or a plain hyphen.
+- Lead with the answer. No greeting, no restating the question, no closing offer like "let me know if you need anything else".
+- Use clock times like 12:15 PM and the real names from the context.`
+
+// Shown in the chat when Groq answers 429: the free tier is capped per minute
+// and per day for the whole organisation (issue #252), and a friendly line in
+// the bubble beats a red error for something the student cannot fix.
+const ASSISTANT_BUSY_MESSAGE =
+  'The assistant is busy right now. Give it a minute and ask again, or check the Schedule, Dining and Transit tabs directly.'
 
 // ── Context formatters ────────────────────────────────────────────────────────
 
@@ -2987,14 +3001,21 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
 
   try {
     // The client keeps user/assistant turns only and puts the system prompt first.
+    // 600 completion tokens: the longest reply the format rules allow, plus
+    // the model's low-effort reasoning tokens, which count against the cap.
     const text = await ai.reply({
       system: systemPrompt,
       messages,
-      maxOutputTokens: 2800,
+      maxOutputTokens: 600,
       temperature: 0.52,
     })
-    res.json({ reply: text ?? "Sorry, I couldn't generate a response." })
+    // Plain text for the bubble whatever the model did (issue #252).
+    res.json({ reply: tidyAssistantReply(text) ?? "Sorry, I couldn't generate a response." })
   } catch (err) {
+    if (err instanceof GroqUpstreamError && err.status === 429) {
+      console.warn('Groq rate limit:', err.body.slice(0, 200))
+      return res.json({ reply: ASSISTANT_BUSY_MESSAGE, source: 'busy' })
+    }
     if (err instanceof GroqUpstreamError) {
       console.error('Groq error:', err.body)
       return res.status(502).json({ error: 'AI service error' })
