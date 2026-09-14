@@ -25,6 +25,26 @@ const FEED_TOKEN_RE = /(\/feeds\/calendar\/)[^/\s?#]+/gi
 
 const DROPPED_HEADERS = ['cookie', 'set-cookie', 'authorization', 'x-api-key', 'apikey']
 
+// Sentry's own identifiers look exactly like the secrets above: event_id and
+// trace_id are 32 hex chars, a git-SHA release is 40, debug_meta carries the
+// sourcemap debug_id UUIDs. Redacting them breaks the event (the envelope
+// header repeats event_id, and Sentry answers 400 to a non-hex one), so every
+// error sent between June and 2026-09-14 was rejected. These keys pass through
+// untouched; nothing under them is user data.
+const PASSTHROUGH_KEYS = new Set([
+  'event_id',
+  'trace_id',
+  'span_id',
+  'parent_span_id',
+  'release',
+  'dist',
+  'sdk',
+  'debug_meta',
+  'timestamp',
+  'start_timestamp',
+  'sent_at',
+])
+
 function scrubString(value) {
   return value
     .replace(URL_SECRET_PARAM_RE, '$1[redacted]')
@@ -38,13 +58,14 @@ function scrubString(value) {
     .replace(EMAIL_RE, '[email]')
 }
 
-function scrubDeep(value) {
+function scrubDeep(value, key) {
+  if (key !== undefined && PASSTHROUGH_KEYS.has(key)) return value
   if (typeof value === 'string') return scrubString(value)
-  if (Array.isArray(value)) return value.map(scrubDeep)
+  if (Array.isArray(value)) return value.map((entry) => scrubDeep(entry))
   if (value && typeof value === 'object') {
     const out = {}
-    for (const [key, entry] of Object.entries(value)) {
-      out[key] = scrubDeep(entry)
+    for (const [entryKey, entry] of Object.entries(value)) {
+      out[entryKey] = scrubDeep(entry, entryKey)
     }
     return out
   }
