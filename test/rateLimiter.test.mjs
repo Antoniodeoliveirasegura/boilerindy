@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRateLimiter } from '../src/rateLimiter.mjs'
+import { bucketKey, createRateLimiter } from '../src/rateLimiter.mjs'
 
 // Minimal Express req/res doubles so we can exercise the middleware directly.
 function mockReqRes({ ip = '1.2.3.4', userId } = {}) {
@@ -90,4 +90,30 @@ test('honors the RATE_LIMIT_<NAME>_MAX env override', () => {
   assert.equal(pass(limiter, ctx), false, '3rd blocked - limit overridden to 2')
 
   delete process.env.RATE_LIMIT_TEST_ENV_MAX
+})
+
+// ── Function-valued keyBy (#215, #217) ───────────────────────────────────────
+
+test('a keyBy function picks the bucket and null falls back to the client IP', () => {
+  const byHeader = (req) => (req.headers?.['x-actor'] ? `actor:${req.headers['x-actor']}` : null)
+  assert.equal(bucketKey({ ip: '10.0.0.9', headers: { 'x-actor': 'a1' } }, byHeader), 'k:actor:a1')
+  assert.equal(bucketKey({ ip: '10.0.0.9', headers: {} }, byHeader), 'ip:10.0.0.9')
+  // A throwing key function never breaks the request: IP bucket.
+  assert.equal(bucketKey({ ip: '10.0.0.9' }, () => { throw new Error('boom') }), 'ip:10.0.0.9')
+  // Built-in strategies are unchanged.
+  assert.equal(bucketKey({ ip: '1.1.1.1', session: { userId: 'u9' } }, 'userOrIp'), 'u:u9')
+  assert.equal(bucketKey({ ip: '1.1.1.1', session: { userId: 'u9' } }, 'ip'), 'ip:1.1.1.1')
+  assert.equal(bucketKey({ ip: '1.1.1.1' }), 'ip:1.1.1.1')
+})
+
+test('two actors behind one IP get separate buckets with a keyBy function', () => {
+  const limiter = createRateLimiter({ name: 'test-keyfn', windowMs: 60_000, max: 2, keyBy: (req) => req.headers?.['x-actor'] || null })
+  const a = mockReqRes({ ip: '10.0.0.7' })
+  const b = mockReqRes({ ip: '10.0.0.7' })
+  a.req.headers = { 'x-actor': 'alice' }
+  b.req.headers = { 'x-actor': 'bob' }
+  assert.equal(pass(limiter, a), true)
+  assert.equal(pass(limiter, a), true)
+  assert.equal(pass(limiter, a), false, 'alice is out of budget')
+  assert.equal(pass(limiter, b), true, 'bob still has his own budget behind the same IP')
 })

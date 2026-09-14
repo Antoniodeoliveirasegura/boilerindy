@@ -48,6 +48,7 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
+import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
@@ -285,12 +286,22 @@ const passwordResetRateLimit = createRateLimiter({
   keyBy: 'ip',
   message: 'Too many password reset requests. Please try again in an hour.',
 })
+// Session sync runs on every app launch and token refresh. Keyed by the Supabase
+// user in the request's token so a lecture hall behind one campus NAT does not
+// share a bucket (#217); the wider per-IP cap behind it bounds forged ids.
 const sessionSyncRateLimit = createRateLimiter({
   name: 'session-sync',
   windowMs: 15 * 60 * 1000,
   max: 120,
-  keyBy: 'ip',
+  keyBy: sessionSyncBucketKey,
   message: 'Too many session requests. Please slow down and try again shortly.',
+})
+const sessionSyncIpRateLimit = createRateLimiter({
+  name: 'session-sync-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  keyBy: 'ip',
+  message: 'Too many session requests from this network. Please try again shortly.',
 })
 // One handoff token per native Purdue link attempt (#214); tokens live 10 min.
 const purdueLinkTokenRateLimit = createRateLimiter({
@@ -340,12 +351,23 @@ const adEventRateLimit = createRateLimiter({
 // First-party analytics ingestion (issue #51). The client flushes a batch at
 // most every 10s, so 60 requests per 5 minutes leaves ample headroom while
 // capping abuse.
+// Session-free upstream proxies (dining, parking, stops, routes). Keyed by the
+// signed-in user when there is one, so app users behind one campus NAT do not
+// exhaust a shared budget (#215); anonymous callers still share their IP.
 const publicReadRateLimit = createRateLimiter({
   name: 'public-read',
   windowMs: 15 * 60 * 1000,
   max: 120,
-  keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
+})
+// Live vehicle positions poll every 10 to 20 s per open Transit screen and are
+// cached 5 s server-side, so they get their own bucket sized for polling
+// instead of eating the shared public-read budget (#215).
+const transitVehiclesRateLimit = createRateLimiter({
+  name: 'transit-vehicles',
+  windowMs: 15 * 60 * 1000,
+  max: 240,
+  message: 'Too many transit requests. Please slow down.',
 })
 const pushWriteRateLimit = createRateLimiter({
   name: 'push-write',
@@ -1383,7 +1405,7 @@ app.post('/api/sign-out', (req, res) => {
   })
 })
 
-app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
+app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit, async (req, res) => {
   try {
     const authHeader = req.headers.authorization || ''
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
@@ -1462,6 +1484,14 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
 
     if (!user) {
       return res.status(500).json({ error: { message: 'Could not sync user profile.', status: 500 } })
+    }
+
+    // The same user re-syncing (token refresh, app relaunch) already holds a
+    // valid cookie session: answer from it instead of regenerating and saving a
+    // new one on every call (#217). The profile update above still ran.
+    if (req.session?.userId === user.id) {
+      const session = await buildSessionPayload(user, req)
+      return res.json({ session, reused: true })
     }
 
     req.session.regenerate((err) => {
@@ -2975,13 +3005,16 @@ function translocReady(res) {
   return true
 }
 
-app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
+app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, async () => {
       const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
       return response.json()
     })
+    // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
+    // /api rewrite) absorb the 10 s polling so repeats never reach this process.
+    res.set('Cache-Control', 'public, max-age=10, s-maxage=10')
     res.json(data)
   } catch (error) {
     console.error('TransLoc vehicles error:', error)
