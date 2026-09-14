@@ -98,6 +98,26 @@ function normalizeCategory(sourceType, event) {
   return 'event'
 }
 
+// ── Title cleanup (issue #121) ──────────────────────────────────────────────
+
+// D2L (Brightspace) appends a status marker to the SUMMARY of every calendar
+// item it emits: "Homework 5 - ENGR 13300 - Due", "Quiz 2 - Availability Ends",
+// "Lab 1 - Available". The marker is a category signal (normalizeCategory reads
+// the raw summary), not part of the title, so it is stripped from what the
+// student sees. Anything ahead of the marker, including a course code, is kept
+// verbatim until real feed samples (Step 0 in #121) say what else is noise.
+// The raw summary stays in raw_json.summary and in the dedupe key.
+const TRAILING_STATUS_MARKER = /\s*-\s*(?:due|availability\s+(?:starts|ends)|available)\s*$/i
+
+export function cleanTitle(summary) {
+  const raw = String(summary ?? '').replace(/\s+/g, ' ').trim()
+  let title = raw
+  for (let guard = 0; guard < 3 && TRAILING_STATUS_MARKER.test(title); guard += 1) {
+    title = title.replace(TRAILING_STATUS_MARKER, '').trim()
+  }
+  return title || raw
+}
+
 // ── Timezone helpers ────────────────────────────────────────────────────────
 
 /**
@@ -460,7 +480,7 @@ export function planSync(eventsByKey, source) {
       user_id: userId,
       source_id: sourceId,
       source_type: source.source_type,
-      title: (summaryText || 'Untitled item').slice(0, 500),
+      title: (cleanTitle(summaryText) || 'Untitled item').slice(0, 500),
       description: descriptionText ? descriptionText.slice(0, 5000) : null,
       start_time: startTime,
       end_time: endTime,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
+import { PROVIDER_LINKS, checkScheduleSourceUrl, type ScheduleSourceKind } from '../lib/scheduleSourceUrl'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 
@@ -11,6 +12,7 @@ type SourceConfig = {
   placeholder: string
   helpText: string
   icon: string
+  steps: string[]
 }
 
 type Source = {
@@ -38,6 +40,11 @@ const sourceConfigs: Record<string, SourceConfig> = {
     placeholder: 'https://purdue.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=...',
     helpText: 'Brightspace → Calendar → Subscribe → Copy the iCal feed URL',
     icon: 'document',
+    steps: [
+      'Open Brightspace and sign in.',
+      'Open the Calendar tool and choose Subscribe.',
+      'Copy the calendar subscription link (it ends in feed.ics?token=...) and paste it below.',
+    ],
   },
   purdue: {
     label: 'Class Schedule',
@@ -45,6 +52,11 @@ const sourceConfigs: Record<string, SourceConfig> = {
     placeholder: 'https://timetable.mypurdue.purdue.edu/Timetabling/export?x=...',
     helpText: 'Purdue Timetabling → Export → Personal Schedule → iCalendar',
     icon: 'schedule',
+    steps: [
+      'Open Purdue Timetabling and sign in with your Purdue account (BoilerKey and Duo happen there, never here).',
+      'On your Personal Schedule page choose Export, then iCalendar.',
+      'Copy the link it gives you (it starts with timetable.mypurdue.purdue.edu/Timetabling/export) and paste it below.',
+    ],
   },
 }
 
@@ -58,6 +70,7 @@ export default function ConnectSchedule() {
   const [linking, setLinking] = useState(false)
 
   const [icsUrl, setIcsUrl] = useState('')
+  const [urlError, setUrlError] = useState('')
   const [sourceType, setSourceType] = useState('brightspace')
   const [sources, setSources] = useState<Source[]>([])
   const [saving, setSaving] = useState(false)
@@ -173,7 +186,15 @@ export default function ConnectSchedule() {
 
   async function handleConnect(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    await connectSource()
+    // Same host allowlist as the server, checked here so a wrong paste gets a
+    // specific hint next to the box instead of a generic API error (issue #120).
+    const check = checkScheduleSourceUrl(sourceType as ScheduleSourceKind, icsUrl)
+    if (!check.ok) {
+      setUrlError(check.reason)
+      return
+    }
+    setUrlError('')
+    await connectSource(check.url)
   }
 
   async function handleSync(sourceId: string) {
@@ -472,7 +493,7 @@ export default function ConnectSchedule() {
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
               type="button"
-              onClick={() => setSourceType('brightspace')}
+              onClick={() => { setSourceType('brightspace'); setUrlError('') }}
               className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${
                 sourceType === 'brightspace'
                   ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
@@ -497,7 +518,7 @@ export default function ConnectSchedule() {
 
             <button
               type="button"
-              onClick={() => setSourceType('purdue')}
+              onClick={() => { setSourceType('purdue'); setUrlError('') }}
               className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${
                 sourceType === 'purdue'
                   ? 'border-[var(--color-gold)] bg-[var(--color-gold)]/10'
@@ -522,22 +543,56 @@ export default function ConnectSchedule() {
           </div>
         </div>
 
+        {/* How to get the link (issue #120): numbered steps for the selected
+            provider, a link that opens it in a new tab, and the privacy note. */}
+        <div className="mb-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-3 sm:p-4" data-testid="source-steps">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h3 className="text-[12px] font-semibold text-[var(--color-txt-1)] uppercase tracking-wider">How to get the link</h3>
+            <a
+              href={PROVIDER_LINKS[sourceType as ScheduleSourceKind].href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[12px] text-[var(--color-accent)] hover:underline inline-flex items-center gap-1"
+            >
+              Open {PROVIDER_LINKS[sourceType as ScheduleSourceKind].label}
+              <Icon name="external" size={12} />
+            </a>
+          </div>
+          <ol className="list-decimal pl-5 space-y-1.5 text-[12px] sm:text-[13px] text-[var(--color-txt-1)]">
+            {config.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <p className="text-[11px] text-[var(--color-txt-3)] mt-2.5">
+            The link is read-only and personal to you, so keep it private. BoilerIndy never asks for your Purdue password.
+          </p>
+        </div>
+
         {/* URL Input Form */}
-        <form onSubmit={handleConnect}>
+        <form onSubmit={handleConnect} noValidate>
           <div className="mb-4">
-            <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
+            <label htmlFor="source-ics-url" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
               iCalendar Feed URL
             </label>
             <textarea
+              id="source-ics-url"
               value={icsUrl}
-              onChange={(e) => setIcsUrl(e.target.value)}
-              className="input w-full px-3 sm:px-4 py-3 text-[14px] sm:text-[13px] min-h-[90px] sm:min-h-[100px] resize-y font-mono rounded-xl"
+              onChange={(e) => { setIcsUrl(e.target.value); if (urlError) setUrlError('') }}
+              className={`input w-full px-3 sm:px-4 py-3 text-[14px] sm:text-[13px] min-h-[90px] sm:min-h-[100px] resize-y font-mono rounded-xl ${urlError ? 'border-[var(--color-error)]' : ''}`}
               placeholder={config.placeholder}
+              aria-invalid={urlError ? true : undefined}
+              aria-describedby="source-ics-url-hint"
               required
             />
-            <p className="text-[10px] sm:text-[11px] text-[var(--color-txt-3)] mt-1.5">
-              {config.helpText}
-            </p>
+            {urlError ? (
+              <p id="source-ics-url-hint" role="alert" className="text-[12px] text-[var(--color-error)] mt-1.5">
+                {urlError}
+              </p>
+            ) : (
+              <p id="source-ics-url-hint" className="text-[10px] sm:text-[11px] text-[var(--color-txt-3)] mt-1.5">
+                {config.helpText}
+              </p>
+            )}
           </div>
           <button
             type="submit"

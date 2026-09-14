@@ -103,7 +103,8 @@ Open `.env` and fill in the values:
 | `PURDUE_UNITIME_PERSONAL_SCHEDULE_URL` | Leave blank to open the default UniTime personal schedule page |
 | `NATIVE_APP_SCHEME` | Optional. URL scheme the native app registers (default `boilerindyapp`); the Purdue link handoff returns to `<scheme>://purdue-linked`. See [docs/purdue-link.md](docs/purdue-link.md) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional. `pnpm run vapid:generate` prints a pair; leave blank to keep push notifications off. See [docs/push-notifications.md](docs/push-notifications.md) |
-| `PUSH_CRON_SECRET` | Optional. Bearer token the Supabase cron job uses to trigger deadline reminders; blank disables that endpoint |
+| `PUSH_CRON_SECRET` | Optional. Bearer token the Supabase cron jobs use to trigger deadline reminders and the hourly calendar re-sync; blank disables both endpoints. See [docs/source-resync.md](docs/source-resync.md) |
+| `SENTRY_DSN` | Optional. Node project DSN from sentry.io; blank keeps error tracking off (zero events locally). See [docs/error-tracking.md](docs/error-tracking.md) |
 
 > **Note:** `XAI_API_KEY` is optional. If omitted, the campus assistant replies with an offline notice, board AI suggestions return a 503, new posts are not auto-tagged, and everything else works.
 
@@ -283,6 +284,7 @@ file in `db/`; running it in order satisfies each file's dependencies.
 29. *(optional, production only)* `db/supabase-keep-warm.sql` - schedules a `pg_cron` job that pings the Render API every 5 minutes so it stops cold-starting (issue #164). Creates no tables and needs no other step. See [docs/keep-warm.md](docs/keep-warm.md).
 30. *(optional)* `db/supabase-push.sql` - adds `push_subscriptions`, `push_settings` and `push_deliveries` for Web Push deadline reminders (issue #9); needs step 1. Until it runs, `/api/push/*` answers `503 push_not_configured` and the Settings card says notifications are not set up yet. The commented block at the bottom schedules the reminder cron and needs the extensions from step 29. See [docs/push-notifications.md](docs/push-notifications.md).
 31. *(optional)* `db/supabase-marketplace-gallery-pricing.sql` - adds `image_urls` (the ordered photo gallery, backfilled from `image_url`) and `price_mode` (`fixed` / `free` / `best_offer`, backfilled from `price_cents`) to `marketplace_listings`, with their check constraints and a GIN index; needs step 13. Additive and safe to rerun; keep the columns if rolling back code. Until it runs, `GET /api/marketplace/capabilities` answers 503 and both clients hold off on galleries and price choices. Already applied to production on 2026-09-09. See [docs/marketplace-photos.md](docs/marketplace-photos.md).
+32. *(optional, production only)* `db/supabase-source-resync.sql` - schedules the hourly `pg_cron` call to `POST /api/internal/sources/resync` so linked Brightspace and Purdue feeds are re-imported without the student pressing Sync (issue #12). Creates no tables; needs the extensions from step 29 and `PUSH_CRON_SECRET` on Render. See [docs/source-resync.md](docs/source-resync.md).
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
