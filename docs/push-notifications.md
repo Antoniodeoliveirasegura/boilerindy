@@ -66,7 +66,7 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
 | `POST /api/push/test` | Returns `{ sent, failed, removed }` | `push-test` limit (10 per hour). |
-| `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. |
+| `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
 
 Error shape follows the rest of the API: `{ error: { message, status, code? } }`.
 `code` is `push_not_configured` (tables missing, 503) or `push_disabled` (no

@@ -24,6 +24,17 @@ exceptions and unhandled rejections. `Sentry.setupExpressErrorHandler(app)`
 captures anything that escapes a route handler, ahead of the final
 stack-trace-free 500 handler.
 
+**Cron ticks** (`POST /api/internal/push/run-reminders`,
+`POST /api/internal/sources/resync`): a Supabase 5xx, timeout or dropped
+connection is retried once after 1.5 s (`src/cronTick.mjs`, issue #242). One
+that survives the retry is a `console.warn` in the Render log plus a
+warning-level `captureMessage` fingerprinted by route and failure kind, so
+Sentry keeps a single issue such as
+`POST /api/internal/push/run-reminders: transient upstream failure (Supabase 504)`
+whose event count is the trend to watch. If it climbs, look at the Supabase
+project's compute and pooler settings rather than the app. Anything else that
+fails inside a tick stays a `console.error`, one event per tick.
+
 **Frontend** (`boilerindy-react/src/main.tsx`): `@sentry/react` is imported
 lazily after first paint (`requestIdleCallback`) so it never sits in the
 initial bundle. Until it is up, `src/lib/errorReporting.ts` covers the gap:
