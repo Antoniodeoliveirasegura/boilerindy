@@ -23,6 +23,9 @@ schedule.
   with the classified message and the tick moves on. After 60 seconds no new
   sync is started; the rest are reported as `deferred` and picked up next hour.
 - A tick already in flight answers `409 resync_in_progress`.
+- A Supabase 5xx or timeout on the candidate listing is retried once after
+  1.5 s; a second failure answers `503`, logs a warning and leaves the run to
+  the next hour (issue #242).
 
 The JSON summary looks like:
 
