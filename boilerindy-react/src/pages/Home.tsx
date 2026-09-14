@@ -902,7 +902,7 @@ export default function Home() {
                 {now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}
               </span>
               <p className="text-[11px] text-[var(--color-txt-3)] mt-0.5">
-                Grok · from your linked schedule & calendar
+                AI · from your linked schedule & calendar
               </p>
             </div>
           </div>
