@@ -103,3 +103,8 @@ test('a hex-looking value under a content key is still redacted even when the ke
   assert.equal(out.event_id, 'ffffffffffffffffffffffffffffffff')
   assert.equal(out.extra.session, '[token]')
 })
+
+test('redacts Groq API keys (gsk_ prefix)', () => {
+  const out = scrubSentryEvent({ message: 'boot with gsk_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP set' })
+  assert.equal(out.message, 'boot with [token] set')
+})
