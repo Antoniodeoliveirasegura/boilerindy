@@ -41,8 +41,12 @@ So a crash during the first render, previously dropped because
 
 **Scrubbing**: `src/sentryScrub.mjs` is the shared `beforeSend` on both sides.
 It drops user, cookies, auth headers and request bodies, and redacts emails,
-JWTs, bearer tokens and hex secrets. `sendDefaultPii` is off and tracing is
-off (`tracesSampleRate: 0`). Unit tests in `test/sentryScrub.test.mjs`.
+JWTs, bearer tokens and hex secrets. Sentry's own identifiers (`event_id`,
+`trace_id`, `release`, `debug_meta` and a few more, see `PASSTHROUGH_KEYS`)
+are left alone: they have the same hex shape as a secret, and a redacted
+`event_id` makes Sentry reject the whole envelope with a 400, which is what
+silently dropped every event until 2026-09-14. `sendDefaultPii` is off and
+tracing is off (`tracesSampleRate: 0`). Unit tests in `test/sentryScrub.test.mjs`.
 
 ## Smoke test
 
