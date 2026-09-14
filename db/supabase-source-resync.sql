@@ -1,0 +1,30 @@
+-- Background re-sync of linked calendar sources (issue #12). Creates no tables.
+--
+-- Students connect a Brightspace or Purdue feed once; without this, the
+-- imported items only change when they press Sync. This schedules an hourly
+-- call to POST /api/internal/sources/resync, which syncs every source that has
+-- not been refreshed in 6 hours (15 per run, oldest first; failed sources are
+-- retried daily). Same bearer token as the reminder runner: PUSH_CRON_SECRET on
+-- Render. With the secret unset the route does not exist and nothing runs.
+--
+-- Requires the pg_cron and pg_net extensions from db/supabase-keep-warm.sql.
+-- Replace <PUSH_CRON_SECRET> with the value set on Render, then run:
+--
+--   select cron.schedule(
+--     'boilerindy-source-resync',
+--     '17 * * * *',
+--     $$
+--     select net.http_post(
+--       url := 'https://boilerindy-api.onrender.com/api/internal/sources/resync',
+--       headers := '{"Authorization": "Bearer <PUSH_CRON_SECRET>", "Content-Type": "application/json"}'::jsonb,
+--       body := '{}'::jsonb,
+--       timeout_milliseconds := 120000
+--     );
+--     $$
+--   );
+--
+-- Check it: select jobid, schedule, active from cron.job where jobname = 'boilerindy-source-resync';
+-- Recent runs: select status, return_message, start_time from cron.job_run_details
+--   where jobid = (select jobid from cron.job where jobname = 'boilerindy-source-resync')
+--   order by start_time desc limit 10;
+-- Remove with: select cron.unschedule('boilerindy-source-resync');

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { authRequest, shouldSkipSetup } from '../lib/authApi'
 import { cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import SourceErrorNotice from '../components/SourceErrorNotice'
 import FeaturedDeal from '../components/FeaturedDeal'
 import {
   routes as transitRoutes,
@@ -1564,6 +1565,8 @@ export default function Home() {
 
   return (
     <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
+      <SourceErrorNotice className="mb-5" />
       <FeaturedDeal />
       <div className="mb-6 sm:mb-8 transition-all duration-700 opacity-100 translate-y-0">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
