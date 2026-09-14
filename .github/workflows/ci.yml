@@ -33,8 +33,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: boilerindy-react
 
-      # Lint must pass: the source is error-clean. A couple of pre-existing
-      # exhaustive-deps warnings remain informational (warnings don't fail eslint).
+      # Lint must pass: the source is error-clean. Covers .ts/.tsx as well as the
+      # few remaining .js files (issue #183); the React Compiler advisory rules
+      # stay informational warnings and don't fail eslint.
       - name: Lint frontend
         run: pnpm run lint
         working-directory: boilerindy-react

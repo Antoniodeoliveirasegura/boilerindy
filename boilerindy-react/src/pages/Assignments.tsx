@@ -6,10 +6,8 @@ import { track } from '../lib/usageStats'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import SourceErrorNotice from '../components/SourceErrorNotice'
-import TaskCompleteReward, {
-  rewardOriginFromEvent,
-  type RewardOrigin,
-} from '../components/TaskCompleteReward'
+import TaskCompleteReward from '../components/TaskCompleteReward'
+import { rewardOriginFromEvent, type RewardOrigin } from '../lib/rewardOrigin'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
