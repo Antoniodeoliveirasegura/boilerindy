@@ -12,6 +12,7 @@
 // If the send then fails there is no retry in v1; the item simply stays quiet.
 
 import { sendWebPush } from './webPush.mjs'
+import { queryError } from './cronTick.mjs'
 
 export const DEADLINE_CATEGORIES = ['assignment', 'quiz', 'exam', 'project', 'deadline']
 export const LEAD_MINUTES_MIN = 5
@@ -224,8 +225,8 @@ async function loadDueCandidates(client, userId, { now, leadMinutes }) {
       .lte('due_at', upperIso)
       .limit(200),
   ])
-  if (calRes.error) throw calRes.error
-  if (manualRes.error) throw manualRes.error
+  if (calRes.error) throw queryError(calRes, 'calendar_items select')
+  if (manualRes.error) throw queryError(manualRes, 'user_manual_tasks select')
 
   const calendarItems = (calRes.data || []).map((r) => ({
     id: r.id,
@@ -249,7 +250,7 @@ async function loadDueCandidates(client, userId, { now, leadMinutes }) {
       .select('calendar_item_id')
       .eq('user_id', userId)
       .in('calendar_item_id', calendarIds)
-    if (res.error) throw res.error
+    if (res.error) throw queryError(res, 'user_task_completions select')
     completedIds = new Set((res.data || []).map((r) => r.calendar_item_id))
   }
 
@@ -257,7 +258,7 @@ async function loadDueCandidates(client, userId, { now, leadMinutes }) {
   const keys = [...calendarItems.map((i) => `calendar:${i.id}`), ...manualTasks.map((t) => `manual:${t.id}`)]
   if (keys.length) {
     const res = await client.from('push_deliveries').select('item_key').eq('user_id', userId).in('item_key', keys)
-    if (res.error) throw res.error
+    if (res.error) throw queryError(res, 'push_deliveries select')
     deliveredKeys = new Set((res.data || []).map((r) => r.item_key))
   }
 
@@ -265,8 +266,10 @@ async function loadDueCandidates(client, userId, { now, leadMinutes }) {
 }
 
 /**
- * Send every due reminder once. Returns a summary for the cron log; throws on
- * database errors other than "tables not installed".
+ * Send every due reminder once. Returns a summary for the cron log; throws a
+ * SupabaseQueryError (status and code kept, see cronTick.mjs) on database
+ * errors other than "tables not installed", so the route can tell a Supabase
+ * hiccup worth one retry from a bug.
  */
 export async function runDeadlineReminders({
   client,
@@ -287,7 +290,7 @@ export async function runDeadlineReminders({
     .limit(maxUsers)
   if (settingsRes.error) {
     if (isMissingTableError(settingsRes.error)) return { ...summary, ok: false, reason: 'not_configured' }
-    throw settingsRes.error
+    throw queryError(settingsRes, 'push_settings select')
   }
   const settingsRows = settingsRes.data || []
   if (settingsRows.length === 0) return summary
@@ -296,7 +299,7 @@ export async function runDeadlineReminders({
     .from('push_subscriptions')
     .select('id, user_id, endpoint, p256dh, auth')
     .in('user_id', settingsRows.map((r) => r.user_id))
-  if (subsRes.error) throw subsRes.error
+  if (subsRes.error) throw queryError(subsRes, 'push_subscriptions select')
   const subsByUser = new Map()
   for (const sub of subsRes.data || []) {
     if (!subsByUser.has(sub.user_id)) subsByUser.set(sub.user_id, [])
@@ -324,7 +327,7 @@ export async function runDeadlineReminders({
           summary.skipped += 1
           continue
         }
-        throw claim.error
+        throw queryError(claim, 'push_deliveries insert')
       }
       const payload = buildDeadlinePayload(item, now)
       for (const sub of subs) {

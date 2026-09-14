@@ -15,6 +15,7 @@ import {
   selectDueItems,
   settingsFromRow,
 } from '../src/pushReminders.mjs'
+import { runCronTick } from '../src/cronTick.mjs'
 
 const NOW = new Date('2026-09-08T14:00:00Z') // Tuesday 10:00 EDT
 
@@ -210,4 +211,43 @@ test('runDeadlineReminders reports missing tables, missing keys, and duplicate c
   assert.equal(sends, 0)
   assert.equal(c.skipped, 1)
   assert.equal(c.checked, 1)
+})
+
+test('a transient 504 on the settings query is retried once through runCronTick, and the retry sends', async () => {
+  let settingsCalls = 0
+  const sends = []
+  const client = makeClient((op) => {
+    if (op.table === 'push_settings') {
+      settingsCalls += 1
+      // What supabase-js hands back for a gateway timeout: a non-JSON body as the message, status kept on the result.
+      if (settingsCalls === 1) return { data: null, error: { code: 'PGRST003', message: 'Gateway Timeout' }, status: 504 }
+      return { data: [{ user_id: 'u1', lead_minutes: 60 }], error: null, status: 200 }
+    }
+    if (op.table === 'push_subscriptions') return { data: [{ id: 's1', user_id: 'u1', endpoint: 'https://p/1', p256dh: 'k', auth: 'a' }], error: null }
+    if (op.table === 'calendar_items') return { data: [{ id: 'a', title: 'HW', start_time: '2026-09-08T14:30:00Z', category: 'assignment' }], error: null }
+    if (op.table === 'push_deliveries' && op.kind === 'insert') return { data: null, error: null }
+    return { data: [], error: null }
+  })
+  const send = async ({ payload }) => {
+    sends.push(payload.title)
+    return { ok: true }
+  }
+  const run = () => runDeadlineReminders({ client, keys: { publicKey: 'x' }, now: NOW, send })
+
+  // On its own the runner rejects with the status and code kept, so the route can tell a hiccup from a bug.
+  await assert.rejects(
+    run,
+    (err) => err.name === 'SupabaseQueryError' && err.status === 504 && err.code === 'PGRST003' && err.message === 'push_settings select: Gateway Timeout (HTTP 504)',
+  )
+  assert.equal(settingsCalls, 1)
+  assert.deepEqual(sends, [])
+
+  // Through runCronTick the second attempt re-runs the whole tick and sends.
+  settingsCalls = 0
+  const outcome = await runCronTick('run-reminders', run, { log: { log() {} }, sleep: async () => {} })
+  assert.equal(outcome.ok, true)
+  assert.equal(outcome.retried, true)
+  assert.equal(settingsCalls, 2)
+  assert.deepEqual(sends, ['Assignment due in 30 min'])
+  assert.equal(outcome.summary.sent, 1)
 })
