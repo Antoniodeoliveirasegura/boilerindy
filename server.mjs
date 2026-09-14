@@ -46,6 +46,7 @@ import {
   settingsFromRow,
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
+import { describeFailure, runCronTick } from './src/cronTick.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { createGrokClient, GrokUpstreamError } from './src/grokClient.mjs'
@@ -3356,22 +3357,43 @@ function pushCronSecretMatches(header) {
   return crypto.timingSafeEqual(given, expected)
 }
 
+// A Supabase 5xx or timeout that survived a tick's one retry (issue #242) is
+// a warning, not a bug per tick: console.warn keeps it in the Render log, and
+// captureMessage files one warning-level Sentry issue per route and failure
+// kind (the console integration forwards console.error only), whose event
+// count is the trend to watch. Without a DSN captureMessage is a no-op.
+function warnCronTransient(route, error) {
+  const what = describeFailure(error)
+  console.warn(`${route}: ${what} on both attempts (${error?.message || error}); the next tick will retry`)
+  Sentry.captureMessage(`${route}: transient upstream failure (${what})`, {
+    level: 'warning',
+    fingerprint: ['cron-transient', route, what],
+    extra: { message: String(error?.message || error), status: error?.status ?? null, code: error?.code ?? null },
+  })
+}
+
 // Called by the Supabase pg_cron job in db/supabase-push.sql every 5 minutes.
 // Bearer token, not a session: PUSH_CRON_SECRET. With the secret unset the
 // route falls through to the JSON 404, so nothing can trigger sends by accident.
+// A transient Supabase failure gets one retry (runCronTick); re-running the
+// tick is safe because every delivery is claimed in push_deliveries first.
 app.post('/api/internal/push/run-reminders', async (req, res, next) => {
   if (!PUSH_CRON_SECRET) return next()
   if (!pushCronSecretMatches(req.get('authorization'))) {
     return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
   }
-  try {
-    const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys })
+  const outcome = await runCronTick('run-reminders', () => runDeadlineReminders({ client: supabase, keys: vapidKeys }))
+  if (outcome.ok) {
+    const summary = outcome.summary
     if (summary.sent || summary.failed) console.log(`[push] reminders: ${JSON.stringify(summary)}`)
-    res.json(summary)
-  } catch (error) {
-    console.error('POST /api/internal/push/run-reminders:', error?.message || error)
-    res.status(500).json({ ok: false, error: 'Reminder run failed.' })
+    return res.json(summary)
   }
+  if (outcome.transient) {
+    warnCronTransient('POST /api/internal/push/run-reminders', outcome.error)
+    return res.status(503).json({ ok: false, error: 'Reminder run skipped: upstream unavailable, the next tick will retry.' })
+  }
+  console.error('POST /api/internal/push/run-reminders:', outcome.error?.message || outcome.error)
+  res.status(500).json({ ok: false, error: 'Reminder run failed.' })
 })
 
 // Background re-sync of linked calendar sources (issue #12): keeps imported
@@ -3379,6 +3401,7 @@ app.post('/api/internal/push/run-reminders', async (req, res, next) => {
 // the pg_cron job in db/supabase-source-resync.sql with the same bearer token
 // as the reminder runner. Sequential per run (one upstream fetch at a time),
 // 15 sources per tick, oldest first; a tick already in flight answers 409.
+// The candidate listing gets one retry on a transient Supabase failure.
 let sourceResyncInFlight = false
 app.post('/api/internal/sources/resync', async (req, res, next) => {
   if (!PUSH_CRON_SECRET) return next()
@@ -3390,11 +3413,17 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
   }
   sourceResyncInFlight = true
   try {
-    const summary = await runSourceResync({ client: supabase, sync: runScheduleSync })
-    if (summary.due) console.log(`[resync] ${JSON.stringify(summary)}`)
-    res.json(summary)
-  } catch (error) {
-    console.error('POST /api/internal/sources/resync:', error?.message || error)
+    const outcome = await runCronTick('resync', () => runSourceResync({ client: supabase, sync: runScheduleSync }))
+    if (outcome.ok) {
+      const summary = outcome.summary
+      if (summary.due) console.log(`[resync] ${JSON.stringify(summary)}`)
+      return res.json(summary)
+    }
+    if (outcome.transient) {
+      warnCronTransient('POST /api/internal/sources/resync', outcome.error)
+      return res.status(503).json({ ok: false, error: 'Resync run skipped: upstream unavailable, the next tick will retry.' })
+    }
+    console.error('POST /api/internal/sources/resync:', outcome.error?.message || outcome.error)
     res.status(500).json({ ok: false, error: 'Resync run failed.' })
   } finally {
     sourceResyncInFlight = false

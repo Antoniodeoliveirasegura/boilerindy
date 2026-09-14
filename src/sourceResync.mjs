@@ -10,6 +10,8 @@
 // Shell: runSourceResync({ client, sync }) reads candidates through the
 // Supabase client and calls the existing runScheduleSync for each.
 
+import { queryError } from './cronTick.mjs'
+
 export const DEFAULT_STALE_MS = 6 * 60 * 60 * 1000 // ready sources: re-sync after 6 h
 export const DEFAULT_ERROR_RETRY_MS = 24 * 60 * 60 * 1000 // error sources: retry daily
 export const DEFAULT_BATCH = 15 // sources per run
@@ -77,13 +79,13 @@ export async function runSourceResync({
   if (!client || typeof sync !== 'function') throw new Error('runSourceResync needs a client and a sync function')
   const startedAt = Date.now()
 
-  const { data, error } = await client
+  const { data, error, status } = await client
     .from('linked_sources')
     .select('id, user_id, source_type, source_url, label, status, last_synced_at, updated_at')
     .in('status', [...SYNCABLE])
     .order('last_synced_at', { ascending: true, nullsFirst: true })
     .limit(candidateLimit)
-  if (error) throw new Error(`Could not list linked sources: ${error.message || error}`)
+  if (error) throw queryError({ error, status }, 'Could not list linked sources')
 
   const rows = data || []
   const due = pickSourcesToResync(rows, { now, staleMs, errorRetryMs, batch })

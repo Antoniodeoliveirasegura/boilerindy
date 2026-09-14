@@ -73,13 +73,13 @@ test('caps a tick at the batch size', () => {
 
 // ── runSourceResync ─────────────────────────────────────────────────────────
 
-function fakeClient(rows, error = null) {
+function fakeClient(rows, error = null, status = error ? 500 : 200) {
   const calls = {}
   const chain = {
     select: (cols) => { calls.select = cols; return chain },
     in: (col, values) => { calls.in = [col, values]; return chain },
     order: (col, opts) => { calls.order = [col, opts]; return chain },
-    limit: (n) => { calls.limit = n; return Promise.resolve({ data: rows, error }) },
+    limit: (n) => { calls.limit = n; return Promise.resolve({ data: rows, error, status }) },
   }
   return { client: { from: (table) => { calls.from = table; return chain } }, calls }
 }
@@ -137,4 +137,11 @@ test('runSourceResync stops starting syncs once the time budget is spent', async
 test('runSourceResync surfaces a listing failure instead of reporting success', async () => {
   const { client } = fakeClient(null, { message: 'relation "linked_sources" does not exist' })
   await assert.rejects(() => runSourceResync({ client, sync: async () => ({}) }), /Could not list linked sources/)
+
+  // A gateway timeout keeps its status, so the route's one retry can recognise it (issue #242).
+  const gateway = fakeClient(null, { message: 'Gateway Timeout' }, 504)
+  await assert.rejects(
+    () => runSourceResync({ client: gateway.client, sync: async () => ({}) }),
+    (err) => err.name === 'SupabaseQueryError' && err.status === 504 && err.message === 'Could not list linked sources: Gateway Timeout (HTTP 504)',
+  )
 })
