@@ -9,6 +9,7 @@ import RequireAuth from './components/RequireAuth'
 import RequireAdmin from './components/RequireAdmin'
 import UsageListener from './components/UsageListener'
 import ServerWakeNotice from './components/ServerWakeNotice'
+import UpdateToast from './components/UpdateToast'
 import PageLoader from './components/PageLoader'
 
 // Entry points stay eagerly bundled so the first paint never waits on a chunk.
@@ -61,6 +62,7 @@ export default function App() {
         <AuthProvider>
           <UsageListener />
           <ServerWakeNotice />
+          <UpdateToast />
           <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Landing />} />
