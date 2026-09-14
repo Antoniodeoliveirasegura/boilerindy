@@ -23,6 +23,13 @@ if (process.env.SENTRY_DSN) {
   })
 }
 
+// A rejected promise nobody awaited must not take the process down (Node's
+// default) or vanish: log it and keep serving. Sentry, when configured, also
+// records it through its own handler (issue #197).
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason?.stack || reason?.message || reason)
+})
+
 import express from 'express'
 import session from 'express-session'
 import ical from 'node-ical'
@@ -48,6 +55,8 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
+import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
+import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
@@ -129,6 +138,7 @@ import {
 } from './src/advertiserPasswordReset.mjs'
 import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
+import { wrapAsyncRoutes } from './src/asyncRoutes.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -285,12 +295,22 @@ const passwordResetRateLimit = createRateLimiter({
   keyBy: 'ip',
   message: 'Too many password reset requests. Please try again in an hour.',
 })
+// Session sync runs on every app launch and token refresh. Keyed by the Supabase
+// user in the request's token so a lecture hall behind one campus NAT does not
+// share a bucket (#217); the wider per-IP cap behind it bounds forged ids.
 const sessionSyncRateLimit = createRateLimiter({
   name: 'session-sync',
   windowMs: 15 * 60 * 1000,
   max: 120,
-  keyBy: 'ip',
+  keyBy: sessionSyncBucketKey,
   message: 'Too many session requests. Please slow down and try again shortly.',
+})
+const sessionSyncIpRateLimit = createRateLimiter({
+  name: 'session-sync-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  keyBy: 'ip',
+  message: 'Too many session requests from this network. Please try again shortly.',
 })
 // One handoff token per native Purdue link attempt (#214); tokens live 10 min.
 const purdueLinkTokenRateLimit = createRateLimiter({
@@ -340,12 +360,23 @@ const adEventRateLimit = createRateLimiter({
 // First-party analytics ingestion (issue #51). The client flushes a batch at
 // most every 10s, so 60 requests per 5 minutes leaves ample headroom while
 // capping abuse.
+// Session-free upstream proxies (dining, parking, stops, routes). Keyed by the
+// signed-in user when there is one, so app users behind one campus NAT do not
+// exhaust a shared budget (#215); anonymous callers still share their IP.
 const publicReadRateLimit = createRateLimiter({
   name: 'public-read',
   windowMs: 15 * 60 * 1000,
   max: 120,
-  keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
+})
+// Live vehicle positions poll every 10 to 20 s per open Transit screen and are
+// cached 5 s server-side, so they get their own bucket sized for polling
+// instead of eating the shared public-read budget (#215).
+const transitVehiclesRateLimit = createRateLimiter({
+  name: 'transit-vehicles',
+  windowMs: 15 * 60 * 1000,
+  max: 240,
+  message: 'Too many transit requests. Please slow down.',
 })
 const pushWriteRateLimit = createRateLimiter({
   name: 'push-write',
@@ -1237,18 +1268,25 @@ async function verifySupabasePassword(email, password) {
   const gotrue = `${supabaseUrl}/auth/v1/token?grant_type=password`
   const anonKey = supabaseAnonKey || (isProduction ? null : supabaseServiceKey)
   if (!anonKey) {
-    throw new Error('Supabase auth is not configured.')
+    throw new UpstreamError('Supabase Auth', 'config')
   }
-  const resp = await fetch(gotrue, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: anonKey,
+  // 400/401/403/422 are GoTrue's "wrong credentials" answers and mean null;
+  // anything else (5xx, a stall, a network error) is an outage and throws an
+  // UpstreamError so sign-in answers 503 instead of "invalid password" (#205).
+  const resp = await fetchUpstream('Supabase Auth', gotrue, {
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: anonKey,
+      },
+      body: JSON.stringify({ email, password }),
     },
-    body: JSON.stringify({ email, password }),
+    timeoutMs: 8000,
+    acceptStatus: (status) => status === 400 || status === 401 || status === 403 || status === 422,
   })
   if (!resp.ok) return null
-  const data = await resp.json()
+  const data = await resp.json().catch(() => null)
   return data?.user ?? null
 }
 
@@ -1372,7 +1410,14 @@ app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
       })
     })
   } catch (error) {
-    res.status(401).json({ error: { message: error.message || 'Could not sign in.', status: 401 } })
+    if (error instanceof UpstreamError) {
+      console.error('[sign-in] upstream failure:', error.message)
+      return res.status(503).json({
+        error: { message: 'Sign-in is temporarily unavailable. Please try again in a moment.', status: 503 },
+      })
+    }
+    console.error('[sign-in] failed:', error?.message || error)
+    res.status(401).json({ error: { message: 'Could not sign in.', status: 401 } })
   }
 })
 
@@ -1383,7 +1428,7 @@ app.post('/api/sign-out', (req, res) => {
   })
 })
 
-app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
+app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit, async (req, res) => {
   try {
     const authHeader = req.headers.authorization || ''
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
@@ -1462,6 +1507,14 @@ app.post('/api/auth/supabase-sync', sessionSyncRateLimit, async (req, res) => {
 
     if (!user) {
       return res.status(500).json({ error: { message: 'Could not sync user profile.', status: 500 } })
+    }
+
+    // The same user re-syncing (token refresh, app relaunch) already holds a
+    // valid cookie session: answer from it instead of regenerating and saving a
+    // new one on every call (#217). The profile update above still ran.
+    if (req.session?.userId === user.id) {
+      const session = await buildSessionPayload(user, req)
+      return res.json({ session, reused: true })
     }
 
     req.session.regenerate((err) => {
@@ -2947,16 +3000,13 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
 
 // ── Tiny in-memory TTL cache for quasi-static upstream/DB reads (perf) ──────
 // Repeat calls within the TTL return instantly instead of re-hitting TransLoc /
-// Supabase on every page load. Failures are never cached. Process-local - fine
-// for a single instance; swap for Redis if the backend is ever horizontally scaled.
-const _ttlCache = new Map() // key -> { value, expiresAt }
+// Supabase on every page load. Concurrent misses share one fill, a failed
+// refresh serves the last good value (#205), and failures are never cached.
+// Process-local - fine for a single instance; swap for Redis if the backend is
+// ever horizontally scaled. See src/upstreamFetch.mjs.
+const upstreamCache = createStaleCache()
 async function getCached(key, ttlMs, producer) {
-  const now = Date.now()
-  const hit = _ttlCache.get(key)
-  if (hit && now < hit.expiresAt) return hit.value
-  const value = await producer()
-  _ttlCache.set(key, { value, expiresAt: now + ttlMs })
-  return value
+  return upstreamCache.get(key, ttlMs, producer)
 }
 
 // TransLoc API proxy endpoints (to avoid CORS issues)
@@ -2964,56 +3014,67 @@ const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.sv
 const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY
 const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
 const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
+const TRANSLOC_TIMEOUT_MS = 8000
+
+// A TransLoc failure after the first successful fill is served from the cache
+// (see getCached); this only answers when there is nothing good to serve.
+function respondTranslocError(res, what, error) {
+  if (error instanceof UpstreamError) {
+    console.error(`TransLoc ${what}:`, error.message)
+    return res.status(502).json({ error: { message: 'Transit data is temporarily unavailable.', status: 502 } })
+  }
+  console.error(`TransLoc ${what} error:`, error?.message || error)
+  return res.status(500).json({ error: { message: `Failed to fetch ${what} data.`, status: 500 } })
+}
 
 // Fail closed when the key isn't configured rather than calling TransLoc with an
 // undefined key (and caching the error). Transit requires TRANSLOC_API_KEY to be set.
 function translocReady(res) {
   if (!TRANSLOC_API_KEY) {
-    res.status(503).json({ error: 'Transit is not configured.' })
+    res.status(503).json({ error: { message: 'Transit is not configured.', status: 503 } })
     return false
   }
   return true
 }
 
-app.get('/api/transit/vehicles', publicReadRateLimit, async (_req, res) => {
+app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
-    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, async () => {
-      const response = await fetch(`${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`)
-      return response.json()
-    })
+    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, () =>
+      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`, {
+        timeoutMs: TRANSLOC_TIMEOUT_MS,
+      }),
+    )
+    // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
+    // /api rewrite) absorb the 10 s polling so repeats never reach this process.
+    res.set('Cache-Control', 'public, max-age=10, s-maxage=10')
     res.json(data)
   } catch (error) {
-    console.error('TransLoc vehicles error:', error)
-    res.status(500).json({ error: 'Failed to fetch vehicle data' })
+    respondTranslocError(res, 'vehicles', error)
   }
 })
 
 app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
-    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, async () => {
-      const response = await fetch(`${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`)
-      return response.json()
-    })
+    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, () =>
+      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
+    )
     res.json(data)
   } catch (error) {
-    console.error('TransLoc stops error:', error)
-    res.status(500).json({ error: 'Failed to fetch stops data' })
+    respondTranslocError(res, 'stops', error)
   }
 })
 
 app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
   if (!translocReady(res)) return
   try {
-    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, async () => {
-      const response = await fetch(`${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`)
-      return response.json()
-    })
+    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, () =>
+      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
+    )
     res.json(data)
   } catch (error) {
-    console.error('TransLoc routes error:', error)
-    res.status(500).json({ error: 'Failed to fetch routes data' })
+    respondTranslocError(res, 'routes', error)
   }
 })
 
@@ -5579,6 +5640,13 @@ app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ ty
 // Express's HTML "Cannot GET" page (#157). Mounted after every API route (so it
 // only runs when nothing matched) and before the error handlers. Non-/api
 // routes (/, /auth/purdue/*, /feeds/calendar/*) are untouched.
+// Express 4 drops rejected promises from async handlers on the floor; wrap
+// every registered route handler and route-level middleware so they reach the
+// error handlers below instead of hanging the request (#197). Must run after
+// the last app.get/post/... and before the error middleware.
+const wrappedHandlers = wrapAsyncRoutes(app)
+console.log(`[boot] ${wrappedHandlers} route handlers wrapped for async error propagation`)
+
 app.use('/api', apiNotFound)
 
 // Capture anything that escapes a route handler. Registered after all routes

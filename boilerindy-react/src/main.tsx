@@ -47,10 +47,7 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// PWA service worker (issue #11). Registered in production only so dev assets are
-// never cached. Best-effort - a failed registration must not break the app.
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-  })
-}
+// The PWA service worker (issue #11) is registered by components/UpdateToast,
+// which also watches for a new version and offers the refresh (issue #220).
+// Production only, so dev assets are never cached; a failed registration is
+// swallowed there and never breaks the app.

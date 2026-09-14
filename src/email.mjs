@@ -13,7 +13,18 @@
 // suppression list before sending - build that unsubscribe/suppression plumbing
 // when the first marketing email is actually added.
 
+import { UpstreamError, fetchUpstream } from './upstreamFetch.mjs'
+
 const RESEND_API_URL = 'https://api.resend.com/emails'
+const RESEND_TIMEOUT_MS = 10000
+
+/** "j***@purdue.edu": enough to recognise a log line, not enough to identify anyone (#205). */
+export function maskEmail(address) {
+  const s = String(address ?? '')
+  const at = s.indexOf('@')
+  if (at <= 0) return s ? '***' : ''
+  return `${s[0]}***${s.slice(at)}`
+}
 
 export function isEmailConfigured() {
   return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM)
@@ -27,29 +38,36 @@ export function isEmailConfigured() {
  */
 export async function sendEmail({ to, subject, html }) {
   if (!isEmailConfigured()) {
-    console.warn(`[email] RESEND_API_KEY/RESEND_FROM not set - skipping email to ${to} ("${subject}")`)
+    console.warn(`[email] RESEND_API_KEY/RESEND_FROM not set - skipping email to ${maskEmail(to)} ("${subject}")`)
     return { sent: false, skipped: true }
   }
 
-  const resp = await fetch(RESEND_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: process.env.RESEND_FROM,
-      to: [to],
-      subject,
-      html,
-      // noreply@ is send-only; route replies to a monitored inbox (support@) when set.
-      ...(process.env.MAIL_REPLY_TO ? { reply_to: process.env.MAIL_REPLY_TO } : {}),
-    }),
-  })
-
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => '')
-    throw new Error(`Resend send failed (${resp.status}): ${detail.slice(0, 300)}`)
+  let resp
+  try {
+    // A deadline so a stalled provider cannot hang the password-reset request (#205).
+    resp = await fetchUpstream('Resend', RESEND_API_URL, {
+      timeoutMs: RESEND_TIMEOUT_MS,
+      init: {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: process.env.RESEND_FROM,
+          to: [to],
+          subject,
+          html,
+          // noreply@ is send-only; route replies to a monitored inbox (support@) when set.
+          ...(process.env.MAIL_REPLY_TO ? { reply_to: process.env.MAIL_REPLY_TO } : {}),
+        }),
+      },
+    })
+  } catch (err) {
+    if (err instanceof UpstreamError) {
+      throw new Error(err.kind === 'status' ? `Resend send failed (${err.status}): ${err.body}` : `Resend send failed: ${err.message}`)
+    }
+    throw err
   }
   const data = await resp.json().catch(() => ({}))
   return { sent: true, id: data?.id || null }
