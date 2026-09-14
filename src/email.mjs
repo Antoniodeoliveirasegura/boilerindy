@@ -101,7 +101,7 @@ export function advertiserPasswordResetEmail({ resetUrl, companyName }) {
   <tr><td align="center">
     <table width="480" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7;">
       <tr><td style="background:#000000;padding:24px 32px;">
-        <span style="color:#CFB991;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Boiler<span style="color:#ffffff;">Indy</span></span>
+        <span style="color:#D4A84B;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Boiler<span style="color:#ffffff;">Indy</span></span>
         <span style="color:#a1a1aa;font-size:12px;margin-left:8px;">Advertiser Portal</span>
       </td></tr>
       <tr><td style="padding:32px;">
@@ -111,7 +111,7 @@ export function advertiserPasswordResetEmail({ resetUrl, companyName }) {
           We got a request to reset the password for your BoilerIndy advertiser account. Click the button below to choose a new one. This link expires in 1 hour.
         </p>
         <table cellpadding="0" cellspacing="0" role="presentation"><tr>
-          <td style="border-radius:8px;background:#CFB991;">
+          <td style="border-radius:8px;background:#D4A84B;">
             <a href="${safeUrl}" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#000000;text-decoration:none;border-radius:8px;">Reset password</a>
           </td>
         </tr></table>
