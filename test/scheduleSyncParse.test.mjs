@@ -13,7 +13,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import ical from 'node-ical'
 
-import { detectTimezoneFromFeed, expandRecurringEvents, icalText } from '../src/scheduleSync.mjs'
+import { detectTimezoneFromFeed, expandRecurringEvents, icalText, planSync } from '../src/scheduleSync.mjs'
 
 const TZ = 'America/Indiana/Indianapolis'
 
@@ -116,4 +116,66 @@ test('expandRecurringEvents consumes real parsed rrule output', async () => {
   assert.ok(out.length > 4, 'expands into multiple occurrences')
   assert.ok(out.every((e) => e.start instanceof Date), 'every occurrence has a Date start')
   assert.ok(out.every((e) => e.rrule === undefined), 'rrule stripped from expanded occurrences')
+})
+
+// ── Brightspace feed through the real parser (#121) ─────────────────────────
+//
+// D2L emits an availability pair plus a due item for each deliverable, with
+// the course code and a status marker folded into SUMMARY, and due items as a
+// zero-length event at 23:59 local. Pins that a real parse plus planSync yields
+// one clean, correctly categorised task per deliverable.
+const BRIGHTSPACE_ICS = [
+  'BEGIN:VCALENDAR',
+  'VERSION:2.0',
+  'PRODID:-//D2L//Brightspace//EN',
+  'BEGIN:VEVENT',
+  'UID:hw5-starts@purdue.brightspace.com',
+  'DTSTART:20260112T050000Z',
+  'DTEND:20260112T050000Z',
+  'SUMMARY:Homework 5 - ENGR 13300 - Availability Starts',
+  'END:VEVENT',
+  'BEGIN:VEVENT',
+  'UID:hw5-ends@purdue.brightspace.com',
+  'DTSTART:20260120T045900Z',
+  'DTEND:20260120T045900Z',
+  'SUMMARY:Homework 5 - ENGR 13300 - Availability Ends',
+  'END:VEVENT',
+  'BEGIN:VEVENT',
+  'UID:hw5-due@purdue.brightspace.com',
+  'DTSTART:20260119T045900Z',
+  'DTEND:20260119T045900Z',
+  'SUMMARY:Homework 5 - ENGR 13300 - Due',
+  'DESCRIPTION:Submit via the dropbox.',
+  'END:VEVENT',
+  'BEGIN:VEVENT',
+  'UID:lab-report-due@purdue.brightspace.com',
+  'DTSTART:20260123T045900Z',
+  'DTEND:20260123T045900Z',
+  'SUMMARY;LANGUAGE=en-US:Lab Report - Week 2 - Due',
+  'END:VEVENT',
+  'END:VCALENDAR',
+  '',
+].join('\r\n')
+
+test('a real Brightspace parse yields one clean task per deliverable (#121)', async () => {
+  const parsed = await ical.async.parseICS(BRIGHTSPACE_ICS)
+  const source = {
+    id: 'src-bs',
+    user_id: 'user-1',
+    source_type: 'brightspace_ical',
+    source_url: 'https://purdue.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=x',
+  }
+  const plan = planSync(parsed, source)
+
+  assert.deepEqual(
+    plan.itemsToInsert.map((i) => [i.title, i.category, i.start_time]),
+    [
+      ['Homework 5 - ENGR 13300', 'assignment', '2026-01-19T04:59:00.000Z'],
+      ['Lab Report - Week 2', 'lab', '2026-01-23T04:59:00.000Z'],
+    ],
+  )
+  // The raw summary survives for debugging and re-categorisation.
+  assert.equal(plan.itemsToInsert[0].raw_json.summary, 'Homework 5 - ENGR 13300 - Due')
+  assert.equal(plan.itemsToInsert[0].description, 'Submit via the dropbox.')
+  assert.equal(plan.meta.rawCount, 4)
 })
