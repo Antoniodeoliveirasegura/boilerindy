@@ -1,19 +1,27 @@
 // BoilerIndy service worker (issue #11). Runtime caching so the app shell and
 // static assets work offline, without needing to know Vite's hashed filenames.
 // Bump CACHE_VERSION to invalidate old caches on the next visit.
+//
+// Updates (issue #220): a new version installs and then WAITS. It does not
+// call skipWaiting() on its own, because that would swap the worker under a
+// page that is still running the previous bundle. The page notices the
+// waiting worker (src/lib/swUpdate.ts), shows a refresh prompt, and posts
+// SKIP_WAITING when the student accepts; the reload that follows the
+// controllerchange loads the new shell and assets together.
 
-const CACHE_VERSION = 'v1'
+const CACHE_VERSION = 'v2'
 const CACHE_NAME = `boilerindy-${CACHE_VERSION}`
 const SHELL_URL = '/index.html'
 const PRECACHE_URLS = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => self.skipWaiting()),
-  )
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)))
+})
+
+// The page asks the waiting worker to take over once the student accepted the
+// refresh prompt (issue #220).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {

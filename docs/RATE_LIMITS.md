@@ -15,12 +15,14 @@ method, and path for abuse review.
 |---|---|---|---|---|
 | `sign-in` | `POST /api/auth/sign-in` | 20 | 15 min | IP |
 | `account-create` | `POST /api/auth/sign-up`, `POST /api/auth/register-supabase` | 10 | 1 hour | IP |
-| `session-sync` | `POST /api/auth/supabase-sync` | 120 | 15 min | IP |
+| `session-sync` | `POST /api/auth/supabase-sync` | 120 | 15 min | Supabase user (`sub` of the request's token, or `supabaseUserId`), falls back to IP (#217) |
+| `session-sync-ip` | `POST /api/auth/supabase-sync` (outer cap so one address cannot mint unlimited user buckets) | 600 | 15 min | IP |
 | `purdue-link-token` | `POST /api/purdue/link-token` (native app Purdue link handoff, issue #214) | 20 | 15 min | user, falls back to IP |
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id` | 30 | 10 min | user, falls back to IP |
 | `source-sync` | `POST /api/sync/:sourceId`, `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule` | 30 | 15 min | user, falls back to IP |
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals seller email, enumeration-sensitive) | 100 | 15 min | user, falls back to IP |
-| `public-read` | `GET /api/dining`, `GET /api/transit/vehicles`, `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config` (session-free reads) | 120 | 15 min | IP |
+| `public-read` | `GET /api/dining`, `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config` (session-free reads) | 120 | 15 min | user, falls back to IP (#215) |
+| `transit-vehicles` | `GET /api/transit/vehicles` (polled every 10 to 20 s per open Transit screen; also served with `Cache-Control: public, max-age=10, s-maxage=10` so browsers and the Vercel edge absorb repeats) | 240 | 15 min | user, falls back to IP |
 | `clubs-read` | `GET /api/clubs` (club directory search; served from an hours-long cache, never hits BoilerLink per request, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
 | `push-write` | `PUT /api/push/settings`, `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | 30 | 15 min | user, falls back to IP |
 | `push-test` | `POST /api/push/test` (sends a real notification to every registered device) | 10 | 1 hour | user, falls back to IP |
@@ -29,8 +31,9 @@ method, and path for abuse review.
 
 Read-only endpoints (`GET /api/...`) are generally not limited: they are
 session-gated, cheap, and limiting them would hurt normal navigation. Two
-exceptions: the session-free upstream proxies (dining, transit, parking) share
-the `public-read` bucket so an anonymous client cannot burn the upstream quota,
+exceptions: the session-free upstream proxies (dining, transit, parking) use
+the `public-read` bucket (vehicles have their own) so an anonymous client cannot
+burn the upstream quota,
 and `GET /api/marketplace/:id`, which returns the seller's contact
 email and is therefore enumeration-sensitive; `marketplace-read` throttles the
 bulk id-sweeps that would harvest every seller's address (#114).
