@@ -5487,6 +5487,19 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, req
   res.status(204).end()
 })
 
+// Sentry smoke test (issue #50). Proves the backend error path end to end
+// without editing code: passing the error to next() runs it through
+// Sentry.setupExpressErrorHandler and the final safety net below, exactly the
+// route a real escaped exception takes, and the client gets the generic 500.
+// Admin-only, and only with ?confirm=1 so an idle browser tab cannot raise it.
+// With no SENTRY_DSN it just demonstrates the 500 shape. See docs/error-tracking.md.
+app.get('/api/admin/sentry-test', requireAuth, requireAdmin, (req, res, next) => {
+  if (req.query.confirm !== '1') {
+    return res.status(400).json({ error: { message: 'Add ?confirm=1 to raise a test error.', status: 400 } })
+  }
+  next(new Error(`Sentry smoke test raised via GET /api/admin/sentry-test at ${new Date().toISOString()}`))
+})
+
 // ── First-party product analytics (issue #51) ───────────────────────────────
 // Signed-in students only; events live in our own Supabase (analytics_events,
 // service-role only - see db/supabase-analytics.sql). The server re-checks the
