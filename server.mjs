@@ -38,6 +38,7 @@ import {
   runDeadlineReminders,
   settingsFromRow,
 } from './src/pushReminders.mjs'
+import { runSourceResync } from './src/sourceResync.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { createGrokClient, GrokUpstreamError } from './src/grokClient.mjs'
@@ -1138,7 +1139,7 @@ app.get('/api/auth-config', (_req, res) => {
     authProvider: 'local',
     purdueAuthMode,
     supportsPurdueLink: purdueLinkingEnabled,
-    supportedSources: ['purdue_schedule_ical'],
+    supportedSources: ['purdue_schedule_ical', 'brightspace_ical'],
   })
 })
 
@@ -3309,6 +3310,33 @@ app.post('/api/internal/push/run-reminders', async (req, res, next) => {
   } catch (error) {
     console.error('POST /api/internal/push/run-reminders:', error?.message || error)
     res.status(500).json({ ok: false, error: 'Reminder run failed.' })
+  }
+})
+
+// Background re-sync of linked calendar sources (issue #12): keeps imported
+// due dates fresh without the student pressing "Sync all". Called hourly by
+// the pg_cron job in db/supabase-source-resync.sql with the same bearer token
+// as the reminder runner. Sequential per run (one upstream fetch at a time),
+// 15 sources per tick, oldest first; a tick already in flight answers 409.
+let sourceResyncInFlight = false
+app.post('/api/internal/sources/resync', async (req, res, next) => {
+  if (!PUSH_CRON_SECRET) return next()
+  if (!pushCronSecretMatches(req.get('authorization'))) {
+    return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
+  }
+  if (sourceResyncInFlight) {
+    return res.status(409).json({ ok: false, error: 'resync_in_progress' })
+  }
+  sourceResyncInFlight = true
+  try {
+    const summary = await runSourceResync({ client: supabase, sync: runScheduleSync })
+    if (summary.due) console.log(`[resync] ${JSON.stringify(summary)}`)
+    res.json(summary)
+  } catch (error) {
+    console.error('POST /api/internal/sources/resync:', error?.message || error)
+    res.status(500).json({ ok: false, error: 'Resync run failed.' })
+  } finally {
+    sourceResyncInFlight = false
   }
 })
 
