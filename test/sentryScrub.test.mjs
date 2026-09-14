@@ -63,3 +63,43 @@ test('returns null/undefined unchanged and never throws on odd shapes', () => {
   const event = scrubSentryEvent({ extra: { depth: { deep: ['ok', 42, null] } } })
   assert.deepEqual(event.extra.depth.deep, ['ok', 42, null])
 })
+
+// ── Sentry's own identifiers must survive (2026-09-14) ─────────────────────
+//
+// event_id and trace_id are 32 hex chars, a git-SHA release is 40, and
+// debug_meta carries sourcemap debug_id UUIDs: exactly the shapes the token
+// rules redact. A redacted event_id makes the envelope invalid and Sentry
+// answers 400, which is how production dropped every error for months.
+
+test('leaves Sentry identifiers intact while still redacting tokens in content', () => {
+  const event = {
+    event_id: '0123456789abcdef0123456789abcdef',
+    release: 'e00473544f025c470081538da500c0ce7d204645',
+    dist: '1',
+    timestamp: 1789000000.123,
+    sdk: { name: 'sentry.javascript.react', version: '10.57.0' },
+    contexts: { trace: { trace_id: 'abcdef0123456789abcdef0123456789', span_id: '0123456789abcdef', parent_span_id: 'fedcba9876543210' } },
+    debug_meta: { images: [{ type: 'sourcemap', code_file: 'https://www.boilerindy.app/assets/CJ0gZUS2.js', debug_id: '3f9a8b7c-6d5e-4f3a-2b1c-0d9e8f7a6b5c' }] },
+    message: 'token 3f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c and feed 8d0f5e1a-2b3c-4d5e-8f9a-0b1c2d3e4f5a for a@b.co',
+    breadcrumbs: [{ category: 'fetch', data: { url: 'https://api.example/x?token=abc123', method: 'GET' } }],
+  }
+  const out = scrubSentryEvent(event)
+
+  assert.equal(out.event_id, event.event_id)
+  assert.equal(out.release, event.release)
+  assert.equal(out.dist, '1')
+  assert.equal(out.timestamp, event.timestamp)
+  assert.deepEqual(out.sdk, event.sdk)
+  assert.deepEqual(out.contexts.trace, event.contexts.trace)
+  assert.deepEqual(out.debug_meta, event.debug_meta)
+
+  // Content is still scrubbed.
+  assert.equal(out.message, 'token [token] and feed [token] for [email]')
+  assert.equal(out.breadcrumbs[0].data.url, 'https://api.example/x?token=[redacted]')
+})
+
+test('a hex-looking value under a content key is still redacted even when the key name matches nowhere', () => {
+  const out = scrubSentryEvent({ event_id: 'ffffffffffffffffffffffffffffffff', extra: { session: 'ffffffffffffffffffffffffffffffff' } })
+  assert.equal(out.event_id, 'ffffffffffffffffffffffffffffffff')
+  assert.equal(out.extra.session, '[token]')
+})
