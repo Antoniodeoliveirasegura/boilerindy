@@ -1,0 +1,126 @@
+// Groq client for the campus assistant and the board AI features. Plain fetch
+// against Groq's OpenAI-compatible chat completions endpoint
+// (https://console.groq.com/docs/api-reference), no SDK, so the backend keeps
+// its zero-dependency footprint. Lives outside server.mjs so the wire format
+// can be unit-tested with an injected fetch and no real key.
+//
+// History: Gemini -> xAI Grok (#182) -> Groq (2026-09-14). Groq (groq.com) and
+// xAI's Grok are different companies; a key from one is rejected by the other.
+// Groq keys start with "gsk_".
+
+export const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions'
+
+// openai/gpt-oss-120b is a reasoning model; with reasoning_effort "low" it
+// answers quickly enough for the chat widget and the fire-and-forget tagger.
+// Override with GROQ_MODEL; ids and prices: https://console.groq.com/docs/models
+export const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b'
+export const DEFAULT_REASONING_EFFORT = 'low'
+
+/** A non-2xx reply from Groq. `body` is the raw upstream text for the server log. */
+export class GroqUpstreamError extends Error {
+  constructor(status, body) {
+    super(`Groq responded ${status}`)
+    this.name = 'GroqUpstreamError'
+    this.status = status
+    this.body = body
+  }
+}
+
+/**
+ * Which reasoning_effort to send. Only the gpt-oss family accepts low | medium
+ * | high; other models reject the field or expect a different vocabulary, so
+ * they get nothing unless the caller set one explicitly.
+ */
+export function resolveReasoningEffort(model, configured) {
+  if (configured) return configured
+  return /^openai\/gpt-oss/.test(model || '') ? DEFAULT_REASONING_EFFORT : undefined
+}
+
+/**
+ * Build a chat-completions body. `messages` are { role, content } turns in
+ * conversation order; anything but user/assistant is dropped and content is
+ * coerced to a string. `system` becomes the leading system message.
+ */
+export function buildGroqRequest({
+  model = DEFAULT_GROQ_MODEL,
+  system,
+  messages = [],
+  maxOutputTokens,
+  temperature,
+  reasoningEffort,
+} = {}) {
+  const chat = []
+  if (system) chat.push({ role: 'system', content: system })
+  for (const m of messages) {
+    if (m?.role !== 'user' && m?.role !== 'assistant') continue
+    chat.push({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : String(m.content ?? ''),
+    })
+  }
+  const body = { model, messages: chat }
+  // max_tokens is deprecated on this endpoint; max_completion_tokens is the current name.
+  if (Number.isFinite(maxOutputTokens)) body.max_completion_tokens = maxOutputTokens
+  if (Number.isFinite(temperature)) body.temperature = temperature
+  const effort = resolveReasoningEffort(model, reasoningEffort)
+  if (effort) body.reasoning_effort = effort
+  return body
+}
+
+/**
+ * The reply text from a chat-completions payload, or null when there is none
+ * (no choices, a refusal, an unexpected shape). Reasoning models return their
+ * thinking in `message.reasoning`, which is ignored; only `content` counts.
+ * `content` is a string on Groq, but an array of text parts is accepted too.
+ */
+export function extractGroqText(data) {
+  const message = data?.choices?.[0]?.message
+  if (!message) return null
+  const content = message.content
+  if (typeof content === 'string') return content.length ? content : null
+  if (Array.isArray(content)) {
+    const parts = content.filter((p) => typeof p?.text === 'string').map((p) => p.text)
+    return parts.length ? parts.join('') : null
+  }
+  return null
+}
+
+/**
+ * A client bound to one API key. `reply()` resolves to the reply text (null when
+ * the model returned nothing) and throws GroqUpstreamError on a non-2xx status
+ * so each route keeps its own error policy. `fetchImpl` is for tests.
+ */
+export function createGroqClient({
+  apiKey,
+  model,
+  reasoningEffort,
+  url = GROQ_CHAT_URL,
+  fetchImpl,
+} = {}) {
+  const resolvedModel = model || DEFAULT_GROQ_MODEL
+  return {
+    enabled: Boolean(apiKey),
+    model: resolvedModel,
+    async reply({ system, messages, maxOutputTokens, temperature } = {}) {
+      const doFetch = fetchImpl || globalThis.fetch
+      const body = buildGroqRequest({
+        model: resolvedModel,
+        system,
+        messages,
+        maxOutputTokens,
+        temperature,
+        reasoningEffort,
+      })
+      const response = await doFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        throw new GroqUpstreamError(response.status, text)
+      }
+      return extractGroqText(await response.json())
+    },
+  }
+}

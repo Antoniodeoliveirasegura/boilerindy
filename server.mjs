@@ -49,7 +49,7 @@ import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
 import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
-import { createGrokClient, GrokUpstreamError } from './src/grokClient.mjs'
+import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -2645,16 +2645,21 @@ app.get('/', (_req, res) => {
 })
 
 // ============================================================
-// Grok (xAI) campus assistant
+// Groq campus assistant (Gemini -> xAI Grok -> Groq, 2026-09-14)
 // ============================================================
-const XAI_API_KEY = process.env.XAI_API_KEY
-// Model and (reasoning models only) effort come from the env so a model swap
-// needs no deploy; src/grokClient.mjs holds the default and the wire format.
-const grok = createGrokClient({
-  apiKey: XAI_API_KEY,
-  model: process.env.XAI_MODEL,
-  reasoningEffort: process.env.XAI_REASONING_EFFORT,
+const GROQ_API_KEY = process.env.GROQ_API_KEY
+// Model and (gpt-oss only) reasoning effort come from the env so a model swap
+// needs no deploy; src/groqClient.mjs holds the defaults and the wire format.
+const ai = createGroqClient({
+  apiKey: GROQ_API_KEY,
+  model: process.env.GROQ_MODEL,
+  reasoningEffort: process.env.GROQ_REASONING_EFFORT,
 })
+if (!GROQ_API_KEY && process.env.XAI_API_KEY) {
+  // The previous provider's key is still configured: say so once at boot instead
+  // of silently answering "offline" (see .env.example, "Groq AI").
+  console.warn('[ai] XAI_API_KEY is set but the assistant now uses Groq. Set GROQ_API_KEY (keys start with gsk_) and remove XAI_*.')
+}
 const TZ = 'America/Indiana/Indianapolis'
 
 // In-memory rate limiter for the AI routes: keyed by user ID (authed) or IP (anon)
@@ -2864,7 +2869,7 @@ function buildAssistantCalendarContext(calendarData, now) {
 }
 
 // Intent router (issue #45): answer common questions straight from the DB so
-// they cost zero Grok tokens. Returns a reply string, or null to fall through.
+// they cost zero Groq tokens. Returns a reply string, or null to fall through.
 async function buildAssistantRouterReply(intent, req, now) {
   const userId = req.currentUser.id
   if (intent === 'next_class' || intent === 'classes_today') {
@@ -2914,7 +2919,7 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
   }
 
-  if (!XAI_API_KEY) {
+  if (!GROQ_API_KEY) {
     // Friendly fallback instead of a bare 503 - the router still handles asks above.
     return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
   }
@@ -2982,7 +2987,7 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
 
   try {
     // The client keeps user/assistant turns only and puts the system prompt first.
-    const text = await grok.reply({
+    const text = await ai.reply({
       system: systemPrompt,
       messages,
       maxOutputTokens: 2800,
@@ -2990,8 +2995,8 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     })
     res.json({ reply: text ?? "Sorry, I couldn't generate a response." })
   } catch (err) {
-    if (err instanceof GrokUpstreamError) {
-      console.error('Grok error:', err.body)
+    if (err instanceof GroqUpstreamError) {
+      console.error('Groq error:', err.body)
       return res.status(502).json({ error: 'AI service error' })
     }
     console.error('Assistant error:', err)
@@ -3629,7 +3634,7 @@ const BOARD_TAG_CANDIDATES = [
 ]
 
 app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
-  if (!XAI_API_KEY) {
+  if (!GROQ_API_KEY) {
     return res.status(503).json({
       error: { message: 'AI suggestions are not configured.', status: 503 },
     })
@@ -3662,7 +3667,7 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       : `Campus board thread title: ${postTitle}\nOriginal post:\n${postBody || '(no body)'}\n\nStudent's reply draft:\n${draft}\n\nReturn ONLY JSON: {"replyTip":string|null} - one concise coaching sentence (tone, specificity, or missing info), or null if the draft is fine.`
 
   try {
-    const raw = (await grok.reply({
+    const raw = (await ai.reply({
       messages: [{ role: 'user', content: userText }],
       maxOutputTokens: 350,
       temperature: 0.35,
@@ -3704,7 +3709,7 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       res.json({ replyTip: replyTip || null })
     }
   } catch (e) {
-    if (e instanceof GrokUpstreamError) {
+    if (e instanceof GroqUpstreamError) {
       console.error('Board AI suggestions:', e.body)
       return res.status(502).json({ error: { message: 'AI service error', status: 502 } })
     }
@@ -3714,10 +3719,10 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
 })
 
 async function autoTagBoardPost(postId, title, body) {
-  if (!XAI_API_KEY) return []
+  if (!GROQ_API_KEY) return []
   const combined = `${title}\n${body}`.slice(0, 400)
   try {
-    const raw = (await grok.reply({
+    const raw = (await ai.reply({
       system: `You are a campus board post auto-tagger. Given a student's post, pick 1-3 of the most relevant tags from this list: ${BOARD_TAG_CANDIDATES.join(', ')}. Return ONLY a JSON array of strings, e.g. ["dining","parking"]. If nothing fits, return [].`,
       messages: [{ role: 'user', content: combined }],
       maxOutputTokens: 60,

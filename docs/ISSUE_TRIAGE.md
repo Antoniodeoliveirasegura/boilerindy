@@ -22,7 +22,7 @@ bugs found - ~~ICS sync crashes on object-valued `summary` (node-ical)~~ **FIXED
 (`icalText` coercion in `scheduleSync.mjs`, commit b63c013 + regression tests; the
 dev `/api/debug/source` endpoint was also hardened), ~~missing `VITE_SUPABASE_*`
 env for the frontend client in dev~~ **RESOLVED** (frontend `.env` recreated),
-invalid `GEMINI_API_KEY` (moot: the assistant moved to xAI Grok and reads `XAI_API_KEY`).
+invalid `GEMINI_API_KEY` (moot: the assistant moved to Groq and reads `GROQ_API_KEY`).
 
 ## Deferred (25 issues), grouped
 
