@@ -69,10 +69,11 @@ Concurrent misses for a date share one upstream crawl, and an outage is served
 and retried per date. `?refresh=1` stays public but is only a hint: it skips
 the TTL once the date's last upstream attempt is at least
 `MIN_REFRESH_INTERVAL_MS` (10 minutes) old; otherwise the cached snapshot comes
-back with `refreshed: false`, so a date costs at most one crawl per ten minutes
-however many clients ask. `?date=` must fall between yesterday and today + 14
-on the Indianapolis calendar (`clampDiningDate`, the same 16 days as the cache
-bound); anything else, a malformed date included, answers
+back with `refreshed: false`, so however many clients ask, refresh requests
+cannot make a date crawl more than once per ten minutes. `?date=` must fall
+between yesterday and today + 14 on the Indianapolis calendar
+(`clampDiningDate`, the same 16 days as the cache bound); anything else, a
+malformed date included, answers
 `400 { ok: false, error: "dining_bad_date", locations: [] }`.
 
 ## The snapshot
