@@ -34,3 +34,12 @@ describe('Privacy back link', () => {
     expect(screen.getByRole('link', { name: /back to boilerindy/i })).toHaveAttribute('href', '/')
   })
 })
+
+// Issue #193 - Contact points at the public deletion page the Play Data Safety
+// form links to.
+describe('Privacy contact', () => {
+  test('links to the delete account page', () => {
+    renderAt('/privacy')
+    expect(screen.getByRole('link', { name: 'How to delete your account' })).toHaveAttribute('href', '/delete-account')
+  })
+})
