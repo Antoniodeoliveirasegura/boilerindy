@@ -151,8 +151,8 @@ export default function CampusAssistant() {
         onClick={() => setOpen(false)}
       />
 
-      {/* Chat Window */}
-      <div className={`fixed bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-48px)] transition-all duration-500 ease-out ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
+      {/* Chat Window: below md it opens 16px above the lifted button (issue #249). */}
+      <div className={`fixed bottom-[calc(4rem+1.25rem+3.5rem+1rem+env(safe-area-inset-bottom))] md:bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-48px)] transition-all duration-500 ease-out ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
         <div className="card p-0 overflow-hidden shadow-xl border-[var(--color-border-2)]">
           {/* Header */}
           <div className="bg-gradient-to-r from-[var(--color-gold-dark)] to-[#2A1E0A] p-4 flex items-center justify-between">
@@ -255,10 +255,11 @@ export default function CampusAssistant() {
         </div>
       </div>
 
-      {/* Floating Button */}
+      {/* Floating Button: below md it sits 20px above the fixed bottom nav (h-16 plus
+          the notch inset) so it no longer covers the nav's More tab (issue #249). */}
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 group
+        className={`fixed bottom-[calc(4rem+1.25rem+env(safe-area-inset-bottom))] md:bottom-6 right-6 z-50 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 group
           ${open
             ? 'bg-[var(--color-surface)] border border-[var(--color-border-2)] rotate-90'
             : 'bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] hover:shadow-xl hover:scale-110'

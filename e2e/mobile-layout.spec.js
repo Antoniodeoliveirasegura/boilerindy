@@ -53,6 +53,10 @@ const pageFitsViewport = (page) =>
 
 const scrollsHorizontally = (locator) => locator.evaluate((el) => el.scrollWidth > el.clientWidth)
 
+// Two boundingBox() rects overlap only when they overlap on both axes.
+const boxesIntersect = (a, b) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
 // Let in-flight fetches settle, then give React one more frame to commit
 // before measuring.
 async function settle(page) {
@@ -131,5 +135,34 @@ test.describe('Mobile layout (390px)', () => {
 
     await settle(page)
     expect(await pageFitsViewport(page)).toBe(true)
+  })
+
+  // Issue #249: the floating assistant button sat on top of the bottom nav's
+  // last tab, so a tap on More opened the assistant instead.
+  test('the assistant button does not cover the More tab', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/dashboard')
+
+    // The slide-out menu keeps its own More link rendered off-canvas while it is
+    // closed, so scope to the navigation landmark that shows a More link at this
+    // width: the bottom nav (the top bar's links are display:none below md).
+    const moreLink = page.getByRole('link', { name: 'More', exact: true })
+    const bottomNav = page.getByRole('navigation').filter({ has: moreLink })
+    const more = bottomNav.getByRole('link', { name: 'More', exact: true })
+    const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
+    await expect(more).toBeVisible()
+    await expect(assistant).toBeVisible()
+
+    await settle(page)
+    const moreBox = await more.boundingBox()
+    const assistantBox = await assistant.boundingBox()
+    expect(moreBox).not.toBeNull()
+    expect(assistantBox).not.toBeNull()
+    expect(boxesIntersect(moreBox, assistantBox)).toBe(false)
+
+    // A real click, so Playwright's hit test fails if anything still sits on the tab.
+    await more.click()
+    await expect(page).toHaveURL(/\/services$/)
+    await expect(page.getByRole('heading', { name: 'Student Services And Resources' })).toBeVisible()
   })
 })
