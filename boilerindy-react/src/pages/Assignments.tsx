@@ -11,6 +11,7 @@ import { rewardOriginFromEvent, type RewardOrigin } from '../lib/rewardOrigin'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
+import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 
 type Category = { id: string; label?: string; count?: number }
 type Completion = { calendar_item_id?: string; completed_at?: string }
@@ -228,12 +229,15 @@ function isPastDue(dateString: string | null | undefined) {
 // Categories that belong on the Events page, not Tasks
 const eventCategories = ['campus_event', 'event', 'deadline']
 
-// One cache entry per local week, keyed by that week's Monday. The key has to
-// come from local date parts: toISOString() gives the UTC date, which lags a
-// day behind between local midnight and 09:00 on KST (and runs a day ahead in
-// the Indianapolis evening), so the same week would flip between two keys.
-function getInsightsCacheKey(mode: string) {
-  return `ai-assignments-${mode}-${localIsoDate(startOfWeek())}`
+// One cache entry per user per local week, keyed by that week's Monday. The
+// user id keeps the next account on a shared computer from reading these
+// first-person rankings (issue #219); null (no user yet) skips the cache. The
+// date has to come from local date parts: toISOString() gives the UTC date,
+// which lags a day behind between local midnight and 09:00 on KST (and runs a
+// day ahead in the Indianapolis evening), so the same week would flip between
+// two keys.
+function getInsightsCacheKey(userId: string | undefined, mode: string) {
+  return userId ? aiCacheKey('assignments', userId, `${mode}-${localIsoDate(startOfWeek())}`) : null
 }
 
 export default function Assignments() {
@@ -247,12 +251,8 @@ export default function Assignments() {
   const [selectedItem, setSelectedItem] = useState<MergedItem | null>(null)
 
   const [insightsMode, setInsightsMode] = useState('priority')
-  const [insightsText, setInsightsText] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('priority')) || 'null') ?? null } catch { return null }
-  })
-  const [studyPlan, setStudyPlan] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('study')) || 'null') ?? null } catch { return null }
-  })
+  const [insightsText, setInsightsText] = useState<string | null>(() => readAiCache(getInsightsCacheKey(userId, 'priority')))
+  const [studyPlan, setStudyPlan] = useState<string | null>(() => readAiCache(getInsightsCacheKey(userId, 'study')))
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(true)
 
@@ -270,6 +270,15 @@ export default function Assignments() {
   const [rewardOrigin, setRewardOrigin] = useState<RewardOrigin | null>(null)
   const [poppingId, setPoppingId] = useState<string | null>(null)
   const popClearRef = useRef<number | null>(null)
+  // Insights that land after sign-out unmounted the page must not write the
+  // cache back once sign-out has cleared it (issue #219).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const generateInsights = (mode: string) => {
     setInsightsLoading(true)
@@ -284,14 +293,14 @@ export default function Assignments() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.reply) {
+        if (d.reply && mountedRef.current) {
           const clean = cleanAiText(d.reply)
           if (mode === 'study') {
             setStudyPlan(clean)
-            try { localStorage.setItem(getInsightsCacheKey('study'), JSON.stringify(clean)) } catch { /* quota */ }
+            writeAiCache(getInsightsCacheKey(userId, 'study'), clean)
           } else {
             setInsightsText(clean)
-            try { localStorage.setItem(getInsightsCacheKey('priority'), JSON.stringify(clean)) } catch { /* quota */ }
+            writeAiCache(getInsightsCacheKey(userId, 'priority'), clean)
           }
         }
       })

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
+import { clearAiCaches } from '../lib/aiInsightCache'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
@@ -199,6 +200,9 @@ export default function Settings() {
           confirmation: deleteConfirm,
         }),
       })
+      // The account is gone and can never sign back in, so its board draft goes
+      // with the AI caches; the SIGNED_OUT listener alone keeps drafts (issue #219).
+      clearAiCaches()
       try {
         await supabase.auth.signOut()
       } catch {
