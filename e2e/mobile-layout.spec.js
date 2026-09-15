@@ -165,4 +165,55 @@ test.describe('Mobile layout (390px)', () => {
     await expect(page).toHaveURL(/\/services$/)
     await expect(page.getByRole('heading', { name: 'Student Services And Resources' })).toBeVisible()
   })
+
+  // Issue #249: lifting the button lifted the open panel too, so on a short
+  // phone screen (390x664 is a 390x844 phone with the browser toolbars shown)
+  // the panel must still fit between the fixed top bar and the button, both in
+  // the welcome state (quick questions) and once the conversation fills it.
+  test('the open assistant panel fits between the top bar and the button on a short screen', async ({
+    page,
+    mockApi,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 664 })
+    mockApi.login()
+    const reply = 'A reply long enough to wrap over several lines inside the assistant panel. '.repeat(3)
+    await page.route('**/api/assistant', (route) => route.fulfill({ json: { reply } }))
+    await page.goto('/dashboard')
+
+    const topBar = page.getByRole('navigation').first()
+    const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
+    const panel = page.getByTestId('assistant-panel')
+    const input = page.getByPlaceholder('Ask about campus...')
+    await expect(assistant).toBeVisible()
+    await settle(page)
+    await assistant.click()
+    await expect(page.getByRole('button', { name: 'Is Tower Dining open now?' })).toBeVisible()
+
+    const expectPanelFits = async () => {
+      // Wait out the open transition (translate and scale) before measuring.
+      await page.waitForTimeout(600)
+      const topBarBox = await topBar.boundingBox()
+      const panelBox = await panel.boundingBox()
+      const assistantBox = await assistant.boundingBox()
+      expect(panelBox.y).toBeGreaterThanOrEqual(topBarBox.y + topBarBox.height)
+      expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(assistantBox.y)
+      expect(await pageFitsViewport(page)).toBe(true)
+    }
+
+    await expectPanelFits()
+
+    // Three long replies fill the messages area to its cap. The dashboard's week
+    // ahead card asks the same endpoint, so count replies inside the panel only.
+    const replies = panel.getByText('A reply long enough to wrap')
+    for (const [i, question] of ['first question', 'second question', 'third question'].entries()) {
+      await input.fill(question)
+      await input.press('Enter')
+      await expect(replies).toHaveCount(i + 1)
+    }
+    await expect(input).toBeEnabled()
+    await expectPanelFits()
+
+    // A real click, so Playwright's hit test fails if the top bar covers the header.
+    await page.getByRole('button', { name: 'Close the assistant' }).click()
+  })
 })
