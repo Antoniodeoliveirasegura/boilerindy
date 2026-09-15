@@ -49,6 +49,7 @@ import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
 import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
+import { parseDueAt, parseTaskTitle } from './src/manualTasks.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
 import { STUDY_HELP_DEADLINE_HOURS, buildDiningContext, startsWithin, wantsStudyHelp } from './src/assistantContext.mjs'
@@ -2026,32 +2027,21 @@ app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
 app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { title, dueAt } = req.body || {}
-  const t = String(title || '').trim()
-  if (!t || t.length > 500) {
-    return res.status(400).json({ error: { message: 'Title is required (max 500 characters)' } })
-  }
+  const t = parseTaskTitle(title, { required: true })
+  if (!t.ok) return res.status(400).json({ error: { message: t.message } })
   // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
   // client creates undated to-dos from a title alone, which this used to reject outright. A
   // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
   // rather than being silently stored as no deadline at all.
-  let dueIso = null
-  if (dueAt !== undefined && dueAt !== null && dueAt !== '') {
-    if (typeof dueAt !== 'string') {
-      return res.status(400).json({ error: { message: 'dueAt must be an ISO timestamp string' } })
-    }
-    const due = new Date(dueAt)
-    if (Number.isNaN(due.getTime())) {
-      return res.status(400).json({ error: { message: 'Invalid dueAt date' } })
-    }
-    dueIso = due.toISOString()
-  }
+  const due = parseDueAt(dueAt, { mode: 'create' })
+  if (!due.ok) return res.status(400).json({ error: { message: due.message } })
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
       .insert({
         user_id: userId,
-        title: t,
-        due_at: dueIso,
+        title: t.value,
+        due_at: due.value,
       })
       .select()
       .single()
@@ -2071,13 +2061,14 @@ app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
   if (typeof completed === 'boolean') {
     updates.completed_at = completed ? nowIso() : null
   }
-  if (typeof title === 'string' && title.trim()) {
-    updates.title = title.trim().slice(0, 500)
-  }
-  if (typeof dueAt === 'string') {
-    const due = new Date(dueAt)
-    if (!Number.isNaN(due.getTime())) updates.due_at = due.toISOString()
-  }
+  const t = parseTaskTitle(title, { required: false })
+  if (!t.ok) return res.status(400).json({ error: { message: t.message } })
+  if (t.value !== undefined) updates.title = t.value
+  // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
+  // value is a 400 like POST instead of being dropped while the other fields save.
+  const due = parseDueAt(dueAt, { mode: 'update' })
+  if (!due.ok) return res.status(400).json({ error: { message: due.message } })
+  if (due.value !== undefined) updates.due_at = due.value
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: { message: 'No valid fields to update' } })
   }

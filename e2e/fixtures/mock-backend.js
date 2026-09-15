@@ -4,6 +4,7 @@ import {
   defaultLayout as defaultServicesLayout,
   normalizeLayout as normalizeServicesLayout,
 } from '../../src/servicesLayout.mjs'
+import { parseDueAt, parseTaskTitle } from '../../src/manualTasks.mjs'
 
 // Stateful, in-memory mock of the BoilerIndy backend. Each test gets a fresh
 // `mockApi` controller that intercepts every `/api/**` call (and the Supabase
@@ -607,12 +608,18 @@ export const test = base.extend({
         })
       }
 
+      // Manual tasks share src/manualTasks.mjs with server.mjs, so the mock
+      // accepts and rejects the same titles and dueAt values (issue #216).
       if (pathname === '/api/me/tasks/manual' && method === 'POST') {
         const { title, dueAt } = bodyOf()
+        const t = parseTaskTitle(title, { required: true })
+        if (!t.ok) return json(route, 400, { error: { message: t.message } })
+        const due = parseDueAt(dueAt, { mode: 'create' })
+        if (!due.ok) return json(route, 400, { error: { message: due.message } })
         const task = {
           id: `task-${state.manualTasks.length + 1}-${Date.now()}`,
-          title,
-          due_at: dueAt ?? null,
+          title: t.value,
+          due_at: due.value,
           completed_at: null,
         }
         state.manualTasks.push(task)
@@ -621,9 +628,22 @@ export const test = base.extend({
 
       const manualMatch = pathname.match(/^\/api\/me\/tasks\/manual\/(.+)$/)
       if (manualMatch && method === 'PATCH') {
-        const task = state.manualTasks.find((t) => t.id === manualMatch[1])
-        if (task) task.completed_at = bodyOf().completed ? new Date().toISOString() : null
-        return json(route, 200, { ok: true })
+        const { completed, title, dueAt } = bodyOf()
+        const updates = {}
+        if (typeof completed === 'boolean') updates.completed_at = completed ? new Date().toISOString() : null
+        const t = parseTaskTitle(title, { required: false })
+        if (!t.ok) return json(route, 400, { error: { message: t.message } })
+        if (t.value !== undefined) updates.title = t.value
+        const due = parseDueAt(dueAt, { mode: 'update' })
+        if (!due.ok) return json(route, 400, { error: { message: due.message } })
+        if (due.value !== undefined) updates.due_at = due.value
+        if (Object.keys(updates).length === 0) {
+          return json(route, 400, { error: { message: 'No valid fields to update' } })
+        }
+        const task = state.manualTasks.find((row) => row.id === manualMatch[1])
+        if (!task) return json(route, 404, { error: { message: 'Task not found' } })
+        Object.assign(task, updates)
+        return json(route, 200, { task: mapManualTask(task) })
       }
       if (manualMatch && method === 'DELETE') {
         state.manualTasks = state.manualTasks.filter((t) => t.id !== manualMatch[1])
