@@ -65,6 +65,18 @@ const STEP_TEXT: Record<PhotoStep, string> = {
   uploading: 'Uploading',
 }
 
+// Report reasons (#224). The server stores the reason as text capped at 500
+// characters, so "other" sends its details after the value.
+const REPORT_REASONS = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'scam', label: 'Scam or fraud' },
+  { value: 'prohibited', label: 'Prohibited item' },
+  { value: 'other', label: 'Something else' },
+] as const
+type ReportReason = (typeof REPORT_REASONS)[number]['value']
+const REPORT_DETAILS_MAX = 500
+const NOTICE_MS = 4000
+
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
@@ -253,6 +265,11 @@ export default function Marketplace() {
   const [photo, setPhoto] = useState<PhotoState>({ status: 'idle' })
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportReason, setReportReason] = useState<ReportReason | ''>('')
+  const [reportDetails, setReportDetails] = useState('')
+  const [reporting, setReporting] = useState(false)
+  const [notice, setNotice] = useState('')
   const formRef = useRef<HTMLFormElement>(null)
   // Bumped whenever the photo is replaced, removed or the form closes, so a
   // pipeline still running for an earlier pick cannot land its result.
@@ -271,6 +288,13 @@ export default function Marketplace() {
   useEffect(() => {
     track('marketplace_viewed')
   }, [])
+
+  // The report confirmation is a passing line, not a lasting banner.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(''), NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   const loadBrowse = useCallback(
     (opts: BrowseOpts = {}) => {
@@ -344,9 +368,17 @@ export default function Marketplace() {
     authRequest(`/api/marketplace/${listing.id}`)
       .then((data) => {
         const d = data as { listing?: Listing }
+        resetReport()
+        setNotice('')
         setSelected(d?.listing || null)
       })
       .catch(() => {})
+  }
+
+  function closeListing() {
+    setSelected(null)
+    resetReport()
+    setNotice('')
   }
 
   // ── Compose / edit form ───────────────────────────────────────────────────
@@ -501,26 +533,74 @@ export default function Marketplace() {
   }
 
   // ── Listing actions ───────────────────────────────────────────────────────
+  // A failure shows the server's message in the page banner (#224), and the
+  // lists are refetched only after the server accepted the change.
 
   async function markSold(listing: Listing) {
-    await authRequest(`/api/marketplace/${listing.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'sold' }) }).catch(() => {})
+    if (!(await confirm({ title: `Mark "${listing.title}" as sold?`, confirmLabel: 'Mark sold' }))) return
+    setError('')
+    setNotice('')
+    try {
+      await authRequest(`/api/marketplace/${listing.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'sold' }) })
+    } catch (e) {
+      setError(errorText(e, 'Could not mark the listing as sold.'))
+      return
+    }
     loadMine()
     loadBrowse({})
   }
 
   async function deleteListing(listing: Listing) {
     if (!(await confirm({ title: `Delete "${listing.title}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
+    setError('')
+    setNotice('')
+    const index = mine.findIndex((l) => l.id === listing.id)
+    const openDetail = selected?.id === listing.id ? selected : null
     setMine((prev) => prev.filter((l) => l.id !== listing.id))
-    if (selected?.id === listing.id) setSelected(null)
-    await authRequest(`/api/marketplace/${listing.id}`, { method: 'DELETE' }).catch(() => loadMine())
+    if (openDetail) setSelected(null)
+    try {
+      await authRequest(`/api/marketplace/${listing.id}`, { method: 'DELETE' })
+    } catch (e) {
+      setError(errorText(e, 'Could not delete the listing.'))
+      // Put it back where it was rather than refetch over the same bad connection.
+      setMine((prev) => (index < 0 || prev.some((l) => l.id === listing.id) ? prev : [...prev.slice(0, index), listing, ...prev.slice(index)]))
+      if (openDetail) setSelected((current) => current ?? openDetail)
+      return
+    }
     loadBrowse({})
   }
 
-  function reportListing(listing: Listing) {
-    const reason = window.prompt('Why are you reporting this listing? (optional)') ?? ''
-    authRequest(`/api/marketplace/${listing.id}/report`, { method: 'POST', body: JSON.stringify({ reason }) })
-      .then(() => window.alert('Thanks - our team will review it.'))
-      .catch(() => {})
+  function resetReport() {
+    setReportOpen(false)
+    setReportReason('')
+    setReportDetails('')
+  }
+
+  function toggleReport() {
+    const open = !reportOpen
+    resetReport()
+    setReportOpen(open)
+    setNotice('')
+  }
+
+  async function submitReport(e: React.FormEvent<HTMLFormElement>, listing: Listing) {
+    e.preventDefault()
+    if (!reportReason || reporting) return
+    setError('')
+    setNotice('')
+    setReporting(true)
+    const details = reportDetails.trim()
+    const reason = reportReason === 'other' && details ? `other: ${details}` : reportReason
+    try {
+      await authRequest(`/api/marketplace/${listing.id}/report`, { method: 'POST', body: JSON.stringify({ reason }) })
+    } catch (err) {
+      setError(errorText(err, 'Could not send the report.'))
+      return
+    } finally {
+      setReporting(false)
+    }
+    resetReport()
+    setNotice('Thanks, our team will review it.')
   }
 
   function listingCard(listing: Listing, context: 'browse' | 'mine') {
@@ -706,7 +786,7 @@ export default function Marketplace() {
                 {selected.title} <span className="text-[var(--color-txt-2)] font-normal">&middot; {formatPrice(selected.priceCents, selected.priceMode)}</span>
               </h2>
             </div>
-            <button type="button" onClick={() => setSelected(null)} aria-label="Close listing" className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)]">
+            <button type="button" onClick={closeListing} aria-label="Close listing" className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)]">
               <Icon name="close" size={18} />
             </button>
           </div>
@@ -727,11 +807,66 @@ export default function Marketplace() {
                 <Icon name="edit" size={12} /> Edit listing
               </button>
             ) : (
-              <button type="button" onClick={() => reportListing(selected)} className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]">
+              <button
+                type="button"
+                onClick={toggleReport}
+                aria-expanded={reportOpen}
+                aria-controls="listing-report"
+                className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+              >
                 Report listing
               </button>
             )}
           </div>
+          {reportOpen && !selected.isMine ? (
+            <form id="listing-report" onSubmit={(e) => void submitReport(e, selected)} className="mt-3 pt-3 border-t border-[var(--color-border)] space-y-3" data-report-form>
+              <fieldset disabled={reporting} className="m-0 p-0 border-0 min-w-0">
+                <legend className="text-[12px] font-semibold text-[var(--color-txt-1)] mb-2">Why are you reporting this listing?</legend>
+                <div className="flex flex-col gap-2">
+                  {REPORT_REASONS.map((r) => (
+                    <label key={r.value} className="flex items-center gap-2 text-[13px] text-[var(--color-txt-1)] cursor-pointer select-none">
+                      <input
+                        type="radio"
+                        name="listing-report-reason"
+                        value={r.value}
+                        checked={reportReason === r.value}
+                        onChange={() => setReportReason(r.value)}
+                        className="w-4 h-4 border-[var(--color-border-2)] accent-[var(--color-accent)]"
+                      />
+                      {r.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {reportReason === 'other' ? (
+                <div>
+                  <label className="block text-[12px] text-[var(--color-txt-2)] mb-1" htmlFor="listing-report-details">
+                    Tell us more (optional)
+                  </label>
+                  <textarea
+                    id="listing-report-details"
+                    value={reportDetails}
+                    onChange={(e) => setReportDetails(e.target.value)}
+                    maxLength={REPORT_DETAILS_MAX}
+                    rows={2}
+                    disabled={reporting}
+                    className="input w-full text-[13px] px-3 py-2 resize-y"
+                  />
+                </div>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" disabled={!reportReason || reporting} className="btn btn-primary px-4 py-2 text-[13px] disabled:opacity-60">
+                  {reporting ? 'Sending…' : 'Submit report'}
+                </button>
+                <button type="button" onClick={resetReport} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
+          <p role="status" className={`text-[12px] text-[var(--color-success)] ${notice ? 'mt-3' : ''}`} data-report-notice>
+            {notice}
+          </p>
         </div>
       ) : null}
 
@@ -750,6 +885,13 @@ export default function Marketplace() {
           </button>
         ))}
       </div>
+
+      {/* One banner for both tabs: load errors and failed listing actions. */}
+      {error ? (
+        <div role="alert" className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">
+          {error}
+        </div>
+      ) : null}
 
       {tab === 'browse' ? (
         <>
@@ -778,8 +920,6 @@ export default function Marketplace() {
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="input text-[13px] px-3 py-2 w-full sm:w-[200px]" />
             </form>
           </div>
-
-          {error ? <div className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">{error}</div> : null}
 
           {loading ? (
             <p className="text-[13px] text-[var(--color-txt-3)]">Loading…</p>
