@@ -242,3 +242,46 @@ describe('refreshSession vs establishSession (issue #149)', () => {
     expect(calledWith(SESSION)).toBe(true)
   })
 })
+
+// Issue #219: personalized AI insight caches and the unsent board draft must not
+// outlive the account on a shared computer.
+describe('sign-out clears per-user caches (issue #219)', () => {
+  function seedCaches() {
+    localStorage.setItem('ai-week-ahead-user-1-2026-09-14', '"digest"')
+    localStorage.setItem('ai-assignments-user-1-priority-2026-09-14', '"rank"')
+    localStorage.setItem('boilerindy-board-draft-v1-user-1', '{"title":"draft","body":""}')
+    localStorage.setItem('boilerindy-task-priority-v1-user-1', '{"task-a":"high"}')
+  }
+
+  beforeEach(() => localStorage.clear())
+
+  test('signOut removes the ai-* and board draft keys', async () => {
+    const result = await mountAuth()
+    seedCaches()
+
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(Object.keys(localStorage)).toEqual(['boilerindy-task-priority-v1-user-1'])
+    expect(result.current.session).toBeNull()
+  })
+
+  // SIGNED_OUT also fires without signOut() (revoked token, another tab, Login
+  // clearing a stale local session). Drafts stay so they survive a re-login
+  // after session expiry (issue #23).
+  test('a SIGNED_OUT event removes the ai-* keys and keeps the board draft', async () => {
+    const result = await mountAuth()
+    seedCaches()
+
+    await act(async () => {
+      await emitAuthEvent('SIGNED_OUT', null)
+    })
+
+    expect(Object.keys(localStorage).sort()).toEqual([
+      'boilerindy-board-draft-v1-user-1',
+      'boilerindy-task-priority-v1-user-1',
+    ])
+    expect(result.current.session).toBeNull()
+  })
+})

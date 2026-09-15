@@ -39,6 +39,7 @@ import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
+import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -499,18 +500,15 @@ export default function Home() {
   const [boardLoading, setBoardLoading] = useState(true)
   const [boardError, setBoardError] = useState('')
 
-  // Keyed by the local week's Monday; lib/localDate explains why not toISOString().
+  // Keyed by user (issue #219) and the local week's Monday; lib/localDate
+  // explains why not toISOString(). Null until the user id is known, which
+  // skips the cache and lets the mount effect fetch.
   function getWeekDigestStorageKey() {
-    return `ai-week-ahead-${localIsoDate(startOfWeek())}`
+    return userId ? aiCacheKey('week-ahead', userId, localIsoDate(startOfWeek())) : null
   }
 
   function readCachedWeekDigest(): string | null {
-    try {
-      const raw = JSON.parse(localStorage.getItem(getWeekDigestStorageKey()) || 'null')
-      return typeof raw === 'string' && raw.trim() ? raw : null
-    } catch {
-      return null
-    }
+    return readAiCache(getWeekDigestStorageKey())
   }
 
   const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
@@ -537,11 +535,7 @@ export default function Home() {
         if (d.reply) {
           const clean = cleanAiText(d.reply)
           setWeekAheadText(clean)
-          try {
-            localStorage.setItem(getWeekDigestStorageKey(), JSON.stringify(clean))
-          } catch {
-            /* ignore */
-          }
+          writeAiCache(getWeekDigestStorageKey(), clean)
         }
       })
       .catch(() => {})

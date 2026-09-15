@@ -5,6 +5,7 @@ import { authRequest } from '../lib/authApi'
 import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
+import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 
 type EventItem = {
   id: string
@@ -82,13 +83,15 @@ function isPast(dateString: string) {
   return new Date(dateString) < new Date()
 }
 
-// Keyed by the local calendar day; lib/localDate explains why not toISOString().
-function getRecsCacheKey() {
-  return `ai-event-recs-${localIsoDate()}`
+// Keyed by user (issue #219) and the local calendar day; lib/localDate explains
+// why not toISOString(). Null (no user yet) skips the cache.
+function getRecsCacheKey(userId: string | undefined) {
+  return userId ? aiCacheKey('event-recs', userId, localIsoDate()) : null
 }
 
 export default function Events() {
-  const { onboarding } = useAuth()
+  const { user, onboarding } = useAuth()
+  const userId = user?.id as string | undefined
   const [items, setItems] = useState<EventItem[]>([])
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,9 +99,7 @@ export default function Events() {
   const [freeFoodOnly, setFreeFoodOnly] = useState(false)
   const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
 
-  const [eventRecs, setEventRecs] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem(getRecsCacheKey()) || 'null') ?? null } catch { return null }
-  })
+  const [eventRecs, setEventRecs] = useState<string | null>(() => readAiCache(getRecsCacheKey(userId)))
   const [recsLoading, setRecsLoading] = useState(false)
 
   const generateRecs = () => {
@@ -119,7 +120,7 @@ export default function Events() {
         if (d.reply) {
           const clean = cleanAiText(d.reply)
           setEventRecs(clean)
-          try { localStorage.setItem(getRecsCacheKey(), JSON.stringify(clean)) } catch { /* ignore */ }
+          writeAiCache(getRecsCacheKey(userId), clean)
         }
       })
       .catch(() => {})
