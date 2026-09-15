@@ -20,13 +20,21 @@ export function isUuid(value) {
 
 /**
  * Express middleware that rejects the request unless every named route param
- * is a UUID. Defaults to 400; pass { status: 404, message: 'Not found.' } when
- * a probe should not learn that the id was malformed.
- * @param {string | string[]} name - param name(s), e.g. 'id' or ['type', 'id']
- * @param {{ status?: number, message?: string }} [options]
+ * is a UUID. Names come as separate arguments or arrays, optionally followed by
+ * an options object: requireUuidParam('requesterId', 'id', { status: 404 }).
+ * Defaults to 400; pass { status: 404, message: 'Not found.' } when a probe
+ * should not learn that the id was malformed. Throws at mount time when no
+ * name is given or a name is not a string, so a bad call cannot skip a param.
+ * @param {...(string | string[] | { status?: number, message?: string })} args
  */
-export function requireUuidParam(name, { status = 400, message = 'A valid id is required.' } = {}) {
-  const names = Array.isArray(name) ? name : [name]
+export function requireUuidParam(...args) {
+  const last = args[args.length - 1]
+  const hasOptions = last !== null && typeof last === 'object' && !Array.isArray(last)
+  const { status = 400, message = 'A valid id is required.' } = hasOptions ? last : {}
+  const names = (hasOptions ? args.slice(0, -1) : args).flat()
+  if (names.length === 0 || names.some((n) => typeof n !== 'string' || !n)) {
+    throw new TypeError('requireUuidParam needs one or more param names')
+  }
   return function uuidParamGuard(req, res, next) {
     for (const param of names) {
       if (!isUuid(req.params?.[param])) {

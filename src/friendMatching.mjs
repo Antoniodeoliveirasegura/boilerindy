@@ -1,6 +1,10 @@
 // Friend Matching (issue #17). Connect students who share courses. Reuses the
 // course-code normalizer from Study Group Finder (#33). Pure validation +
-// ranking helpers kept here so they are unit-testable without DB/HTTP.
+// ranking helpers kept here so they are unit-testable without DB/HTTP; the
+// connection-request gate takes the Supabase client as an argument for the
+// same reason.
+import { isUuid } from './httpGuards.mjs'
+
 export { normalizeCourseCode, coursesFromClassItems } from './studyGroups.mjs'
 
 export const MAX_BIO = 300
@@ -80,4 +84,46 @@ export function mapMatchCard(user, sharedCount) {
  */
 export function canReceiveFriendRequest(profileRow) {
   return Boolean(profileRow?.discoverable)
+}
+
+/**
+ * POST /api/connections (#203). A malformed or self id is a 400. An unknown,
+ * non-discoverable or previously declining addressee gets the same pending
+ * answer as a real request but no row, so the response is not an oracle for
+ * who exists or who opted in. Only a discoverable addressee gets an upsert.
+ * @param {object} supabase - service-role client
+ * @param {string} userId - the requester (req.currentUser.id)
+ * @param {unknown} rawAddresseeId - req.body.addresseeId as sent
+ * @param {{ nowIso?: () => string }} [options]
+ * @returns {Promise<{ status: number, body: object }>} throws the Supabase error on a DB failure
+ */
+export async function sendConnectionRequest(supabase, userId, rawAddresseeId, { nowIso = () => new Date().toISOString() } = {}) {
+  // Lowercased so an uppercase copy of my own id cannot slip past the self check.
+  const addresseeId = String(rawAddresseeId || '').trim().toLowerCase()
+  if (!isUuid(addresseeId) || addresseeId === String(userId).toLowerCase()) {
+    return { status: 400, body: { error: { message: 'A valid recipient is required.', status: 400 } } }
+  }
+  const pending = { status: 200, body: { ok: true, status: 'pending' } }
+
+  const target = await supabase.from('user_profiles').select('discoverable').eq('user_id', addresseeId).maybeSingle()
+  if (target.error) throw target.error
+  if (!canReceiveFriendRequest(target.data)) return pending
+
+  // If the addressee previously declined me, silently no-op (requester sees pending).
+  const prior = await supabase
+    .from('connections')
+    .select('status')
+    .eq('requester_id', userId)
+    .eq('addressee_id', addresseeId)
+    .maybeSingle()
+  if (prior.data?.status === 'declined') return pending
+
+  const { error } = await supabase
+    .from('connections')
+    .upsert(
+      { requester_id: userId, addressee_id: addresseeId, status: 'pending', created_at: nowIso() },
+      { onConflict: 'requester_id,addressee_id' },
+    )
+  if (error) throw error
+  return pending
 }

@@ -74,6 +74,28 @@ test('requireUuidParam checks every named param', () => {
   assert.equal(bad.res.statusCode, 400)
 })
 
+test('requireUuidParam checks every name passed as separate arguments', () => {
+  const guard = requireUuidParam('requesterId', 'id')
+  assert.equal(run(guard, { requesterId: ID, id: ID }).nextCalled, true)
+  const bad = run(guard, { requesterId: ID, id: 'abc' })
+  assert.equal(bad.nextCalled, false, 'the second name is checked, not read as options')
+  assert.equal(bad.res.statusCode, 400)
+})
+
+test('requireUuidParam takes options after several names', () => {
+  const guard = requireUuidParam('requesterId', 'id', { status: 404, message: 'Not found.' })
+  const { res, nextCalled } = run(guard, { requesterId: 'abc', id: ID })
+  assert.equal(nextCalled, false)
+  assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+})
+
+test('requireUuidParam throws at mount time without a usable name', () => {
+  assert.throws(() => requireUuidParam(), TypeError)
+  assert.throws(() => requireUuidParam({ status: 404 }), TypeError)
+  assert.throws(() => requireUuidParam(''), TypeError)
+  assert.throws(() => requireUuidParam('id', 42), TypeError)
+})
+
 test('requireUuidParam can answer a custom status and message', () => {
   const { res, nextCalled } = run(requireUuidParam('id', { status: 404, message: 'Not found.' }), { id: 'abc' })
   assert.equal(nextCalled, false)
