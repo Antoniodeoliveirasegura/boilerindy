@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
+import { boardDraftKey } from '../lib/aiInsightCache'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
@@ -28,19 +30,22 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 export default function Board() {
+  const { user } = useAuth()
+  const userId = user?.id as string | undefined
   const { confirm, confirmDialog } = useConfirm()
   const [posts, setPosts] = useState<Post[]>([])
   const [sort, setSort] = useState('recent')
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [repliesOpen, setRepliesOpen] = useState<Set<string>>(new Set())
-  // Drafts survive session-expiry redirects to /login (issue #23)
+  // Drafts survive session-expiry redirects to /login (issue #23), per user so
+  // the next account on a shared computer never sees them (issue #219)
   const [showForm, setShowForm] = useState(() => {
-    const draft = loadBoardDraft()
+    const draft = loadBoardDraft(userId)
     return Boolean(draft.title || draft.body)
   })
-  const [newTitle, setNewTitle] = useState(() => loadBoardDraft().title)
-  const [newBody, setNewBody] = useState(() => loadBoardDraft().body)
+  const [newTitle, setNewTitle] = useState(() => loadBoardDraft(userId).title)
+  const [newBody, setNewBody] = useState(() => loadBoardDraft(userId).body)
   const [isAnon, setIsAnon] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [improving, setImproving] = useState(false)
@@ -117,8 +122,8 @@ export default function Board() {
   }, [fetchPosts])
 
   useEffect(() => {
-    saveBoardDraft(newTitle, newBody)
-  }, [newTitle, newBody])
+    saveBoardDraft(userId, newTitle, newBody)
+  }, [userId, newTitle, newBody])
 
   // ── Live AI suggestions (debounced) while composing ─────────────────────
   useEffect(() => {
@@ -287,7 +292,7 @@ export default function Board() {
       track('board_post_created')
       setNewTitle('')
       setNewBody('')
-      saveBoardDraft('', '')
+      saveBoardDraft(userId, '', '')
       setLiveCompose(null)
       setShowForm(false)
       setFilterTag(null)
@@ -1072,11 +1077,11 @@ function ReplyInput({
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
-const BOARD_DRAFT_KEY = 'boilerindy-board-draft-v1'
-
-function loadBoardDraft() {
+// Both no-op without a user id (session still loading).
+function loadBoardDraft(userId: string | undefined) {
+  if (!userId) return { title: '', body: '' }
   try {
-    const raw = localStorage.getItem(BOARD_DRAFT_KEY)
+    const raw = localStorage.getItem(boardDraftKey(userId))
     if (!raw) return { title: '', body: '' }
     const parsed = JSON.parse(raw)
     return {
@@ -1088,12 +1093,13 @@ function loadBoardDraft() {
   }
 }
 
-function saveBoardDraft(title: string, body: string) {
+function saveBoardDraft(userId: string | undefined, title: string, body: string) {
+  if (!userId) return
   try {
     if (!title.trim() && !body.trim()) {
-      localStorage.removeItem(BOARD_DRAFT_KEY)
+      localStorage.removeItem(boardDraftKey(userId))
     } else {
-      localStorage.setItem(BOARD_DRAFT_KEY, JSON.stringify({ title, body }))
+      localStorage.setItem(boardDraftKey(userId), JSON.stringify({ title, body }))
     }
   } catch {
     /* storage unavailable */

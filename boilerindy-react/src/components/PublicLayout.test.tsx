@@ -34,6 +34,7 @@ describe('PublicLayout', () => {
     expect(screen.getByText(/not affiliated with/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
     expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
+    expect(screen.getByRole('link', { name: 'Support' })).toHaveAttribute('href', '/support')
   })
 })
 
@@ -48,5 +49,18 @@ describe('SiteDisclaimer wording', () => {
     expect(text).toMatch(/independent, student-built project/)
     expect(text).toMatch(/not affiliated with, endorsed by, sponsored by, or officially connected to Purdue University/)
     expect(text).toMatch(/trademarks of Purdue University/)
+  })
+
+  // Issue #193 - the store forms need a published contact, so the footer links
+  // Support next to Terms and Privacy on every route.
+  test('links Terms, Privacy and Support', () => {
+    render(
+      <MemoryRouter>
+        <SiteDisclaimer />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
+    expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
+    expect(screen.getByRole('link', { name: 'Support' })).toHaveAttribute('href', '/support')
   })
 })

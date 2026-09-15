@@ -47,9 +47,11 @@ import {
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
-import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
+import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
+import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
+import { STUDY_HELP_DEADLINE_HOURS, buildDiningContext, startsWithin, wantsStudyHelp } from './src/assistantContext.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -63,6 +65,9 @@ import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEv
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
 import { createCommunityCounters } from './src/communityCounters.mjs'
+import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
+import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
+import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
@@ -144,7 +149,6 @@ import { wrapAsyncRoutes } from './src/asyncRoutes.mjs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const TERM_ORDER = { spring: 1, summer: 2, fall: 3 }
 // Fail-closed on a mistyped NODE_ENV: a value that is set but unrecognized
 // (e.g. 'prod', 'Production', a trailing space) must not silently fall through to
 // non-production mode and drop the Secure-cookie / trust-proxy / debug-gate /
@@ -428,12 +432,6 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-function startOfToday() {
-  const date = new Date()
-  date.setHours(0, 0, 0, 0)
-  return date
-}
-
 function makeId() {
   return crypto.randomUUID()
 }
@@ -614,79 +612,6 @@ async function deleteUserAccount(userRow, { password, confirmation }) {
   }
 
   onboardingSummaryCache.invalidate(userId)
-}
-
-function getAcademicTerm(dateValue) {
-  const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return null
-  const month = date.getMonth()
-  const year = date.getFullYear()
-  let season = 'fall'
-  if (month <= 4) season = 'spring'
-  else if (month <= 6) season = 'summer'
-  return {
-    key: `${year}-${season}`,
-    year,
-    season,
-    label: `${season.charAt(0).toUpperCase() + season.slice(1)} ${year}`,
-  }
-}
-
-function parseTermKey(termKey) {
-  const [yearPart, season] = String(termKey || '').split('-')
-  const year = Number(yearPart)
-  if (!year || !TERM_ORDER[season]) return null
-  return { key: `${year}-${season}`, year, season, label: `${season.charAt(0).toUpperCase() + season.slice(1)} ${year}` }
-}
-
-function compareTermKeys(a, b) {
-  const left = parseTermKey(a)
-  const right = parseTermKey(b)
-  if (!left && !right) return 0
-  if (!left) return -1
-  if (!right) return 1
-  if (left.year !== right.year) return left.year - right.year
-  return TERM_ORDER[left.season] - TERM_ORDER[right.season]
-}
-
-function getPreferredClassTerm(items) {
-  if (!items.length) return null
-
-  const groups = new Map()
-  for (const item of items) {
-    const term = getAcademicTerm(item.start_time)
-    if (!term) continue
-    const start = new Date(item.start_time)
-    const end = new Date(item.end_time || item.start_time)
-    const current = groups.get(term.key) || {
-      key: term.key,
-      label: term.label,
-      minStart: start,
-      maxEnd: end,
-    }
-    if (start < current.minStart) current.minStart = start
-    if (end > current.maxEnd) current.maxEnd = end
-    groups.set(term.key, current)
-  }
-
-  if (!groups.size) return null
-
-  const today = startOfToday()
-  const currentTerm = getAcademicTerm(today)
-  const currentGroup = currentTerm ? groups.get(currentTerm.key) : null
-  if (currentGroup && currentGroup.maxEnd >= today) {
-    return parseTermKey(currentGroup.key)
-  }
-
-  const upcomingGroups = [...groups.values()]
-    .filter((group) => group.maxEnd >= today)
-    .sort((a, b) => a.minStart - b.minStart || compareTermKeys(a.key, b.key))
-  if (upcomingGroups.length) {
-    return parseTermKey(upcomingGroups[0].key)
-  }
-
-  const latestGroup = [...groups.values()].sort((a, b) => compareTermKeys(b.key, a.key) || b.maxEnd - a.maxEnd)[0]
-  return latestGroup ? parseTermKey(latestGroup.key) : null
 }
 
 function orderClassItemsForDisplay(items) {
@@ -941,24 +866,33 @@ async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdu
 }
 
 async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null } = {}) {
-  let query = supabase
-    .from('calendar_items')
-    .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
-    .eq('user_id', userId)
+  const ascending = order === 'asc'
+  const rowLimit = Number(limit) || 100
 
-  if (category) {
-    query = query.eq('category', category)
-  } else if (categories && categories.length > 0) {
-    query = query.in('category', categories)
+  const buildQuery = () => {
+    let query = supabase
+      .from('calendar_items')
+      .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
+      .eq('user_id', userId)
+
+    if (category) {
+      query = query.eq('category', category)
+    } else if (categories && categories.length > 0) {
+      query = query.in('category', categories)
+    }
+
+    if (from) {
+      query = query.gte('start_time', from)
+    }
+
+    return query.order('start_time', { ascending })
   }
 
-  if (from) {
-    query = query.gte('start_time', from)
-  }
-
-  query = query.order('start_time', { ascending: order === 'asc' }).limit(Number(limit) || 100)
-
-  const { data, error } = await query
+  // PostgREST truncates every response to max-rows (1000) whatever .limit()
+  // asks for, so selectUpTo pages a larger read with .range() up to
+  // DEFAULT_MAX_ROWS (issue #198). The id tiebreak keeps rows that share a
+  // start_time from repeating or vanishing across page boundaries.
+  const { data, error } = await selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit)
 
   if (error) return []
   return data.map(row => ({
@@ -982,7 +916,15 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
 }
 
 async function getClassItemsForUser(userId, { limit = 20, term = 'auto', mode = 'display' } = {}) {
-  const allItems = await listCalendarItems(userId, { category: 'class', limit: 5000, order: 'asc' })
+  // Windowed to the last CLASS_SCAN_LOOKBACK_MONTHS and paged past max-rows: an
+  // unbounded ascending read returned only the oldest 1000 meetings, so students
+  // with a few synced semesters lost the current term entirely (issue #198).
+  const allItems = await listCalendarItems(userId, {
+    category: 'class',
+    limit: DEFAULT_MAX_ROWS,
+    order: 'asc',
+    from: classScanFrom(term),
+  })
   if (!allItems.length) {
     return {
       items: [],
@@ -1952,43 +1894,17 @@ app.get('/api/me/calendar', requireAuth, async (req, res) => {
   res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from }) })
 })
 
+// Counted in Postgres by calendar_category_counts (db/supabase-calendar-category-counts.sql)
+// instead of streaming every row to count in JS (issue #198); until that
+// migration runs, loadCalendarCategoryCounts falls back to the JS count.
 app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('calendar_items')
-    .select('category')
-    .eq('user_id', req.currentUser.id)
+  const { counts, error } = await loadCalendarCategoryCounts(supabase, req.currentUser.id)
 
   if (error) {
     return res.json({ categories: [] })
   }
 
-  const counts = {}
-  for (const row of data) {
-    counts[row.category] = (counts[row.category] || 0) + 1
-  }
-
-  const categoryLabels = {
-    class: 'Classes',
-    exam: 'Exams',
-    assignment: 'Assignments',
-    lab: 'Labs',
-    project: 'Projects',
-    quiz: 'Quizzes',
-    campus_event: 'Campus Events',
-    resource: 'Resources',
-    deadline: 'Deadlines',
-    event: 'Other Events'
-  }
-
-  const categories = Object.entries(counts)
-    .map(([key, count]) => ({
-      id: key,
-      label: categoryLabels[key] || key,
-      count
-    }))
-    .sort((a, b) => b.count - a.count)
-
-  res.json({ categories })
+  res.json({ categories: categoryListFromCounts(counts) })
 })
 
 // ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
@@ -2010,6 +1926,23 @@ function mapManualTaskRow(row) {
   }
 }
 
+// Runs on every Assignments and dashboard load, so both reads are bounded
+// (issue #198) instead of returning every row the user ever wrote:
+// - completions from the last TASK_COMPLETIONS_LOOKBACK_DAYS only. Older ones
+//   belong to calendar items that are no longer shown (Assignments lists items
+//   from 14 days back), so dropping them changes nothing on screen.
+// - manual tasks that are still open, or were completed in the last
+//   MANUAL_TASKS_DONE_LOOKBACK_DAYS.
+// Each read also caps at TASK_META_ROW_LIMIT, the PostgREST max-rows, so the
+// bound is explicit rather than a silent truncation.
+const TASK_COMPLETIONS_LOOKBACK_DAYS = 120
+const MANUAL_TASKS_DONE_LOOKBACK_DAYS = 60
+const TASK_META_ROW_LIMIT = 1000
+
+function daysAgoIso(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+}
+
 app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
@@ -2017,8 +1950,17 @@ app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
       supabase
         .from('user_task_completions')
         .select('calendar_item_id, completed_at')
-        .eq('user_id', userId),
-      supabase.from('user_manual_tasks').select('*').eq('user_id', userId).order('due_at', { ascending: true }),
+        .eq('user_id', userId)
+        .gte('completed_at', daysAgoIso(TASK_COMPLETIONS_LOOKBACK_DAYS))
+        .order('completed_at', { ascending: false })
+        .limit(TASK_META_ROW_LIMIT),
+      supabase
+        .from('user_manual_tasks')
+        .select('*')
+        .eq('user_id', userId)
+        .or(`completed_at.is.null,completed_at.gte.${daysAgoIso(MANUAL_TASKS_DONE_LOOKBACK_DAYS)}`)
+        .order('due_at', { ascending: true })
+        .limit(TASK_META_ROW_LIMIT),
     ])
     if (compRes.error) throw compRes.error
     if (manualRes.error) throw manualRes.error
@@ -2648,12 +2590,15 @@ app.get('/', (_req, res) => {
 // Groq campus assistant (Gemini -> xAI Grok -> Groq, 2026-09-14)
 // ============================================================
 const GROQ_API_KEY = process.env.GROQ_API_KEY
-// Model and (gpt-oss only) reasoning effort come from the env so a model swap
-// needs no deploy; src/groqClient.mjs holds the defaults and the wire format.
+// Model, 429 fallback model and (gpt-oss only) reasoning effort come from the
+// env so a model swap needs no deploy; src/groqClient.mjs holds the defaults
+// and the wire format.
 const ai = createGroqClient({
   apiKey: GROQ_API_KEY,
   model: process.env.GROQ_MODEL,
+  fallbackModel: process.env.GROQ_FALLBACK_MODEL,
   reasoningEffort: process.env.GROQ_REASONING_EFFORT,
+  onFallback: warnGroqFallback,
 })
 if (!GROQ_API_KEY && process.env.XAI_API_KEY) {
   // The previous provider's key is still configured: say so once at boot instead
@@ -2689,21 +2634,34 @@ You help students with:
 - Their personal class schedule (including earlier today and what's in session), upcoming assignments, exams, and due dates (from context)
 - Dining hours and today's menu at each location (from context)
 - Campus / career / optional events (from context)
-- Where to study and get help on campus (use the ON-CAMPUS STUDY & HELP section when relevant)
+- Where to study and get help on campus (use the ON-CAMPUS STUDY & HELP section when it is present)
 - Campus transit/buses: Crimson & Gray routes run Mon-Fri 6:30am-10pm; Yellow & Blue run Mon-Fri 5:30am-midnight; Purple runs Mon-Fri 7am-10pm; Orange runs Sat-Sun 9am-8pm
 - Buildings: ET Building (engineering/tech), Campus Center (dining, student services), University Library, Science & Engineering Lab Building (SL), Cavanaugh Hall (CA), Hine Hall (HH), Madam Walker Legacy Center, IUPUI Tower
 - Student services: ASC tutoring (Campus Center 2nd floor), printing (library 25 free pages/day), Health & Wellness Center, Financial Aid (Cavanaugh Hall), Registrar (Cavanaugh Hall)
 - General student life at Purdue Indy
 
 Rules:
-- Be concise and friendly. For simple questions: 2-4 sentences. For "what should I do now?", "plan my afternoon", or similar planning questions: give a short prioritized plan (3-6 sentences or brief bullets), because multiple commitments may apply.
+- Be concise and friendly. Short replies only; the reply format rules at the end are strict.
 - Answer directly from the context data when available - do not hedge or defer.
 - When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
-- For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
+- For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section when it is present (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
 - For "next class" questions only count regular lectures/labs/discussions, not exams or office hours (unless asked).
 - If something is genuinely unknown (not in context and not general knowledge), say so briefly.
-- If asked about something totally unrelated to campus life, briefly redirect.`
+- If asked about something totally unrelated to campus life, briefly redirect.
+
+Reply format (strict, overrides anything above):
+- Plain text only. No markdown: no **bold**, no # headings, no tables. A short list with "- " lines is fine for 2 to 5 items.
+- Keep it short. Simple question: one to three sentences, under 60 words. Planning question ("what should I do", "what's the play", "plan my afternoon"): at most 4 lines or 4 sentences, under 90 words, covering only the next few hours, most important thing first.
+- Never use em dashes or en dashes. Use a comma, a period, or a plain hyphen.
+- Lead with the answer. No greeting, no restating the question, no closing offer like "let me know if you need anything else".
+- Use clock times like 12:15 PM and the real names from the context.`
+
+// Shown in the chat when Groq answers 429: the free tier is capped per minute
+// and per day for the whole organisation (issue #252), and a friendly line in
+// the bubble beats a red error for something the student cannot fix.
+const ASSISTANT_BUSY_MESSAGE =
+  'The assistant is busy right now. Give it a minute and ask again, or check the Schedule, Dining and Transit tabs directly.'
 
 // ── Context formatters ────────────────────────────────────────────────────────
 
@@ -2712,30 +2670,6 @@ function fmtTime(isoStr, opts = {}) {
 }
 function fmtDate(isoStr) {
   return new Date(isoStr).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' })
-}
-
-function buildDiningContext(dining) {
-  if (!dining?.ok || !dining.locations?.length) return ''
-  const lines = [`=== DINING TODAY (${dining.date}) ===`]
-  for (const loc of dining.locations) {
-    const status = loc.is_open ? 'OPEN' : 'CLOSED'
-    const hrs = loc.hours && loc.hours !== 'Closed today' ? ` - ${loc.hours}` : ''
-    lines.push(`${loc.name}: ${status}${hrs}`)
-    if (loc.stations?.length) {
-      for (const station of loc.stations) {
-        const items = (station.items || []).slice(0, 8).map(it => {
-          const tags = (it.icons || []).filter(t => ['Vegan', 'Vegetarian', 'Avoiding Gluten'].includes(t))
-          return `${it.name}${it.calories ? ` ${it.calories}cal` : ''}${tags.length ? ` (${tags.join('/')})` : ''}`
-        })
-        if (items.length) lines.push(`  ${station.name}: ${items.join(', ')}`)
-      }
-    } else if (loc.meal) {
-      // The hint is already a sentence: "Menus: lunch, dinner", "Menu not
-      // posted yet" or "Retail dining, no posted menu".
-      lines.push(`  ${loc.meal}`)
-    }
-  }
-  return lines.join('\n')
 }
 
 function summarizeClassSchedule(classes) {
@@ -2771,8 +2705,13 @@ function isSameZonedCalendarDay(isoStr, refDate, timeZone) {
   return a === b
 }
 
-/** Rich calendar context for /api/assistant: today, ongoing, exams, assignments, events, study hints. */
-function buildAssistantCalendarContext(calendarData, now) {
+/**
+ * Rich calendar context for /api/assistant: today, ongoing, exams, assignments,
+ * events, and the study hints when `includeStudyHelp` (issue #253: questions
+ * about studying, see wantsStudyHelp) or when homework or an exam falls in the
+ * next 48 hours, since the prompt has the model plan study time around those.
+ */
+function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = false } = {}) {
   if (!calendarData?.length) {
     return '=== CALENDAR ===\nNo calendar items in the fetched window.'
   }
@@ -2858,12 +2797,14 @@ function buildAssistantCalendarContext(calendarData, now) {
     )
   }
 
-  parts.push(`=== ON-CAMPUS STUDY & HELP (suggest when relevant) ===
+  if (includeStudyHelp || startsWithin([...assignmentRows, ...examRows], now, STUDY_HELP_DEADLINE_HOURS)) {
+    parts.push(`=== ON-CAMPUS STUDY & HELP (suggest when relevant) ===
 - University Library: quiet floors, study rooms, printing (25 free pages/day).
 - ET Building & Science/Engineering Lab (SL): strong for STEM work between classes.
 - Cavanaugh Hall & Hine Hall: lounges for shorter sessions.
 - ASC tutoring: Campus Center 2nd floor - math, writing, coaching (check hours).
 - Campus Center: food and space to regroup before/after events.`)
+  }
 
   return parts.join('\n\n')
 }
@@ -2974,8 +2915,12 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     })(),
   ])
 
-  const diningCtx = buildDiningContext(diningData)
-  const calendarCtx = calendarData ? buildAssistantCalendarContext(calendarData, now) : ''
+  // Prompt trim (issue #253): the current meal's menu for open dining locations
+  // only (or the meal the question names), and the study and help hints only
+  // for study questions or a deadline in the next 48 hours.
+  const diningCtx = buildDiningContext(diningData, { now, question: lastUserMessage })
+  const includeStudyHelp = wantsStudyHelp(lastUserMessage)
+  const calendarCtx = calendarData ? buildAssistantCalendarContext(calendarData, now, { includeStudyHelp }) : ''
 
   const contextBlock = [
     `=== CURRENT DATE & TIME ===\n${nowLabel} at ${timeLabel} (Eastern)`,
@@ -2984,17 +2929,27 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
   ].filter(Boolean).join('\n\n')
 
   const systemPrompt = CAMPUS_SYSTEM_PROMPT + '\n\n' + contextBlock
+  const promptText = [systemPrompt, ...messages.map((m) => (typeof m?.content === 'string' ? m.content : ''))].join('\n')
+  console.debug(`[assistant] prompt ~${estimateTokens(promptText)} tokens`)
 
   try {
     // The client keeps user/assistant turns only and puts the system prompt first.
+    // 600 completion tokens: the longest reply the format rules allow, plus
+    // the model's low-effort reasoning tokens, which count against the cap.
     const text = await ai.reply({
       system: systemPrompt,
       messages,
-      maxOutputTokens: 2800,
+      maxOutputTokens: 600,
       temperature: 0.52,
     })
-    res.json({ reply: text ?? "Sorry, I couldn't generate a response." })
+    // Plain text for the bubble whatever the model did (issue #252).
+    res.json({ reply: tidyAssistantReply(text) ?? "Sorry, I couldn't generate a response." })
   } catch (err) {
+    if (err instanceof GroqUpstreamError && err.status === 429) {
+      // Both the primary and the fallback model answered 429 (the client retries once).
+      warnAssistantBusy(err)
+      return res.json({ reply: ASSISTANT_BUSY_MESSAGE, source: 'busy' })
+    }
     if (err instanceof GroqUpstreamError) {
       console.error('Groq error:', err.body)
       return res.status(502).json({ error: 'AI service error' })
@@ -3374,6 +3329,45 @@ function warnCronTransient(route, error) {
     level: 'warning',
     fingerprint: ['cron-transient', route, what],
     extra: { message: String(error?.message || error), status: error?.status ?? null, code: error?.code ?? null },
+  })
+}
+
+// Groq's free tier caps the whole organisation per minute and per day (issue
+// #253), so a 429 on /api/assistant is a capacity signal, not a bug per hit:
+// console.warn keeps each one in the Render log, and captureMessage files one
+// warning-level Sentry issue per Indianapolis calendar day whose event count
+// shows how often students met the cap that day.
+function warnAssistantBusy(error) {
+  const retryAfter = error?.retryAfter ?? null
+  const remainingTokens = error?.remainingTokens ?? null
+  console.warn(
+    `Groq rate limit (retry-after ${retryAfter ?? '?'}s, remaining tokens ${remainingTokens ?? '?'}):`,
+    String(error?.body || '').slice(0, 200),
+  )
+  const dayKey = todayYmdInZone(new Date(), TZ)
+  Sentry.captureMessage('assistant: Groq rate limited', {
+    level: 'warning',
+    fingerprint: ['assistant-busy', dayKey],
+    extra: { retryAfter, remainingTokens },
+  })
+}
+
+// The primary model answered 429 and the client is retrying on the fallback
+// model (issue #253). Students still get a reply, so without this a primary
+// model at its daily cap would leave no trace; one warning-level Sentry issue
+// per Indianapolis day counts how often it happened, for the Dev tier decision.
+// Covers the assistant and the board AI, which share the client.
+function warnGroqFallback(error, { model, fallbackModel } = {}) {
+  const retryAfter = error?.retryAfter ?? null
+  const remainingTokens = error?.remainingTokens ?? null
+  console.warn(
+    `Groq rate limit on ${model} (retry-after ${retryAfter ?? '?'}s, remaining tokens ${remainingTokens ?? '?'}); retrying on ${fallbackModel}`,
+  )
+  const dayKey = todayYmdInZone(new Date(), TZ)
+  Sentry.captureMessage('ai: Groq primary model rate limited, used the fallback model', {
+    level: 'warning',
+    fingerprint: ['groq-fallback', dayKey],
+    extra: { model, fallbackModel, retryAfter, remainingTokens },
   })
 }
 

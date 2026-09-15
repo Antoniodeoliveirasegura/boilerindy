@@ -25,6 +25,8 @@ const AdvertiserDashboard = lazy(() => import('./pages/advertiser/Dashboard'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const Privacy = lazy(() => import('./pages/Privacy'))
 const Terms = lazy(() => import('./pages/Terms'))
+const DeleteAccount = lazy(() => import('./pages/DeleteAccount'))
+const Support = lazy(() => import('./pages/Support'))
 const Install = lazy(() => import('./pages/Install'))
 const AuthCallback = lazy(() => import('./pages/AuthCallback'))
 const Home = lazy(() => import('./pages/Home'))
@@ -72,6 +74,8 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/delete-account" element={<DeleteAccount />} />
+            <Route path="/support" element={<Support />} />
             <Route path="/install" element={<Install />} />
             {/* Routes with no footer of their own get the disclaimer from PublicLayout (issue #112). */}
             <Route element={<PublicLayout />}>

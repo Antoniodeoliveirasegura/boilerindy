@@ -64,6 +64,17 @@ we will follow up privately.
   100 / 15 min per user) throttles that from a bulk scrape to a slow trickle.
   Revisit with an in-app contact relay if harvesting is ever observed (#114).
 
+## Dependency updates
+
+`.github/dependabot.yml` checks the backend (`/`), the frontend
+(`/boilerindy-react`) and the GitHub Actions versions every Monday (#188).
+Minor and patch bumps come as one grouped PR per package root, majors as their
+own PRs, at most five open per root. Every Dependabot PR targets `develop`, runs
+the same CI as any other change, and reaches `main` with the next release PR;
+nothing merges on its own. Dependabot alerts, security updates, secret scanning
+and push protection are repository settings (Settings, Code security and
+analysis), not part of this file.
+
 ## Dependency status
 
 - **node-ical 0.20 → 0.26 (#118)** - **DONE.** 0.26's only dependencies are

@@ -3,15 +3,20 @@
 //   node scripts/grant-admin.mjs --email=you@gmail.com
 //   node scripts/grant-admin.mjs --email=you@gmail.com --revoke
 //
+// Before the update it prints the target Supabase host and asks you to type it
+// back; pass --yes to skip the prompt (required when stdin is not a terminal).
+//
 // If the column is missing, run db/supabase-admin-users.sql in Supabase SQL Editor first.
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
+import { confirmWriteTarget } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
-  const args = { revoke: false }
+  const args = { revoke: false, yes: false }
   for (const token of argv) {
     if (token === '--revoke') args.revoke = true
+    else if (token === '--yes') args.yes = true
     else {
       const match = /^--([^=]+)=(.*)$/.exec(token)
       if (match) args[match[1]] = match[2]
@@ -24,7 +29,7 @@ const args = parseArgs(process.argv.slice(2))
 const email = args.email?.trim().toLowerCase()
 
 if (!email) {
-  console.error('Usage: node scripts/grant-admin.mjs --email=you@gmail.com [--revoke]')
+  console.error('Usage: node scripts/grant-admin.mjs --email=you@gmail.com [--revoke] [--yes]')
   process.exit(1)
 }
 
@@ -58,6 +63,11 @@ if (!user) {
   console.error(`No user found with email ${email}. Sign up in the app first.`)
   process.exit(1)
 }
+
+await confirmWriteTarget({
+  action: `${args.revoke ? 'revoke admin from' : 'grant admin to'} ${user.email} (${user.display_name || user.id})`,
+  yes: args.yes,
+})
 
 const { error: updateError } = await supabase
   .from('users')

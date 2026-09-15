@@ -93,7 +93,7 @@ Open `.env` and fill in the values:
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Settings → API → service_role key |
 | `SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
 | `SESSION_SECRET` | Any long random string (e.g. `openssl rand -hex 32`) |
-| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys (starts with `gsk_`). This is Groq, not xAI's Grok. Optional `GROQ_MODEL` picks the model (default `openai/gpt-oss-120b`) |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys (starts with `gsk_`). This is Groq, not xAI's Grok. Optional `GROQ_MODEL` picks the model (default `openai/gpt-oss-120b`); optional `GROQ_FALLBACK_MODEL` is retried once when that model answers 429 (default `openai/gpt-oss-20b`, empty turns it off) |
 | `PORT` | Leave as `3000` |
 | `HOST` | Leave as `127.0.0.1` |
 | `CLIENT_APP_URL` | Leave as `http://localhost:5173` |
@@ -285,6 +285,7 @@ file in `db/`; running it in order satisfies each file's dependencies.
 30. *(optional)* `db/supabase-push.sql` - adds `push_subscriptions`, `push_settings` and `push_deliveries` for Web Push deadline reminders (issue #9); needs step 1. Until it runs, `/api/push/*` answers `503 push_not_configured` and the Settings card says notifications are not set up yet. The commented block at the bottom schedules the reminder cron and needs the extensions from step 29. See [docs/push-notifications.md](docs/push-notifications.md).
 31. *(optional)* `db/supabase-marketplace-gallery-pricing.sql` - adds `image_urls` (the ordered photo gallery, backfilled from `image_url`) and `price_mode` (`fixed` / `free` / `best_offer`, backfilled from `price_cents`) to `marketplace_listings`, with their check constraints and a GIN index; needs step 13. Additive and safe to rerun; keep the columns if rolling back code. Until it runs, `GET /api/marketplace/capabilities` answers 503 and both clients hold off on galleries and price choices. Already applied to production on 2026-09-09. See [docs/marketplace-photos.md](docs/marketplace-photos.md).
 32. *(optional, production only)* `db/supabase-source-resync.sql` - schedules the hourly `pg_cron` call to `POST /api/internal/sources/resync` so linked Brightspace and Purdue feeds are re-imported without the student pressing Sync (issue #12). Creates no tables; needs the extensions from step 29 and `PUSH_CRON_SECRET` on Render. See [docs/source-resync.md](docs/source-resync.md).
+33. `db/supabase-calendar-category-counts.sql` - adds `calendar_category_counts()`, which counts a user's `calendar_items` per category in Postgres for `GET /api/me/calendar/categories` instead of streaming every row to Node, where PostgREST's 1000-row cap silently under-counted (issue #198); needs step 1. Read-only and safe to rerun. Until it runs the server still works: the route falls back to counting in Node.
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
@@ -385,10 +386,19 @@ npm run lint         # Run ESLint
 
 # Admin / maintenance scripts (from repo root, needs backend .env)
 node scripts/grant-admin.mjs --email=you@gmail.com      # grant/revoke platform admin
-node scripts/create-advertiser.mjs                       # mint an advertiser-portal account
+node scripts/create-advertiser.mjs                       # mint an advertiser-portal account (password from
+                                                         # ADVERTISER_PASSWORD or a hidden prompt, not --password)
 node scripts/review-campaign.mjs                         # approve a pending ad campaign
 node scripts/clear-purdue-link.mjs --email=you@gmail.com # clear a stale Purdue link
+node scripts/cleanup-marketplace-photos.mjs              # count orphaned marketplace photos (--apply deletes them)
+node scripts/test-marketplace-photo-storage.mjs ./test.jpg --live # live Storage smoke test (JPEG under 100 KB)
 ```
+
+Every script that writes (`grant-admin`, `create-advertiser`, `review-campaign --status`,
+`clear-purdue-link --apply`, `cleanup-marketplace-photos --apply` and
+`test-marketplace-photo-storage --live`) prints the target Supabase project host and
+asks you to type it back first. Pass `--yes` to skip the prompt; without a terminal
+(CI, pipes) `--yes` is required or the script exits without writing.
 
 ## Conventions
 

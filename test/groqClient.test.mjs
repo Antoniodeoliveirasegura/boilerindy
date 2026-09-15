@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  DEFAULT_GROQ_FALLBACK_MODEL,
   DEFAULT_GROQ_MODEL,
   DEFAULT_REASONING_EFFORT,
   GROQ_CHAT_URL,
@@ -132,4 +133,125 @@ test('createGroqClient reports disabled without a key and falls back to the defa
   assert.equal(createGroqClient({ apiKey: '' }).enabled, false)
   assert.equal(createGroqClient({}).enabled, false)
   assert.equal(createGroqClient({ apiKey: 'gsk_x' }).model, DEFAULT_GROQ_MODEL)
+})
+
+// Issue #253: rate-limit headers on the error, and one retry on a second model.
+
+// A fetch that answers from `replies` in order and records every request body.
+// A reply with `throws` rejects the fetch itself, like a network failure.
+function scriptedFetch(replies) {
+  const bodies = []
+  const fetchImpl = async (_url, init) => {
+    bodies.push(JSON.parse(init.body))
+    const next = replies[bodies.length - 1]
+    if (next.throws) throw next.throws
+    if (next.status === 200) {
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: next.content } }] }), text: async () => '' }
+    }
+    return {
+      ok: false,
+      status: next.status,
+      headers: new Headers(next.headers || {}),
+      text: async () => next.body || '',
+      json: async () => ({}),
+    }
+  }
+  return { fetchImpl, bodies }
+}
+
+test('GroqUpstreamError carries retry-after and x-ratelimit-remaining-tokens from the response', async () => {
+  const { fetchImpl } = scriptedFetch([
+    { status: 503, body: 'over capacity', headers: { 'retry-after': '7', 'x-ratelimit-remaining-tokens': '1250' } },
+  ])
+  const ai = createGroqClient({ apiKey: 'gsk_testkey', fetchImpl })
+  await assert.rejects(
+    () => ai.reply({ messages: [{ role: 'user', content: 'hi' }] }),
+    (err) => err instanceof GroqUpstreamError && err.status === 503 && err.retryAfter === 7 && err.remainingTokens === 1250,
+  )
+
+  // Missing or junk headers are null, never NaN or 0.
+  const bare = scriptedFetch([{ status: 500, headers: { 'retry-after': 'soon', 'x-ratelimit-remaining-tokens': '' } }])
+  await assert.rejects(
+    () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl: bare.fetchImpl }).reply({}),
+    (err) => err.retryAfter === null && err.remainingTokens === null,
+  )
+  assert.deepEqual(
+    { ...new GroqUpstreamError(429, 'x') },
+    { name: 'GroqUpstreamError', status: 429, body: 'x', retryAfter: null, remainingTokens: null },
+  )
+})
+
+test('a 429 on the primary model is retried once on the fallback model', async () => {
+  const { fetchImpl, bodies } = scriptedFetch([
+    { status: 429, body: 'rate limited', headers: { 'retry-after': '12', 'x-ratelimit-remaining-tokens': '40' } },
+    { status: 200, content: 'Tower Dining is open until 9:00 PM.' },
+  ])
+  const heard = []
+  const onFallback = (err, models) => heard.push({ status: err.status, retryAfter: err.retryAfter, remainingTokens: err.remainingTokens, requestsSoFar: bodies.length, ...models })
+  const ai = createGroqClient({ apiKey: 'gsk_testkey', fetchImpl, onFallback })
+  assert.equal(ai.fallbackModel, DEFAULT_GROQ_FALLBACK_MODEL)
+
+  const text = await ai.reply({ system: 'campus', messages: [{ role: 'user', content: 'lunch?' }], maxOutputTokens: 600 })
+  assert.equal(text, 'Tower Dining is open until 9:00 PM.')
+  // The caller hears about the primary's 429 once, before the retry is sent.
+  assert.deepEqual(heard, [
+    { status: 429, retryAfter: 12, remainingTokens: 40, requestsSoFar: 1, model: DEFAULT_GROQ_MODEL, fallbackModel: 'openai/gpt-oss-20b' },
+  ])
+  assert.equal(bodies.length, 2)
+  assert.equal(bodies[0].model, DEFAULT_GROQ_MODEL)
+  assert.equal(bodies[1].model, 'openai/gpt-oss-20b')
+  // Same conversation and limits on the retry; only the model changes.
+  assert.deepEqual({ ...bodies[1], model: bodies[0].model }, bodies[0])
+})
+
+test('a 429 from both models throws the last error; other statuses are not retried', async () => {
+  const both = scriptedFetch([
+    { status: 429, body: 'primary limited', headers: { 'retry-after': '30' } },
+    { status: 429, body: 'fallback limited', headers: { 'retry-after': '5', 'x-ratelimit-remaining-tokens': '0' } },
+  ])
+  await assert.rejects(
+    () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl: both.fetchImpl }).reply({ messages: [{ role: 'user', content: 'hi' }] }),
+    (err) => err instanceof GroqUpstreamError && err.status === 429 && err.body === 'fallback limited' && err.retryAfter === 5 && err.remainingTokens === 0,
+  )
+  assert.equal(both.bodies.length, 2, 'exactly one retry')
+
+  const serverError = scriptedFetch([{ status: 500, body: 'boom' }, { status: 200, content: 'unused' }])
+  let heard = 0
+  await assert.rejects(
+    () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl: serverError.fetchImpl, onFallback: () => heard++ }).reply({}),
+    (err) => err.status === 500,
+  )
+  assert.equal(serverError.bodies.length, 1)
+  assert.equal(heard, 0, 'no fallback, no onFallback')
+})
+
+test('a fallback that fails any other way keeps the primary 429, so the caller still answers busy', async () => {
+  const network = new TypeError('fetch failed')
+  for (const second of [{ status: 404, body: 'model_not_found' }, { status: 503, body: 'over capacity' }, { status: 400, body: 'bad field' }, { throws: network }]) {
+    const { fetchImpl, bodies } = scriptedFetch([{ status: 429, body: 'primary limited', headers: { 'retry-after': '30' } }, second])
+    await assert.rejects(
+      () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl }).reply({ messages: [{ role: 'user', content: 'hi' }] }),
+      (err) => {
+        assert.ok(err instanceof GroqUpstreamError)
+        assert.equal(err.status, 429)
+        assert.equal(err.body, 'primary limited')
+        assert.equal(err.retryAfter, 30)
+        if (second.throws) assert.equal(err.fallbackError, network)
+        else assert.equal(err.fallbackError.status, second.status)
+        return true
+      },
+    )
+    assert.equal(bodies.length, 2, 'exactly one retry')
+  }
+})
+
+test('the fallback is off for an empty string and when it names the primary model', async () => {
+  for (const options of [{ fallbackModel: '' }, { model: 'openai/gpt-oss-20b' }]) {
+    const { fetchImpl, bodies } = scriptedFetch([{ status: 429 }, { status: 200, content: 'unused' }])
+    const ai = createGroqClient({ apiKey: 'gsk_testkey', fetchImpl, ...options })
+    assert.equal(ai.fallbackModel, null)
+    await assert.rejects(() => ai.reply({}), (err) => err.status === 429)
+    assert.equal(bodies.length, 1)
+  }
+  assert.equal(createGroqClient({ apiKey: 'gsk_x', fallbackModel: 'qwen/qwen3.6-27b' }).fallbackModel, 'qwen/qwen3.6-27b')
 })
