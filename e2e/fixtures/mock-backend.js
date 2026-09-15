@@ -4,12 +4,14 @@ import {
   defaultLayout as defaultServicesLayout,
   normalizeLayout as normalizeServicesLayout,
 } from '../../src/servicesLayout.mjs'
+import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from '../../src/manualTasks.mjs'
 
 // Stateful, in-memory mock of the BoilerIndy backend. Each test gets a fresh
 // `mockApi` controller that intercepts every `/api/**` call (and the Supabase
 // SDK's `**/auth/v1/**` calls) so flows are deterministic and offline. The
-// payload shapes mirror server.mjs: see buildSessionPayload, listCalendarItems,
-// getClassItemsForUser, and mapManualTaskRow.
+// payload shapes mirror server.mjs: see buildSessionPayload, listCalendarItems
+// and getClassItemsForUser. Manual task rows use the real mapManualTaskRow from
+// src/manualTasks.mjs.
 
 const DEFAULT_USER = {
   id: 'e2e-user-1',
@@ -466,24 +468,6 @@ function sessionPayload(state) {
   }
 }
 
-// Mirrors server.mjs mapManualTaskRow: due_at surfaces as startTime.
-function mapManualTask(task) {
-  return {
-    id: task.id,
-    title: task.title,
-    startTime: task.due_at,
-    endTime: null,
-    category: 'manual_task',
-    sourceType: 'manual',
-    description: null,
-    location: null,
-    externalUid: null,
-    sourceId: null,
-    completedAt: task.completed_at,
-    isManual: true,
-  }
-}
-
 export const test = base.extend({
   mockApi: async ({ context }, use) => {
     const state = {
@@ -603,27 +587,33 @@ export const test = base.extend({
       if (pathname === '/api/me/tasks/meta') {
         return json(route, 200, {
           completions: state.completions,
-          manualTasks: state.manualTasks.map(mapManualTask),
+          manualTasks: state.manualTasks.map(mapManualTaskRow),
         })
       }
 
+      // Manual tasks share src/manualTasks.mjs with server.mjs, so the mock
+      // accepts, rejects, stores and returns what the real routes do (issue #216).
       if (pathname === '/api/me/tasks/manual' && method === 'POST') {
-        const { title, dueAt } = bodyOf()
+        const parsed = parseManualTaskCreate(bodyOf())
+        if (!parsed.ok) return json(route, 400, { error: { message: parsed.message } })
         const task = {
           id: `task-${state.manualTasks.length + 1}-${Date.now()}`,
-          title,
-          due_at: dueAt ?? null,
+          title: parsed.row.title,
+          due_at: parsed.row.due_at,
           completed_at: null,
         }
         state.manualTasks.push(task)
-        return json(route, 200, { task: mapManualTask(task) })
+        return json(route, 200, { task: mapManualTaskRow(task) })
       }
 
       const manualMatch = pathname.match(/^\/api\/me\/tasks\/manual\/(.+)$/)
       if (manualMatch && method === 'PATCH') {
-        const task = state.manualTasks.find((t) => t.id === manualMatch[1])
-        if (task) task.completed_at = bodyOf().completed ? new Date().toISOString() : null
-        return json(route, 200, { ok: true })
+        const parsed = parseManualTaskUpdate(bodyOf(), { now: new Date().toISOString() })
+        if (!parsed.ok) return json(route, 400, { error: { message: parsed.message } })
+        const task = state.manualTasks.find((row) => row.id === manualMatch[1])
+        if (!task) return json(route, 404, { error: { message: 'Task not found' } })
+        Object.assign(task, parsed.updates)
+        return json(route, 200, { task: mapManualTaskRow(task) })
       }
       if (manualMatch && method === 'DELETE') {
         state.manualTasks = state.manualTasks.filter((t) => t.id !== manualMatch[1])

@@ -49,6 +49,7 @@ import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
 import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
+import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
 import { STUDY_HELP_DEADLINE_HOURS, buildDiningContext, startsWithin, wantsStudyHelp } from './src/assistantContext.mjs'
@@ -1908,23 +1909,7 @@ app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
 })
 
 // ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
-
-function mapManualTaskRow(row) {
-  return {
-    id: row.id,
-    title: row.title,
-    startTime: row.due_at,
-    endTime: null,
-    category: 'manual_task',
-    sourceType: 'manual',
-    description: null,
-    location: null,
-    externalUid: null,
-    sourceId: null,
-    completedAt: row.completed_at,
-    isManual: true,
-  }
-}
+// Manual task rows are parsed and mapped by src/manualTasks.mjs (issue #216).
 
 // Runs on every Assignments and dashboard load, so both reads are bounded
 // (issue #198) instead of returning every row the user ever wrote:
@@ -2025,33 +2010,19 @@ app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
 
 app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
-  const { title, dueAt } = req.body || {}
-  const t = String(title || '').trim()
-  if (!t || t.length > 500) {
-    return res.status(400).json({ error: { message: 'Title is required (max 500 characters)' } })
-  }
   // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
   // client creates undated to-dos from a title alone, which this used to reject outright. A
   // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
   // rather than being silently stored as no deadline at all.
-  let dueIso = null
-  if (dueAt !== undefined && dueAt !== null && dueAt !== '') {
-    if (typeof dueAt !== 'string') {
-      return res.status(400).json({ error: { message: 'dueAt must be an ISO timestamp string' } })
-    }
-    const due = new Date(dueAt)
-    if (Number.isNaN(due.getTime())) {
-      return res.status(400).json({ error: { message: 'Invalid dueAt date' } })
-    }
-    dueIso = due.toISOString()
-  }
+  const parsed = parseManualTaskCreate(req.body)
+  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
       .insert({
         user_id: userId,
-        title: t,
-        due_at: dueIso,
+        title: parsed.row.title,
+        due_at: parsed.row.due_at,
       })
       .select()
       .single()
@@ -2066,25 +2037,14 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
 app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
-  const { completed, title, dueAt } = req.body || {}
-  const updates = {}
-  if (typeof completed === 'boolean') {
-    updates.completed_at = completed ? nowIso() : null
-  }
-  if (typeof title === 'string' && title.trim()) {
-    updates.title = title.trim().slice(0, 500)
-  }
-  if (typeof dueAt === 'string') {
-    const due = new Date(dueAt)
-    if (!Number.isNaN(due.getTime())) updates.due_at = due.toISOString()
-  }
-  if (Object.keys(updates).length === 0) {
-    return res.status(400).json({ error: { message: 'No valid fields to update' } })
-  }
+  // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
+  // value is a 400 like POST instead of being dropped while the other fields save.
+  const parsed = parseManualTaskUpdate(req.body, { now: nowIso() })
+  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
-      .update(updates)
+      .update(parsed.updates)
       .eq('id', id)
       .eq('user_id', userId)
       .select()
