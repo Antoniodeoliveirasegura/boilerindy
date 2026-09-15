@@ -102,6 +102,17 @@ it('confirms before marking a listing sold, then refetches the lists', async () 
   expect(JSON.parse(String(patch?.body))).toEqual({ status: 'sold' })
 })
 
+it('leaves a listing alone when the mark sold confirm is cancelled', async () => {
+  confirmMock.mockResolvedValueOnce(false)
+  render(<Marketplace />)
+  const chair = await myListing('Chair')
+  fireEvent.click(chair.getByRole('button', { name: 'Mark sold' }))
+  await waitFor(() => expect(confirmMock).toHaveBeenCalled())
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(requestsTo('/api/marketplace/free').filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0)
+  expect(requestsTo('/api/marketplace?')).toHaveLength(0)
+})
+
 it('shows the server message when marking a listing sold fails, without refetching', async () => {
   failRequest('PATCH', '/api/marketplace/free')
   render(<Marketplace />)
@@ -130,7 +141,8 @@ it('reports with a chosen reason and confirms inline', async () => {
   expect(screen.queryByLabelText('Tell us more (optional)')).not.toBeInTheDocument()
   fireEvent.click(reasons.getByLabelText('Something else'))
   const details = screen.getByLabelText('Tell us more (optional)')
-  expect(details).toHaveAttribute('maxlength', '500')
+  // 'other: ' plus the details must fit the server's 500-character reason.
+  expect(details).toHaveAttribute('maxlength', '493')
   fireEvent.change(details, { target: { value: 'Asks for a deposit first' } })
   fireEvent.click(submit)
   expect(await screen.findByText('Thanks, our team will review it.')).toHaveAttribute('role', 'status')
@@ -138,7 +150,16 @@ it('reports with a chosen reason and confirms inline', async () => {
   expect(options?.method).toBe('POST')
   expect(JSON.parse(String(options?.body))).toEqual({ reason: 'other: Asks for a deposit first' })
   expect(screen.queryByRole('group', { name: REPORT_REASONS })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Report listing' })).toHaveFocus()
   expectNoBrowserDialogs()
+})
+
+it('returns focus to the Report button when the report form is cancelled', async () => {
+  await openReport()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('group', { name: REPORT_REASONS })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Report listing' })).toHaveFocus()
+  expect(requestsTo('/api/marketplace/free/report')).toHaveLength(0)
 })
 
 it('keeps the report form and shows the server message when a report fails', async () => {

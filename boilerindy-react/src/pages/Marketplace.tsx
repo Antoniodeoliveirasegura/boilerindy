@@ -66,7 +66,8 @@ const STEP_TEXT: Record<PhotoStep, string> = {
 }
 
 // Report reasons (#224). The server stores the reason as text capped at 500
-// characters, so "other" sends its details after the value.
+// characters, so "other" sends its details after the prefix and the details
+// field leaves room for it.
 const REPORT_REASONS = [
   { value: 'spam', label: 'Spam' },
   { value: 'scam', label: 'Scam or fraud' },
@@ -74,7 +75,9 @@ const REPORT_REASONS = [
   { value: 'other', label: 'Something else' },
 ] as const
 type ReportReason = (typeof REPORT_REASONS)[number]['value']
-const REPORT_DETAILS_MAX = 500
+const REPORT_REASON_MAX = 500
+const REPORT_OTHER_PREFIX = 'other: '
+const REPORT_DETAILS_MAX = REPORT_REASON_MAX - REPORT_OTHER_PREFIX.length
 const NOTICE_MS = 4000
 
 function errorText(e: unknown, fallback: string): string {
@@ -271,6 +274,8 @@ export default function Marketplace() {
   const [reporting, setReporting] = useState(false)
   const [notice, setNotice] = useState('')
   const formRef = useRef<HTMLFormElement>(null)
+  const reportButtonRef = useRef<HTMLButtonElement>(null)
+  const reportFormRef = useRef<HTMLFormElement>(null)
   // Bumped whenever the photo is replaced, removed or the form closes, so a
   // pipeline still running for an earlier pick cannot land its result.
   const photoRun = useRef(0)
@@ -576,6 +581,15 @@ export default function Marketplace() {
     setReportDetails('')
   }
 
+  /** Close the open report form; focus that was inside it goes back to the Report button, not the top of the page. */
+  function closeReport() {
+    const form = reportFormRef.current
+    const active = document.activeElement
+    const refocus = !!form && (!active || active === document.body || form.contains(active))
+    resetReport()
+    if (refocus) reportButtonRef.current?.focus()
+  }
+
   function toggleReport() {
     const open = !reportOpen
     resetReport()
@@ -590,7 +604,7 @@ export default function Marketplace() {
     setNotice('')
     setReporting(true)
     const details = reportDetails.trim()
-    const reason = reportReason === 'other' && details ? `other: ${details}` : reportReason
+    const reason = reportReason === 'other' && details ? `${REPORT_OTHER_PREFIX}${details}` : reportReason
     try {
       await authRequest(`/api/marketplace/${listing.id}/report`, { method: 'POST', body: JSON.stringify({ reason }) })
     } catch (err) {
@@ -599,7 +613,7 @@ export default function Marketplace() {
     } finally {
       setReporting(false)
     }
-    resetReport()
+    closeReport()
     setNotice('Thanks, our team will review it.')
   }
 
@@ -808,6 +822,7 @@ export default function Marketplace() {
               </button>
             ) : (
               <button
+                ref={reportButtonRef}
                 type="button"
                 onClick={toggleReport}
                 aria-expanded={reportOpen}
@@ -819,7 +834,7 @@ export default function Marketplace() {
             )}
           </div>
           {reportOpen && !selected.isMine ? (
-            <form id="listing-report" onSubmit={(e) => void submitReport(e, selected)} className="mt-3 pt-3 border-t border-[var(--color-border)] space-y-3" data-report-form>
+            <form ref={reportFormRef} id="listing-report" onSubmit={(e) => void submitReport(e, selected)} className="mt-3 pt-3 border-t border-[var(--color-border)] space-y-3" data-report-form>
               <fieldset disabled={reporting} className="m-0 p-0 border-0 min-w-0">
                 <legend className="text-[12px] font-semibold text-[var(--color-txt-1)] mb-2">Why are you reporting this listing?</legend>
                 <div className="flex flex-col gap-2">
@@ -858,7 +873,7 @@ export default function Marketplace() {
                 <button type="submit" disabled={!reportReason || reporting} className="btn btn-primary px-4 py-2 text-[13px] disabled:opacity-60">
                   {reporting ? 'Sending…' : 'Submit report'}
                 </button>
-                <button type="button" onClick={resetReport} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
+                <button type="button" onClick={closeReport} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
                   Cancel
                 </button>
               </div>
