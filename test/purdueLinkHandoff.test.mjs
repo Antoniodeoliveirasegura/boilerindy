@@ -66,7 +66,11 @@ test('tampered, foreign, malformed and oversized tokens are invalid', async () =
   const other = createPurdueLinkHandoff({ secret: 'y'.repeat(48) })
   const { token } = handoff.issue(USER)
   const [payload, signature] = token.split('.')
-  expectHandoff(() => handoff.verify(`${payload}.${signature.slice(0, -2)}AA`), 400, 'invalid')
+  // Change the first signature character: it carries six full bits, so the
+  // tampered signature always differs. Overwriting the last two characters
+  // with "AA" left about 1 signature in 1024 unchanged and failed CI at random.
+  const tampered = `${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`
+  expectHandoff(() => handoff.verify(`${payload}.${tampered}`), 400, 'invalid')
   expectHandoff(() => handoff.verify(other.issue(USER).token), 400, 'invalid')
   expectHandoff(() => handoff.verify(`${token}.extra`), 400, 'invalid')
   expectHandoff(() => handoff.verify('not-a-token'), 400, 'invalid')
