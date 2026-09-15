@@ -93,7 +93,7 @@ Open `.env` and fill in the values:
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Settings → API → service_role key |
 | `SUPABASE_ANON_KEY` | Supabase dashboard → Settings → API → anon (public) key |
 | `SESSION_SECRET` | Any long random string (e.g. `openssl rand -hex 32`) |
-| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys (starts with `gsk_`). This is Groq, not xAI's Grok. Optional `GROQ_MODEL` picks the model (default `openai/gpt-oss-120b`) |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) → API Keys (starts with `gsk_`). This is Groq, not xAI's Grok. Optional `GROQ_MODEL` picks the model (default `openai/gpt-oss-120b`); optional `GROQ_FALLBACK_MODEL` is retried once when that model answers 429 (default `openai/gpt-oss-20b`, empty turns it off) |
 | `PORT` | Leave as `3000` |
 | `HOST` | Leave as `127.0.0.1` |
 | `CLIENT_APP_URL` | Leave as `http://localhost:5173` |

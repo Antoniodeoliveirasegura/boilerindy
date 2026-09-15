@@ -35,6 +35,14 @@ whose event count is the trend to watch. If it climbs, look at the Supabase
 project's compute and pooler settings rather than the app. Anything else that
 fails inside a tick stays a `console.error`, one event per tick.
 
+**Assistant busy** (`POST /api/assistant`, issue #253): when Groq answers 429
+on both the main model and the one retry on `GROQ_FALLBACK_MODEL`, the student
+gets the friendly busy reply, the Render log gets a `console.warn` with
+`retry-after` and the remaining token count, and Sentry gets a warning-level
+`assistant: Groq rate limited` message fingerprinted by the Indianapolis
+calendar date. That makes one issue per day whose event count is how many
+questions met the cap; a steady climb is the cue to move off Groq's free tier.
+
 **Frontend** (`boilerindy-react/src/main.tsx`): `@sentry/react` is imported
 lazily after first paint (`requestIdleCallback`) so it never sits in the
 initial bundle. Until it is up, `src/lib/errorReporting.ts` covers the gap:

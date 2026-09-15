@@ -16,14 +16,33 @@ export const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions'
 export const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b'
 export const DEFAULT_REASONING_EFFORT = 'low'
 
-/** A non-2xx reply from Groq. `body` is the raw upstream text for the server log. */
+// Groq rate limits are per organisation and per model (issue #253), so when the
+// primary model answers 429 one retry on a smaller model often still gets
+// through. Override with GROQ_FALLBACK_MODEL; an empty string turns it off.
+export const DEFAULT_GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b'
+
+/**
+ * A non-2xx reply from Groq. `body` is the raw upstream text for the server log.
+ * `retryAfter` (seconds) and `remainingTokens` come from the `retry-after` and
+ * `x-ratelimit-remaining-tokens` headers, null when Groq did not send them.
+ */
 export class GroqUpstreamError extends Error {
-  constructor(status, body) {
+  constructor(status, body, { retryAfter = null, remainingTokens = null } = {}) {
     super(`Groq responded ${status}`)
     this.name = 'GroqUpstreamError'
     this.status = status
     this.body = body
+    this.retryAfter = retryAfter
+    this.remainingTokens = remainingTokens
   }
+}
+
+/** A numeric response header as a number, or null when it is absent or not a number. */
+function numericHeader(headers, name) {
+  const raw = headers?.get?.(name)
+  if (raw == null || String(raw).trim() === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
 }
 
 /**
@@ -88,39 +107,60 @@ export function extractGroqText(data) {
 /**
  * A client bound to one API key. `reply()` resolves to the reply text (null when
  * the model returned nothing) and throws GroqUpstreamError on a non-2xx status
- * so each route keeps its own error policy. `fetchImpl` is for tests.
+ * so each route keeps its own error policy. A 429 from the primary model is
+ * retried exactly once on `fallbackModel` (default DEFAULT_GROQ_FALLBACK_MODEL,
+ * empty string disables); a 429 from both rethrows the fallback's error.
+ * `fetchImpl` is for tests.
  */
 export function createGroqClient({
   apiKey,
   model,
+  fallbackModel,
   reasoningEffort,
   url = GROQ_CHAT_URL,
   fetchImpl,
 } = {}) {
   const resolvedModel = model || DEFAULT_GROQ_MODEL
+  const resolvedFallback = fallbackModel ?? DEFAULT_GROQ_FALLBACK_MODEL
+  // A fallback equal to the primary would only hit the same exhausted bucket.
+  const retryModel = resolvedFallback && resolvedFallback !== resolvedModel ? resolvedFallback : null
+
+  async function send(modelId, { system, messages, maxOutputTokens, temperature }) {
+    const doFetch = fetchImpl || globalThis.fetch
+    const body = buildGroqRequest({
+      model: modelId,
+      system,
+      messages,
+      maxOutputTokens,
+      temperature,
+      reasoningEffort,
+    })
+    const response = await doFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new GroqUpstreamError(response.status, text, {
+        retryAfter: numericHeader(response.headers, 'retry-after'),
+        remainingTokens: numericHeader(response.headers, 'x-ratelimit-remaining-tokens'),
+      })
+    }
+    return extractGroqText(await response.json())
+  }
+
   return {
     enabled: Boolean(apiKey),
     model: resolvedModel,
-    async reply({ system, messages, maxOutputTokens, temperature } = {}) {
-      const doFetch = fetchImpl || globalThis.fetch
-      const body = buildGroqRequest({
-        model: resolvedModel,
-        system,
-        messages,
-        maxOutputTokens,
-        temperature,
-        reasoningEffort,
-      })
-      const response = await doFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify(body),
-      })
-      if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        throw new GroqUpstreamError(response.status, text)
+    fallbackModel: retryModel,
+    async reply(options = {}) {
+      try {
+        return await send(resolvedModel, options)
+      } catch (err) {
+        if (!retryModel || !(err instanceof GroqUpstreamError) || err.status !== 429) throw err
+        return send(retryModel, options)
       }
-      return extractGroqText(await response.json())
     },
   }
 }

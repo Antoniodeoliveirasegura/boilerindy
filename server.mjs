@@ -47,10 +47,11 @@ import {
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
-import { getDiningSnapshot } from './src/nutrisliceDining.mjs'
+import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
-import { tidyAssistantReply } from './src/assistantReply.mjs'
+import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
+import { buildDiningContext, wantsStudyHelp } from './src/assistantContext.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -2649,11 +2650,13 @@ app.get('/', (_req, res) => {
 // Groq campus assistant (Gemini -> xAI Grok -> Groq, 2026-09-14)
 // ============================================================
 const GROQ_API_KEY = process.env.GROQ_API_KEY
-// Model and (gpt-oss only) reasoning effort come from the env so a model swap
-// needs no deploy; src/groqClient.mjs holds the defaults and the wire format.
+// Model, 429 fallback model and (gpt-oss only) reasoning effort come from the
+// env so a model swap needs no deploy; src/groqClient.mjs holds the defaults
+// and the wire format.
 const ai = createGroqClient({
   apiKey: GROQ_API_KEY,
   model: process.env.GROQ_MODEL,
+  fallbackModel: process.env.GROQ_FALLBACK_MODEL,
   reasoningEffort: process.env.GROQ_REASONING_EFFORT,
 })
 if (!GROQ_API_KEY && process.env.XAI_API_KEY) {
@@ -2728,30 +2731,6 @@ function fmtDate(isoStr) {
   return new Date(isoStr).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' })
 }
 
-function buildDiningContext(dining) {
-  if (!dining?.ok || !dining.locations?.length) return ''
-  const lines = [`=== DINING TODAY (${dining.date}) ===`]
-  for (const loc of dining.locations) {
-    const status = loc.is_open ? 'OPEN' : 'CLOSED'
-    const hrs = loc.hours && loc.hours !== 'Closed today' ? ` - ${loc.hours}` : ''
-    lines.push(`${loc.name}: ${status}${hrs}`)
-    if (loc.stations?.length) {
-      for (const station of loc.stations) {
-        const items = (station.items || []).slice(0, 8).map(it => {
-          const tags = (it.icons || []).filter(t => ['Vegan', 'Vegetarian', 'Avoiding Gluten'].includes(t))
-          return `${it.name}${it.calories ? ` ${it.calories}cal` : ''}${tags.length ? ` (${tags.join('/')})` : ''}`
-        })
-        if (items.length) lines.push(`  ${station.name}: ${items.join(', ')}`)
-      }
-    } else if (loc.meal) {
-      // The hint is already a sentence: "Menus: lunch, dinner", "Menu not
-      // posted yet" or "Retail dining, no posted menu".
-      lines.push(`  ${loc.meal}`)
-    }
-  }
-  return lines.join('\n')
-}
-
 function summarizeClassSchedule(classes) {
   const byName = new Map()
   for (const c of classes) {
@@ -2785,8 +2764,12 @@ function isSameZonedCalendarDay(isoStr, refDate, timeZone) {
   return a === b
 }
 
-/** Rich calendar context for /api/assistant: today, ongoing, exams, assignments, events, study hints. */
-function buildAssistantCalendarContext(calendarData, now) {
+/**
+ * Rich calendar context for /api/assistant: today, ongoing, exams, assignments,
+ * events, and the study hints when `includeStudyHelp` (issue #253: only for
+ * questions about studying, see wantsStudyHelp).
+ */
+function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = false } = {}) {
   if (!calendarData?.length) {
     return '=== CALENDAR ===\nNo calendar items in the fetched window.'
   }
@@ -2872,12 +2855,14 @@ function buildAssistantCalendarContext(calendarData, now) {
     )
   }
 
-  parts.push(`=== ON-CAMPUS STUDY & HELP (suggest when relevant) ===
+  if (includeStudyHelp) {
+    parts.push(`=== ON-CAMPUS STUDY & HELP (suggest when relevant) ===
 - University Library: quiet floors, study rooms, printing (25 free pages/day).
 - ET Building & Science/Engineering Lab (SL): strong for STEM work between classes.
 - Cavanaugh Hall & Hine Hall: lounges for shorter sessions.
 - ASC tutoring: Campus Center 2nd floor - math, writing, coaching (check hours).
 - Campus Center: food and space to regroup before/after events.`)
+  }
 
   return parts.join('\n\n')
 }
@@ -2988,8 +2973,11 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     })(),
   ])
 
+  // Prompt trim (issue #253): menus for open dining locations only, and the
+  // study and help hints only when the question is about studying.
   const diningCtx = buildDiningContext(diningData)
-  const calendarCtx = calendarData ? buildAssistantCalendarContext(calendarData, now) : ''
+  const includeStudyHelp = wantsStudyHelp(lastUserMessage)
+  const calendarCtx = calendarData ? buildAssistantCalendarContext(calendarData, now, { includeStudyHelp }) : ''
 
   const contextBlock = [
     `=== CURRENT DATE & TIME ===\n${nowLabel} at ${timeLabel} (Eastern)`,
@@ -2998,6 +2986,8 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
   ].filter(Boolean).join('\n\n')
 
   const systemPrompt = CAMPUS_SYSTEM_PROMPT + '\n\n' + contextBlock
+  const promptText = [systemPrompt, ...messages.map((m) => (typeof m?.content === 'string' ? m.content : ''))].join('\n')
+  console.debug(`[assistant] prompt ~${estimateTokens(promptText)} tokens`)
 
   try {
     // The client keeps user/assistant turns only and puts the system prompt first.
@@ -3013,7 +3003,8 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     res.json({ reply: tidyAssistantReply(text) ?? "Sorry, I couldn't generate a response." })
   } catch (err) {
     if (err instanceof GroqUpstreamError && err.status === 429) {
-      console.warn('Groq rate limit:', err.body.slice(0, 200))
+      // Both the primary and the fallback model answered 429 (the client retries once).
+      warnAssistantBusy(err)
       return res.json({ reply: ASSISTANT_BUSY_MESSAGE, source: 'busy' })
     }
     if (err instanceof GroqUpstreamError) {
@@ -3395,6 +3386,26 @@ function warnCronTransient(route, error) {
     level: 'warning',
     fingerprint: ['cron-transient', route, what],
     extra: { message: String(error?.message || error), status: error?.status ?? null, code: error?.code ?? null },
+  })
+}
+
+// Groq's free tier caps the whole organisation per minute and per day (issue
+// #253), so a 429 on /api/assistant is a capacity signal, not a bug per hit:
+// console.warn keeps each one in the Render log, and captureMessage files one
+// warning-level Sentry issue per Indianapolis calendar day whose event count
+// shows how often students met the cap that day.
+function warnAssistantBusy(error) {
+  const retryAfter = error?.retryAfter ?? null
+  const remainingTokens = error?.remainingTokens ?? null
+  console.warn(
+    `Groq rate limit (retry-after ${retryAfter ?? '?'}s, remaining tokens ${remainingTokens ?? '?'}):`,
+    String(error?.body || '').slice(0, 200),
+  )
+  const dayKey = todayYmdInZone(new Date(), TZ)
+  Sentry.captureMessage('assistant: Groq rate limited', {
+    level: 'warning',
+    fingerprint: ['assistant-busy', dayKey],
+    extra: { retryAfter, remainingTokens },
   })
 }
 
