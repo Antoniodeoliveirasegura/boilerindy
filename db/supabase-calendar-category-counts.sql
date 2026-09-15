@@ -37,3 +37,8 @@ $$;
 -- directly, so revoke those grants too, not just the PUBLIC one.
 REVOKE ALL ON FUNCTION calendar_category_counts(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION calendar_category_counts(uuid) TO service_role;
+
+-- Reload PostgREST's schema cache so supabase.rpc() sees the new function right
+-- away; otherwise it answers PGRST202 and the route keeps using the capped
+-- fallback count without any visible error.
+NOTIFY pgrst, 'reload schema';

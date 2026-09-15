@@ -65,7 +65,7 @@ import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
 import { createCommunityCounters } from './src/communityCounters.mjs'
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
-import { DEFAULT_MAX_ROWS, DEFAULT_PAGE_SIZE, fetchAllPages } from './src/pagedSelect.mjs'
+import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
 import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
@@ -888,12 +888,10 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
   }
 
   // PostgREST truncates every response to max-rows (1000) whatever .limit()
-  // asks for, so a larger read pages with .range() up to DEFAULT_MAX_ROWS
-  // (issue #198). The id tiebreak keeps rows that share a start_time from
-  // repeating or vanishing across page boundaries.
-  const { data, error } = rowLimit > DEFAULT_PAGE_SIZE
-    ? await fetchAllPages(() => buildQuery().order('id', { ascending }), { max: Math.min(rowLimit, DEFAULT_MAX_ROWS) })
-    : await buildQuery().limit(rowLimit)
+  // asks for, so selectUpTo pages a larger read with .range() up to
+  // DEFAULT_MAX_ROWS (issue #198). The id tiebreak keeps rows that share a
+  // start_time from repeating or vanishing across page boundaries.
+  const { data, error } = await selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit)
 
   if (error) return []
   return data.map(row => ({

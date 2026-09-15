@@ -42,3 +42,20 @@ export async function fetchAllPages(makeQuery, { pageSize = DEFAULT_PAGE_SIZE, m
 
   return { data: rows.slice(0, cap), error: null }
 }
+
+/**
+ * Reads up to `limit` rows: one `.limit()` query when a single response can
+ * hold them, otherwise fetchAllPages capped at min(limit, max). Callers that
+ * take a limit from outside use this so a read above max-rows can never go back
+ * to one silently truncated query.
+ *
+ * @param {(from?: number, to?: number) => { limit: (n: number) => PromiseLike<{ data: unknown[] | null, error: unknown }>, range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null, error: unknown }> }} makeQuery
+ * @param {number} limit
+ * @param {{ pageSize?: number, max?: number }} [options]
+ * @returns {Promise<{ data: unknown[] | null, error: unknown }>}
+ */
+export async function selectUpTo(makeQuery, limit, { pageSize = DEFAULT_PAGE_SIZE, max = DEFAULT_MAX_ROWS } = {}) {
+  const wanted = Math.max(0, Math.trunc(Number(limit)) || 0)
+  if (wanted <= pageSize) return makeQuery().limit(wanted)
+  return fetchAllPages(makeQuery, { pageSize, max: Math.min(wanted, max) })
+}

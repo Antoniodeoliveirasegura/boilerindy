@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_MAX_ROWS, DEFAULT_PAGE_SIZE, fetchAllPages } from '../src/pagedSelect.mjs'
+import { DEFAULT_MAX_ROWS, DEFAULT_PAGE_SIZE, fetchAllPages, selectUpTo } from '../src/pagedSelect.mjs'
 
 // Issue #198: PostgREST truncates every response to max-rows (1000 on hosted
 // Supabase) without an error, so `.limit(5000)` quietly returned the oldest
@@ -11,9 +11,13 @@ function makeTable(rowCount, { maxRows = DEFAULT_PAGE_SIZE, failOnCall = null } 
   const rows = Array.from({ length: rowCount }, (_, i) => ({ id: i }))
   const calls = []
   const makeQuery = (from, to) => {
-    const call = { makeQueryArgs: [from, to], range: null }
+    const call = { makeQueryArgs: [from, to], range: null, limit: null }
     calls.push(call)
     return {
+      limit(n) {
+        call.limit = n
+        return Promise.resolve({ data: rows.slice(0, Math.min(n, maxRows)), error: null })
+      },
       range(rangeFrom, rangeTo) {
         call.range = [rangeFrom, rangeTo]
         if (failOnCall === calls.length) {
@@ -102,6 +106,56 @@ test('a failed page fails the whole read instead of returning a partial prefix',
   assert.equal(data, null)
   assert.deepEqual(error, { message: 'boom' })
   assert.equal(table.calls.length, 2)
+})
+
+// selectUpTo is what listCalendarItems (server.mjs) calls, so these cover the
+// branch that decides between one query and paging for the class scan.
+
+test('selectUpTo pages a 5000-row class scan past a 1000-row cap', async () => {
+  const table = makeTable(1200)
+  const { data, error } = await selectUpTo(table.makeQuery, DEFAULT_MAX_ROWS)
+  assert.equal(error, null)
+  assert.equal(data.length, 1200)
+  assert.deepEqual(
+    table.calls.map((call) => call.range),
+    [[0, 999], [1000, 1999]],
+  )
+  assert.ok(table.calls.every((call) => call.limit === null))
+})
+
+test('selectUpTo keeps a read that fits in one response to a single .limit() query', async () => {
+  const table = makeTable(1200)
+  const { data, error } = await selectUpTo(table.makeQuery, 500)
+  assert.equal(error, null)
+  assert.equal(data.length, 500)
+  assert.equal(table.calls.length, 1)
+  assert.equal(table.calls[0].limit, 500)
+  assert.equal(table.calls[0].range, null)
+})
+
+test('selectUpTo treats exactly one page as a single query', async () => {
+  const table = makeTable(1200)
+  const { data } = await selectUpTo(table.makeQuery, DEFAULT_PAGE_SIZE)
+  assert.equal(data.length, DEFAULT_PAGE_SIZE)
+  assert.equal(table.calls.length, 1)
+  assert.equal(table.calls[0].range, null)
+})
+
+test('selectUpTo caps a client limit above max at DEFAULT_MAX_ROWS', async () => {
+  const table = makeTable(9000)
+  const { data } = await selectUpTo(table.makeQuery, 50000)
+  assert.equal(data.length, DEFAULT_MAX_ROWS)
+  assert.equal(table.calls.length, 5)
+})
+
+test('selectUpTo stops at a limit between one page and max', async () => {
+  const table = makeTable(9000)
+  const { data } = await selectUpTo(table.makeQuery, 1500)
+  assert.equal(data.length, 1500)
+  assert.deepEqual(
+    table.calls.map((call) => call.range),
+    [[0, 999], [1000, 1499]],
+  )
 })
 
 test('a null data page is treated as empty and ends the read', async () => {
