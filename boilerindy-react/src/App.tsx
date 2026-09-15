@@ -29,6 +29,7 @@ const DeleteAccount = lazy(() => import('./pages/DeleteAccount'))
 const Support = lazy(() => import('./pages/Support'))
 const Install = lazy(() => import('./pages/Install'))
 const AuthCallback = lazy(() => import('./pages/AuthCallback'))
+const NotFound = lazy(() => import('./pages/NotFound'))
 const Home = lazy(() => import('./pages/Home'))
 const Map = lazy(() => import('./pages/Map'))
 const Schedule = lazy(() => import('./pages/Schedule'))
@@ -93,6 +94,9 @@ export default function App() {
                   </RequireAdvertiser>
                 }
               />
+              {/* Catch-all for unknown URLs (issues #245, #222). A splat ranks below every
+                  static path, so it only answers what no other route matches. */}
+              <Route path="*" element={<NotFound />} />
             </Route>
             <Route element={<AppLayout />}>
               <Route

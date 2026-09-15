@@ -1,14 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import AppErrorBoundary from './components/AppErrorBoundary'
-import { attachErrorSink, captureEarlyWindowErrors } from './lib/errorReporting'
+import { attachBreadcrumbSink, attachErrorSink, captureEarlyWindowErrors } from './lib/errorReporting'
 import './index.css'
 import App from './App'
 
 // Error tracking (issue #50), loaded OFF the critical path: @sentry/react and the
 // scrubber are not in the initial bundle, and init runs after first paint. Until
-// then, window errors and boundary crashes are buffered by lib/errorReporting
-// and flushed to Sentry the moment it is up, so a first-render crash is not lost.
+// then, window errors, boundary crashes and breadcrumbs are buffered by
+// lib/errorReporting and flushed to Sentry the moment it is up, so a
+// first-render crash (or a direct landing on a broken link) is not lost.
 // Only active when VITE_SENTRY_DSN is set (prod); local dev sends zero events.
 // The listeners are installed before React renders so the very first frame is
 // covered.
@@ -25,6 +26,9 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         tracesSampleRate: 0, // errors only - keeps the free tier roomy
         beforeSend: scrubSentryEvent,
       })
+      // Replay breadcrumbs left before init (the not-found page on a direct
+      // landing, #245) first, so an early error drained below carries them.
+      attachBreadcrumbSink((breadcrumb) => Sentry.addBreadcrumb(breadcrumb))
       // Sentry's own global handlers own window errors from here; drop ours
       // first so nothing is reported twice, then drain the early buffer.
       detachEarlyCapture()
