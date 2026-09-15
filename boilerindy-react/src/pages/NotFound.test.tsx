@@ -12,17 +12,17 @@ import NotFound from './NotFound'
 
 const mocks = vi.hoisted(() => ({
   useAuth: vi.fn(),
-  addBreadcrumb: vi.fn(),
+  reportBreadcrumb: vi.fn(),
 }))
 
 vi.mock('../context/AuthContext', () => ({ useAuth: mocks.useAuth }))
-vi.mock('@sentry/react', () => ({ addBreadcrumb: mocks.addBreadcrumb }))
+vi.mock('../lib/errorReporting', () => ({ reportBreadcrumb: mocks.reportBreadcrumb }))
 
 afterEach(cleanup)
 
 beforeEach(() => {
   mocks.useAuth.mockReset()
-  mocks.addBreadcrumb.mockReset()
+  mocks.reportBreadcrumb.mockReset()
   mocks.useAuth.mockReturnValue({ user: null, loading: false })
 })
 
@@ -79,7 +79,7 @@ describe('NotFound', () => {
 
   test('leaves a navigation breadcrumb with the missed path, not an error', () => {
     renderAt('/old/link?x=1')
-    expect(mocks.addBreadcrumb).toHaveBeenCalledWith({
+    expect(mocks.reportBreadcrumb).toHaveBeenCalledWith({
       category: 'navigation',
       message: 'not-found',
       data: { path: '/old/link' },
@@ -94,6 +94,6 @@ describe('NotFound', () => {
     renderAt(path)
     expect(screen.getByTestId('page')).toHaveTextContent(text)
     expect(screen.queryByRole('heading', { name: 'Page not found' })).not.toBeInTheDocument()
-    expect(mocks.addBreadcrumb).not.toHaveBeenCalled()
+    expect(mocks.reportBreadcrumb).not.toHaveBeenCalled()
   })
 })

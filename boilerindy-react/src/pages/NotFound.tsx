@@ -1,22 +1,24 @@
 import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import * as Sentry from '@sentry/react'
 import { useAuth } from '../context/AuthContext'
+import { reportBreadcrumb } from '../lib/errorReporting'
 
 // Catch-all page for URLs the router does not know (issues #245, #222). It
 // used to be a blank screen with no way onward; it now sits inside
 // PublicLayout so the disclaimer footer renders, and links home plus to sign
 // in or, for a signed-in visitor, to the dashboard.
 //
-// The miss is left as a Sentry breadcrumb, never an error, so broken inbound
-// links show up next to real crashes. addBreadcrumb is a no-op until
-// Sentry.init has run, so this sends nothing without a DSN.
+// The miss is left as a navigation breadcrumb, never an error, so broken
+// inbound links show up in the trail of later Sentry events. It goes through
+// lib/errorReporting rather than Sentry directly: Sentry starts after first
+// paint, so on a direct landing this page renders before init, when
+// Sentry.addBreadcrumb would drop it. Without a DSN nothing is ever sent.
 export default function NotFound() {
   const { pathname } = useLocation()
   const { user, loading } = useAuth()
 
   useEffect(() => {
-    Sentry.addBreadcrumb({ category: 'navigation', message: 'not-found', data: { path: pathname } })
+    reportBreadcrumb({ category: 'navigation', message: 'not-found', data: { path: pathname } })
   }, [pathname])
 
   return (

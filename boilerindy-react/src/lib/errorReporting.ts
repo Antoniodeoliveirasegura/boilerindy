@@ -88,6 +88,55 @@ export function captureEarlyWindowErrors(target: Window = window): () => void {
   }
 }
 
+// Breadcrumbs (issue #245) go through the same seam. Sentry.addBreadcrumb
+// returns without recording anything until init has run, so a breadcrumb left
+// during the first render (a direct landing on a broken link, say) was lost.
+// They are held here, stamped with the time they happened, and replayed when
+// the sink attaches. Only the newest MAX_PENDING are kept, like Sentry's own
+// breadcrumb buffer; a dropped breadcrumb is not worth an error event.
+
+export type Breadcrumb = {
+  category?: string
+  message?: string
+  data?: Record<string, unknown>
+  timestamp?: number
+}
+export type BreadcrumbSink = (breadcrumb: Breadcrumb) => void
+
+let pendingBreadcrumbs: Breadcrumb[] = []
+let breadcrumbSink: BreadcrumbSink | null = null
+
+/** Leave a breadcrumb now if Sentry is up, otherwise hold it until it is. */
+export function reportBreadcrumb(breadcrumb: Breadcrumb): void {
+  // Sentry keeps a timestamp it is given, so a replayed breadcrumb still
+  // shows when it happened rather than when init ran.
+  const stamped = { timestamp: Date.now() / 1000, ...breadcrumb }
+  if (breadcrumbSink) {
+    try {
+      breadcrumbSink(stamped)
+    } catch {
+      // ignore - see reportError
+    }
+    return
+  }
+  if (pendingBreadcrumbs.length >= MAX_PENDING) pendingBreadcrumbs.shift()
+  pendingBreadcrumbs.push(stamped)
+}
+
+/** Install the real breadcrumb recorder and replay what arrived before it. */
+export function attachBreadcrumbSink(next: BreadcrumbSink): void {
+  breadcrumbSink = next
+  const queued = pendingBreadcrumbs
+  pendingBreadcrumbs = []
+  for (const item of queued) {
+    try {
+      next(item)
+    } catch {
+      // ignore - see reportError
+    }
+  }
+}
+
 /** How many reports are waiting for a sink (tests and debugging). */
 export function pendingCount(): number {
   return pending.length
@@ -97,4 +146,6 @@ export function __resetErrorReportingForTests(): void {
   pending = []
   sink = null
   dropped = 0
+  pendingBreadcrumbs = []
+  breadcrumbSink = null
 }
