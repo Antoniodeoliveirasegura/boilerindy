@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AdminDeleted from './AdminDeleted'
 import { getLiveContent, listDeletedItems, takeDownContent } from '../../lib/adminApi'
 
@@ -60,6 +60,7 @@ it('previews a live item by id, takes it down, and shows it in the deleted list'
   expect(await screen.findByText('CS 18000 exam cram')).toBeInTheDocument()
   expect(getLiveContent).toHaveBeenCalledWith('study-groups', GROUP_ID)
   expect(screen.getByText(/by user 11111111-1111-4111-8111-111111111111/)).toBeInTheDocument()
+  expect(screen.getByText(`Id ${GROUP_ID}`)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Take down' }))
 
@@ -79,6 +80,27 @@ it('takes nothing down when the admin cancels the confirmation', async () => {
   await waitFor(() => expect(confirm).toHaveBeenCalled())
   expect(takeDownContent).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: 'Take down' })).toBeInTheDocument()
+})
+
+it('drops a lookup that resolves after the admin changed the id, so the wrong item is never offered', async () => {
+  let resolveLookup!: (value: unknown) => void
+  vi.mocked(getLiveContent).mockReturnValue(
+    new Promise((resolve) => {
+      resolveLookup = resolve
+    }),
+  )
+  await findGroup()
+  await waitFor(() => expect(getLiveContent).toHaveBeenCalledWith('study-groups', GROUP_ID))
+  fireEvent.change(screen.getByLabelText('Content id'), {
+    target: { value: '55555555-5555-4555-8555-555555555555' },
+  })
+  await act(async () => {
+    resolveLookup({ item: group, label: 'Study group' })
+  })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Find' })).toBeEnabled())
+  expect(screen.queryByText('CS 18000 exam cram')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Take down' })).not.toBeInTheDocument()
+  expect(takeDownContent).not.toHaveBeenCalled()
 })
 
 it('shows the lookup error and offers no takedown when the id matches no live item', async () => {

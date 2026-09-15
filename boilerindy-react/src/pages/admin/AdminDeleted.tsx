@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import Icon from '../../components/Icons'
 import { useConfirm } from '../../hooks/useConfirm'
 import {
@@ -68,6 +68,10 @@ export default function AdminDeleted() {
   const [lookupError, setLookupError] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
   const [preview, setPreview] = useState<Preview | null>(null)
+  // Bumped on every lookup and every edit of the type or id, so a lookup that
+  // resolves after the admin changed the field is dropped instead of previewing
+  // (and offering to take down) a different item than the one in the field.
+  const lookupSeq = useRef(0)
   const { confirm, confirmDialog } = useConfirm()
 
   const load = useCallback(async (t: DeletedContentType) => {
@@ -130,19 +134,27 @@ export default function AdminDeleted() {
     event.preventDefault()
     const id = lookupId.trim()
     if (!id) return
+    const seq = ++lookupSeq.current
     setLookupBusy(true)
     setLookupError('')
     setPreview(null)
     setSuccess('')
     try {
       const data = (await getLiveContent(lookupType, id)) as { item?: Row; label?: string }
+      if (seq !== lookupSeq.current) return
       if (!data?.item) throw new Error('Item not found.')
       setPreview({ type: lookupType, item: data.item, label: data.label || '' })
     } catch (e) {
+      if (seq !== lookupSeq.current) return
       setLookupError(e instanceof Error ? e.message : 'Could not find that item.')
     } finally {
       setLookupBusy(false)
     }
+  }
+
+  function clearLookupResult() {
+    lookupSeq.current += 1
+    setPreview(null)
   }
 
   async function handleTakeDown() {
@@ -161,7 +173,8 @@ export default function AdminDeleted() {
     try {
       await takeDownContent(preview.type, preview.item.id)
       setPreview(null)
-      setLookupId('')
+      // Keep an id the admin started typing while the takedown was in flight.
+      setLookupId((current) => (current.trim() === preview.item.id ? '' : current))
       setSuccess(`${preview.label || 'Item'} taken down - it now appears in the deleted list.`)
       // Show the list the item just landed in; the effect reloads on a type change.
       if (preview.type === type) load(type)
@@ -198,7 +211,7 @@ export default function AdminDeleted() {
               value={lookupType}
               onChange={(e) => {
                 setLookupType(e.target.value as DeletedContentType)
-                setPreview(null)
+                clearLookupResult()
               }}
               className={INPUT_CLASS}
             >
@@ -215,7 +228,7 @@ export default function AdminDeleted() {
               value={lookupId}
               onChange={(e) => {
                 setLookupId(e.target.value)
-                setPreview(null)
+                clearLookupResult()
               }}
               placeholder="00000000-0000-0000-0000-000000000000"
               autoComplete="off"
@@ -249,7 +262,8 @@ export default function AdminDeleted() {
               {rowSubtitle(preview.item) && (
                 <div className="text-[12px] text-[var(--color-txt-2)] mt-1 line-clamp-2">{rowSubtitle(preview.item)}</div>
               )}
-              <div className="text-[11px] text-[var(--color-txt-3)] mt-1.5 break-all">
+              <div className="text-[11px] text-[var(--color-txt-3)] mt-1.5 font-mono break-all">Id {preview.item.id}</div>
+              <div className="text-[11px] text-[var(--color-txt-3)] mt-0.5 break-all">
                 Posted {previewCreated ? formatDateTime(previewCreated) : 'at an unknown time'}
                 {previewAuthor ? ` by user ${previewAuthor}` : ''}
               </div>
