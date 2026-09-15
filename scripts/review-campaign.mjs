@@ -8,10 +8,14 @@
 //   node scripts/review-campaign.mjs --id=<uuid> --status=active   # approve (go live)
 //   node scripts/review-campaign.mjs --id=<uuid> --status=paused   # pause
 //   node scripts/review-campaign.mjs --id=<uuid> --status=draft    # send back to the advertiser
+//
+// --status prints the target Supabase host and asks you to type it back before
+// updating; add --yes to skip the prompt (required when stdin is not a terminal).
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
 import { CAMPAIGN_STATUSES } from '../src/advertiserCampaign.mjs'
+import { confirmWriteTarget } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
   const args = {}
@@ -61,13 +65,15 @@ const id = typeof args.id === 'string' ? args.id : ''
 const status = typeof args.status === 'string' ? args.status : ''
 if (!id || !status) {
   console.error('Usage: node scripts/review-campaign.mjs --list')
-  console.error('       node scripts/review-campaign.mjs --id=<uuid> --status=<active|paused|ended|draft>')
+  console.error('       node scripts/review-campaign.mjs --id=<uuid> --status=<active|paused|ended|draft> [--yes]')
   process.exit(1)
 }
 if (!CAMPAIGN_STATUSES.includes(status)) {
   console.error(`ERROR: status must be one of: ${CAMPAIGN_STATUSES.join(', ')}`)
   process.exit(1)
 }
+
+await confirmWriteTarget({ action: `set campaign ${id} to status ${status}`, yes: args.yes === true })
 
 const { data, error } = await supabase
   .from('campaigns')

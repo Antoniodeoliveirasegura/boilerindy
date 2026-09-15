@@ -116,6 +116,9 @@ node scripts/cleanup-marketplace-photos.mjs          # counts candidates only
 node scripts/cleanup-marketplace-photos.mjs --apply  # removes candidates
 ```
 
+`--apply` first prints the target Supabase host and asks you to type it back;
+add `--yes` to skip that prompt (required when stdin is not a terminal).
+
 Only recognized managed objects older than 24 hours are considered, after their
 attachment receipts have expired. Every candidate is checked against all listing
 rows before deletion. Soft-deleted and hidden listings retain their images for
@@ -139,6 +142,9 @@ test object, verifies it and its public bytes, then removes that exact object in
 ```sh
 node scripts/test-marketplace-photo-storage.mjs /path/to/test.jpg --live
 ```
+
+It prints the target Supabase host and asks you to type it back before
+uploading; add `--yes` to skip that prompt (required when stdin is not a terminal).
 
 Set `DOTENV_CONFIG_PATH` if the server environment file is elsewhere. Optionally
 set `SUPABASE_SMOKE_PUBLIC_KEY` to test the mobile client's actual public key;
