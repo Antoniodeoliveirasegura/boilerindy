@@ -71,3 +71,13 @@ export function mapMatchCard(user, sharedCount) {
     sharedCount,
   }
 }
+
+/**
+ * Whether a user may receive a connection request (#203). Matching is opt-in,
+ * so only discoverable profiles qualify; a missing row (unknown user) does not.
+ * Kept tiny so #192 can add blocked users here.
+ * @param {{ discoverable?: boolean } | null | undefined} profileRow - user_profiles row
+ */
+export function canReceiveFriendRequest(profileRow) {
+  return Boolean(profileRow?.discoverable)
+}

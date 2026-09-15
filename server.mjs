@@ -90,7 +90,8 @@ import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.m
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
-import { validateProfileInput, rankMatches, mapMatchCard } from './src/friendMatching.mjs'
+import { validateProfileInput, rankMatches, mapMatchCard, canReceiveFriendRequest } from './src/friendMatching.mjs'
+import { isUuid } from './src/httpGuards.mjs'
 import {
   matchIntent,
   formatNextClass,
@@ -4736,14 +4737,23 @@ app.get('/api/me/matches', requireAuth, async (req, res) => {
   }
 })
 
-// Send a connection request (blocked silently if the addressee declined before).
+// Send a connection request (blocked silently if the addressee declined before,
+// is not discoverable, or does not exist).
 app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
-  const addresseeId = String(req.body?.addresseeId || '').trim()
-  if (!addresseeId || addresseeId === userId) {
+  // Lowercased so an uppercase copy of my own id cannot slip past the self check.
+  const addresseeId = String(req.body?.addresseeId || '').trim().toLowerCase()
+  if (!isUuid(addresseeId) || addresseeId === String(userId).toLowerCase()) {
     return res.status(400).json({ error: { message: 'A valid recipient is required.', status: 400 } })
   }
   try {
+    // Matching is opt-in (#203): unknown or non-discoverable addressees get the
+    // same pending answer without a row, so the response is not an oracle for
+    // who exists or who opted in.
+    const target = await supabase.from('user_profiles').select('discoverable').eq('user_id', addresseeId).maybeSingle()
+    if (target.error) throw target.error
+    if (!canReceiveFriendRequest(target.data)) return res.json({ ok: true, status: 'pending' })
+
     // If the addressee previously declined me, silently no-op (requester sees pending).
     const prior = await supabase
       .from('connections')

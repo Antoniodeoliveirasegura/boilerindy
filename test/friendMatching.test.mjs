@@ -4,6 +4,7 @@ import {
   validateProfileInput,
   rankMatches,
   mapMatchCard,
+  canReceiveFriendRequest,
   normalizeCourseCode,
   MAX_BIO,
 } from '../src/friendMatching.mjs'
@@ -52,4 +53,20 @@ test('mapMatchCard exposes only non-sensitive fields', () => {
   const card = mapMatchCard({ id: 'u1', display_name: 'Alex', email: 'a@purdue.edu', interests: ['Chess'] }, 2)
   assert.deepEqual(card, { userId: 'u1', displayName: 'Alex', interests: ['Chess'], sharedCount: 2 })
   assert.equal(card.email, undefined)
+})
+
+// Issue #203 - requests only reach users who opted in to matching.
+
+test('canReceiveFriendRequest is false for an unknown user (no profile row)', () => {
+  assert.equal(canReceiveFriendRequest(null), false)
+  assert.equal(canReceiveFriendRequest(undefined), false)
+  assert.equal(canReceiveFriendRequest({}), false)
+})
+
+test('canReceiveFriendRequest is false when discoverable is off', () => {
+  assert.equal(canReceiveFriendRequest({ discoverable: false }), false)
+})
+
+test('canReceiveFriendRequest is true when discoverable is on', () => {
+  assert.equal(canReceiveFriendRequest({ discoverable: true }), true)
 })
