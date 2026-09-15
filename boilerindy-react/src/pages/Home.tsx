@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, shouldSkipSetup } from '../lib/authApi'
 import { cleanAiText } from '../lib/linkifyText'
@@ -39,6 +39,7 @@ import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
+import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -499,18 +500,15 @@ export default function Home() {
   const [boardLoading, setBoardLoading] = useState(true)
   const [boardError, setBoardError] = useState('')
 
-  // Keyed by the local week's Monday; lib/localDate explains why not toISOString().
+  // Keyed by user (issue #219) and the local week's Monday; lib/localDate
+  // explains why not toISOString(). Null until the user id is known, which
+  // skips the cache and lets the mount effect fetch.
   function getWeekDigestStorageKey() {
-    return `ai-week-ahead-${localIsoDate(startOfWeek())}`
+    return userId ? aiCacheKey('week-ahead', userId, localIsoDate(startOfWeek())) : null
   }
 
   function readCachedWeekDigest(): string | null {
-    try {
-      const raw = JSON.parse(localStorage.getItem(getWeekDigestStorageKey()) || 'null')
-      return typeof raw === 'string' && raw.trim() ? raw : null
-    } catch {
-      return null
-    }
+    return readAiCache(getWeekDigestStorageKey())
   }
 
   const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
@@ -518,6 +516,15 @@ export default function Home() {
   // one. Deriving the initial value here means the effect never has to flip the
   // flag synchronously (which trips react-hooks/set-state-in-effect).
   const [weekAheadLoading, setWeekAheadLoading] = useState(() => !readCachedWeekDigest())
+  // A digest that lands after sign-out has unmounted the page must not write the
+  // cache back once sign-out has cleared it (issue #219).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // Fetches and stores the digest. Does NOT raise the loading flag on entry -
   // the mount path starts with it already true, and the Refresh button raises it
@@ -534,14 +541,10 @@ export default function Home() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.reply) {
+        if (d.reply && mountedRef.current) {
           const clean = cleanAiText(d.reply)
           setWeekAheadText(clean)
-          try {
-            localStorage.setItem(getWeekDigestStorageKey(), JSON.stringify(clean))
-          } catch {
-            /* ignore */
-          }
+          writeAiCache(getWeekDigestStorageKey(), clean)
         }
       })
       .catch(() => {})

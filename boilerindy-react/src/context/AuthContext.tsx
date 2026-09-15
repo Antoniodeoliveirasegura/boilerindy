@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { clearAiCaches } from '../lib/aiInsightCache'
 import {
   authRequest,
   getDisplayName,
@@ -257,6 +258,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(backendSession)
         }
       } else if (event === 'SIGNED_OUT') {
+        // Also fires without signOut(): a revoked or unrefreshable token, a
+        // sign-out in another tab, or Login clearing a stale local session.
+        // Drop the per-user AI caches (issue #219) but keep board drafts, which
+        // are per user too and must survive a re-login (issue #23).
+        clearAiCaches({ keepBoardDrafts: true })
         setSupabaseUser(null)
         setSession(null)
       }
@@ -269,10 +275,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [syncUserToBackend])
 
   const signOut = useCallback(async () => {
-    // Sign out from Supabase
-    await supabase.auth.signOut()
-    // Sign out from backend
-    await authRequest('/api/sign-out', { method: 'POST' })
+    try {
+      // Sign out from Supabase
+      await supabase.auth.signOut()
+      // Sign out from backend
+      await authRequest('/api/sign-out', { method: 'POST' })
+    } finally {
+      // Leave nothing personal on a shared computer (issue #219), even when a
+      // request fails (offline, a cold-start 502), and after both awaits so an
+      // insight written while they were in flight goes too.
+      clearAiCaches()
+    }
     setSession(null)
     setSupabaseUser(null)
   }, [])
