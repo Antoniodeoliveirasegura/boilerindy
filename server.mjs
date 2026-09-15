@@ -47,7 +47,7 @@ import {
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
-import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
+import { clampDiningDate, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
@@ -3431,8 +3431,15 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
 
 app.get('/api/dining', publicReadRateLimit, async (req, res) => {
   try {
+    // `refresh` passes through as a hint (the module refetches a date at most
+    // every ten minutes); `date` must be yesterday to today + 14 (issue #208).
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true'
-    const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined
+    let date
+    if (req.query.date !== undefined && req.query.date !== '') {
+      const checked = clampDiningDate(req.query.date)
+      if (!checked.ok) return res.status(400).json({ ok: false, error: 'dining_bad_date', locations: [] })
+      date = checked.ymd
+    }
     const data = await getDiningSnapshot({ forceRefresh, date })
     res.json(data)
   } catch (error) {
