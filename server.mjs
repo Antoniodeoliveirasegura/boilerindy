@@ -64,6 +64,9 @@ import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEv
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
 import { createCommunityCounters } from './src/communityCounters.mjs'
+import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
+import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
+import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
@@ -145,7 +148,6 @@ import { wrapAsyncRoutes } from './src/asyncRoutes.mjs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const TERM_ORDER = { spring: 1, summer: 2, fall: 3 }
 // Fail-closed on a mistyped NODE_ENV: a value that is set but unrecognized
 // (e.g. 'prod', 'Production', a trailing space) must not silently fall through to
 // non-production mode and drop the Secure-cookie / trust-proxy / debug-gate /
@@ -429,12 +431,6 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-function startOfToday() {
-  const date = new Date()
-  date.setHours(0, 0, 0, 0)
-  return date
-}
-
 function makeId() {
   return crypto.randomUUID()
 }
@@ -615,79 +611,6 @@ async function deleteUserAccount(userRow, { password, confirmation }) {
   }
 
   onboardingSummaryCache.invalidate(userId)
-}
-
-function getAcademicTerm(dateValue) {
-  const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return null
-  const month = date.getMonth()
-  const year = date.getFullYear()
-  let season = 'fall'
-  if (month <= 4) season = 'spring'
-  else if (month <= 6) season = 'summer'
-  return {
-    key: `${year}-${season}`,
-    year,
-    season,
-    label: `${season.charAt(0).toUpperCase() + season.slice(1)} ${year}`,
-  }
-}
-
-function parseTermKey(termKey) {
-  const [yearPart, season] = String(termKey || '').split('-')
-  const year = Number(yearPart)
-  if (!year || !TERM_ORDER[season]) return null
-  return { key: `${year}-${season}`, year, season, label: `${season.charAt(0).toUpperCase() + season.slice(1)} ${year}` }
-}
-
-function compareTermKeys(a, b) {
-  const left = parseTermKey(a)
-  const right = parseTermKey(b)
-  if (!left && !right) return 0
-  if (!left) return -1
-  if (!right) return 1
-  if (left.year !== right.year) return left.year - right.year
-  return TERM_ORDER[left.season] - TERM_ORDER[right.season]
-}
-
-function getPreferredClassTerm(items) {
-  if (!items.length) return null
-
-  const groups = new Map()
-  for (const item of items) {
-    const term = getAcademicTerm(item.start_time)
-    if (!term) continue
-    const start = new Date(item.start_time)
-    const end = new Date(item.end_time || item.start_time)
-    const current = groups.get(term.key) || {
-      key: term.key,
-      label: term.label,
-      minStart: start,
-      maxEnd: end,
-    }
-    if (start < current.minStart) current.minStart = start
-    if (end > current.maxEnd) current.maxEnd = end
-    groups.set(term.key, current)
-  }
-
-  if (!groups.size) return null
-
-  const today = startOfToday()
-  const currentTerm = getAcademicTerm(today)
-  const currentGroup = currentTerm ? groups.get(currentTerm.key) : null
-  if (currentGroup && currentGroup.maxEnd >= today) {
-    return parseTermKey(currentGroup.key)
-  }
-
-  const upcomingGroups = [...groups.values()]
-    .filter((group) => group.maxEnd >= today)
-    .sort((a, b) => a.minStart - b.minStart || compareTermKeys(a.key, b.key))
-  if (upcomingGroups.length) {
-    return parseTermKey(upcomingGroups[0].key)
-  }
-
-  const latestGroup = [...groups.values()].sort((a, b) => compareTermKeys(b.key, a.key) || b.maxEnd - a.maxEnd)[0]
-  return latestGroup ? parseTermKey(latestGroup.key) : null
 }
 
 function orderClassItemsForDisplay(items) {
@@ -942,24 +865,33 @@ async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdu
 }
 
 async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null } = {}) {
-  let query = supabase
-    .from('calendar_items')
-    .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
-    .eq('user_id', userId)
+  const ascending = order === 'asc'
+  const rowLimit = Number(limit) || 100
 
-  if (category) {
-    query = query.eq('category', category)
-  } else if (categories && categories.length > 0) {
-    query = query.in('category', categories)
+  const buildQuery = () => {
+    let query = supabase
+      .from('calendar_items')
+      .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
+      .eq('user_id', userId)
+
+    if (category) {
+      query = query.eq('category', category)
+    } else if (categories && categories.length > 0) {
+      query = query.in('category', categories)
+    }
+
+    if (from) {
+      query = query.gte('start_time', from)
+    }
+
+    return query.order('start_time', { ascending })
   }
 
-  if (from) {
-    query = query.gte('start_time', from)
-  }
-
-  query = query.order('start_time', { ascending: order === 'asc' }).limit(Number(limit) || 100)
-
-  const { data, error } = await query
+  // PostgREST truncates every response to max-rows (1000) whatever .limit()
+  // asks for, so selectUpTo pages a larger read with .range() up to
+  // DEFAULT_MAX_ROWS (issue #198). The id tiebreak keeps rows that share a
+  // start_time from repeating or vanishing across page boundaries.
+  const { data, error } = await selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit)
 
   if (error) return []
   return data.map(row => ({
@@ -983,7 +915,15 @@ async function listCalendarItems(userId, { category, categories, limit = 100, or
 }
 
 async function getClassItemsForUser(userId, { limit = 20, term = 'auto', mode = 'display' } = {}) {
-  const allItems = await listCalendarItems(userId, { category: 'class', limit: 5000, order: 'asc' })
+  // Windowed to the last CLASS_SCAN_LOOKBACK_MONTHS and paged past max-rows: an
+  // unbounded ascending read returned only the oldest 1000 meetings, so students
+  // with a few synced semesters lost the current term entirely (issue #198).
+  const allItems = await listCalendarItems(userId, {
+    category: 'class',
+    limit: DEFAULT_MAX_ROWS,
+    order: 'asc',
+    from: classScanFrom(term),
+  })
   if (!allItems.length) {
     return {
       items: [],
@@ -1953,43 +1893,17 @@ app.get('/api/me/calendar', requireAuth, async (req, res) => {
   res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from }) })
 })
 
+// Counted in Postgres by calendar_category_counts (db/supabase-calendar-category-counts.sql)
+// instead of streaming every row to count in JS (issue #198); until that
+// migration runs, loadCalendarCategoryCounts falls back to the JS count.
 app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('calendar_items')
-    .select('category')
-    .eq('user_id', req.currentUser.id)
+  const { counts, error } = await loadCalendarCategoryCounts(supabase, req.currentUser.id)
 
   if (error) {
     return res.json({ categories: [] })
   }
 
-  const counts = {}
-  for (const row of data) {
-    counts[row.category] = (counts[row.category] || 0) + 1
-  }
-
-  const categoryLabels = {
-    class: 'Classes',
-    exam: 'Exams',
-    assignment: 'Assignments',
-    lab: 'Labs',
-    project: 'Projects',
-    quiz: 'Quizzes',
-    campus_event: 'Campus Events',
-    resource: 'Resources',
-    deadline: 'Deadlines',
-    event: 'Other Events'
-  }
-
-  const categories = Object.entries(counts)
-    .map(([key, count]) => ({
-      id: key,
-      label: categoryLabels[key] || key,
-      count
-    }))
-    .sort((a, b) => b.count - a.count)
-
-  res.json({ categories })
+  res.json({ categories: categoryListFromCounts(counts) })
 })
 
 // ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
@@ -2011,6 +1925,23 @@ function mapManualTaskRow(row) {
   }
 }
 
+// Runs on every Assignments and dashboard load, so both reads are bounded
+// (issue #198) instead of returning every row the user ever wrote:
+// - completions from the last TASK_COMPLETIONS_LOOKBACK_DAYS only. Older ones
+//   belong to calendar items that are no longer shown (Assignments lists items
+//   from 14 days back), so dropping them changes nothing on screen.
+// - manual tasks that are still open, or were completed in the last
+//   MANUAL_TASKS_DONE_LOOKBACK_DAYS.
+// Each read also caps at TASK_META_ROW_LIMIT, the PostgREST max-rows, so the
+// bound is explicit rather than a silent truncation.
+const TASK_COMPLETIONS_LOOKBACK_DAYS = 120
+const MANUAL_TASKS_DONE_LOOKBACK_DAYS = 60
+const TASK_META_ROW_LIMIT = 1000
+
+function daysAgoIso(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+}
+
 app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
@@ -2018,8 +1949,17 @@ app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
       supabase
         .from('user_task_completions')
         .select('calendar_item_id, completed_at')
-        .eq('user_id', userId),
-      supabase.from('user_manual_tasks').select('*').eq('user_id', userId).order('due_at', { ascending: true }),
+        .eq('user_id', userId)
+        .gte('completed_at', daysAgoIso(TASK_COMPLETIONS_LOOKBACK_DAYS))
+        .order('completed_at', { ascending: false })
+        .limit(TASK_META_ROW_LIMIT),
+      supabase
+        .from('user_manual_tasks')
+        .select('*')
+        .eq('user_id', userId)
+        .or(`completed_at.is.null,completed_at.gte.${daysAgoIso(MANUAL_TASKS_DONE_LOOKBACK_DAYS)}`)
+        .order('due_at', { ascending: true })
+        .limit(TASK_META_ROW_LIMIT),
     ])
     if (compRes.error) throw compRes.error
     if (manualRes.error) throw manualRes.error
