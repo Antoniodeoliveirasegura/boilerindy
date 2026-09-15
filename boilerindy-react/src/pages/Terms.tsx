@@ -98,6 +98,7 @@ conflict-of-laws rules.`,
     title: 'Contact',
     body: `Questions about these terms? Email support@boilerindy.app, or open an issue on the
 BoilerIndy GitHub repository.`,
+    link: { to: '/support', label: 'Contact support' },
   },
 ]
 
@@ -123,6 +124,14 @@ export default function Terms() {
             <section key={section.title}>
               <h2 className="text-[17px] font-semibold text-[var(--color-txt-0)] mb-1.5">{section.title}</h2>
               <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] whitespace-pre-line">{section.body}</p>
+              {section.link ? (
+                <Link
+                  to={section.link.to}
+                  className="inline-block text-[14px] text-[var(--color-accent)] hover:underline mt-1.5"
+                >
+                  {section.link.label}
+                </Link>
+              ) : null}
             </section>
           ))}
         </div>
