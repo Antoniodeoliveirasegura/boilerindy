@@ -5,6 +5,7 @@ import SiteDisclaimer from '../components/SiteDisclaimer'
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
 // (account, imported schedule, grades, posts, AI features, analytics, the
 // calendar feed). Contact is privacy@boilerindy.app (Cloudflare email routing).
+// The Contact section links to /delete-account (issue #193).
 
 const SECTIONS = [
   {
@@ -100,6 +101,7 @@ analytics events along with it.`,
     title: 'Contact',
     body: `Questions about this policy, or want your data removed? Email privacy@boilerindy.app and
 we will respond there. You can also open an issue on the BoilerIndy GitHub repository.`,
+    link: { to: '/delete-account', label: 'How to delete your account' },
   },
 ]
 
@@ -125,6 +127,14 @@ export default function Privacy() {
             <section key={section.title}>
               <h2 className="text-[17px] font-semibold text-[var(--color-txt-0)] mb-1.5">{section.title}</h2>
               <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] whitespace-pre-line">{section.body}</p>
+              {section.link ? (
+                <Link
+                  to={section.link.to}
+                  className="inline-block text-[14px] text-[var(--color-accent)] hover:underline mt-1.5"
+                >
+                  {section.link.label}
+                </Link>
+              ) : null}
             </section>
           ))}
         </div>
