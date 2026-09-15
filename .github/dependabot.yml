@@ -1,0 +1,40 @@
+# Dependabot version updates (issue #188). Work lands on develop and rides the
+# normal release PR to main, so every update targets develop. Minor and patch
+# bumps arrive as one grouped PR per package root; majors stay separate so they
+# can be read on their own. Security updates are a repo setting, not this file.
+version: 2
+updates:
+  # Backend (Express API), its own pnpm lockfile at the repo root.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: develop
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Frontend (boilerindy-react), a separate pnpm root with its own lockfile.
+  - package-ecosystem: npm
+    directory: /boilerindy-react
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: develop
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: develop
