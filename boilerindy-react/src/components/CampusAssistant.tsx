@@ -151,9 +151,9 @@ export default function CampusAssistant() {
         onClick={() => setOpen(false)}
       />
 
-      {/* Chat Window */}
-      <div className={`fixed bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-48px)] transition-all duration-500 ease-out ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
-        <div className="card p-0 overflow-hidden shadow-xl border-[var(--color-border-2)]">
+      {/* Chat Window: below md it opens 16px above the lifted button (issue #249). */}
+      <div className={`fixed bottom-[calc(4rem+1.25rem+3.5rem+1rem+env(safe-area-inset-bottom))] md:bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-48px)] transition-all duration-500 ease-out ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
+        <div data-testid="assistant-panel" className="card p-0 overflow-hidden shadow-xl border-[var(--color-border-2)]">
           {/* Header */}
           <div className="bg-gradient-to-r from-[var(--color-gold-dark)] to-[#2A1E0A] p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -170,16 +170,19 @@ export default function CampusAssistant() {
             </div>
             <button
               onClick={() => setOpen(false)}
+              aria-label="Close the assistant"
               className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 flex items-center justify-center text-[var(--color-gold)]/70 hover:text-[var(--color-gold)] hover:bg-[var(--color-gold)]/20 transition-colors"
             >
               <Icon name="close" size={16} />
             </button>
           </div>
 
-          {/* Messages */}
+          {/* Messages: below md the cap also leaves room for the top bar (64px), an
+              8px gap, the panel's bottom offset (156px) and the header, input row and
+              card border (147px), so short phones keep the header on screen (issue #249). */}
           <div
             ref={messagesRef}
-            className="min-h-[200px] max-h-[340px] overflow-y-auto p-4 space-y-3 bg-[var(--color-surface)]"
+            className="min-h-[200px] max-h-[min(340px,calc(100dvh-375px-env(safe-area-inset-bottom)))] md:max-h-[340px] overflow-y-auto p-4 space-y-3 bg-[var(--color-surface)]"
           >
             {messages.map(renderMessage)}
 
@@ -199,14 +202,15 @@ export default function CampusAssistant() {
             )}
           </div>
 
-          {/* Quick Questions */}
+          {/* Quick Questions: one row that scrolls sideways below md, so the five
+              pills take one line instead of five on a phone (issue #249). */}
           {messages.length <= 2 && !isTyping && (
-            <div className="px-4 pb-3 flex flex-wrap gap-2 bg-[var(--color-surface)]">
+            <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide md:flex-wrap md:overflow-visible bg-[var(--color-surface)]">
               {quickQuestions.map((q, idx) => (
                 <button
                   key={idx}
                   onClick={() => handleSend(q)}
-                  className="text-[11px] px-3 py-1.5 rounded-full border border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)] hover:text-[var(--color-txt-0)] transition-colors"
+                  className="shrink-0 whitespace-nowrap text-[11px] px-3 py-1.5 rounded-full border border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)] hover:text-[var(--color-txt-0)] transition-colors"
                 >
                   {q}
                 </button>
@@ -255,10 +259,11 @@ export default function CampusAssistant() {
         </div>
       </div>
 
-      {/* Floating Button */}
+      {/* Floating Button: below md it sits 20px above the fixed bottom nav (h-16 plus
+          the notch inset) so it no longer covers the nav's More tab (issue #249). */}
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 group
+        className={`fixed bottom-[calc(4rem+1.25rem+env(safe-area-inset-bottom))] md:bottom-6 right-6 z-50 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 group
           ${open
             ? 'bg-[var(--color-surface)] border border-[var(--color-border-2)] rotate-90'
             : 'bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] hover:shadow-xl hover:scale-110'

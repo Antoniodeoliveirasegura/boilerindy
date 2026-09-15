@@ -39,9 +39,11 @@ export default function UpdateToast({
   if (!ready || dismissed) return null
 
   // Sits above the mobile bottom nav (z-40) and below dialogs (z-[2000]), like
-  // ServerWakeNotice; the bottom offset clears the nav on phones.
+  // ServerWakeNotice. On phones the bottom offset clears the nav (64px), the
+  // assistant button that floats 20px above it (56px) and an 8px gap, so the
+  // toast never covers the button (issue #249).
   return (
-    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+84px)] z-[1200] flex justify-center px-4 md:bottom-6">
+    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+148px)] z-[1200] flex justify-center px-4 md:bottom-6">
       <div
         role="status"
         aria-live="polite"
