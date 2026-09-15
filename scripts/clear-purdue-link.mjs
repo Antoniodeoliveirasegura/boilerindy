@@ -1,8 +1,8 @@
 // Clear a stale Purdue link from public.users (e.g. after Supabase Auth account reset).
 //
-//   node scripts/clear-purdue-link.mjs --email=tsadou05@gmail.com
+//   node scripts/clear-purdue-link.mjs --email=you@gmail.com
 //   node scripts/clear-purdue-link.mjs --purdue=you@purdue.edu
-//   node scripts/clear-purdue-link.mjs --email=tsadou05@gmail.com --apply
+//   node scripts/clear-purdue-link.mjs --email=you@gmail.com --apply
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
