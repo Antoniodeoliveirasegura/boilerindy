@@ -86,6 +86,7 @@ import {
 import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
+import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
@@ -2512,15 +2513,15 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
 app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
-  // Soft delete: hide the item (set deleted_at) instead of removing it. Admins
-  // can restore or permanently delete it from the moderation view.
-  const { data, error } = await supabase
+  // Soft delete: hide the item (set deleted_at) instead of removing it. The
+  // owner or an admin taking it down (issue #195) can delete; admins can
+  // restore or permanently delete it from the moderation view.
+  const query = supabase
     .from('lost_found_items')
     .update({ deleted_at: nowIso() })
     .eq('id', id)
-    .eq('user_id', userId)
     .is('deleted_at', null)
-    .select('id')
+  const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
   if (error) {
     console.error('DELETE /api/lost-found/:id:', error.message)
     return res.status(500).json({ error: { message: 'Could not delete the post.', status: 500 } })
@@ -3939,13 +3940,13 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   // Soft delete: hide the post (set deleted_at). Its replies stay attached and
   // reappear if an admin restores it; a hard delete (admin) cascades them.
-  const { data, error } = await supabase
+  // Owner or admin: admins take down live posts from reports (issue #195).
+  const query = supabase
     .from('board_posts')
     .update({ deleted_at: nowIso() })
     .eq('id', postId)
-    .eq('user_id', userId)
     .is('deleted_at', null)
-    .select('id')
+  const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
   if (error) return respondBoardDbError(res, error)
   if (!data?.length) {
     return res.status(404).json({
@@ -4084,16 +4085,16 @@ app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
   }
 })
 
+// Delete - owner or admin (admins take down live recommendations, issue #195).
 app.delete('/api/guide/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
-    const { data, error } = await supabase
+    const query = supabase
       .from('guide_recommendations')
       .update({ deleted_at: nowIso() })
       .eq('id', req.params.id)
-      .eq('user_id', userId)
       .is('deleted_at', null)
-      .select('id')
+    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
     if (error) throw error
     if (!data?.length) {
       return res.status(404).json({ error: { message: 'Recommendation not found or not yours.', status: 404 } })
@@ -4111,9 +4112,21 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
 // ============================================================
 
 const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
+// Soft delete for groups came later (issue #195) and is a separate migration.
+const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
 
 function respondStudyDbError(res, err) {
   console.error('Study group DB error:', err?.message || err, err?.code)
+  // Checked first: a PGRST204 "column ... in the schema cache" message would
+  // otherwise read as the whole feature missing.
+  if (isMissingColumnError(err, 'deleted_at')) {
+    return res.status(503).json({
+      error: {
+        message: `Removing study groups needs a database update. In the dashboard: SQL Editor → run ${STUDY_SOFT_DELETE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
   if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
     return res.status(503).json({
       error: {
@@ -4212,7 +4225,12 @@ app.get('/api/me/study-groups', requireAuth, async (req, res) => {
     if (error) throw error
     const ids = (mem || []).map((m) => m.group_id)
     if (!ids.length) return res.json({ groups: [] })
-    const { data: groups } = await supabase.from('study_groups').select('*').in('id', ids)
+    // Taken-down groups keep their member rows (so a restore brings them back)
+    // but must not show up here.
+    const { data: groups } = await selectLiveRows((liveOnly) => {
+      const query = supabase.from('study_groups').select('*').in('id', ids)
+      return liveOnly ? query.is('deleted_at', null) : query
+    })
     const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
     res.json({ groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
   } catch (e) {
@@ -4226,12 +4244,11 @@ app.get('/api/study-groups', requireAuth, async (req, res) => {
   const course = normalizeCourseCode(req.query.course)
   if (!course) return res.status(400).json({ error: { message: 'A valid course code is required.', status: 400 } })
   try {
-    const { data: groups, error } = await supabase
-      .from('study_groups')
-      .select('*')
-      .eq('course_code', course)
-      .order('created_at', { ascending: false })
-      .limit(100)
+    const { data: groups, error } = await selectLiveRows((liveOnly) => {
+      let query = supabase.from('study_groups').select('*').eq('course_code', course)
+      if (liveOnly) query = query.is('deleted_at', null)
+      return query.order('created_at', { ascending: false }).limit(100)
+    })
     if (error) throw error
     const ids = (groups || []).map((g) => g.id)
     const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
@@ -4268,11 +4285,12 @@ app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (
   const userId = req.currentUser.id
   const groupId = req.params.id
   try {
-    const { data: group, error: gErr } = await supabase
-      .from('study_groups')
-      .select('id, capacity')
-      .eq('id', groupId)
-      .single()
+    // maybeSingle so a missing or taken-down group is the 404 below, not a 500.
+    const { data: group, error: gErr } = await selectLiveRows((liveOnly) => {
+      let query = supabase.from('study_groups').select('id, capacity').eq('id', groupId)
+      if (liveOnly) query = query.is('deleted_at', null)
+      return query.maybeSingle()
+    })
     if (gErr) throw gErr
     if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
 
@@ -4302,6 +4320,34 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
       .eq('user_id', userId)
     if (error) throw error
     res.json({ ok: true })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Delete a group - its creator or an admin (issue #195). Soft delete: the group
+// leaves every list, but its members stay attached so an admin restore from the
+// moderation view brings it back whole. Answers 503 (respondStudyDbError) until
+// db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
+app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
+  const groupId = req.params.id
+  if (!isUuid(groupId)) {
+    return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
+  }
+  try {
+    const query = supabase
+      .from('study_groups')
+      .update({ deleted_at: nowIso() })
+      .eq('id', groupId)
+      .is('deleted_at', null)
+    const { data, error } = await ownerOrAdminScope(query, {
+      userId: req.currentUser.id,
+      isAdmin: isUserAdmin(req.currentUser),
+      ownerColumn: 'creator_id',
+    }).select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
+    res.status(204).end()
   } catch (e) {
     return respondStudyDbError(res, e)
   }
@@ -4570,13 +4616,12 @@ app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
   try {
     // Soft delete: hide the listing (set deleted_at). Admins purge it
     // permanently from the moderation view.
-    let query = supabase
+    const query = supabase
       .from('marketplace_listings')
       .update({ deleted_at: nowIso() })
       .eq('id', req.params.id)
       .is('deleted_at', null)
-    if (!isUserAdmin(req.currentUser)) query = query.eq('user_id', userId)
-    const { data, error } = await query.select('id')
+    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
     if (error) throw error
     if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
     res.status(204).end()
@@ -5540,16 +5585,35 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 // hidden content here and either restore it or permanently (hard) delete it -
 // this is the only hard-delete path. `type` is whitelisted so the param can
 // never reach an arbitrary table.
+// Study groups joined in issue #195; their public DELETE is creator-or-admin.
+const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
 const SOFT_DELETE_TABLES = {
-  board: { table: 'board_posts', label: 'Board post' },
-  marketplace: { table: 'marketplace_listings', label: 'Marketplace listing' },
-  'lost-found': { table: 'lost_found_items', label: 'Lost & Found item' },
-  guide: { table: 'guide_recommendations', label: 'Guide recommendation' },
-  deals: { table: 'deals', label: 'Deal' },
+  board: { table: 'board_posts', label: 'Board post', sqlFile: SOFT_DELETE_SQL_FILE },
+  marketplace: { table: 'marketplace_listings', label: 'Marketplace listing', sqlFile: SOFT_DELETE_SQL_FILE },
+  'lost-found': { table: 'lost_found_items', label: 'Lost & Found item', sqlFile: SOFT_DELETE_SQL_FILE },
+  guide: { table: 'guide_recommendations', label: 'Guide recommendation', sqlFile: SOFT_DELETE_SQL_FILE },
+  deals: { table: 'deals', label: 'Deal', sqlFile: SOFT_DELETE_SQL_FILE },
+  'study-groups': { table: 'study_groups', label: 'Study group', sqlFile: STUDY_SOFT_DELETE_SQL_FILE },
 }
 
 function softDeleteConfig(type) {
   return Object.prototype.hasOwnProperty.call(SOFT_DELETE_TABLES, type) ? SOFT_DELETE_TABLES[type] : null
+}
+
+// A table without deleted_at yet (study groups before their migration) fails
+// every moderation query on the missing column: answer 503 naming the file to
+// run instead of a generic 500.
+function respondModerationDbError(res, error, cfg, logLabel, message) {
+  console.error(`${logLabel}:`, error.message)
+  if (isMissingColumnError(error, 'deleted_at')) {
+    return res.status(503).json({
+      error: {
+        message: `${cfg.label} moderation needs a database update. In the dashboard: SQL Editor → run ${cfg.sqlFile} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message, status: 500 } })
 }
 
 app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) => {
@@ -5562,10 +5626,30 @@ app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) 
     .order('deleted_at', { ascending: false })
     .limit(200)
   if (error) {
-    console.error(`GET /api/admin/deleted/${req.params.type}:`, error.message)
-    return res.status(500).json({ error: { message: 'Could not load deleted items.', status: 500 } })
+    return respondModerationDbError(res, error, cfg, `GET /api/admin/deleted/${req.params.type}`, 'Could not load deleted items.')
   }
   res.json({ items: data || [], label: cfg.label })
+})
+
+// Live-content lookup for the takedown panel (issue #195): an admin pastes an
+// id from a report and previews the row here, then removes it through the
+// type's own DELETE route, which lets admins past the owner filter. The row
+// then shows up in the deleted list above, where it can be restored.
+app.get('/api/admin/content/:type/:id', requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  if (!isUuid(req.params.id)) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .select('*')
+    .eq('id', req.params.id)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (error) {
+    return respondModerationDbError(res, error, cfg, `GET /api/admin/content/${req.params.type}`, 'Could not load the item.')
+  }
+  if (!data) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  res.json({ item: data, label: cfg.label })
 })
 
 app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
@@ -5578,8 +5662,7 @@ app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAut
     .not('deleted_at', 'is', null)
     .select('id')
   if (error) {
-    console.error(`restore ${req.params.type}:`, error.message)
-    return res.status(500).json({ error: { message: 'Could not restore the item.', status: 500 } })
+    return respondModerationDbError(res, error, cfg, `restore ${req.params.type}`, 'Could not restore the item.')
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.json({ ok: true })
@@ -5597,8 +5680,7 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, req
     .not('deleted_at', 'is', null)
     .select('id')
   if (error) {
-    console.error(`hard delete ${req.params.type}:`, error.message)
-    return res.status(500).json({ error: { message: 'Could not permanently delete the item.', status: 500 } })
+    return respondModerationDbError(res, error, cfg, `hard delete ${req.params.type}`, 'Could not permanently delete the item.')
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.status(204).end()
