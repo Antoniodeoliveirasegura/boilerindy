@@ -28,4 +28,26 @@ test.describe('Service worker update prompt', () => {
     const waiting = await page.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting))
     expect(waiting).toBe(true)
   })
+
+  // Issue #249: on a phone the assistant button floats above the bottom nav, so
+  // the prompt sits above the button instead of covering it.
+  test('on a phone the refresh prompt does not cover the assistant button', async ({ page, mockApi }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    mockApi.login()
+    await page.goto('/dashboard')
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker && navigator.serviceWorker.controller), null, { timeout: 20000 })
+    await page.evaluate(() => navigator.serviceWorker.register('/sw.js?v=e2e-next'))
+
+    const toast = page.getByTestId('sw-update-toast')
+    const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
+    await expect(toast).toBeVisible({ timeout: 20000 })
+    await expect(assistant).toBeVisible()
+
+    const toastBox = await toast.boundingBox()
+    const assistantBox = await assistant.boundingBox()
+    expect(toastBox.y + toastBox.height).toBeLessThanOrEqual(assistantBox.y)
+
+    // A real click, so Playwright's hit test fails if the prompt still sits on the button.
+    await assistant.click()
+  })
 })

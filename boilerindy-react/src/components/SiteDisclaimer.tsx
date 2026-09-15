@@ -5,6 +5,8 @@ import { Link } from 'react-router-dom'
 // Landing, Login, AdvertiserLogin, and Privacy. `note` carries any
 // page-specific line (a tagline or hint) shown above the disclaimer;
 // `className` lets a layout add spacing (e.g. clearing the fixed mobile nav).
+// The Support link (issue #193) keeps the contact the app stores ask for one
+// tap away from every route.
 export default function SiteDisclaimer({
   note,
   className = '',
@@ -27,6 +29,10 @@ export default function SiteDisclaimer({
         {' · '}
         <Link to="/privacy" className="text-[var(--color-txt-2)] hover:underline">
           Privacy
+        </Link>
+        {' · '}
+        <Link to="/support" className="text-[var(--color-txt-2)] hover:underline">
+          Support
         </Link>
       </p>
     </div>

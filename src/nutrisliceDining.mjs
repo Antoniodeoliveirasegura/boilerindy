@@ -80,7 +80,7 @@ export function weekdayInZone(date, timeZone = FALLBACK_TZ) {
   return DAY_LABELS[dayIndexInZone(date, timeZone)]
 }
 
-function wallClockMinutesInTimeZone(date, timeZone) {
+export function wallClockMinutesInTimeZone(date, timeZone) {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date)
   const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0) % 24
   const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
@@ -220,11 +220,13 @@ export function shouldSkipSection(name) {
 }
 
 /**
- * One meal's flat menu_items -> [{ name: station, items: [{ name, calories, icons, meal }] }].
- * Sections matching SKIP_SECTION_RE are dropped; `seenKeys` dedupes a food
- * that appears under several stations or meals.
+ * One meal's flat menu_items -> [{ name: station, items: [{ name, calories, icons, meals }] }].
+ * Sections matching SKIP_SECTION_RE are dropped. `seen` (dedupe key -> item)
+ * dedupes a food that appears under several stations or meals: it stays with
+ * the first, and a repeat under another meal adds that meal to its `meals`,
+ * so the assistant can tell what is served at lunch (issue #253).
  */
-export function ingestMenuStations(menuItems, mealSlug, seenKeys = new Set()) {
+export function ingestMenuStations(menuItems, mealSlug, seen = new Map()) {
   if (!Array.isArray(menuItems)) return []
   const stationMap = new Map()
   let station = 'Menu'
@@ -241,10 +243,15 @@ export function ingestMenuStations(menuItems, mealSlug, seenKeys = new Set()) {
     if (!norm) continue
     const id = row.food.id
     const key = id != null ? `id:${id}` : `name:${norm.name}:${mealSlug}`
-    if (seenKeys.has(key)) continue
-    seenKeys.add(key)
+    const kept = seen.get(key)
+    if (kept) {
+      if (!kept.meals.includes(mealSlug)) kept.meals.push(mealSlug)
+      continue
+    }
+    const item = { ...norm, meals: [mealSlug] }
+    seen.set(key, item)
     if (!stationMap.has(station)) stationMap.set(station, [])
-    stationMap.get(station).push({ ...norm, meal: mealSlug })
+    stationMap.get(station).push(item)
   }
 
   return [...stationMap.entries()].map(([name, items]) => ({ name, items })).filter((s) => s.items.length > 0)
@@ -298,7 +305,7 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
 
   const { year, month, day } = parts
   const slug = school.slug
-  const seenKeys = new Set()
+  const seen = new Map()
   const stationMerge = new Map()
   const mealsFound = []
   const warnings = []
@@ -314,7 +321,7 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
     const target = days.find((d) => d.date === ymd) || days[0]
     if (!target?.menu_items?.length) continue
 
-    const stations = ingestMenuStations(target.menu_items, meal, seenKeys)
+    const stations = ingestMenuStations(target.menu_items, meal, seen)
     if (stations.length) mealsFound.push(meal)
     for (const { name, items } of stations) {
       if (!stationMerge.has(name)) stationMerge.set(name, [])
@@ -323,7 +330,7 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
   }
 
   const stations = [...stationMerge.entries()]
-    .map(([name, items]) => ({ name, items: items.map(({ name, calories, icons }) => ({ name, calories, icons })) }))
+    .map(([name, items]) => ({ name, items: items.map(({ name, calories, icons, meals }) => ({ name, calories, icons, meals })) }))
     .filter((s) => s.items.length > 0)
 
   return { stations, meals: mealsFound, warnings }
