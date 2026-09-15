@@ -267,6 +267,21 @@ describe('sign-out clears per-user caches (issue #219)', () => {
     expect(result.current.session).toBeNull()
   })
 
+  // Offline, or a 502 from a cold-starting backend: the caches still go.
+  test('signOut clears the caches even when POST /api/sign-out fails', async () => {
+    const result = await mountAuth()
+    seedCaches()
+    mocks.authRequest.mockImplementationOnce(async () => {
+      throw new Error('backend down')
+    })
+
+    await act(async () => {
+      await expect(result.current.signOut()).rejects.toThrow('backend down')
+    })
+
+    expect(Object.keys(localStorage)).toEqual(['boilerindy-task-priority-v1-user-1'])
+  })
+
   // SIGNED_OUT also fires without signOut() (revoked token, another tab, Login
   // clearing a stale local session). Drafts stay so they survive a re-login
   // after session expiry (issue #23).

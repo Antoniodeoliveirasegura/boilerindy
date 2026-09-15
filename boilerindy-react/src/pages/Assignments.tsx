@@ -270,6 +270,15 @@ export default function Assignments() {
   const [rewardOrigin, setRewardOrigin] = useState<RewardOrigin | null>(null)
   const [poppingId, setPoppingId] = useState<string | null>(null)
   const popClearRef = useRef<number | null>(null)
+  // Insights that land after sign-out unmounted the page must not write the
+  // cache back once sign-out has cleared it (issue #219).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const generateInsights = (mode: string) => {
     setInsightsLoading(true)
@@ -284,7 +293,7 @@ export default function Assignments() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.reply) {
+        if (d.reply && mountedRef.current) {
           const clean = cleanAiText(d.reply)
           if (mode === 'study') {
             setStudyPlan(clean)

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
@@ -101,6 +101,15 @@ export default function Events() {
 
   const [eventRecs, setEventRecs] = useState<string | null>(() => readAiCache(getRecsCacheKey(userId)))
   const [recsLoading, setRecsLoading] = useState(false)
+  // Recommendations that land after sign-out unmounted the page must not write
+  // the cache back once sign-out has cleared it (issue #219).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const generateRecs = () => {
     setRecsLoading(true)
@@ -117,7 +126,7 @@ export default function Events() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.reply) {
+        if (d.reply && mountedRef.current) {
           const clean = cleanAiText(d.reply)
           setEventRecs(clean)
           writeAiCache(getRecsCacheKey(userId), clean)

@@ -275,12 +275,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [syncUserToBackend])
 
   const signOut = useCallback(async () => {
-    // Sign out from Supabase
-    await supabase.auth.signOut()
-    // Sign out from backend
-    await authRequest('/api/sign-out', { method: 'POST' })
-    // Leave nothing personal on a shared computer (issue #219)
-    clearAiCaches()
+    try {
+      // Sign out from Supabase
+      await supabase.auth.signOut()
+      // Sign out from backend
+      await authRequest('/api/sign-out', { method: 'POST' })
+    } finally {
+      // Leave nothing personal on a shared computer (issue #219), even when a
+      // request fails (offline, a cold-start 502), and after both awaits so an
+      // insight written while they were in flight goes too.
+      clearAiCaches()
+    }
     setSession(null)
     setSupabaseUser(null)
   }, [])

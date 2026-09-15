@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, shouldSkipSetup } from '../lib/authApi'
 import { cleanAiText } from '../lib/linkifyText'
@@ -516,6 +516,15 @@ export default function Home() {
   // one. Deriving the initial value here means the effect never has to flip the
   // flag synchronously (which trips react-hooks/set-state-in-effect).
   const [weekAheadLoading, setWeekAheadLoading] = useState(() => !readCachedWeekDigest())
+  // A digest that lands after sign-out has unmounted the page must not write the
+  // cache back once sign-out has cleared it (issue #219).
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // Fetches and stores the digest. Does NOT raise the loading flag on entry -
   // the mount path starts with it already true, and the Refresh button raises it
@@ -532,7 +541,7 @@ export default function Home() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.reply) {
+        if (d.reply && mountedRef.current) {
           const clean = cleanAiText(d.reply)
           setWeekAheadText(clean)
           writeAiCache(getWeekDigestStorageKey(), clean)
