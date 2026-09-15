@@ -63,12 +63,13 @@ const SECTIONS: { title: string; body: ReactNode }[] = [
     title: 'What we keep',
     body: (
       <>
-        Nothing tied to your account stays in our database once it is deleted. Copies outside it age out
-        on their own: server logs and database backups roll over within 30 days, and photos from your
-        marketplace listings are cleared from storage by a later cleanup. Crash reports sent to Sentry
-        have emails, tokens, and cookies stripped out before they are sent, and expire on Sentry&apos;s
-        retention schedule. If you asked by email, we keep that email thread as a record that the
-        request was handled.
+        Nothing tied to your account stays in our database once it is deleted. A few copies outside it
+        take longer to go. Server logs and database backups roll over within 30 days. Photos you
+        uploaded to marketplace listings are not removed from storage the moment you delete: they can
+        stay reachable at their direct link until we run our storage cleanup, which removes photos no
+        listing uses. Crash reports sent to Sentry have emails, tokens, and cookies stripped out before
+        they are sent, and expire on Sentry&apos;s retention schedule. If you asked by email, we keep
+        that email thread as a record that the request was handled.
       </>
     ),
   },
