@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { tidyAssistantReply } from '../src/assistantReply.mjs'
+import { estimateTokens, tidyAssistantReply } from '../src/assistantReply.mjs'
 
 test('strips bold, italics and headings the plain-text bubble would show raw', () => {
   assert.equal(tidyAssistantReply('Grab a bite at **Tower Dining** before the rush.'), 'Grab a bite at Tower Dining before the rush.')
@@ -43,4 +43,14 @@ test('is idempotent', () => {
   const once = tidyAssistantReply('**Plan** \u2014 11:45 AM \u2013 12:15 PM at *Tower*.\n\n\n• Then the library')
   assert.equal(tidyAssistantReply(once), once)
   assert.equal(once, 'Plan, 11:45 AM to 12:15 PM at Tower.\n\n- Then the library')
+})
+
+test('estimateTokens is characters over four, rounded up (issue #253)', () => {
+  assert.equal(estimateTokens(''), 0)
+  assert.equal(estimateTokens(null), 0)
+  assert.equal(estimateTokens(undefined), 0)
+  assert.equal(estimateTokens('abcd'), 1)
+  assert.equal(estimateTokens('abcde'), 2)
+  assert.equal(estimateTokens('x'.repeat(3200)), 800)
+  assert.equal(estimateTokens(12345), 2)
 })

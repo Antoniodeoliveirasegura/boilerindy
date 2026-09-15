@@ -25,3 +25,13 @@ export function tidyAssistantReply(text) {
   out = out.trim()
   return out.length ? out : null
 }
+
+/**
+ * Rough prompt size for the server log (issue #253): about four characters per
+ * token for English text. Groq's free tier is metered in tokens per minute and
+ * per day for the whole organisation, so this is the number to keep small.
+ */
+export function estimateTokens(text) {
+  if (text == null) return 0
+  return Math.ceil(String(text).length / 4)
+}
