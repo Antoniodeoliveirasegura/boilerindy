@@ -102,6 +102,7 @@ import {
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
+import { MAX_DISPLAY_NAME, normalizeAvatarUrl, normalizeDisplayName, normalizeProvider } from './src/userFields.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
@@ -458,6 +459,8 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase()
 }
 
+// Callers pass a name already run through normalizeDisplayName (a string or
+// null); the email fallback is capped the same way (#199).
 function deriveDisplayName(email, providedName = '') {
   if (providedName && providedName.trim()) return providedName.trim()
   if (!email) return 'Student'
@@ -467,6 +470,7 @@ function deriveDisplayName(email, providedName = '') {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+    .slice(0, MAX_DISPLAY_NAME)
 }
 
 async function getUserById(userId) {
@@ -1127,7 +1131,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
   try {
     const emailRaw = req.body.email
     const password = req.body.password
-    const displayName = req.body.name ?? req.body.displayName ?? ''
+    const nameResult = normalizeDisplayName(req.body.name ?? req.body.displayName)
     const rememberMe = req.body.rememberMe === true
     const cookieMaxAge = rememberMe ? 1000 * 60 * 60 * 24 * 30 : undefined
     const normalizedEmail = normalizeEmail(emailRaw)
@@ -1140,6 +1144,10 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
     if (password.length > 128) {
       return res.status(400).json({ error: { message: 'Password must be at most 128 characters.', status: 400 } })
     }
+    if (!nameResult.ok) {
+      return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
+    }
+    const displayName = nameResult.value
 
     const existingRow = await getUserByEmail(normalizedEmail)
     if (existingRow) {
@@ -1151,7 +1159,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       password,
       email_confirm: true,
       user_metadata: {
-        full_name: String(displayName).trim() || deriveDisplayName(normalizedEmail, ''),
+        full_name: displayName || deriveDisplayName(normalizedEmail, ''),
       },
     })
 
@@ -1266,14 +1274,21 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
   const normalizedEmail = normalizeEmail(supabaseUser?.email || fallbackEmail)
   if (!normalizedEmail) return null
 
+  // Password sign-in must not fail on Auth metadata, so an over-long name is cut
+  // and a non-string name or non-https avatar is ignored here (#199).
+  const metadata = supabaseUser?.user_metadata || {}
+  const metadataName =
+    normalizeDisplayName(metadata.full_name, { truncate: true }).value ||
+    normalizeDisplayName(metadata.name, { truncate: true }).value
+  const metadataAvatarUrl = normalizeAvatarUrl(metadata.avatar_url).value
+
   let user = await getUserByEmail(normalizedEmail)
   if (user) {
     const { data, error } = await supabase
       .from('users')
       .update({
         display_name:
-          supabaseUser?.user_metadata?.full_name ||
-          supabaseUser?.user_metadata?.name ||
+          metadataName ||
           user.display_name ||
           deriveDisplayName(normalizedEmail, ''),
         auth_provider: user.auth_provider || 'email',
@@ -1293,12 +1308,9 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
       id: supabaseUser?.id || makeId(),
       email: normalizedEmail,
       password_hash: '',
-      display_name:
-        supabaseUser?.user_metadata?.full_name ||
-        supabaseUser?.user_metadata?.name ||
-        deriveDisplayName(normalizedEmail, ''),
+      display_name: metadataName || deriveDisplayName(normalizedEmail, ''),
       auth_provider: 'email',
-      avatar_url: supabaseUser?.user_metadata?.avatar_url || null,
+      avatar_url: metadataAvatarUrl || null,
       created_at: timestamp,
       updated_at: timestamp,
     })
@@ -1400,6 +1412,20 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
       return res.status(401).json({ error: { message: 'Token does not match the requested user.', status: 401 } })
     }
 
+    // The name comes from the OAuth provider and the user cannot shorten it, so
+    // an over-long one is cut rather than failing sign-in; a non-string name or
+    // a non-https avatar is still a 400 (#199).
+    const nameResult = normalizeDisplayName(name, { truncate: true })
+    if (!nameResult.ok) {
+      return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
+    }
+    const avatarResult = normalizeAvatarUrl(avatarUrl)
+    if (!avatarResult.ok) {
+      return res.status(400).json({ error: { message: avatarResult.message, status: 400 } })
+    }
+    const syncName = nameResult.value
+    const syncAvatarUrl = avatarResult.value
+
     let user = await getUserByEmail(normalizedEmail)
 
     if (!user) {
@@ -1410,9 +1436,9 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
           id: supabaseUserId,
           email: normalizedEmail,
           password_hash: '',
-          display_name: deriveDisplayName(normalizedEmail, name),
-          auth_provider: provider || 'supabase',
-          avatar_url: avatarUrl || null,
+          display_name: deriveDisplayName(normalizedEmail, syncName),
+          auth_provider: normalizeProvider(provider, 'supabase'),
+          avatar_url: syncAvatarUrl,
           created_at: timestamp,
           updated_at: timestamp
         })
@@ -1432,9 +1458,10 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
       const { data, error } = await supabase
         .from('users')
         .update({
-          display_name: name || user.display_name,
-          avatar_url: avatarUrl || user.avatar_url,
-          auth_provider: user.auth_provider === 'local' ? user.auth_provider : (provider || user.auth_provider),
+          // Only columns whose input was sent; the rest keep their stored value.
+          ...(syncName ? { display_name: syncName } : {}),
+          ...(syncAvatarUrl ? { avatar_url: syncAvatarUrl } : {}),
+          auth_provider: user.auth_provider === 'local' ? user.auth_provider : normalizeProvider(provider, user.auth_provider),
           updated_at: nowIso()
         })
         .eq('id', user.id)
@@ -1623,10 +1650,15 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
 })
 
 app.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
+  // A missing or blank name keeps the stored one (#199).
+  const nameResult = normalizeDisplayName(req.body.name)
+  if (!nameResult.ok) {
+    return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
+  }
   try {
     const user = await updateUserProfile(req.currentUser.id, {
       email: req.body.email,
-      displayName: req.body.name,
+      displayName: nameResult.value,
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
       analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
