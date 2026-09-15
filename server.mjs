@@ -102,7 +102,13 @@ import {
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
-import { MAX_DISPLAY_NAME, normalizeAvatarUrl, normalizeDisplayName, normalizeProvider } from './src/userFields.mjs'
+import {
+  deriveDisplayName,
+  normalizeAvatarUrl,
+  normalizeDisplayName,
+  normalizeProfileName,
+  normalizeProvider,
+} from './src/userFields.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
@@ -457,20 +463,6 @@ function escapeHtml(value) {
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase()
-}
-
-// Callers pass a name already run through normalizeDisplayName (a string or
-// null); the email fallback is capped the same way (#199).
-function deriveDisplayName(email, providedName = '') {
-  if (providedName && providedName.trim()) return providedName.trim()
-  if (!email) return 'Student'
-  const local = email.split('@')[0] || 'student'
-  return local
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-    .slice(0, MAX_DISPLAY_NAME)
 }
 
 async function getUserById(userId) {
@@ -1287,10 +1279,7 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
     const { data, error } = await supabase
       .from('users')
       .update({
-        display_name:
-          metadataName ||
-          user.display_name ||
-          deriveDisplayName(normalizedEmail, ''),
+        display_name: metadataName || deriveDisplayName(normalizedEmail, user.display_name),
         auth_provider: user.auth_provider || 'email',
         updated_at: nowIso(),
       })
@@ -1650,8 +1639,10 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
 })
 
 app.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
-  // A missing or blank name keeps the stored one (#199).
-  const nameResult = normalizeDisplayName(req.body.name)
+  // A missing or blank name keeps the stored one. Settings resends the stored
+  // name on every save, so an unchanged name from before the cap is cut rather
+  // than blocking an email or password change (#199).
+  const nameResult = normalizeProfileName(req.body.name, req.currentUser.display_name)
   if (!nameResult.ok) {
     return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
   }
