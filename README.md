@@ -385,10 +385,19 @@ npm run lint         # Run ESLint
 
 # Admin / maintenance scripts (from repo root, needs backend .env)
 node scripts/grant-admin.mjs --email=you@gmail.com      # grant/revoke platform admin
-node scripts/create-advertiser.mjs                       # mint an advertiser-portal account
+node scripts/create-advertiser.mjs                       # mint an advertiser-portal account (password from
+                                                         # ADVERTISER_PASSWORD or a hidden prompt, not --password)
 node scripts/review-campaign.mjs                         # approve a pending ad campaign
 node scripts/clear-purdue-link.mjs --email=you@gmail.com # clear a stale Purdue link
+node scripts/cleanup-marketplace-photos.mjs              # count orphaned marketplace photos (--apply deletes them)
+node scripts/test-marketplace-photo-storage.mjs ./test.jpg --live # live Storage smoke test (JPEG under 100 KB)
 ```
+
+Every script that writes (`grant-admin`, `create-advertiser`, `review-campaign --status`,
+`clear-purdue-link --apply`, `cleanup-marketplace-photos --apply` and
+`test-marketplace-photo-storage --live`) prints the target Supabase project host and
+asks you to type it back first. Pass `--yes` to skip the prompt; without a terminal
+(CI, pipes) `--yes` is required or the script exits without writing.
 
 ## Conventions
 

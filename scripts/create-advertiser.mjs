@@ -4,20 +4,32 @@
 //
 // Run from the REPO ROOT so dotenv picks up the root .env (same as the server):
 //
-//   node scripts/create-advertiser.mjs --email=brand@co.com --password=secret123 --company="Acme Co" [--contact="Jo Smith"]
+//   node scripts/create-advertiser.mjs --email=brand@co.com --company="Acme Co" [--contact="Jo Smith"] [--yes]
 //
-// Flags may also be supplied via env: ADVERTISER_EMAIL, ADVERTISER_PASSWORD,
-// ADVERTISER_COMPANY, ADVERTISER_CONTACT.
+// The password comes from ADVERTISER_PASSWORD (e.g. in .env) or, when that is
+// unset, from a hidden prompt. --password=... still works but lands in shell
+// history, so the script warns when it is used.
+//
+// Flags may also be supplied via env: ADVERTISER_EMAIL, ADVERTISER_COMPANY,
+// ADVERTISER_CONTACT.
+//
+// Before writing it prints the target Supabase host and asks you to type it
+// back; pass --yes to skip the prompt (required when stdin is not a terminal).
 
 import 'dotenv/config'
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { hashPassword } from '../src/passwordHash.mjs'
-import { normalizeAdvertiserAccountInput } from '../src/advertiserAuth.mjs'
+import { ADVERTISER_PASSWORD_MIN_LENGTH, normalizeAdvertiserAccountInput } from '../src/advertiserAuth.mjs'
+import { confirmWriteTarget, readSecretFromPrompt } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
-  const args = {}
+  const args = { yes: false }
   for (const token of argv) {
+    if (token === '--yes') {
+      args.yes = true
+      continue
+    }
     const match = /^--([^=]+)=(.*)$/.exec(token)
     if (match) args[match[1]] = match[2]
   }
@@ -26,11 +38,8 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2))
 
-const input = {
-  email: args.email ?? process.env.ADVERTISER_EMAIL,
-  password: args.password ?? process.env.ADVERTISER_PASSWORD,
-  companyName: args.company ?? process.env.ADVERTISER_COMPANY,
-  contactName: args.contact ?? process.env.ADVERTISER_CONTACT,
+if (args.password !== undefined) {
+  console.warn('WARNING: --password puts the advertiser password in your shell history. Prefer ADVERTISER_PASSWORD or the prompt.')
 }
 
 const supabaseUrl = process.env.SUPABASE_URL
@@ -40,13 +49,39 @@ if (!supabaseUrl || !supabaseServiceKey) {
   process.exit(1)
 }
 
+function exitWithUsage(message) {
+  console.error('ERROR:', message)
+  console.error('Usage: node scripts/create-advertiser.mjs --email=you@co.com --company="Acme Co" [--contact="Jo Smith"] [--yes]')
+  console.error('       The password is read from ADVERTISER_PASSWORD, or prompted for when that is unset.')
+  process.exit(1)
+}
+
+const input = {
+  email: args.email ?? process.env.ADVERTISER_EMAIL,
+  password: args.password || process.env.ADVERTISER_PASSWORD,
+  companyName: args.company ?? process.env.ADVERTISER_COMPANY,
+  contactName: args.contact ?? process.env.ADVERTISER_CONTACT,
+}
+if (!input.password) {
+  // Check the other fields with a stand-in password first, so a usage error
+  // names the real problem and does not cost a typed password.
+  try {
+    normalizeAdvertiserAccountInput({ ...input, password: 'x'.repeat(ADVERTISER_PASSWORD_MIN_LENGTH) })
+  } catch (error) {
+    exitWithUsage(error.message)
+  }
+  input.password = await readSecretFromPrompt('Advertiser password')
+  if (!input.password) {
+    console.error('ERROR: No password entered; nothing was written.')
+    process.exit(1)
+  }
+}
+
 let account
 try {
   account = normalizeAdvertiserAccountInput(input)
 } catch (error) {
-  console.error('ERROR:', error.message)
-  console.error('Usage: node scripts/create-advertiser.mjs --email=you@co.com --password=secret123 --company="Acme Co" [--contact="Jo Smith"]')
-  process.exit(1)
+  exitWithUsage(error.message)
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
@@ -67,6 +102,13 @@ if (lookupError) {
   console.error('If the table is missing, run db/supabase-advertiser-portal.sql in the Supabase SQL Editor first.')
   process.exit(1)
 }
+
+await confirmWriteTarget({
+  action: existing
+    ? `update advertiser ${account.email} (resets password, company and contact)`
+    : `create advertiser ${account.email} (${account.companyName})`,
+  yes: args.yes,
+})
 
 if (existing) {
   const { error } = await supabase
