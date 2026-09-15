@@ -43,6 +43,15 @@ gets the friendly busy reply, the Render log gets a `console.warn` with
 calendar date. That makes one issue per day whose event count is how many
 questions met the cap; a steady climb is the cue to move off Groq's free tier.
 
+**Groq fallback used** (every Groq call: the assistant and the board AI): when
+the main model answers 429 and the client retries on `GROQ_FALLBACK_MODEL`, the
+student still gets a reply, so the retry itself is the only sign the main model
+is at its cap. Each one logs a `console.warn` with the two model ids and Sentry
+gets a warning-level `ai: Groq primary model rate limited, used the fallback
+model` message fingerprinted by the Indianapolis calendar date. If the fallback
+fails for any reason other than its own 429, the main model's 429 is what the
+route sees, so the student still gets the busy reply rather than an error.
+
 **Frontend** (`boilerindy-react/src/main.tsx`): `@sentry/react` is imported
 lazily after first paint (`requestIdleCallback`) so it never sits in the
 initial bundle. Until it is up, `src/lib/errorReporting.ts` covers the gap:

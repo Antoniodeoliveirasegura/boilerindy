@@ -138,11 +138,13 @@ test('createGroqClient reports disabled without a key and falls back to the defa
 // Issue #253: rate-limit headers on the error, and one retry on a second model.
 
 // A fetch that answers from `replies` in order and records every request body.
+// A reply with `throws` rejects the fetch itself, like a network failure.
 function scriptedFetch(replies) {
   const bodies = []
   const fetchImpl = async (_url, init) => {
     bodies.push(JSON.parse(init.body))
     const next = replies[bodies.length - 1]
+    if (next.throws) throw next.throws
     if (next.status === 200) {
       return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: next.content } }] }), text: async () => '' }
     }
@@ -181,14 +183,20 @@ test('GroqUpstreamError carries retry-after and x-ratelimit-remaining-tokens fro
 
 test('a 429 on the primary model is retried once on the fallback model', async () => {
   const { fetchImpl, bodies } = scriptedFetch([
-    { status: 429, body: 'rate limited', headers: { 'retry-after': '12' } },
+    { status: 429, body: 'rate limited', headers: { 'retry-after': '12', 'x-ratelimit-remaining-tokens': '40' } },
     { status: 200, content: 'Tower Dining is open until 9:00 PM.' },
   ])
-  const ai = createGroqClient({ apiKey: 'gsk_testkey', fetchImpl })
+  const heard = []
+  const onFallback = (err, models) => heard.push({ status: err.status, retryAfter: err.retryAfter, remainingTokens: err.remainingTokens, requestsSoFar: bodies.length, ...models })
+  const ai = createGroqClient({ apiKey: 'gsk_testkey', fetchImpl, onFallback })
   assert.equal(ai.fallbackModel, DEFAULT_GROQ_FALLBACK_MODEL)
 
   const text = await ai.reply({ system: 'campus', messages: [{ role: 'user', content: 'lunch?' }], maxOutputTokens: 600 })
   assert.equal(text, 'Tower Dining is open until 9:00 PM.')
+  // The caller hears about the primary's 429 once, before the retry is sent.
+  assert.deepEqual(heard, [
+    { status: 429, retryAfter: 12, remainingTokens: 40, requestsSoFar: 1, model: DEFAULT_GROQ_MODEL, fallbackModel: 'openai/gpt-oss-20b' },
+  ])
   assert.equal(bodies.length, 2)
   assert.equal(bodies[0].model, DEFAULT_GROQ_MODEL)
   assert.equal(bodies[1].model, 'openai/gpt-oss-20b')
@@ -208,11 +216,33 @@ test('a 429 from both models throws the last error; other statuses are not retri
   assert.equal(both.bodies.length, 2, 'exactly one retry')
 
   const serverError = scriptedFetch([{ status: 500, body: 'boom' }, { status: 200, content: 'unused' }])
+  let heard = 0
   await assert.rejects(
-    () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl: serverError.fetchImpl }).reply({}),
+    () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl: serverError.fetchImpl, onFallback: () => heard++ }).reply({}),
     (err) => err.status === 500,
   )
   assert.equal(serverError.bodies.length, 1)
+  assert.equal(heard, 0, 'no fallback, no onFallback')
+})
+
+test('a fallback that fails any other way keeps the primary 429, so the caller still answers busy', async () => {
+  const network = new TypeError('fetch failed')
+  for (const second of [{ status: 404, body: 'model_not_found' }, { status: 503, body: 'over capacity' }, { status: 400, body: 'bad field' }, { throws: network }]) {
+    const { fetchImpl, bodies } = scriptedFetch([{ status: 429, body: 'primary limited', headers: { 'retry-after': '30' } }, second])
+    await assert.rejects(
+      () => createGroqClient({ apiKey: 'gsk_testkey', fetchImpl }).reply({ messages: [{ role: 'user', content: 'hi' }] }),
+      (err) => {
+        assert.ok(err instanceof GroqUpstreamError)
+        assert.equal(err.status, 429)
+        assert.equal(err.body, 'primary limited')
+        assert.equal(err.retryAfter, 30)
+        if (second.throws) assert.equal(err.fallbackError, network)
+        else assert.equal(err.fallbackError.status, second.status)
+        return true
+      },
+    )
+    assert.equal(bodies.length, 2, 'exactly one retry')
+  }
 })
 
 test('the fallback is off for an empty string and when it names the primary model', async () => {

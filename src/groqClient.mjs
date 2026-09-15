@@ -109,14 +109,18 @@ export function extractGroqText(data) {
  * the model returned nothing) and throws GroqUpstreamError on a non-2xx status
  * so each route keeps its own error policy. A 429 from the primary model is
  * retried exactly once on `fallbackModel` (default DEFAULT_GROQ_FALLBACK_MODEL,
- * empty string disables); a 429 from both rethrows the fallback's error.
- * `fetchImpl` is for tests.
+ * empty string disables), after `onFallback(err, { model, fallbackModel })`
+ * hears about the primary's 429. A 429 from both rethrows the fallback's error;
+ * any other fallback failure rethrows the primary's 429 with the failure on
+ * `err.fallbackError`, so the caller still sees "rate limited". `fetchImpl`
+ * is for tests.
  */
 export function createGroqClient({
   apiKey,
   model,
   fallbackModel,
   reasoningEffort,
+  onFallback,
   url = GROQ_CHAT_URL,
   fetchImpl,
 } = {}) {
@@ -159,7 +163,17 @@ export function createGroqClient({
         return await send(resolvedModel, options)
       } catch (err) {
         if (!retryModel || !(err instanceof GroqUpstreamError) || err.status !== 429) throw err
-        return send(retryModel, options)
+        onFallback?.(err, { model: resolvedModel, fallbackModel: retryModel })
+        try {
+          return await send(retryModel, options)
+        } catch (fallbackErr) {
+          if (fallbackErr instanceof GroqUpstreamError && fallbackErr.status === 429) throw fallbackErr
+          // A retired fallback id (404), a 503 or a network error must not hide
+          // the primary's 429, or the route answers "AI service error" instead
+          // of the busy reply.
+          err.fallbackError = fallbackErr
+          throw err
+        }
       }
     },
   }

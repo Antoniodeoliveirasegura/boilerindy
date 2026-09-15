@@ -174,21 +174,27 @@ test('shouldSkipSection drops condiment-style stations only', () => {
 })
 
 test('ingestMenuStations keeps stations in order, skips condiments and dedupes repeated foods', () => {
-  const seen = new Set()
+  const seen = new Map()
   const stations = ingestMenuStations(LUNCH_ROWS, 'lunch', seen)
   assert.deepEqual(
     stations.map((s) => s.name),
     ['Homestyle', 'Daily Grill', 'Pizza', 'Hasta La Pasta', 'Salad Bar', 'Dessert', 'Innovation'],
   )
   const grill = stations.find((s) => s.name === 'Daily Grill')
-  assert.deepEqual(grill.items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'], meal: 'lunch' })
+  assert.deepEqual(grill.items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'], meals: ['lunch'] })
   // "Crushed Red Pepper" is listed under Pizza and again under Hasta La Pasta; it stays with the first.
   assert.ok(stations.find((s) => s.name === 'Pizza').items.some((i) => i.name === 'Crushed Red Pepper'))
   assert.ok(!stations.find((s) => s.name === 'Hasta La Pasta').items.some((i) => i.name === 'Crushed Red Pepper'))
   // 22 foods in the fixture, minus the three condiments, minus the repeated pepper.
   assert.equal(stations.reduce((n, s) => n + s.items.length, 0), 18)
-  // The same rows for a second meal add nothing: every food is already seen.
+  // The same rows for a second meal add nothing: every food is already seen,
+  // and each one now records that it is served at dinner too (issue #253).
   assert.deepEqual(ingestMenuStations(LUNCH_ROWS, 'dinner', seen), [])
+  assert.deepEqual(grill.items[0].meals, ['lunch', 'dinner'])
+  // A repeat within one meal (the pepper) or a meal seen twice is not listed twice.
+  assert.deepEqual(ingestMenuStations(LUNCH_ROWS, 'dinner', seen), [])
+  const pepper = stations.find((s) => s.name === 'Pizza').items.find((i) => i.name === 'Crushed Red Pepper')
+  assert.deepEqual(pepper.meals, ['lunch', 'dinner'])
   assert.deepEqual(ingestMenuStations(null, 'lunch'), [])
 })
 
@@ -226,6 +232,7 @@ test('buildDiningBase fetches menus for the dining hall only, and renderSnapshot
   assert.equal(t.menusPublished, true)
   assert.equal(t.meal, 'Menus: lunch')
   assert.equal(t.stations.length, 7)
+  assert.deepEqual(t.stations[1].items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'], meals: ['lunch'] })
   assert.equal(t.weekly_hours.Wednesday, '7:00 AM - 9:00 PM')
   assert.equal(t.warnings, undefined)
   assert.equal(cc.slug, 'campus-center')
