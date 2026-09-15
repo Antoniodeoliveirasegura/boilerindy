@@ -3,14 +3,19 @@
 //   node scripts/clear-purdue-link.mjs --email=you@gmail.com
 //   node scripts/clear-purdue-link.mjs --purdue=you@purdue.edu
 //   node scripts/clear-purdue-link.mjs --email=you@gmail.com --apply
+//
+// --apply prints the target Supabase host and asks you to type it back before
+// clearing; add --yes to skip the prompt (required when stdin is not a terminal).
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
+import { confirmWriteTarget } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
-  const args = { apply: false }
+  const args = { apply: false, yes: false }
   for (const token of argv) {
     if (token === '--apply') args.apply = true
+    else if (token === '--yes') args.yes = true
     else {
       const match = /^--([^=]+)=(.*)$/.exec(token)
       if (match) args[match[1]] = match[2]
@@ -24,8 +29,8 @@ const loginEmail = args.email?.trim().toLowerCase()
 const purdueEmail = args.purdue?.trim().toLowerCase()
 
 if (!loginEmail && !purdueEmail) {
-  console.error('Usage: node scripts/clear-purdue-link.mjs --email=you@gmail.com [--apply]')
-  console.error('   or: node scripts/clear-purdue-link.mjs --purdue=you@purdue.edu [--apply]')
+  console.error('Usage: node scripts/clear-purdue-link.mjs --email=you@gmail.com [--apply [--yes]]')
+  console.error('   or: node scripts/clear-purdue-link.mjs --purdue=you@purdue.edu [--apply [--yes]]')
   process.exit(1)
 }
 
@@ -73,6 +78,11 @@ if (!args.apply) {
   console.log('\nDry run only. Re-run with --apply to clear purdue_email on the row(s) above.')
   process.exit(0)
 }
+
+await confirmWriteTarget({
+  action: `clear the Purdue link on ${withPurdue.map((row) => row.email).join(', ')}`,
+  yes: args.yes,
+})
 
 for (const row of withPurdue) {
   const { error: updateError } = await supabase

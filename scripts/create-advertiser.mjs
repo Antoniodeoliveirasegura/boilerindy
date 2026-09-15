@@ -20,7 +20,7 @@ import 'dotenv/config'
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { hashPassword } from '../src/passwordHash.mjs'
-import { normalizeAdvertiserAccountInput } from '../src/advertiserAuth.mjs'
+import { ADVERTISER_PASSWORD_MIN_LENGTH, normalizeAdvertiserAccountInput } from '../src/advertiserAuth.mjs'
 import { confirmWriteTarget, readSecretFromPrompt } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
@@ -49,26 +49,39 @@ if (!supabaseUrl || !supabaseServiceKey) {
   process.exit(1)
 }
 
+function exitWithUsage(message) {
+  console.error('ERROR:', message)
+  console.error('Usage: node scripts/create-advertiser.mjs --email=you@co.com --company="Acme Co" [--contact="Jo Smith"] [--yes]')
+  console.error('       The password is read from ADVERTISER_PASSWORD, or prompted for when that is unset.')
+  process.exit(1)
+}
+
 const input = {
   email: args.email ?? process.env.ADVERTISER_EMAIL,
   password: args.password || process.env.ADVERTISER_PASSWORD,
   companyName: args.company ?? process.env.ADVERTISER_COMPANY,
   contactName: args.contact ?? process.env.ADVERTISER_CONTACT,
 }
-// Only prompt once the other required fields are there, so a usage error does
-// not cost a typed password.
-if (!input.password && input.email && input.companyName) {
+if (!input.password) {
+  // Check the other fields with a stand-in password first, so a usage error
+  // names the real problem and does not cost a typed password.
+  try {
+    normalizeAdvertiserAccountInput({ ...input, password: 'x'.repeat(ADVERTISER_PASSWORD_MIN_LENGTH) })
+  } catch (error) {
+    exitWithUsage(error.message)
+  }
   input.password = await readSecretFromPrompt('Advertiser password')
+  if (!input.password) {
+    console.error('ERROR: No password entered; nothing was written.')
+    process.exit(1)
+  }
 }
 
 let account
 try {
   account = normalizeAdvertiserAccountInput(input)
 } catch (error) {
-  console.error('ERROR:', error.message)
-  console.error('Usage: node scripts/create-advertiser.mjs --email=you@co.com --company="Acme Co" [--contact="Jo Smith"] [--yes]')
-  console.error('       The password is read from ADVERTISER_PASSWORD, or prompted for when that is unset.')
-  process.exit(1)
+  exitWithUsage(error.message)
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {

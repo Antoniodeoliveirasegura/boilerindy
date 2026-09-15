@@ -1,17 +1,21 @@
 // Explicit, small live Storage smoke test. Never creates a user or listing.
 // Credentials are read from the backend environment, never printed.
+// Prints the target Supabase host and asks you to type it back before uploading;
+// add --yes to skip the prompt (required when stdin is not a terminal).
 import 'dotenv/config'
 import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createMarketplacePhotos, PHOTO_BUCKET } from '../src/marketplacePhotos.mjs'
+import { confirmWriteTarget } from './lib/confirmTarget.mjs'
 
 if (!process.argv.includes('--live') || !process.argv[2] || process.argv[2].startsWith('--')) {
-  console.error('Usage: node scripts/test-marketplace-photo-storage.mjs /path/to/small-test.jpg --live')
+  console.error('Usage: node scripts/test-marketplace-photo-storage.mjs /path/to/small-test.jpg --live [--yes]')
   process.exit(1)
 }
 const bytes = readFileSync(process.argv[2])
 if (bytes.length > 100000) throw new Error('Use a test JPEG smaller than 100 KB.')
+await confirmWriteTarget({ action: `upload and then remove one test photo in ${PHOTO_BUCKET}`, yes: process.argv.includes('--yes') })
 const client = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
 const photos = createMarketplacePhotos({ supabase: client, secret: process.env.SESSION_SECRET || process.env.BETTER_AUTH_SECRET })
 const user = { id: randomUUID(), purdue_linked_at: new Date().toISOString() }

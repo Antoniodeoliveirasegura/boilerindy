@@ -393,10 +393,11 @@ node scripts/cleanup-marketplace-photos.mjs              # count orphaned market
 node scripts/test-marketplace-photo-storage.mjs ./test.jpg --live # live Storage smoke test (JPEG under 100 KB)
 ```
 
-`grant-admin`, `create-advertiser` and `review-campaign --status` print the target
-Supabase project host and ask you to type it back before writing. Pass `--yes` to
-skip the prompt; without a terminal (CI, pipes) `--yes` is required or the script
-exits without writing.
+Every script that writes (`grant-admin`, `create-advertiser`, `review-campaign --status`,
+`clear-purdue-link --apply`, `cleanup-marketplace-photos --apply` and
+`test-marketplace-photo-storage --live`) prints the target Supabase project host and
+asks you to type it back first. Pass `--yes` to skip the prompt; without a terminal
+(CI, pipes) `--yes` is required or the script exits without writing.
 
 ## Conventions
 

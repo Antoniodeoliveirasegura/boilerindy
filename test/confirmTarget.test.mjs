@@ -124,6 +124,13 @@ test('readSecretFromPrompt returns the typed secret without echoing it', async (
   }
 })
 
+test('readSecretFromPrompt keeps a piped secret that has no trailing newline', async () => {
+  const stdin = fakeStdin()
+  const pending = readSecretFromPrompt('Advertiser password', { stdin, stdout: collector() })
+  stdin.end('hunter2-long-enough')
+  assert.equal(await pending, 'hunter2-long-enough')
+})
+
 test('readSecretFromPrompt returns an empty string when stdin closes', async () => {
   const stdin = fakeStdin()
   const pending = readSecretFromPrompt('Advertiser password', { stdin, stdout: collector() })

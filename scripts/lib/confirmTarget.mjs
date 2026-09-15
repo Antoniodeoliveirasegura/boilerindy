@@ -20,9 +20,12 @@ export function supabaseHost(url) {
 }
 
 // rl.question() never settles when the input closes (Ctrl+C, Ctrl+D, empty
-// pipe), so treat a close as "no answer" instead of hanging the script.
+// pipe), so treat a close as "no answer" instead of hanging the script. A piped
+// last line without a trailing newline reaches readline only as a plain 'line'
+// event at end of input, never the question callback, so take that too.
 function ask(rl, query) {
   return new Promise((resolve) => {
+    rl.once('line', resolve)
     rl.once('close', () => resolve(null))
     rl.question(query).then(resolve, () => resolve(null))
   })
