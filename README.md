@@ -315,6 +315,16 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 - Auth: local email/password + optional Purdue CAS
 - External integrations: Nutrislice dining API, TransLoc transit API, Groq (AI)
 
+### Manual tasks (issue #216)
+
+`POST /api/me/tasks/manual` and `PATCH /api/me/tasks/manual/:id` share the
+parsers in `src/manualTasks.mjs`. `dueAt` is optional: `null` or `''` means no
+deadline, so on PATCH it clears an existing one (the task comes back with
+`startTime: null`), while leaving `dueAt` out of a PATCH keeps the current date.
+A malformed `dueAt` (a non-string or an unparseable date) is a `400` on both
+routes. A title is required on create and, when a PATCH supplies one, follows the
+same rule: trimmed, non-empty, at most 500 characters.
+
 ### Calendar feed (subscribable .ics)
 
 Each user can mint a private, subscribable calendar feed of their classes
