@@ -10,10 +10,10 @@
  * docs/dining.md for the source decision and the payload contract.
  *
  * Shape: a pure core (raw Nutrislice rows in, normalized locations out, with
- * the open/closed rule), a fetch shell with an injectable fetch, and a cache
- * that holds the expensive part (schools + menus) for hours while the
- * open/closed status is recomputed on every read, so "Open now" is never
- * hours stale.
+ * the open/closed rule), a fetch shell with an injectable fetch, and a
+ * per-date cache that holds the expensive part (schools + menus) for hours,
+ * with one upstream crawl at a time per date, while the open/closed status is
+ * recomputed on every read, so "Open now" is never hours stale.
  */
 
 export const DEFAULT_API_BASE = 'https://iupui.api.nutrislice.com'
@@ -26,6 +26,16 @@ const DEFAULT_CACHE_MS = 12 * 60 * 60 * 1000
 // attempt every few minutes instead of one per page view, while the last good
 // snapshot keeps serving.
 export const FAILURE_RETRY_MS = 5 * 60 * 1000
+// `?refresh=1` is public, so it is only a hint: a date is refetched on request
+// at most once per this interval, however many clients ask (issue #208).
+export const MIN_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+// Dates cached at once. The route's date window (yesterday to today + 14) is
+// 16 days, so every date a client may ask for fits.
+export const MAX_CACHE_DATES = 16
+// The window itself, in days from today on the Indianapolis calendar.
+const DATE_WINDOW_PAST_DAYS = 1
+const DATE_WINDOW_FUTURE_DAYS = 14
+const DAY_MS = 24 * 60 * 60 * 1000
 
 // The two halls the iupui district publishes. Nutrislice carries no address or
 // coordinates for them, so the street addresses (for the directions link) are
@@ -57,7 +67,11 @@ const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 export const RETAIL_MENU_NOTE = 'Retail dining, no posted menu'
 export const NO_MENU_NOTE = 'Menu not posted yet'
 
-let cache = null
+// Schools + menus per Indianapolis date (YYYY-MM-DD -> entry), and the crawl
+// running for a date, so concurrent misses share it. A snapshot for another
+// date no longer evicts today's (issue #208).
+const entries = new Map()
+const inFlight = new Map()
 
 function apiBase() {
   return (process.env.NUTRISLICE_API_BASE || DEFAULT_API_BASE).replace(/\/$/, '')
@@ -125,6 +139,27 @@ export function weekdayForYmd(ymd) {
   const p = ymdParts(ymd)
   if (!p) return null
   return DAY_LABELS[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]
+}
+
+/**
+ * Checks a `?date=YYYY-MM-DD` against the snapshot window: yesterday through
+ * today + 14, counted on the Indianapolis calendar (issue #208). Returns
+ * { ok: true, ymd } for a real calendar date inside it, { ok: false } for
+ * anything else (bad format, 2026-13-01, 2026-02-30, out of range).
+ */
+export function clampDiningDate(dateStr, now = new Date()) {
+  if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return { ok: false }
+  const p = ymdParts(dateStr)
+  const wantMs = Date.UTC(p.year, p.month - 1, p.day)
+  const check = new Date(wantMs)
+  if (check.getUTCFullYear() !== p.year || check.getUTCMonth() !== p.month - 1 || check.getUTCDate() !== p.day) {
+    return { ok: false }
+  }
+  const today = ymdParts(todayYmdInZone(now, FALLBACK_TZ))
+  if (!today) return { ok: false }
+  const offsetDays = Math.round((wantMs - Date.UTC(today.year, today.month - 1, today.day)) / DAY_MS)
+  if (offsetDays < -DATE_WINDOW_PAST_DAYS || offsetDays > DATE_WINDOW_FUTURE_DAYS) return { ok: false }
+  return { ok: true, ymd: dateStr }
 }
 
 // ── Hours (pure) ────────────────────────────────────────────────────────────
@@ -417,66 +452,97 @@ function errorSnapshot(status, ymd, now, ttl) {
   }
 }
 
+// Writing a date moves it to the back of the Map; past MAX_CACHE_DATES the
+// front (the date written longest ago) is dropped.
+function storeEntry(ymd, entry) {
+  entries.delete(ymd)
+  entries.set(ymd, entry)
+  while (entries.size > MAX_CACHE_DATES) entries.delete(entries.keys().next().value)
+  return entry
+}
+
+/** The payload for a cache entry, with open/closed computed for `now`. */
+function snapshotFromEntry(entry, now, ttl, cached) {
+  if (!entry.base) return { ...entry.error, cached }
+  return {
+    ...renderSnapshot(entry.base, now),
+    fetchedAt: entry.fetchedAt,
+    cacheTtlMs: ttl,
+    cached,
+    stale: entry.stale === true,
+    cacheExpiresAt: new Date(entry.expiresAt).toISOString(),
+  }
+}
+
 /**
- * Cached dining snapshot. Schools and menus are fetched at most every
- * NUTRISLICE_CACHE_MS (12 h) or when the Indianapolis date rolls over; the
- * open/closed status is recomputed for every call. While Nutrislice is down
- * the last good data keeps serving (`stale: true`) and upstream is retried
- * every FAILURE_RETRY_MS.
+ * One upstream crawl for a date: schools, then menus. `checkedAt` records the
+ * attempt for the refresh floor. Resolves to the stored entry, with `cached`
+ * true when an outage left the date's last good data serving instead.
+ */
+async function refreshDiningEntry(ymd, now, ttl, fetchImpl) {
+  const nowMs = now.getTime()
+  const schoolsRes = await fetchNutrisliceJson('/menu/api/schools/', fetchImpl)
+  if (!schoolsRes.ok || !Array.isArray(schoolsRes.data)) {
+    const prev = entries.get(ymd)
+    if (prev?.base) {
+      // Outage: keep serving the last good data, try upstream again shortly.
+      const entry = storeEntry(ymd, { ...prev, checkedAt: nowMs, expiresAt: nowMs + FAILURE_RETRY_MS, stale: true })
+      return { entry, cached: true }
+    }
+    const error = errorSnapshot(schoolsRes.status, ymd, now, FAILURE_RETRY_MS)
+    const entry = storeEntry(ymd, { base: null, error, checkedAt: nowMs, expiresAt: nowMs + FAILURE_RETRY_MS })
+    return { entry, cached: false }
+  }
+
+  const base = await buildDiningBase(schoolsRes.data, ymd, { fetchImpl })
+  const entry = storeEntry(ymd, {
+    base,
+    fetchedAt: now.toISOString(),
+    checkedAt: nowMs,
+    expiresAt: nowMs + ttl,
+    stale: false,
+    error: null,
+  })
+  return { entry, cached: false }
+}
+
+/**
+ * Cached dining snapshot, one cache entry per Indianapolis date (issue #208).
+ * Schools and menus are fetched at most every NUTRISLICE_CACHE_MS (12 h) per
+ * date, today's key moves on when the date rolls over, and concurrent misses
+ * for a date share one crawl. The open/closed status is recomputed for every
+ * call. `forceRefresh` is a hint: it skips the TTL only once the date's last
+ * upstream attempt is MIN_REFRESH_INTERVAL_MS old, and the payload then says
+ * whether it did (`refreshed`). While Nutrislice is down the last good data
+ * keeps serving (`stale: true`) and upstream is retried every
+ * FAILURE_RETRY_MS.
  */
 export async function getDiningSnapshot(options = {}) {
   const { forceRefresh = false, date: dateOverride, now = new Date(), fetchImpl } = options
   const nowMs = now.getTime()
   const ttl = cacheMs()
   const wantYmd = dateOverride || todayYmdInZone(now, FALLBACK_TZ)
+  const entry = entries.get(wantYmd)
 
-  const fresh = cache && cache.base && nowMs < cache.expiresAt && cache.base.date === wantYmd
-  if (!forceRefresh && fresh) {
-    return {
-      ...renderSnapshot(cache.base, now),
-      fetchedAt: cache.fetchedAt,
-      cacheTtlMs: ttl,
-      cached: true,
-      stale: cache.stale === true,
-      cacheExpiresAt: new Date(cache.expiresAt).toISOString(),
+  const refreshDue = forceRefresh && (!entry || nowMs - entry.checkedAt >= MIN_REFRESH_INTERVAL_MS)
+  let snapshot
+  if (entry && nowMs < entry.expiresAt && !refreshDue) {
+    snapshot = snapshotFromEntry(entry, now, ttl, true)
+  } else {
+    let pending = inFlight.get(wantYmd)
+    if (!pending) {
+      pending = refreshDiningEntry(wantYmd, now, ttl, fetchImpl).finally(() => {
+        inFlight.delete(wantYmd)
+      })
+      inFlight.set(wantYmd, pending)
     }
+    const result = await pending
+    snapshot = snapshotFromEntry(result.entry, now, ttl, result.cached)
   }
-  if (!forceRefresh && cache && !cache.base && nowMs < cache.expiresAt && cache.error) {
-    return { ...cache.error, cached: true }
-  }
-
-  const schoolsRes = await fetchNutrisliceJson('/menu/api/schools/', fetchImpl)
-  if (!schoolsRes.ok || !Array.isArray(schoolsRes.data)) {
-    if (cache?.base && cache.base.date === wantYmd) {
-      // Outage: keep serving the last good data, try upstream again shortly.
-      cache = { ...cache, expiresAt: nowMs + FAILURE_RETRY_MS, stale: true }
-      return {
-        ...renderSnapshot(cache.base, now),
-        fetchedAt: cache.fetchedAt,
-        cacheTtlMs: ttl,
-        cached: true,
-        stale: true,
-        cacheExpiresAt: new Date(cache.expiresAt).toISOString(),
-      }
-    }
-    const error = errorSnapshot(schoolsRes.status, wantYmd, now, FAILURE_RETRY_MS)
-    cache = { base: null, error, expiresAt: nowMs + FAILURE_RETRY_MS }
-    return error
-  }
-
-  const base = await buildDiningBase(schoolsRes.data, wantYmd, { fetchImpl })
-  const fetchedAt = now.toISOString()
-  cache = { base, fetchedAt, expiresAt: nowMs + ttl, stale: false, error: null }
-  return {
-    ...renderSnapshot(base, now),
-    fetchedAt,
-    cacheTtlMs: ttl,
-    cached: false,
-    stale: false,
-    cacheExpiresAt: new Date(cache.expiresAt).toISOString(),
-  }
+  return forceRefresh ? { ...snapshot, refreshed: !snapshot.cached } : snapshot
 }
 
 export function __resetDiningCacheForTests() {
-  cache = null
+  entries.clear()
+  inFlight.clear()
 }

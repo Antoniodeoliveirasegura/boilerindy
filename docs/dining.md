@@ -62,10 +62,24 @@ core, a fetch shell with an injectable fetch, and a cache.
   cached the endpoint answers `ok: false` and retries on the same schedule
   (it used to remember a failure for the full 12 hours).
 
+The cache is keyed by date (issue #208): one entry per Indianapolis
+`YYYY-MM-DD`, at most `MAX_CACHE_DATES` (16), the date written longest ago
+dropped first, so a request for tomorrow no longer evicts today's menus.
+Concurrent misses for a date share one upstream crawl, and an outage is served
+and retried per date. `?refresh=1` stays public but is only a hint: it skips
+the TTL once the date's last upstream attempt is at least
+`MIN_REFRESH_INTERVAL_MS` (10 minutes) old; otherwise the cached snapshot comes
+back with `refreshed: false`, so however many clients ask, refresh requests
+cannot make a date crawl more than once per ten minutes. `?date=` must fall
+between yesterday and today + 14 on the Indianapolis calendar
+(`clampDiningDate`, the same 16 days as the cache bound); anything else, a
+malformed date included, answers
+`400 { ok: false, error: "dining_bad_date", locations: [] }`.
+
 ## The snapshot
 
 ```
-{ ok, date, weekday, timezone, apiBase, fetchedAt, cacheTtlMs, cached, stale, cacheExpiresAt, missing,
+{ ok, date, weekday, timezone, apiBase, fetchedAt, cacheTtlMs, cached, stale, cacheExpiresAt, refreshed?, missing,
   locations: [{
     id, slug, name, kind: "dining-hall" | "retail", address,
     is_open, hours, closes_at, opens_at, open24h, weekly_hours: { Monday: "7:00 AM - 9:00 PM", ... }, timezone,
@@ -77,8 +91,10 @@ core, a fetch shell with an injectable fetch, and a cache.
 `weekday` is the Indianapolis calendar day the snapshot was built for. The
 page and the dashboard highlight that day rather than the browser's, since a
 student (or the owner, on KST) can be on a different date from campus.
-`?refresh=1` forces a refetch; `?date=YYYY-MM-DD` builds a snapshot for
-another day. Both go through the `public-read` rate limiter.
+`?refresh=1` asks for a refetch, held to the ten-minute floor above, and only
+an answer to a refresh request carries `refreshed`; `?date=YYYY-MM-DD` builds a
+snapshot for another day in the window. Both go through the `public-read` rate
+limiter.
 
 ## The page
 
@@ -104,8 +120,10 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   (the real school rows, one real Tower lunch day trimmed to three foods per
   station, the Campus Center's real empty week): hours and status including
   24-hour and past-midnight windows, station parsing with skipped condiments
-  and dedupe, the snapshot for both halls with an injected fetch, and the cache
-  (status recomputed per read, date rollover, stale-on-outage, short retry).
+  and dedupe, the snapshot for both halls with an injected fetch, the cache
+  (status recomputed per read, date rollover, stale-on-outage, short retry,
+  per-date entries and the 16-date bound, one crawl for concurrent misses, the
+  refresh floor) and the `clampDiningDate` window.
 - `boilerindy-react/src/lib/dining.test.ts`: status line, empty states,
   directions URL, campus weekday, header pill.
 - `e2e/dining.spec.js`: the page against the mocked snapshot, including the
