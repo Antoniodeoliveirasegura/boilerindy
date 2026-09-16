@@ -13,7 +13,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Two workers on a 4 vCPU GitHub runner: the suite is fullyParallel and the
+  // backend is mocked per context, so nothing is shared between tests. One
+  // worker made the e2e job the longest in CI and set the pace of every merge.
+  workers: process.env.CI ? 2 : undefined,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL,

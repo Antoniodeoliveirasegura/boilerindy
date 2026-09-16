@@ -106,8 +106,23 @@ jobs:
       # The Playwright config builds + previews the frontend and mocks the
       # backend at the network layer, so no Supabase secrets or Express server
       # are needed here.
+      # Downloading Chromium took 38s of a 156s job. The cache key follows the
+      # Playwright version pinned in the root lockfile, so a bump busts it.
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles(pnpm-lock.yaml) }}
+
       - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != true
         run: pnpm exec playwright install --with-deps chromium
+
+      # The browser binary is cached but the OS libraries it links against are not.
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == true
+        run: pnpm exec playwright install-deps chromium
 
       - name: Run E2E tests
         run: pnpm run test:e2e
