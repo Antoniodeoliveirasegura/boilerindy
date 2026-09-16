@@ -1,23 +1,42 @@
 import type { ReactNode } from 'react'
 
+const HTML_ENTITIES: Record<string, string> = {
+  nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  '#39': "'",
+}
+
+// Something that starts like a tag: `<` then a letter, `/`, `!` or `?`. A bare
+// `<` in prose ("under $5 &lt; $8") is not one and is kept.
+const TAG_RE = /<\/?[a-z!?][^>]*>/gi
+
 /**
- * Strip HTML tags and decode common entities, returning plain text.
+ * Strip HTML tags and decode common entities, returning plain text (issue #295).
+ *
+ * Order matters. Entities decode first, in one left-to-right pass, so doubly
+ * escaped input unescapes exactly once (`&amp;lt;` stays `&lt;`) and markup a
+ * feed escaped (`&lt;b&gt;Free pizza&lt;/b&gt;`) is removed with the real tags
+ * instead of showing up as brackets. Tags are then stripped until nothing
+ * changes, so a nested fragment like `<scr<b>ipt>` cannot reassemble into a tag.
+ * The result is plain text for React to render; it is not an HTML sanitizer.
  */
 export function stripHtml(html: string | null | undefined): string {
   if (!html) return ''
-  return html
+  let s = html
+    .replace(/&(nbsp|amp|lt|gt|quot|apos|#39);/gi, (match, name: string) => HTML_ENTITIES[name.toLowerCase()] ?? match)
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<\/li>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  let previous: string
+  do {
+    previous = s
+    s = s.replace(TAG_RE, '')
+  } while (s !== previous)
+  return s.replace(/\n{3,}/g, '\n\n').trim()
 }
 
 /**
