@@ -69,8 +69,12 @@ function formatRetry(seconds) {
  *   null to fall back to the client IP; used where the caller is identified
  *   by something other than the cookie session (issue #217).
  * @param {string} [options.message] User-facing message on 429
+ * @param {(req: object, res: object, info: { retryAfterSeconds: number }) => void} [options.onLimit]
+ *   Answers a blocked request instead of the JSON 429, for routes whose caller
+ *   is a browser redirect rather than a fetch (issue #293). The RateLimit
+ *   headers, Retry-After and the log line are the same either way.
  */
-export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message }) {
+export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message, onLimit }) {
   const envKey = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
   const limit = envNumber(`RATE_LIMIT_${envKey}_MAX`, max)
   const window = envNumber(`RATE_LIMIT_${envKey}_WINDOW_MS`, windowMs)
@@ -105,6 +109,7 @@ export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', mes
       )
     }
     res.setHeader('Retry-After', String(retryAfterSeconds))
+    if (typeof onLimit === 'function') return onLimit(req, res, { retryAfterSeconds })
     return res.status(429).json({
       error: {
         message: message || `Too many requests. Please try again in ${formatRetry(retryAfterSeconds)}.`,

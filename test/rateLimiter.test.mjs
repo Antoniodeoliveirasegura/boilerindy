@@ -117,3 +117,38 @@ test('two actors behind one IP get separate buckets with a keyBy function', () =
   assert.equal(pass(limiter, a), false, 'alice is out of budget')
   assert.equal(pass(limiter, b), true, 'bob still has his own budget behind the same IP')
 })
+
+// ── onLimit (#293) ───────────────────────────────────────────────────────────
+
+test('onLimit answers a blocked request in place of the JSON 429', () => {
+  const calls = []
+  const limiter = createRateLimiter({
+    name: 'test-on-limit',
+    windowMs: 60_000,
+    max: 1,
+    keyBy: 'ip',
+    onLimit: (req, res, info) => {
+      calls.push({ path: req.path, retryAfterSeconds: info.retryAfterSeconds })
+      res.statusCode = 302
+    },
+  })
+  const ctx = mockReqRes({ ip: '10.0.0.30' })
+
+  assert.equal(pass(limiter, ctx), true)
+  assert.equal(calls.length, 0, 'not called while under the limit')
+
+  const warn = console.warn
+  console.warn = () => {}
+  try {
+    assert.equal(pass(limiter, ctx), false, 'still blocked')
+  } finally {
+    console.warn = warn
+  }
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].path, '/api/test')
+  assert.ok(calls[0].retryAfterSeconds > 0)
+  assert.equal(ctx.res.statusCode, 302, 'the hook chose the response')
+  assert.equal(ctx.res.body, undefined, 'no JSON body was written')
+  assert.ok(ctx.res.headers['Retry-After'], 'headers are set before the hook runs')
+  assert.equal(ctx.res.headers['RateLimit-Remaining'], '0')
+})

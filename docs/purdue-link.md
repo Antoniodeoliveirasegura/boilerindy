@@ -42,9 +42,12 @@ identifies the student for exactly one link attempt.
 4. On any failure the redirect is `boilerindyapp://purdue-linked?status=error&reason=<reason>&message=<text>`.
    Reasons: `invalid` (bad signature or shape), `expired` (older than 10
    minutes), `used` (already spent), `unauthorized` (student no longer exists),
-   `disabled`, `cas-config`, `cas-mode`, `missing-ticket`, `link-failed` (for
-   example the Purdue email is already linked to another account; `message`
-   carries the same text the website shows).
+   `disabled`, `cas-config`, `cas-mode`, `missing-ticket`, `rate-limited` (more
+   than 30 link requests in 15 minutes, see below), `link-failed` (for example
+   the Purdue email is already linked to another account, the student's
+   profile is already linked to a different Purdue account, or Purdue CAS did
+   not answer within 8 seconds; `message` carries the same text the website
+   shows).
 
 5. The app refetches `GET /api/session`; `user.hasPurdueLinked` is now true.
 
@@ -62,8 +65,25 @@ identifies the student for exactly one link attempt.
 - The return scheme comes from `NATIVE_APP_SCHEME` (default `boilerindyapp`),
   validated against the RFC 3986 scheme grammar, never from the request, so the
   callback cannot be turned into an open redirect.
-- The website flow (`?next=` and the cookie) is unchanged; `t` and `next` are
-  never combined, `t` wins.
+- The website flow (`?next=` and the cookie) is bound to the session that
+  started it by a single-use `state` nonce (issue #293). `GET
+  /auth/purdue/connect` stores a random nonce in the session and adds it to the
+  service URL, so it is part of what CAS signs; the callback spends the nonce
+  before anything else and refuses a missing or wrong `state` with
+  `/settings?error=purdue-link-state`, before any call to Purdue and before any
+  write. The native flow never carries a `state`: the signed token binds it.
+  `t` and `next` are never combined, `t` wins.
+- Connect, the mock form and the callback share the `purdue-link-flow` limit
+  (30 per 15 minutes, see [RATE_LIMITS.md](RATE_LIMITS.md)), checked before the
+  student is loaded. A live token is its own bucket, then the website session
+  user, then the IP, so a forged `t` never buys a fresh budget. A throttled
+  request is still a redirect: `reason=rate-limited` for the app,
+  `/settings?error=purdue-link-throttled` for the website.
+- A link never replaces a different Purdue address already on the profile;
+  the student is told to contact support, since only an admin can release a
+  link (`POST /api/admin/purdue-links/clear`).
+- Ticket validation has the same 8 second deadline as every other upstream
+  call (`src/upstreamFetch.mjs`).
 
 ## Local testing
 
@@ -76,3 +96,8 @@ curl -s -b 'pih.sid=<cookie>' -X POST http://127.0.0.1:3000/api/purdue/link-toke
 Open the returned `connectUrl` in a private window (no website cookie): the mock
 form appears, and submitting it redirects to `boilerindyapp://purdue-linked?status=ok`.
 Opening the same `connectUrl` again redirects with `reason=used`.
+
+The website `state` check can be exercised in any mode, because it runs before
+the ticket is looked at. Signed in, open
+`http://127.0.0.1:3000/auth/purdue/callback?next=/setup&state=wrong&ticket=ST-1`:
+it lands on `/settings?error=purdue-link-state` and makes no request to CAS.
