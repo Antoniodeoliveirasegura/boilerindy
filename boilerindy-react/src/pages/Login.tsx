@@ -173,9 +173,20 @@ export default function Login() {
         // Establish the client Supabase session in the background - only needed
         // for OAuth and silent re-hydration after a backend restart. Its
         // onAuthStateChange listener reconciles the context session. On failure,
-        // clear any stale local session so it can't re-hydrate as another user.
-        void signInWithEmail(email.trim(), password).catch(() => {
-          void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        // clear a stale local session so it can't re-hydrate as another user,
+        // but only when one is actually there: signOut() broadcasts SIGNED_OUT
+        // with nothing to sign out of, and that tore down the backend session
+        // applied above, bouncing a valid sign-in back to /login every time
+        // Supabase was unreachable (issue #298).
+        void signInWithEmail(email.trim(), password).catch(async () => {
+          try {
+            const {
+              data: { session: stale },
+            } = await supabase.auth.getSession()
+            if (stale) await supabase.auth.signOut({ scope: 'local' })
+          } catch {
+            // No readable local session, so there is nothing to clear.
+          }
         })
 
         navigate(resolvePostLoginPath(window.location.search, signedIn?.onboarding), { replace: true })
