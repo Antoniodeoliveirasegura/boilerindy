@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Both jobs only read the repository: checkout, install, lint, test, build. The
+# cache and artifact steps authenticate with the Actions runtime token, not
+# GITHUB_TOKEN. Declaring read-only here keeps it that way even if the
+# repository default changes (CodeQL actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
