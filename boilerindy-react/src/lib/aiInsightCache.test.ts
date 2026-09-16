@@ -68,13 +68,18 @@ describe('clearAiCaches', () => {
     localStorage.setItem('ai-week-ahead-2026-09-07', '"old digest"')
     localStorage.setItem('boilerindy-board-draft-v1', '{"title":"old","body":""}')
     localStorage.setItem('boilerindy-board-draft-v1-user-1', '{"title":"draft","body":""}')
+    // The dashboard's cached location and its prompt flag (issue #294), plus the
+    // full-precision key written before it.
+    localStorage.setItem('boilerindy-user-location-v2', '{"lat":40.424,"lon":-86.921,"ts":1789560000000}')
+    localStorage.setItem('boilerindy-user-location-v1', '{"lat":40.4237054,"lon":-86.9211946}')
+    localStorage.setItem('boilerindy-geo-asked-v1', '1')
     // Stores that must survive a sign-out.
     localStorage.setItem('boilerindy-task-priority-v1-user-1', '{"task-a":"high"}')
     localStorage.setItem('boilerindy-dashboard-layout-v1-user-1', '[]')
     localStorage.setItem('pih-theme', 'dark')
   }
 
-  test('removes only the ai-* and board draft keys', () => {
+  test('removes only the ai-*, board draft and location keys', () => {
     seed()
     clearAiCaches()
     expect(Object.keys(localStorage).sort()).toEqual([
@@ -84,7 +89,7 @@ describe('clearAiCaches', () => {
     ])
   })
 
-  test('keepBoardDrafts removes the ai-* keys and leaves the drafts', () => {
+  test('keepBoardDrafts removes the ai-* and location keys and leaves the drafts', () => {
     seed()
     clearAiCaches({ keepBoardDrafts: true })
     expect(Object.keys(localStorage).sort()).toEqual([
