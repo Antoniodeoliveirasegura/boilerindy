@@ -12,8 +12,19 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // One retry, not two, and a flaky pass is a failed run. Two retries plus a
+  // silent "1 flaky" is how the sign-in bounce (issue #298) rode through CI for
+  // weeks: the test failed on attempt 1, passed on attempt 3, and the job went
+  // green. One retry still absorbs genuine runner flake (a cold preview server,
+  // a dropped port) without hiding a real defect. Checked before turning this
+  // on: across the last 14 green CI runs the only test that ever passed on
+  // retry was auth.spec.js:49, which is that bug and is now fixed.
+  retries: process.env.CI ? 1 : 0,
+  failOnFlakyTests: !!process.env.CI,
+  // Two workers on a 4 vCPU GitHub runner: the suite is fullyParallel and the
+  // backend is mocked per context, so nothing is shared between tests. One
+  // worker made the e2e job the longest in CI and set the pace of every merge.
+  workers: process.env.CI ? 2 : undefined,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL,
