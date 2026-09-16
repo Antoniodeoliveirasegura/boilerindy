@@ -172,7 +172,7 @@ async function runCalendarCapture(job) {
       ;({ chromium } = await import('playwright'))
     } catch (e) {
       throw new Error(
-        'Playwright is not available. From the project root run: npx playwright install chromium',
+        'Playwright is not available. From the project root run: pnpm exec playwright install chromium',
       )
     }
 
@@ -188,7 +188,7 @@ async function runCalendarCapture(job) {
       const msg = e?.message || String(e)
       throw new Error(
         msg.includes('Executable doesn') || msg.includes('browser')
-          ? `Chromium not found. Run: npx playwright install chromium (from outside Cursor sandbox / in a regular terminal)`
+          ? `Chromium not found. Run: pnpm exec playwright install chromium (from outside Cursor sandbox / in a regular terminal)`
           : msg,
       )
     }

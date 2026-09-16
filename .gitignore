@@ -2,6 +2,10 @@ node_modules/
 .claude/
 data/
 
+# Foreign lockfiles: dependencies install with pnpm only (pnpm-lock.yaml)
+package-lock.json
+yarn.lock
+
 # Environment variables (sensitive - never commit)
 .env
 .env.*
