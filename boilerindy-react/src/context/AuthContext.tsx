@@ -73,6 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     purdueAuthMode: 'mock',
   })
 
+  // Does the backend session we are holding belong to the Supabase client
+  // session, or did the sign-in form apply it straight from the server? Only
+  // the first kind may be torn down by a SIGNED_OUT. Issue #298.
+  const supabaseOwnsSession = useRef(false)
+
   const postSync = useCallback(
     async (supabaseSession: SupabaseSession): Promise<BackendSession | null> => {
       try {
@@ -167,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSupabaseUser(supabaseSession.user)
         const backendSession = await syncUserToBackend(supabaseSession)
         if (backendSession) {
+          supabaseOwnsSession.current = true
           setSession(backendSession)
           return backendSession
         }
@@ -185,6 +191,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Set the backend session directly from a payload the server already returned
   // (e.g. POST /api/auth/sign-in), avoiding a refetch round-trip. Issue #111.
   const applySession = useCallback((next: BackendSession | null) => {
+    // Straight from POST /api/auth/sign-in, so the cookie is authoritative and
+    // survives a Supabase SIGNED_OUT. Issue #298.
+    supabaseOwnsSession.current = false
     setSession(next)
   }, [])
 
@@ -203,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let config: AuthConfig = { authProvider: 'local', purdueAuthMode: 'mock' }
 
         if (supabaseSession) {
+          supabaseOwnsSession.current = true
           setSupabaseUser(supabaseSession.user)
           // Sync (which establishes the backend session from the Supabase token)
           // and the static auth-config run together - no waterfall. Issue #111.
@@ -255,6 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSupabaseUser(supabaseSession.user)
         const backendSession = await syncUserToBackend(supabaseSession)
         if (backendSession) {
+          supabaseOwnsSession.current = true
           setSession(backendSession)
         }
       } else if (event === 'SIGNED_OUT') {
@@ -264,7 +275,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // are per user too and must survive a re-login (issue #23).
         clearAiCaches({ keepBoardDrafts: true })
         setSupabaseUser(null)
-        setSession(null)
+        // The Supabase session is gone either way, but a backend session the
+        // sign-in form applied was never Supabase's to revoke. Clearing it
+        // anyway bounced a valid sign-in back to /login whenever the background
+        // client sign-in failed and Login cleared its local session. Issue #298.
+        if (supabaseOwnsSession.current) {
+          supabaseOwnsSession.current = false
+          setSession(null)
+        }
       }
     })
 
@@ -286,6 +304,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // insight written while they were in flight goes too.
       clearAiCaches()
     }
+    supabaseOwnsSession.current = false
     setSession(null)
     setSupabaseUser(null)
   }, [])

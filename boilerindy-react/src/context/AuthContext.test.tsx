@@ -300,3 +300,74 @@ describe('sign-out clears per-user caches (issue #219)', () => {
     expect(result.current.session).toBeNull()
   })
 })
+
+// Issue #298 - when the background Supabase sign-in failed, Login called
+// signOut({ scope: 'local' }) to drop a possibly stale client session. signOut()
+// broadcasts SIGNED_OUT even with nothing to sign out of, and the listener took
+// that as permission to drop the backend session the form had applied a few
+// lines earlier, so RequireAuth bounced a valid sign-in back to /login.
+describe('SIGNED_OUT and a backend-applied session (issue #298)', () => {
+  test('a SIGNED_OUT leaves a session the sign-in form applied in place', async () => {
+    const result = await mountAuth()
+
+    await act(async () => {
+      result.current.applySession(backendSession)
+    })
+    await act(async () => {
+      await emitAuthEvent('SIGNED_OUT', null)
+    })
+
+    expect(result.current.session).toEqual(backendSession)
+    expect(result.current.user).toEqual(backendSession.user)
+    // Supabase's own half of the state still goes.
+    expect(result.current.supabaseUser).toBeNull()
+  })
+
+  test('the per-user AI caches still go when the backend session stays', async () => {
+    localStorage.clear()
+    const result = await mountAuth()
+    localStorage.setItem('ai-week-ahead-user-1-2026-09-14', '"digest"')
+
+    await act(async () => {
+      result.current.applySession(backendSession)
+    })
+    await act(async () => {
+      await emitAuthEvent('SIGNED_OUT', null)
+    })
+
+    expect(localStorage.getItem('ai-week-ahead-user-1-2026-09-14')).toBeNull()
+    expect(result.current.session).toEqual(backendSession)
+  })
+
+  // Once the client sign-in does land, Supabase owns the session again and a
+  // later sign-out has to clear it.
+  test('a SIGNED_IN hands the session back to Supabase, so the next SIGNED_OUT clears it', async () => {
+    const result = await mountAuth()
+
+    await act(async () => {
+      result.current.applySession(backendSession)
+    })
+    await act(async () => {
+      await emitAuthEvent('SIGNED_IN', makeSupabaseSession('tok-2'))
+    })
+    await act(async () => {
+      await emitAuthEvent('SIGNED_OUT', null)
+    })
+
+    expect(result.current.session).toBeNull()
+  })
+
+  test('an explicit signOut clears a backend-applied session', async () => {
+    const result = await mountAuth()
+
+    await act(async () => {
+      result.current.applySession(backendSession)
+    })
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(result.current.session).toBeNull()
+    expect(result.current.supabaseUser).toBeNull()
+  })
+})

@@ -77,4 +77,32 @@ test.describe('Authentication', () => {
     await page.goto('/login')
     await expect(page).toHaveURL(/\/dashboard/)
   })
+
+  // Issue #298. The backend sign-in is authoritative, so a failing client
+  // Supabase sign-in must not take the session down with it. The fixture answers
+  // every /auth/v1/** call with a 400, which is the same degraded path a Supabase
+  // outage or a bad anon key produces in production.
+  //
+  // Deliberately deterministic: it waits for the failed token call and then for a
+  // settling window, rather than polling a URL that is only briefly wrong. The
+  // test above can sample inside the 6-22ms bounce window and pass by luck, which
+  // is how this walked through CI as flake for weeks.
+  test('a failed Supabase client sign-in does not bounce the student back to login', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/login')
+
+    const failedTokenCall = page.waitForResponse(
+      (response) => response.url().includes('/auth/v1/token') && response.status() === 400,
+    )
+
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+
+    await failedTokenCall
+    await page.waitForTimeout(500)
+
+    await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page).not.toHaveURL(/\/login/)
+  })
 })
