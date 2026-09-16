@@ -49,7 +49,7 @@ This section explains how to run the full stack (frontend + backend) on your own
 
 ### Prerequisites
 
-- **Node.js 22+** - check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22.)
+- **Node.js 22.22.2+** - check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22; `boilerindy-react/.nvmrc` pins 22.22.3.)
 - **npm** - comes with Node.js.
 - **Supabase project** - you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
 
