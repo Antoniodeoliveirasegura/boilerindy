@@ -125,6 +125,18 @@ test('garages without a matching marker still get coordinates from the static ta
   assert.equal(g.sports.icon, null)
 })
 
+test('entities in a garage name or address are decoded exactly once (issue #295)', () => {
+  const html = [
+    '<h1>Lot &amp;quot;A&amp;quot; &amp; Annex</h1>',
+    '<h3>1 Main St &amp;amp; 2nd</h3>',
+    '<div><p>Rates: <b>Free</b><br>Capacity: <b>10</b><br></p>',
+  ].join('\n')
+  const [lot] = parseLotCountHtml(html)
+  assert.equal(lot.name, 'Lot &quot;A&quot; & Annex')
+  assert.equal(lot.address, '1 Main St &amp; 2nd')
+  assert.equal(lot.capacity, 10)
+})
+
 test('a page with no garage blocks is reported as a format change, not an empty lot list', () => {
   const snap = buildSnapshot('<html><body>Maintenance</body></html>', { now: NOW })
   assert.equal(snap.ok, false)

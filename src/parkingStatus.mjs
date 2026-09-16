@@ -77,12 +77,15 @@ export const PERMIT_INFO = {
 const BLOCK_RE = /<h1>([^<]+)<\/h1>\s*<h3>([^<]+)<\/h3>([\s\S]*?)<\/p>/g
 const TIMESTAMP_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i
 
+// One left-to-right pass, so `&amp;quot;` decodes once to the literal `&quot;`
+// instead of being unescaped twice into `"` (issue #295). The set stays these
+// four on purpose: BLOCK_RE and pickText capture `[^<]`, so a parsed value holds
+// no `<` today, and decoding `&lt;` or `&gt;` would be the only way to put a
+// markup character into a garage name.
+const PARK_ENTITIES = { amp: '&', nbsp: ' ', '#39': "'", quot: '"' }
+
 function decodeEntities(text) {
-  return String(text)
-    .replace(/&amp;/g, '&')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
+  return String(text).replace(/&(amp|nbsp|#39|quot);/gi, (match, name) => PARK_ENTITIES[name.toLowerCase()] ?? match)
 }
 
 function pickInt(body, label) {

@@ -60,7 +60,7 @@ import {
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
-import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson } from './src/upstreamFetch.mjs'
+import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson, isAbortLike } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
@@ -92,6 +92,8 @@ import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.m
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
+import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
+import { createPurdueLinkFlowRateLimit, linkHandoffToken } from './src/purdueLinkThrottle.mjs'
 import { validateProfileInput, rankMatches, mapMatchCard, sendConnectionRequest } from './src/friendMatching.mjs'
 import {
   matchIntent,
@@ -342,6 +344,12 @@ const purdueLinkTokenRateLimit = createRateLimiter({
   max: 20,
   message: 'Too many Purdue link attempts. Please wait a few minutes and try again.',
 })
+// The steps that spend a link attempt (connect, the mock form, the CAS
+// callback) share one budget of 30 per 15 min, mounted ahead of the actor
+// lookup so a throttled request costs no Supabase read (#293). Keyed by a live
+// handoff token, then the session user, then the IP; a blocked caller is
+// redirected back to the app or to Settings. See src/purdueLinkThrottle.mjs.
+const purdueLinkFlowRateLimit = createPurdueLinkFlowRateLimit({ handoff: purdueLinkHandoff, clientAppUrl })
 const boardWriteRateLimit = createRateLimiter({
   name: 'board-write',
   windowMs: 10 * 60 * 1000,
@@ -996,8 +1004,19 @@ async function linkPurdueIdentity(userId, { email }) {
   }
 
   const currentUser = await getUserById(userId)
-  if (normalizeEmail(currentUser?.purdue_email) === normalizedEmail) {
+  const currentPurdueEmail = normalizeEmail(currentUser?.purdue_email)
+  if (currentPurdueEmail === normalizedEmail) {
     return currentUser
+  }
+  // Never swap one Purdue identity for another silently (#293). Only an admin
+  // can release a link today (POST /api/admin/purdue-links/clear), so the
+  // message sends the student to support. The address stays out of the text:
+  // the website carries this message in a redirect URL.
+  if (currentPurdueEmail) {
+    throw new Error(
+      'Your BoilerIndy profile is already linked to a different Purdue account. '
+      + 'Contact support to release that link before linking another one.',
+    )
   }
 
   const { data: existingRows } = await supabase
@@ -1053,13 +1072,12 @@ async function linkPurdueIdentity(userId, { email }) {
 }
 
 // The CAS service URL must match byte for byte between the login redirect and
-// ticket validation. The website variant carries the post-link path; the
-// native variant carries the handoff token so the callback can identify the
-// student without a session cookie (#214).
-function casServiceUrl({ nextPath, token }) {
-  return token
-    ? `${publicBaseUrl}/auth/purdue/callback?t=${encodeURIComponent(token)}`
-    : `${publicBaseUrl}/auth/purdue/callback?next=${encodeURIComponent(nextPath)}`
+// ticket validation. The website variant carries the post-link path and the
+// single-use state nonce, so the nonce is part of the service string CAS signs
+// (#293); the native variant carries only the handoff token so the callback
+// can identify the student without a session cookie (#214).
+function casServiceUrl({ nextPath, token, state }) {
+  return buildCasServiceUrl(publicBaseUrl, { nextPath, token, state })
 }
 
 async function validateCasTicket(ticket, serviceUrl) {
@@ -1069,8 +1087,19 @@ async function validateCasTicket(ticket, serviceUrl) {
     throw new Error('CAS mode requires PURDUE_CAS_LOGIN_URL and PURDUE_CAS_VALIDATE_URL.')
   }
 
-  const response = await fetch(`${validateUrl}?service=${encodeURIComponent(serviceUrl)}&ticket=${encodeURIComponent(ticket)}`)
-  const xml = await response.text()
+  // fetchUpstream gives this call the 8 second deadline and the ok check every
+  // other upstream call has (#293); a stalled CAS used to hold the request and
+  // its socket open. The deadline also covers reading the body.
+  const response = await fetchUpstream(
+    'Purdue CAS',
+    `${validateUrl}?service=${encodeURIComponent(serviceUrl)}&ticket=${encodeURIComponent(ticket)}`,
+  )
+  let xml
+  try {
+    xml = await response.text()
+  } catch (err) {
+    throw new UpstreamError('Purdue CAS', isAbortLike(err) ? 'timeout' : 'network', { cause: err })
+  }
   const userMatch = xml.match(/<cas:user>([^<]+)<\/cas:user>/i)
   if (!userMatch) throw new Error('CAS ticket validation failed.')
   const emailMatch = xml.match(/<cas:(?:mail|email)>([^<]+)<\/cas:(?:mail|email)>/i)
@@ -1515,8 +1544,8 @@ function nativeLinkRedirect(res, error) {
 }
 
 async function resolvePurdueLinkActor(req, res, next) {
-  const raw = req.query?.t ?? req.body?.t
-  const token = typeof raw === 'string' ? raw : ''
+  // The same rule purdueLinkFlowRateLimit uses to pick the redirect shape.
+  const token = linkHandoffToken(req)
   if (!token) return requireAuth(req, res, next)
   try {
     const { userId } = purdueLinkHandoff.verify(token)
@@ -1532,7 +1561,7 @@ async function resolvePurdueLinkActor(req, res, next) {
   }
 }
 
-app.get('/auth/purdue/connect', resolvePurdueLinkActor, (req, res) => {
+app.get('/auth/purdue/connect', purdueLinkFlowRateLimit, resolvePurdueLinkActor, (req, res) => {
   const native = req.linkHandoff
   const nextPath = sanitizeNext(req.query.next)
   if (!purdueLinkingEnabled) {
@@ -1546,14 +1575,24 @@ app.get('/auth/purdue/connect', resolvePurdueLinkActor, (req, res) => {
       if (native) return nativeLinkRedirect(res, new HandoffError('Purdue login is not configured on the server.', 503, 'cas-config'))
       return res.redirect(`${clientAppUrl}/settings?error=cas-config`)
     }
-    const serviceUrl = casServiceUrl(native ? { token: native.token } : { nextPath })
+    let serviceUrl
+    if (native) {
+      serviceUrl = casServiceUrl({ token: native.token })
+    } else {
+      // A fresh single-use nonce per website attempt, spent by the callback
+      // (#293). requireAuth already ran, so the session exists and is saved
+      // before the redirect goes out.
+      const state = createCasState()
+      req.session.casState = state
+      serviceUrl = casServiceUrl({ nextPath, state })
+    }
     return res.redirect(`${loginUrl}?service=${encodeURIComponent(serviceUrl)}`)
   }
 
   res.type('html').send(renderMockPurdueLinkPage(nextPath, '', req.currentUser.purdue_email, native?.token))
 })
 
-app.post('/auth/purdue/dev/link', resolvePurdueLinkActor, async (req, res) => {
+app.post('/auth/purdue/dev/link', purdueLinkFlowRateLimit, resolvePurdueLinkActor, async (req, res) => {
   const native = req.linkHandoff
   const nextPath = sanitizeNext(req.body.next)
   if (!purdueLinkingEnabled) {
@@ -1619,16 +1658,26 @@ app.post('/api/purdue/link-token', purdueLinkTokenRateLimit, requireAuth, (req, 
   }
 })
 
-app.get('/auth/purdue/callback', resolvePurdueLinkActor, async (req, res) => {
+app.get('/auth/purdue/callback', purdueLinkFlowRateLimit, resolvePurdueLinkActor, async (req, res) => {
   const native = req.linkHandoff
   const nextPath = sanitizeNext(req.query.next)
+  // Website flow only: the callback has to come back to the session that
+  // started it (#293). The nonce connect stored is spent first, whatever
+  // happens next, and a missing or wrong ?state= ends the request before any
+  // call to Purdue and before any write. The native flow is bound by its
+  // signed handoff token instead and never reads the session.
+  let state = ''
+  if (!native) {
+    state = spendCasState(req.session, req.query.state)
+    if (state === null) return res.redirect(`${clientAppUrl}/settings?error=purdue-link-state`)
+  }
   const ticket = req.query.ticket
   if (!ticket) {
     if (native) return nativeLinkRedirect(res, new HandoffError('Purdue login did not return a ticket. Start again from the app.', 400, 'missing-ticket'))
     return res.redirect(`${clientAppUrl}/settings?error=missing-ticket`)
   }
   try {
-    const serviceUrl = casServiceUrl(native ? { token: native.token } : { nextPath })
+    const serviceUrl = casServiceUrl(native ? { token: native.token } : { nextPath, state })
     const identity = await validateCasTicket(String(ticket), serviceUrl)
     // The token is spent once Purdue has vouched for the ticket, before the
     // account write, so a replayed callback URL cannot link twice.
@@ -1638,8 +1687,13 @@ app.get('/auth/purdue/callback', resolvePurdueLinkActor, async (req, res) => {
     res.redirect(`${clientAppUrl}${nextPath}`)
   } catch (error) {
     console.error('[auth/purdue/callback]', error)
-    if (native) return nativeLinkRedirect(res, error)
-    const message = encodeURIComponent(error.message || 'Could not link Purdue account.')
+    // A CAS timeout or outage gets a plain message; the upstream detail stays
+    // in the log line above, as with the other upstream calls (#205).
+    const failure = error instanceof UpstreamError
+      ? new Error('Purdue login is not responding right now. Please try again in a few minutes.')
+      : error
+    if (native) return nativeLinkRedirect(res, failure)
+    const message = encodeURIComponent(failure.message || 'Could not link Purdue account.')
     res.redirect(`${clientAppUrl}/setup?error=purdue-link&message=${message}`)
   }
 })

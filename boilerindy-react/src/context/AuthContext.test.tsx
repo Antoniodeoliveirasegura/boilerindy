@@ -244,13 +244,18 @@ describe('refreshSession vs establishSession (issue #149)', () => {
 })
 
 // Issue #219: personalized AI insight caches and the unsent board draft must not
-// outlive the account on a shared computer.
-describe('sign-out clears per-user caches (issue #219)', () => {
+// outlive the account on a shared computer. Issue #294 adds the dashboard's
+// cached location, the legacy full-precision key and the permission-prompt flag,
+// which both sign-out paths clear.
+describe('sign-out clears per-user caches (issues #219, #294)', () => {
   function seedCaches() {
     localStorage.setItem('ai-week-ahead-user-1-2026-09-14', '"digest"')
     localStorage.setItem('ai-assignments-user-1-priority-2026-09-14', '"rank"')
     localStorage.setItem('boilerindy-board-draft-v1-user-1', '{"title":"draft","body":""}')
     localStorage.setItem('boilerindy-task-priority-v1-user-1', '{"task-a":"high"}')
+    localStorage.setItem('boilerindy-user-location-v2', '{"lat":40.424,"lon":-86.921,"ts":1789560000000}')
+    localStorage.setItem('boilerindy-user-location-v1', '{"lat":40.4237054,"lon":-86.9211946}')
+    localStorage.setItem('boilerindy-geo-asked-v1', '1')
   }
 
   beforeEach(() => localStorage.clear())

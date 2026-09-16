@@ -4,9 +4,12 @@
  * Events recommendations. Each is generated from one student's schedule and
  * deadlines, so every key carries the backend user id (mirrors the
  * taskPriorityStore pattern) and the next account on a shared computer never
- * reads the previous student's insights. Sign-out also wipes them, together with
- * the per-user board drafts, from the device.
+ * reads the previous student's insights. Sign-out also wipes them from the
+ * device, together with the per-user board drafts and the dashboard's cached
+ * location and its permission-prompt flag (issue #294, see useUserLocation).
  */
+
+import { LOCATION_STORAGE_KEYS } from '../hooks/useUserLocation'
 
 export type AiCacheFeature = 'assignments' | 'week-ahead' | 'event-recs'
 
@@ -58,8 +61,9 @@ function isBoardDraftKey(key: string): boolean {
 }
 
 /**
- * Remove every `ai-*` cache entry and, unless `keepBoardDrafts` is set, every
- * board draft. Other per-user stores (priorities, tasks, layouts) are left alone.
+ * Remove every `ai-*` cache entry, the cached location keys (always, matched
+ * exactly) and, unless `keepBoardDrafts` is set, every board draft. Other
+ * per-user stores (priorities, tasks, layouts) are left alone.
  */
 export function clearAiCaches({ keepBoardDrafts = false }: { keepBoardDrafts?: boolean } = {}): void {
   try {
@@ -68,7 +72,11 @@ export function clearAiCaches({ keepBoardDrafts = false }: { keepBoardDrafts?: b
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       if (!key) continue
-      if (key.startsWith(AI_CACHE_PREFIX) || (!keepBoardDrafts && isBoardDraftKey(key))) {
+      if (
+        key.startsWith(AI_CACHE_PREFIX) ||
+        LOCATION_STORAGE_KEYS.includes(key) ||
+        (!keepBoardDrafts && isBoardDraftKey(key))
+      ) {
         doomed.push(key)
       }
     }
