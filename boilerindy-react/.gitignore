@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Foreign lockfiles: dependencies install with pnpm only (pnpm-lock.yaml)
+package-lock.json
+yarn.lock
+
 # Environment variables (sensitive)
 .env
 .env.local
