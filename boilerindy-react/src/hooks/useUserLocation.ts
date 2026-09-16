@@ -12,19 +12,44 @@ import { useEffect, useState } from 'react'
 // - Use the Permissions API: if already granted, refresh silently (no prompt).
 // - Only ever surface the prompt ONCE (tracked in localStorage), and only when
 //   autoPrompt is set - so a returning user is never nagged again.
+//
+// What is stored is deliberately less than what is used (issue #294): the cache
+// keeps coordinates rounded to 3 decimals (roughly 110 m) with a write time and
+// is ignored after 12 hours, while React state keeps the full-precision fix for
+// the live session. Sign-out removes every key below (see clearAiCaches), so the
+// next student on a shared computer never inherits this one's position.
 
 export type UserLocation = { lat: number; lon: number }
 
-const CACHE_KEY = 'boilerindy-user-location-v1'
+const CACHE_KEY = 'boilerindy-user-location-v2'
+// Full-precision, untimestamped entries written by builds before issue #294.
+const LEGACY_CACHE_KEY = 'boilerindy-user-location-v1'
 const ASKED_KEY = 'boilerindy-geo-asked-v1'
+export const CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+/**
+ * Every key this hook reads or writes, for sign-out to clear (issue #294).
+ * ASKED_KEY is included on purpose: the next student on a shared machine should
+ * get their own one-time permission prompt rather than silently running with no
+ * location. The cost is one extra prompt for a student whose token was revoked
+ * or expired and who signs back in on their own laptop; do not "fix" that by
+ * keeping the key.
+ */
+export const LOCATION_STORAGE_KEYS: readonly string[] = [CACHE_KEY, LEGACY_CACHE_KEY, ASKED_KEY]
 
 const GEO_OPTS: PositionOptions = { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
 
-function readCache(): UserLocation | null {
+function coarse(value: number): number {
+  return Math.round(value * 1000) / 1000
+}
+
+/** The cached position, or null when there is none, it is unreadable, or it is older than 12 hours. */
+export function readCache(now: number = Date.now()): UserLocation | null {
   try {
     const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null')
-    if (raw && typeof raw.lat === 'number' && typeof raw.lon === 'number') {
-      return { lat: raw.lat, lon: raw.lon }
+    if (raw && typeof raw.lat === 'number' && typeof raw.lon === 'number' && typeof raw.ts === 'number') {
+      const age = now - raw.ts
+      if (age >= 0 && age <= CACHE_TTL_MS) return { lat: raw.lat, lon: raw.lon }
     }
   } catch {
     /* ignore unparseable / unavailable storage */
@@ -32,11 +57,20 @@ function readCache(): UserLocation | null {
   return null
 }
 
-function writeCache(loc: UserLocation): void {
+/** Cache a coarse copy of the position with its write time. */
+export function writeCache(loc: UserLocation, now: number = Date.now()): void {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(loc))
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ lat: coarse(loc.lat), lon: coarse(loc.lon), ts: now }))
   } catch {
     /* storage unavailable / quota - cache is best-effort */
+  }
+}
+
+function removeLegacyCache(): void {
+  try {
+    localStorage.removeItem(LEGACY_CACHE_KEY)
+  } catch {
+    /* storage unavailable */
   }
 }
 
@@ -63,9 +97,13 @@ function markAsked(): void {
  *   granted. Defaults to false.
  */
 export function useUserLocation({ autoPrompt = false }: { autoPrompt?: boolean } = {}): UserLocation | null {
-  const [location, setLocation] = useState<UserLocation | null>(readCache)
+  const [location, setLocation] = useState<UserLocation | null>(() => readCache())
 
   useEffect(() => {
+    // Drain the old full-precision key even on a machine where nobody ever
+    // signs out, and even where geolocation is unavailable.
+    removeLegacyCache()
+
     if (!navigator.geolocation) return
 
     const fetchNow = () =>
