@@ -90,7 +90,7 @@ import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.m
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
-import { validateProfileInput, rankMatches, mapMatchCard } from './src/friendMatching.mjs'
+import { validateProfileInput, rankMatches, mapMatchCard, sendConnectionRequest } from './src/friendMatching.mjs'
 import {
   matchIntent,
   formatNextClass,
@@ -4736,31 +4736,13 @@ app.get('/api/me/matches', requireAuth, async (req, res) => {
   }
 })
 
-// Send a connection request (blocked silently if the addressee declined before).
+// Send a connection request (blocked silently if the addressee declined before,
+// is not discoverable, or does not exist). The gate lives in
+// sendConnectionRequest (src/friendMatching.mjs) so it is tested (#203).
 app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const addresseeId = String(req.body?.addresseeId || '').trim()
-  if (!addresseeId || addresseeId === userId) {
-    return res.status(400).json({ error: { message: 'A valid recipient is required.', status: 400 } })
-  }
   try {
-    // If the addressee previously declined me, silently no-op (requester sees pending).
-    const prior = await supabase
-      .from('connections')
-      .select('status')
-      .eq('requester_id', userId)
-      .eq('addressee_id', addresseeId)
-      .maybeSingle()
-    if (prior.data?.status === 'declined') return res.json({ ok: true, status: 'pending' })
-
-    const { error } = await supabase
-      .from('connections')
-      .upsert(
-        { requester_id: userId, addressee_id: addresseeId, status: 'pending', created_at: nowIso() },
-        { onConflict: 'requester_id,addressee_id' },
-      )
-    if (error) throw error
-    res.json({ ok: true, status: 'pending' })
+    const out = await sendConnectionRequest(supabase, req.currentUser.id, req.body?.addresseeId, { nowIso })
+    return res.status(out.status).json(out.body)
   } catch (e) {
     return respondFriendsDbError(res, e)
   }
