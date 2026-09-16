@@ -47,8 +47,9 @@ import {
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, runCronTick } from './src/cronTick.mjs'
-import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
+import { clampDiningDate, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
+import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
 import { STUDY_HELP_DEADLINE_HOURS, buildDiningContext, startsWithin, wantsStudyHelp } from './src/assistantContext.mjs'
@@ -86,11 +87,12 @@ import {
 import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
+import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
-import { validateProfileInput, rankMatches, mapMatchCard } from './src/friendMatching.mjs'
+import { validateProfileInput, rankMatches, mapMatchCard, sendConnectionRequest } from './src/friendMatching.mjs'
 import {
   matchIntent,
   formatNextClass,
@@ -102,6 +104,13 @@ import {
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
+import {
+  deriveDisplayName,
+  normalizeAvatarUrl,
+  normalizeDisplayName,
+  normalizeProfileName,
+  normalizeProvider,
+} from './src/userFields.mjs'
 import {
   normalizeAdvertiserSignIn,
   normalizeLeadInput,
@@ -456,17 +465,6 @@ function escapeHtml(value) {
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase()
-}
-
-function deriveDisplayName(email, providedName = '') {
-  if (providedName && providedName.trim()) return providedName.trim()
-  if (!email) return 'Student'
-  const local = email.split('@')[0] || 'student'
-  return local
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }
 
 async function getUserById(userId) {
@@ -1127,7 +1125,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
   try {
     const emailRaw = req.body.email
     const password = req.body.password
-    const displayName = req.body.name ?? req.body.displayName ?? ''
+    const nameResult = normalizeDisplayName(req.body.name ?? req.body.displayName)
     const rememberMe = req.body.rememberMe === true
     const cookieMaxAge = rememberMe ? 1000 * 60 * 60 * 24 * 30 : undefined
     const normalizedEmail = normalizeEmail(emailRaw)
@@ -1140,6 +1138,10 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
     if (password.length > 128) {
       return res.status(400).json({ error: { message: 'Password must be at most 128 characters.', status: 400 } })
     }
+    if (!nameResult.ok) {
+      return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
+    }
+    const displayName = nameResult.value
 
     const existingRow = await getUserByEmail(normalizedEmail)
     if (existingRow) {
@@ -1151,7 +1153,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       password,
       email_confirm: true,
       user_metadata: {
-        full_name: String(displayName).trim() || deriveDisplayName(normalizedEmail, ''),
+        full_name: displayName || deriveDisplayName(normalizedEmail, ''),
       },
     })
 
@@ -1266,16 +1268,20 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
   const normalizedEmail = normalizeEmail(supabaseUser?.email || fallbackEmail)
   if (!normalizedEmail) return null
 
+  // Password sign-in must not fail on Auth metadata, so an over-long name is cut
+  // and a non-string name or non-https avatar is ignored here (#199).
+  const metadata = supabaseUser?.user_metadata || {}
+  const metadataName =
+    normalizeDisplayName(metadata.full_name, { truncate: true }).value ||
+    normalizeDisplayName(metadata.name, { truncate: true }).value
+  const metadataAvatarUrl = normalizeAvatarUrl(metadata.avatar_url).value
+
   let user = await getUserByEmail(normalizedEmail)
   if (user) {
     const { data, error } = await supabase
       .from('users')
       .update({
-        display_name:
-          supabaseUser?.user_metadata?.full_name ||
-          supabaseUser?.user_metadata?.name ||
-          user.display_name ||
-          deriveDisplayName(normalizedEmail, ''),
+        display_name: metadataName || deriveDisplayName(normalizedEmail, user.display_name),
         auth_provider: user.auth_provider || 'email',
         updated_at: nowIso(),
       })
@@ -1293,12 +1299,9 @@ async function ensureUserRowForSupabaseAuth(supabaseUser, fallbackEmail) {
       id: supabaseUser?.id || makeId(),
       email: normalizedEmail,
       password_hash: '',
-      display_name:
-        supabaseUser?.user_metadata?.full_name ||
-        supabaseUser?.user_metadata?.name ||
-        deriveDisplayName(normalizedEmail, ''),
+      display_name: metadataName || deriveDisplayName(normalizedEmail, ''),
       auth_provider: 'email',
-      avatar_url: supabaseUser?.user_metadata?.avatar_url || null,
+      avatar_url: metadataAvatarUrl || null,
       created_at: timestamp,
       updated_at: timestamp,
     })
@@ -1400,6 +1403,20 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
       return res.status(401).json({ error: { message: 'Token does not match the requested user.', status: 401 } })
     }
 
+    // The name comes from the OAuth provider and the user cannot shorten it, so
+    // an over-long one is cut rather than failing sign-in; a non-string name or
+    // a non-https avatar is still a 400 (#199).
+    const nameResult = normalizeDisplayName(name, { truncate: true })
+    if (!nameResult.ok) {
+      return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
+    }
+    const avatarResult = normalizeAvatarUrl(avatarUrl)
+    if (!avatarResult.ok) {
+      return res.status(400).json({ error: { message: avatarResult.message, status: 400 } })
+    }
+    const syncName = nameResult.value
+    const syncAvatarUrl = avatarResult.value
+
     let user = await getUserByEmail(normalizedEmail)
 
     if (!user) {
@@ -1410,9 +1427,9 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
           id: supabaseUserId,
           email: normalizedEmail,
           password_hash: '',
-          display_name: deriveDisplayName(normalizedEmail, name),
-          auth_provider: provider || 'supabase',
-          avatar_url: avatarUrl || null,
+          display_name: deriveDisplayName(normalizedEmail, syncName),
+          auth_provider: normalizeProvider(provider, 'supabase'),
+          avatar_url: syncAvatarUrl,
           created_at: timestamp,
           updated_at: timestamp
         })
@@ -1432,9 +1449,10 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
       const { data, error } = await supabase
         .from('users')
         .update({
-          display_name: name || user.display_name,
-          avatar_url: avatarUrl || user.avatar_url,
-          auth_provider: user.auth_provider === 'local' ? user.auth_provider : (provider || user.auth_provider),
+          // Only columns whose input was sent; the rest keep their stored value.
+          ...(syncName ? { display_name: syncName } : {}),
+          ...(syncAvatarUrl ? { avatar_url: syncAvatarUrl } : {}),
+          auth_provider: user.auth_provider === 'local' ? user.auth_provider : normalizeProvider(provider, user.auth_provider),
           updated_at: nowIso()
         })
         .eq('id', user.id)
@@ -1623,10 +1641,17 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
 })
 
 app.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
+  // A missing or blank name keeps the stored one. Settings resends the stored
+  // name on every save, so an unchanged name from before the cap is cut rather
+  // than blocking an email or password change (#199).
+  const nameResult = normalizeProfileName(req.body.name, req.currentUser.display_name)
+  if (!nameResult.ok) {
+    return res.status(400).json({ error: { message: nameResult.message, status: 400 } })
+  }
   try {
     const user = await updateUserProfile(req.currentUser.id, {
       email: req.body.email,
-      displayName: req.body.name,
+      displayName: nameResult.value,
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
       analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
@@ -1908,23 +1933,7 @@ app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
 })
 
 // ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
-
-function mapManualTaskRow(row) {
-  return {
-    id: row.id,
-    title: row.title,
-    startTime: row.due_at,
-    endTime: null,
-    category: 'manual_task',
-    sourceType: 'manual',
-    description: null,
-    location: null,
-    externalUid: null,
-    sourceId: null,
-    completedAt: row.completed_at,
-    isManual: true,
-  }
-}
+// Manual task rows are parsed and mapped by src/manualTasks.mjs (issue #216).
 
 // Runs on every Assignments and dashboard load, so both reads are bounded
 // (issue #198) instead of returning every row the user ever wrote:
@@ -2025,33 +2034,19 @@ app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
 
 app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
-  const { title, dueAt } = req.body || {}
-  const t = String(title || '').trim()
-  if (!t || t.length > 500) {
-    return res.status(400).json({ error: { message: 'Title is required (max 500 characters)' } })
-  }
   // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
   // client creates undated to-dos from a title alone, which this used to reject outright. A
   // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
   // rather than being silently stored as no deadline at all.
-  let dueIso = null
-  if (dueAt !== undefined && dueAt !== null && dueAt !== '') {
-    if (typeof dueAt !== 'string') {
-      return res.status(400).json({ error: { message: 'dueAt must be an ISO timestamp string' } })
-    }
-    const due = new Date(dueAt)
-    if (Number.isNaN(due.getTime())) {
-      return res.status(400).json({ error: { message: 'Invalid dueAt date' } })
-    }
-    dueIso = due.toISOString()
-  }
+  const parsed = parseManualTaskCreate(req.body)
+  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
       .insert({
         user_id: userId,
-        title: t,
-        due_at: dueIso,
+        title: parsed.row.title,
+        due_at: parsed.row.due_at,
       })
       .select()
       .single()
@@ -2066,25 +2061,14 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
 app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
-  const { completed, title, dueAt } = req.body || {}
-  const updates = {}
-  if (typeof completed === 'boolean') {
-    updates.completed_at = completed ? nowIso() : null
-  }
-  if (typeof title === 'string' && title.trim()) {
-    updates.title = title.trim().slice(0, 500)
-  }
-  if (typeof dueAt === 'string') {
-    const due = new Date(dueAt)
-    if (!Number.isNaN(due.getTime())) updates.due_at = due.toISOString()
-  }
-  if (Object.keys(updates).length === 0) {
-    return res.status(400).json({ error: { message: 'No valid fields to update' } })
-  }
+  // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
+  // value is a 400 like POST instead of being dropped while the other fields save.
+  const parsed = parseManualTaskUpdate(req.body, { now: nowIso() })
+  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
-      .update(updates)
+      .update(parsed.updates)
       .eq('id', id)
       .eq('user_id', userId)
       .select()
@@ -2512,15 +2496,15 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
 app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
-  // Soft delete: hide the item (set deleted_at) instead of removing it. Admins
-  // can restore or permanently delete it from the moderation view.
-  const { data, error } = await supabase
+  // Soft delete: hide the item (set deleted_at) instead of removing it. The
+  // owner or an admin taking it down (issue #195) can delete; admins can
+  // restore or permanently delete it from the moderation view.
+  const query = supabase
     .from('lost_found_items')
     .update({ deleted_at: nowIso() })
     .eq('id', id)
-    .eq('user_id', userId)
     .is('deleted_at', null)
-    .select('id')
+  const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
   if (error) {
     console.error('DELETE /api/lost-found/:id:', error.message)
     return res.status(500).json({ error: { message: 'Could not delete the post.', status: 500 } })
@@ -3431,8 +3415,15 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
 
 app.get('/api/dining', publicReadRateLimit, async (req, res) => {
   try {
+    // `refresh` passes through as a hint (the module refetches a date at most
+    // every ten minutes); `date` must be yesterday to today + 14 (issue #208).
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true'
-    const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined
+    let date
+    if (req.query.date !== undefined && req.query.date !== '') {
+      const checked = clampDiningDate(req.query.date)
+      if (!checked.ok) return res.status(400).json({ ok: false, error: 'dining_bad_date', locations: [] })
+      date = checked.ymd
+    }
     const data = await getDiningSnapshot({ forceRefresh, date })
     res.json(data)
   } catch (error) {
@@ -3939,13 +3930,13 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   // Soft delete: hide the post (set deleted_at). Its replies stay attached and
   // reappear if an admin restores it; a hard delete (admin) cascades them.
-  const { data, error } = await supabase
+  // Owner or admin: admins take down live posts from reports (issue #195).
+  const query = supabase
     .from('board_posts')
     .update({ deleted_at: nowIso() })
     .eq('id', postId)
-    .eq('user_id', userId)
     .is('deleted_at', null)
-    .select('id')
+  const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
   if (error) return respondBoardDbError(res, error)
   if (!data?.length) {
     return res.status(404).json({
@@ -4084,16 +4075,16 @@ app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
   }
 })
 
+// Delete - owner or admin (admins take down live recommendations, issue #195).
 app.delete('/api/guide/:id', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
-    const { data, error } = await supabase
+    const query = supabase
       .from('guide_recommendations')
       .update({ deleted_at: nowIso() })
       .eq('id', req.params.id)
-      .eq('user_id', userId)
       .is('deleted_at', null)
-      .select('id')
+    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
     if (error) throw error
     if (!data?.length) {
       return res.status(404).json({ error: { message: 'Recommendation not found or not yours.', status: 404 } })
@@ -4111,9 +4102,21 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
 // ============================================================
 
 const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
+// Soft delete for groups came later (issue #195) and is a separate migration.
+const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
 
 function respondStudyDbError(res, err) {
   console.error('Study group DB error:', err?.message || err, err?.code)
+  // Checked first: a PGRST204 "column ... in the schema cache" message would
+  // otherwise read as the whole feature missing.
+  if (isMissingColumnError(err, 'deleted_at')) {
+    return res.status(503).json({
+      error: {
+        message: `Removing study groups needs a database update. In the dashboard: SQL Editor → run ${STUDY_SOFT_DELETE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
   if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
     return res.status(503).json({
       error: {
@@ -4212,7 +4215,12 @@ app.get('/api/me/study-groups', requireAuth, async (req, res) => {
     if (error) throw error
     const ids = (mem || []).map((m) => m.group_id)
     if (!ids.length) return res.json({ groups: [] })
-    const { data: groups } = await supabase.from('study_groups').select('*').in('id', ids)
+    // Taken-down groups keep their member rows (so a restore brings them back)
+    // but must not show up here.
+    const { data: groups } = await selectLiveRows((liveOnly) => {
+      const query = supabase.from('study_groups').select('*').in('id', ids)
+      return liveOnly ? query.is('deleted_at', null) : query
+    })
     const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
     res.json({ groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
   } catch (e) {
@@ -4226,12 +4234,11 @@ app.get('/api/study-groups', requireAuth, async (req, res) => {
   const course = normalizeCourseCode(req.query.course)
   if (!course) return res.status(400).json({ error: { message: 'A valid course code is required.', status: 400 } })
   try {
-    const { data: groups, error } = await supabase
-      .from('study_groups')
-      .select('*')
-      .eq('course_code', course)
-      .order('created_at', { ascending: false })
-      .limit(100)
+    const { data: groups, error } = await selectLiveRows((liveOnly) => {
+      let query = supabase.from('study_groups').select('*').eq('course_code', course)
+      if (liveOnly) query = query.is('deleted_at', null)
+      return query.order('created_at', { ascending: false }).limit(100)
+    })
     if (error) throw error
     const ids = (groups || []).map((g) => g.id)
     const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
@@ -4268,11 +4275,12 @@ app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (
   const userId = req.currentUser.id
   const groupId = req.params.id
   try {
-    const { data: group, error: gErr } = await supabase
-      .from('study_groups')
-      .select('id, capacity')
-      .eq('id', groupId)
-      .single()
+    // maybeSingle so a missing or taken-down group is the 404 below, not a 500.
+    const { data: group, error: gErr } = await selectLiveRows((liveOnly) => {
+      let query = supabase.from('study_groups').select('id, capacity').eq('id', groupId)
+      if (liveOnly) query = query.is('deleted_at', null)
+      return query.maybeSingle()
+    })
     if (gErr) throw gErr
     if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
 
@@ -4302,6 +4310,34 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
       .eq('user_id', userId)
     if (error) throw error
     res.json({ ok: true })
+  } catch (e) {
+    return respondStudyDbError(res, e)
+  }
+})
+
+// Delete a group - its creator or an admin (issue #195). Soft delete: the group
+// leaves every list, but its members stay attached so an admin restore from the
+// moderation view brings it back whole. Answers 503 (respondStudyDbError) until
+// db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
+app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
+  const groupId = req.params.id
+  if (!isUuid(groupId)) {
+    return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
+  }
+  try {
+    const query = supabase
+      .from('study_groups')
+      .update({ deleted_at: nowIso() })
+      .eq('id', groupId)
+      .is('deleted_at', null)
+    const { data, error } = await ownerOrAdminScope(query, {
+      userId: req.currentUser.id,
+      isAdmin: isUserAdmin(req.currentUser),
+      ownerColumn: 'creator_id',
+    }).select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
+    res.status(204).end()
   } catch (e) {
     return respondStudyDbError(res, e)
   }
@@ -4570,13 +4606,12 @@ app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
   try {
     // Soft delete: hide the listing (set deleted_at). Admins purge it
     // permanently from the moderation view.
-    let query = supabase
+    const query = supabase
       .from('marketplace_listings')
       .update({ deleted_at: nowIso() })
       .eq('id', req.params.id)
       .is('deleted_at', null)
-    if (!isUserAdmin(req.currentUser)) query = query.eq('user_id', userId)
-    const { data, error } = await query.select('id')
+    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
     if (error) throw error
     if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
     res.status(204).end()
@@ -4736,31 +4771,13 @@ app.get('/api/me/matches', requireAuth, async (req, res) => {
   }
 })
 
-// Send a connection request (blocked silently if the addressee declined before).
+// Send a connection request (blocked silently if the addressee declined before,
+// is not discoverable, or does not exist). The gate lives in
+// sendConnectionRequest (src/friendMatching.mjs) so it is tested (#203).
 app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const addresseeId = String(req.body?.addresseeId || '').trim()
-  if (!addresseeId || addresseeId === userId) {
-    return res.status(400).json({ error: { message: 'A valid recipient is required.', status: 400 } })
-  }
   try {
-    // If the addressee previously declined me, silently no-op (requester sees pending).
-    const prior = await supabase
-      .from('connections')
-      .select('status')
-      .eq('requester_id', userId)
-      .eq('addressee_id', addresseeId)
-      .maybeSingle()
-    if (prior.data?.status === 'declined') return res.json({ ok: true, status: 'pending' })
-
-    const { error } = await supabase
-      .from('connections')
-      .upsert(
-        { requester_id: userId, addressee_id: addresseeId, status: 'pending', created_at: nowIso() },
-        { onConflict: 'requester_id,addressee_id' },
-      )
-    if (error) throw error
-    res.json({ ok: true, status: 'pending' })
+    const out = await sendConnectionRequest(supabase, req.currentUser.id, req.body?.addresseeId, { nowIso })
+    return res.status(out.status).json(out.body)
   } catch (e) {
     return respondFriendsDbError(res, e)
   }
@@ -5540,16 +5557,35 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 // hidden content here and either restore it or permanently (hard) delete it -
 // this is the only hard-delete path. `type` is whitelisted so the param can
 // never reach an arbitrary table.
+// Study groups joined in issue #195; their public DELETE is creator-or-admin.
+const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
 const SOFT_DELETE_TABLES = {
-  board: { table: 'board_posts', label: 'Board post' },
-  marketplace: { table: 'marketplace_listings', label: 'Marketplace listing' },
-  'lost-found': { table: 'lost_found_items', label: 'Lost & Found item' },
-  guide: { table: 'guide_recommendations', label: 'Guide recommendation' },
-  deals: { table: 'deals', label: 'Deal' },
+  board: { table: 'board_posts', label: 'Board post', sqlFile: SOFT_DELETE_SQL_FILE },
+  marketplace: { table: 'marketplace_listings', label: 'Marketplace listing', sqlFile: SOFT_DELETE_SQL_FILE },
+  'lost-found': { table: 'lost_found_items', label: 'Lost & Found item', sqlFile: SOFT_DELETE_SQL_FILE },
+  guide: { table: 'guide_recommendations', label: 'Guide recommendation', sqlFile: SOFT_DELETE_SQL_FILE },
+  deals: { table: 'deals', label: 'Deal', sqlFile: SOFT_DELETE_SQL_FILE },
+  'study-groups': { table: 'study_groups', label: 'Study group', sqlFile: STUDY_SOFT_DELETE_SQL_FILE },
 }
 
 function softDeleteConfig(type) {
   return Object.prototype.hasOwnProperty.call(SOFT_DELETE_TABLES, type) ? SOFT_DELETE_TABLES[type] : null
+}
+
+// A table without deleted_at yet (study groups before their migration) fails
+// every moderation query on the missing column: answer 503 naming the file to
+// run instead of a generic 500.
+function respondModerationDbError(res, error, cfg, logLabel, message) {
+  console.error(`${logLabel}:`, error.message)
+  if (isMissingColumnError(error, 'deleted_at')) {
+    return res.status(503).json({
+      error: {
+        message: `${cfg.label} moderation needs a database update. In the dashboard: SQL Editor → run ${cfg.sqlFile} from this repo → Run, wait a few seconds, then retry.`,
+        status: 503,
+      },
+    })
+  }
+  return res.status(500).json({ error: { message, status: 500 } })
 }
 
 app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) => {
@@ -5562,10 +5598,30 @@ app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) 
     .order('deleted_at', { ascending: false })
     .limit(200)
   if (error) {
-    console.error(`GET /api/admin/deleted/${req.params.type}:`, error.message)
-    return res.status(500).json({ error: { message: 'Could not load deleted items.', status: 500 } })
+    return respondModerationDbError(res, error, cfg, `GET /api/admin/deleted/${req.params.type}`, 'Could not load deleted items.')
   }
   res.json({ items: data || [], label: cfg.label })
+})
+
+// Live-content lookup for the takedown panel (issue #195): an admin pastes an
+// id from a report and previews the row here, then removes it through the
+// type's own DELETE route, which lets admins past the owner filter. The row
+// then shows up in the deleted list above, where it can be restored.
+app.get('/api/admin/content/:type/:id', requireAuth, requireAdmin, async (req, res) => {
+  const cfg = softDeleteConfig(req.params.type)
+  if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
+  if (!isUuid(req.params.id)) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  const { data, error } = await supabase
+    .from(cfg.table)
+    .select('*')
+    .eq('id', req.params.id)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (error) {
+    return respondModerationDbError(res, error, cfg, `GET /api/admin/content/${req.params.type}`, 'Could not load the item.')
+  }
+  if (!data) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
+  res.json({ item: data, label: cfg.label })
 })
 
 app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
@@ -5578,8 +5634,7 @@ app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAut
     .not('deleted_at', 'is', null)
     .select('id')
   if (error) {
-    console.error(`restore ${req.params.type}:`, error.message)
-    return res.status(500).json({ error: { message: 'Could not restore the item.', status: 500 } })
+    return respondModerationDbError(res, error, cfg, `restore ${req.params.type}`, 'Could not restore the item.')
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.json({ ok: true })
@@ -5597,8 +5652,7 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, req
     .not('deleted_at', 'is', null)
     .select('id')
   if (error) {
-    console.error(`hard delete ${req.params.type}:`, error.message)
-    return res.status(500).json({ error: { message: 'Could not permanently delete the item.', status: 500 } })
+    return respondModerationDbError(res, error, cfg, `hard delete ${req.params.type}`, 'Could not permanently delete the item.')
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.status(204).end()

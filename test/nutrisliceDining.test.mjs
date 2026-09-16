@@ -10,10 +10,13 @@ import { readFileSync } from 'node:fs'
 import {
   FAILURE_RETRY_MS,
   LOCATION_FILTERS,
+  MAX_CACHE_DATES,
+  MIN_REFRESH_INTERVAL_MS,
   NO_MENU_NOTE,
   RETAIL_MENU_NOTE,
   __resetDiningCacheForTests,
   buildDiningBase,
+  clampDiningDate,
   deriveStatusFromSchool,
   extractWeeklyHours,
   formatClock12,
@@ -60,6 +63,13 @@ const liveDistrict = (url) => {
   return 404
 }
 
+const schoolsCalls = (calls) => calls.filter((u) => u.includes('/menu/api/schools/')).length
+
+const plusDays = (ymd, n) => {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
 beforeEach(() => {
   __resetDiningCacheForTests()
   delete process.env.NUTRISLICE_CACHE_MS
@@ -77,6 +87,27 @@ test('weekday and date helpers follow the Indianapolis calendar, not the server 
   assert.equal(weekdayInZone(lateEvening, 'Asia/Seoul'), 'Thursday')
   assert.equal(todayYmdInZone(lateEvening), '2026-09-09')
   assert.equal(todayYmdInZone(lateEvening, 'Asia/Seoul'), '2026-09-10')
+})
+
+test('clampDiningDate accepts yesterday through today + 14 on the Indianapolis calendar and nothing else', () => {
+  const noon = at('12:00')
+  for (const ymd of ['2026-09-09', '2026-09-08', '2026-09-23']) {
+    assert.deepEqual(clampDiningDate(ymd, noon), { ok: true, ymd }, ymd)
+  }
+  for (const bad of ['2026-09-07', '2026-09-24', '2026-13-01', '2026-9-9', 'tomorrow', '', undefined, ['2026-09-09']]) {
+    assert.deepEqual(clampDiningDate(bad, noon), { ok: false }, String(bad))
+  }
+  // 23:30 in Indianapolis is already the next day in UTC; the window still counts from 2026-09-09.
+  const lateEvening = at('23:30')
+  assert.equal(clampDiningDate('2026-09-08', lateEvening).ok, true)
+  assert.equal(clampDiningDate('2026-09-24', lateEvening).ok, false)
+  // The window crosses a year end, and an impossible date that would roll into it is still refused.
+  const christmas = at('12:00', '2026-12-25')
+  assert.equal(clampDiningDate('2027-01-08', christmas).ok, true)
+  assert.equal(clampDiningDate('2027-01-09', christmas).ok, false)
+  assert.equal(clampDiningDate('2026-13-01', christmas).ok, false)
+  assert.equal(clampDiningDate('2026-03-02', at('12:00', '2026-02-27')).ok, true)
+  assert.equal(clampDiningDate('2026-02-30', at('12:00', '2026-02-27')).ok, false)
 })
 
 test('formatClock12 renders Nutrislice HH:MM:SS clocks', () => {
@@ -344,6 +375,103 @@ test('an outage with nothing cached answers ok:false and is retried after a few 
   const back = await getDiningSnapshot({ now: new Date(at('08:00').getTime() + FAILURE_RETRY_MS + 1000), fetchImpl })
   assert.equal(back.ok, true)
   assert.equal(back.locations.length, 2)
+})
+
+test('concurrent misses for one date share a single upstream crawl', async () => {
+  const { fetchImpl, calls } = stubFetch(liveDistrict)
+  // Hold every response until both visitors are waiting on the crawl.
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const gated = async (url, init) => {
+    const answer = fetchImpl(url, init)
+    await gate
+    return answer
+  }
+
+  const first = getDiningSnapshot({ now: at('12:00'), fetchImpl: gated })
+  const second = getDiningSnapshot({ now: at('12:00'), fetchImpl: gated })
+  assert.equal(calls.length, 1) // one schools request in flight, not two
+  release()
+  const [a, b] = await Promise.all([first, second])
+  assert.equal(schoolsCalls(calls), 1)
+  assert.equal(calls.length, 4) // schools + three Tower meals, once
+  assert.equal(a.ok, true)
+  assert.equal(b.ok, true)
+  assert.equal(a.cached, false)
+  assert.equal(b.fetchedAt, a.fetchedAt)
+  assert.equal(b.locations[0].stations.length, 7)
+
+  // The next visitor is served from the finished crawl.
+  const third = await getDiningSnapshot({ now: at('12:05'), fetchImpl })
+  assert.equal(third.cached, true)
+  assert.equal(calls.length, 4)
+})
+
+test('each date has its own cache entry, so another date does not evict today', async () => {
+  const { fetchImpl, calls } = stubFetch(liveDistrict)
+  await getDiningSnapshot({ now: at('12:00'), fetchImpl })
+  const tomorrow = await getDiningSnapshot({ now: at('12:01'), fetchImpl, date: '2026-09-10' })
+  assert.equal(tomorrow.date, '2026-09-10')
+  assert.equal(tomorrow.cached, false)
+  assert.equal(schoolsCalls(calls), 2)
+
+  const today = await getDiningSnapshot({ now: at('12:02'), fetchImpl })
+  assert.equal(today.date, '2026-09-09')
+  assert.equal(today.cached, true)
+  const tomorrowAgain = await getDiningSnapshot({ now: at('12:03'), fetchImpl, date: '2026-09-10' })
+  assert.equal(tomorrowAgain.cached, true)
+  assert.equal(schoolsCalls(calls), 2)
+})
+
+test('the cache holds 16 dates and a 17th evicts the one written longest ago', async () => {
+  assert.equal(MAX_CACHE_DATES, 16)
+  const { fetchImpl, calls } = stubFetch(liveDistrict)
+  const dates = Array.from({ length: MAX_CACHE_DATES + 1 }, (_, i) => plusDays('2026-09-08', i))
+  for (const date of dates) await getDiningSnapshot({ now: at('12:00'), fetchImpl, date })
+  assert.equal(schoolsCalls(calls), 17)
+
+  // The newest and the second oldest are still cached.
+  assert.equal((await getDiningSnapshot({ now: at('12:01'), fetchImpl, date: dates[16] })).cached, true)
+  assert.equal((await getDiningSnapshot({ now: at('12:01'), fetchImpl, date: dates[1] })).cached, true)
+  assert.equal(schoolsCalls(calls), 17)
+  // The oldest was dropped for the 17th and crawls again.
+  const oldest = await getDiningSnapshot({ now: at('12:01'), fetchImpl, date: dates[0] })
+  assert.equal(oldest.cached, false)
+  assert.equal(schoolsCalls(calls), 18)
+})
+
+test('forceRefresh is a hint: a date refetches at most once per MIN_REFRESH_INTERVAL_MS', async () => {
+  assert.equal(MIN_REFRESH_INTERVAL_MS, 10 * 60 * 1000)
+  const { fetchImpl, calls } = stubFetch(liveDistrict)
+  const noon = at('12:00').getTime()
+  const first = await getDiningSnapshot({ now: new Date(noon), fetchImpl })
+  assert.equal(first.refreshed, undefined) // only a refresh request is told
+  assert.equal(calls.length, 4)
+
+  const early = await getDiningSnapshot({ now: new Date(noon + MIN_REFRESH_INTERVAL_MS - 1000), fetchImpl, forceRefresh: true })
+  assert.equal(early.refreshed, false)
+  assert.equal(early.cached, true)
+  assert.equal(early.fetchedAt, first.fetchedAt)
+  assert.equal(calls.length, 4) // held to the floor: no upstream call
+
+  const later = await getDiningSnapshot({ now: new Date(noon + MIN_REFRESH_INTERVAL_MS + 1000), fetchImpl, forceRefresh: true })
+  assert.equal(later.refreshed, true)
+  assert.equal(later.cached, false)
+  assert.equal(calls.length, 8)
+
+  // The refetch restarts the floor: a burst of refreshes right after costs nothing.
+  const soon = new Date(noon + MIN_REFRESH_INTERVAL_MS + 2000)
+  const held = await Promise.all(Array.from({ length: 5 }, () => getDiningSnapshot({ now: soon, fetchImpl, forceRefresh: true })))
+  assert.ok(held.every((s) => s.refreshed === false && s.cached === true))
+  assert.equal(calls.length, 8)
+
+  // Past the floor, a burst of refreshes still shares one crawl.
+  const past = new Date(noon + 2 * MIN_REFRESH_INTERVAL_MS + 1000)
+  const burst = await Promise.all(Array.from({ length: 5 }, () => getDiningSnapshot({ now: past, fetchImpl, forceRefresh: true })))
+  assert.ok(burst.every((s) => s.refreshed === true && s.cached === false))
+  assert.equal(calls.length, 12)
 })
 
 test('NUTRISLICE_API_BASE points every request at another district', async () => {
