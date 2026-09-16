@@ -37,8 +37,10 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
+        // No `--` before the vite flags: pnpm passes it through to vite, which
+        // then ignores --port and --strictPort and serves on its default 4173.
         command:
-          'npm --prefix boilerindy-react run build && npm --prefix boilerindy-react run preview -- --port ' +
+          'pnpm -C boilerindy-react run build && pnpm -C boilerindy-react run preview --port ' +
           PORT +
           ' --strictPort',
         url: baseURL,
