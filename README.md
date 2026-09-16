@@ -50,7 +50,7 @@ This section explains how to run the full stack (frontend + backend) on your own
 ### Prerequisites
 
 - **Node.js 22.22.2+** - check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22; `boilerindy-react/.nvmrc` pins 22.22.3.)
-- **npm** - comes with Node.js.
+- **pnpm 11 or newer** - see [pnpm.io/installation](https://pnpm.io/installation). Both `package.json` files pin `pnpm@11.6.0` in `packageManager`, and pnpm 11+ downloads and runs that exact version on its own. Do not install dependencies with npm: it ignores `pnpm-lock.yaml`, resolves fresh versions and writes a `package-lock.json`, so your tree would no longer match CI or production.
 - **Supabase project** - you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
 
 ---
@@ -70,7 +70,7 @@ git checkout develop
 From the **repo root**:
 
 ```bash
-npm install
+pnpm install --frozen-lockfile
 ```
 
 ---
@@ -114,7 +114,7 @@ Open `.env` and fill in the values:
 
 ```bash
 cd boilerindy-react
-npm install
+pnpm install --frozen-lockfile
 cd ..
 ```
 
@@ -148,7 +148,7 @@ Leave `VITE_API_PROXY` commented out - it defaults to `http://127.0.0.1:3000` wh
 From the **repo root**:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 You should see:
@@ -167,7 +167,7 @@ In a **separate terminal**, from `boilerindy-react/`:
 
 ```bash
 cd boilerindy-react
-npm run dev
+pnpm run dev
 ```
 
 Vite starts at **http://localhost:5173**.
@@ -201,16 +201,16 @@ This is configured in `boilerindy-react/vite.config.js`. In production, Vercel r
 ### Troubleshooting
 
 **`Cannot find package 'dotenv'` or module not found on backend start**
-Run `npm install` from the repo root. Dependencies aren't installed.
+Run `pnpm install --frozen-lockfile` from the repo root. Dependencies aren't installed.
 
 **`'vite' is not recognized` on frontend start**
-Run `npm install` from inside `boilerindy-react/`. Frontend dependencies aren't installed.
+Run `pnpm install --frozen-lockfile` from inside `boilerindy-react/`. Frontend dependencies aren't installed.
 
 **Backend exits immediately with `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`**
 Your `.env` is missing or empty. Make sure `.env` exists in the **repo root** (not inside `boilerindy-react/`) and contains valid Supabase credentials.
 
 **Frontend loads but all API calls fail**
-The backend isn't running. Start it first (`npm run dev` from repo root), then start the frontend in a second terminal.
+The backend isn't running. Start it first (`pnpm run dev` from repo root), then start the frontend in a second terminal.
 
 **Port 3000 already in use**
 Another process holds port 3000. Kill it, or change `PORT` in the root `.env` and set `VITE_API_PROXY=http://127.0.0.1:<new-port>` in `boilerindy-react/.env`.
@@ -301,6 +301,7 @@ All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT E
 - **Frontend** - Vercel, auto-deploys from `main`
 - **Backend** - Render, running `node server.mjs`
 - **Routing** - `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
+- **Installs** - both hosts must install from the pnpm lockfiles. Their install and build commands are dashboard settings, not files in this repo. Render's build command should be `pnpm install --frozen-lockfile`, with `node server.mjs` as the start command. On Vercel, leave the Install Command at its default so Vercel picks pnpm from `boilerindy-react/pnpm-lock.yaml`: an override such as `pnpm install` makes Vercel run the oldest pnpm in its build image. Vercel's build log shows which pnpm version ran.
 
 The Render free tier sleeps after ~15 minutes idle and takes 20 to 50 s to wake, which every first page load used to pay (issue #164). A Supabase `pg_cron` job (`db/supabase-keep-warm.sql`, step 29 above) pings `/api/health` every 5 minutes to keep it awake, the GitHub keep-warm workflow is the backstop, and the app shows a "waking up" notice whenever a request is slow. Setup and verification: [docs/keep-warm.md](docs/keep-warm.md).
 
@@ -382,18 +383,18 @@ filter applied to all text.
 
 ```bash
 # From repo root
-npm install          # Install backend dependencies
-npm run dev          # Start backend on :3000
-npm run test:backend # Run backend unit tests (node:test)
-npm run test:e2e     # Run Playwright E2E suite (builds + previews the frontend,
-                     # mocks the backend - no Supabase creds needed)
+pnpm install --frozen-lockfile # Install backend dependencies
+pnpm run dev                   # Start backend on :3000
+pnpm run test:backend          # Run backend unit tests (node:test)
+pnpm run test:e2e              # Run Playwright E2E suite (builds + previews the frontend,
+                               # mocks the backend - no Supabase creds needed)
 
 # From boilerindy-react/
-npm install          # Install frontend dependencies
-npm run dev          # Start frontend on :5173
-npm run build        # Production build
-npm run preview      # Preview production build locally
-npm run lint         # Run ESLint
+pnpm install --frozen-lockfile # Install frontend dependencies
+pnpm run dev                   # Start frontend on :5173
+pnpm run build                 # Production build
+pnpm run preview               # Preview production build locally
+pnpm run lint                  # Run ESLint
 
 # Admin / maintenance scripts (from repo root, needs backend .env)
 node scripts/grant-admin.mjs --email=you@gmail.com      # grant/revoke platform admin
