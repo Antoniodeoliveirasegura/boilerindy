@@ -153,7 +153,6 @@ import {
 } from './src/advertiserPasswordReset.mjs'
 import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
-import { wrapAsyncRoutes } from './src/asyncRoutes.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -243,6 +242,16 @@ console.log(`[startup] mode=${isProduction ? 'production' : (nodeEnv || 'develop
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Express 5 leaves req.body undefined when a request carries no body or a
+// content-type no parser claims, where Express 4 handed over {}. server.mjs
+// reads req.body in ~90 places, nearly all by destructuring, so without this a
+// bodyless or mistyped POST would throw before the route could return its own
+// 400 and the client would see a generic 500 instead (issue #291).
+app.use((req, _res, next) => {
+  if (req.body === undefined) req.body = {}
+  next()
+})
 
 // Lightweight liveness probe for uptime pings (issue #111). Defined before the
 // session middleware so warm-up pings don't allocate a session on every hit -
@@ -5722,12 +5731,9 @@ app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ ty
 // Express's HTML "Cannot GET" page (#157). Mounted after every API route (so it
 // only runs when nothing matched) and before the error handlers. Non-/api
 // routes (/, /auth/purdue/*, /feeds/calendar/*) are untouched.
-// Express 4 drops rejected promises from async handlers on the floor; wrap
-// every registered route handler and route-level middleware so they reach the
-// error handlers below instead of hanging the request (#197). Must run after
-// the last app.get/post/... and before the error middleware.
-const wrappedHandlers = wrapAsyncRoutes(app)
-console.log(`[boot] ${wrappedHandlers} route handlers wrapped for async error propagation`)
+// Express 5 forwards a rejected promise from an async handler to the error
+// middleware itself, so the hand-rolled wrapper that did this under Express 4
+// (src/asyncRoutes.mjs, issue #197) is gone (issue #291).
 
 app.use('/api', apiNotFound)
 
@@ -5750,7 +5756,14 @@ app.use((err, _req, res, _next) => {
   })
 })
 
-app.listen(port, host, async () => {
+// The callback takes the bind error in Express 5. Without it a port already in
+// use, or a host the container cannot bind, still printed the success banner in
+// the Render log and left the process alive but unreachable (issue #291).
+app.listen(port, host, async (err) => {
+  if (err) {
+    console.error(`[boot] cannot listen on ${host}:${port}:`, err?.message || err)
+    process.exit(1)
+  }
   console.log(`BoilerIndy backend listening on ${publicBaseUrl}`)
   console.log(`Purdue link mode: ${purdueAuthMode}`)
   console.log(`Database: Supabase`)
