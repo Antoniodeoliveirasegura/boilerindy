@@ -18,6 +18,7 @@ method, and path for abuse review.
 | `session-sync` | `POST /api/auth/supabase-sync` | 120 | 15 min | Supabase user (`sub` of the request's token, or `supabaseUserId`), falls back to IP (#217) |
 | `session-sync-ip` | `POST /api/auth/supabase-sync` (outer cap so one address cannot mint unlimited user buckets) | 600 | 15 min | IP |
 | `purdue-link-token` | `POST /api/purdue/link-token` (native app Purdue link handoff, issue #214) | 20 | 15 min | user, falls back to IP |
+| `purdue-link-flow` | `GET /auth/purdue/connect`, `POST /auth/purdue/dev/link`, `GET /auth/purdue/callback` (the steps that spend a link attempt, checked before the student is loaded; a blocked caller is redirected, to the app with `reason=rate-limited` or to `/settings?error=purdue-link-throttled`, rather than answered with a JSON 429; issue #293) | 30 | 15 min | handoff token (only a validly signed, unexpired, unspent one), then user, then IP |
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id` | 30 | 10 min | user, falls back to IP |
 | `source-sync` | `POST /api/sync/:sourceId`, `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule` | 30 | 15 min | user, falls back to IP |
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals seller email, enumeration-sensitive) | 100 | 15 min | user, falls back to IP |
