@@ -69,7 +69,7 @@ import {
   MAX_GRADES,
   MAX_MANUAL_TASKS,
   advertiserWriteBucketKey,
-  exceedsCap,
+  capCheck,
 } from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson, isAbortLike } from './src/upstreamFetch.mjs'
@@ -2139,12 +2139,13 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
   const parsed = parseManualTaskCreate(req.body)
   if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
-    const { count, error: countError } = await supabase
+    const countResult = await supabase
       .from('user_manual_tasks')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
-    if (countError) throw countError
-    if (exceedsCap(count, MAX_MANUAL_TASKS)) {
+    const cap = capCheck(countResult, MAX_MANUAL_TASKS)
+    if (cap.failure) console.error('POST /api/me/tasks/manual:', cap.failure, countResult.error)
+    if (cap.blocked) {
       return res.status(409).json({ error: { message: MANUAL_TASKS_CAP_MESSAGE, status: 409 } })
     }
     const { data, error } = await supabase
@@ -2270,12 +2271,13 @@ app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => 
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid } })
   try {
-    const { count, error: countError } = await supabase
+    const countResult = await supabase
       .from('user_grades')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
-    if (countError) throw countError
-    if (exceedsCap(count, MAX_GRADES)) {
+    const cap = capCheck(countResult, MAX_GRADES)
+    if (cap.failure) console.error('POST /api/me/grades:', cap.failure, countResult.error)
+    if (cap.blocked) {
       return res.status(409).json({ error: { message: GRADES_CAP_MESSAGE, status: 409 } })
     }
     const { data, error } = await supabase
@@ -3575,13 +3577,14 @@ app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req
   try {
     // Keyed by (user_id, item_name), no id column. Counting the other favorites
     // lets a re-save of one the user already has through at the cap.
-    const { count, error: countError } = await supabase
+    const countResult = await supabase
       .from('user_dining_favorites')
       .select('item_name', { count: 'exact', head: true })
       .eq('user_id', userId)
       .neq('item_name', itemName)
-    if (countError) throw countError
-    if (exceedsCap(count, MAX_DINING_FAVORITES)) {
+    const cap = capCheck(countResult, MAX_DINING_FAVORITES)
+    if (cap.failure) console.error('POST /api/me/dining/favorites:', cap.failure, countResult.error)
+    if (cap.blocked) {
       return res.status(409).json({ error: { message: DINING_FAVORITES_CAP_MESSAGE, status: 409 } })
     }
     const { error } = await supabase
@@ -5302,13 +5305,14 @@ app.post('/api/advertiser/campaigns', advertiserWriteRateLimit, requireAdvertise
     return res.status(400).json({ error: { message: error.message, status: 400 } })
   }
 
-  const { count, error: countError } = await supabase
+  const countResult = await supabase
     .from('campaigns')
     .select('id', { count: 'exact', head: true })
     .eq('advertiser_id', req.currentAdvertiser.id)
     .eq('status', 'draft')
-  if (countError) return respondAdvertiserDbError(res, countError)
-  if (exceedsCap(count, MAX_DRAFT_CAMPAIGNS)) {
+  const cap = capCheck(countResult, MAX_DRAFT_CAMPAIGNS)
+  if (cap.failure) console.error('POST /api/advertiser/campaigns:', cap.failure, countResult.error)
+  if (cap.blocked) {
     return res.status(409).json({ error: { message: DRAFT_CAMPAIGNS_CAP_MESSAGE, status: 409 } })
   }
 

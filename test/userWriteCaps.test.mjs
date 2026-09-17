@@ -10,6 +10,7 @@ import {
   MAX_GRADES,
   MAX_MANUAL_TASKS,
   advertiserWriteBucketKey,
+  capCheck,
   exceedsCap,
 } from '../src/userWriteCaps.mjs'
 import { bucketKey, createRateLimiter } from '../src/rateLimiter.mjs'
@@ -42,6 +43,31 @@ test('exceedsCap fails open when the count is missing or not a number', () => {
   for (const count of [null, undefined, NaN, Infinity, '600', {}]) {
     assert.equal(exceedsCap(count, 20), false, `count ${String(count)}`)
   }
+})
+
+test('capCheck blocks at the cap and lets a count under it through', () => {
+  assert.deepEqual(capCheck({ count: 499, error: null, status: 200 }, 500), { blocked: false, failure: null })
+  assert.deepEqual(capCheck({ count: 500, error: null, status: 200 }, 500), { blocked: true, failure: null })
+  // A HEAD 404 with an empty body comes back from supabase-js as a 204 with no count.
+  assert.deepEqual(capCheck({ count: null, error: null, status: 204 }, 20), { blocked: false, failure: null })
+})
+
+test('capCheck fails open on a failed count query and names the status for the log', () => {
+  // What supabase-js returns for a HEAD count that answered 500: no body to parse.
+  const failed = capCheck({ count: null, error: { message: '' }, status: 500 }, 500)
+  assert.equal(failed.blocked, false)
+  assert.equal(failed.failure, 'row cap count query failed (status 500), allowing the write')
+  // A fetch that never got a response comes back with status 0.
+  const unreachable = capCheck({ count: null, error: { message: 'TypeError: fetch failed' }, status: 0 }, 500)
+  assert.equal(unreachable.blocked, false)
+  assert.equal(unreachable.failure, 'row cap count query failed (no response), allowing the write')
+  // An error never blocks, even alongside a count at the cap.
+  assert.equal(capCheck({ count: 900, error: { message: 'x' }, status: 503 }, 500).blocked, false)
+})
+
+test('capCheck treats a missing result as an unknown count', () => {
+  assert.deepEqual(capCheck(undefined, 20), { blocked: false, failure: null })
+  assert.deepEqual(capCheck(null, 20), { blocked: false, failure: null })
 })
 
 test('advertiserWriteBucketKey keys a portal session by the advertiser id', () => {

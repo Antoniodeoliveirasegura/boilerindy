@@ -36,6 +36,28 @@ export function exceedsCap(count, cap) {
 }
 
 /**
+ * Reads the supabase-js result of a create route's HEAD count query
+ * (`{ count, error, status }`). `blocked` is true when the caller already owns
+ * `cap` rows. A failed count query fails open like a missing count: the write
+ * limiter still bounds a flood, and if the database really is down the insert
+ * fails with its own error. `failure` is then a line for the route to log,
+ * otherwise null. A HEAD response has no body, so supabase-js reports a 5xx as
+ * `{ message: '' }` and the HTTP status (0 when no response came back) is the
+ * only clue to what went wrong.
+ *
+ * @param {{ count?: unknown, error?: unknown, status?: unknown } | null | undefined} result
+ * @param {number} cap the most rows the caller may own
+ * @returns {{ blocked: boolean, failure: string | null }}
+ */
+export function capCheck(result, cap) {
+  if (result?.error) {
+    const status = typeof result.status === 'number' && result.status > 0 ? `status ${result.status}` : 'no response'
+    return { blocked: false, failure: `row cap count query failed (${status}), allowing the write` }
+  }
+  return { blocked: exceedsCap(result?.count, cap), failure: null }
+}
+
+/**
  * Bucket key for the advertiser-write limiter. Advertiser portal sessions carry
  * `req.session.advertiserId` (set at advertiser sign-in, read by
  * requireAdvertiserAuth) and no student `userId`, so the default userOrIp
