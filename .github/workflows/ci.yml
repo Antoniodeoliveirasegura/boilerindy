@@ -55,6 +55,31 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: boilerindy-react
 
+      # The admin scripts in scripts/ are run by hand, mostly against the
+      # production Supabase project, and no test imports them (only
+      # scripts/lib/ is tested), so a syntax error would otherwise show up
+      # mid-operation. node --check parses each file without running it and does
+      # not resolve imports. find covers scripts/lib/ too, and an empty match
+      # fails so a moved directory cannot turn this into a silent pass.
+      - name: Syntax-check admin scripts
+        shell: bash
+        run: |
+          count=0
+          failed=0
+          while IFS= read -r f; do
+            count=$((count + 1))
+            node --check "$f" || failed=$((failed + 1))
+          done < <(find scripts -name '*.mjs' | sort)
+          if [ "$count" -eq 0 ]; then
+            echo "No .mjs files found under scripts/."
+            exit 1
+          fi
+          if [ "$failed" -gt 0 ]; then
+            echo "$failed of $count scripts/ files failed node --check."
+            exit 1
+          fi
+          echo "node --check passed for $count scripts/ files."
+
       # Lint must pass: the source is error-clean. Covers .ts/.tsx as well as the
       # few remaining .js files (issue #183); the React Compiler advisory rules
       # stay informational warnings and don't fail eslint.
