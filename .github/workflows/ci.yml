@@ -19,8 +19,10 @@ permissions:
 # back. A shared group with cancel-in-progress: false would not give that:
 # GitHub keeps one pending run per group and cancels the older pending run when
 # a newer one arrives, so a quick batch of merges would drop the middle commits'
-# runs. A develop push run and the develop -> main release PR run for the same
-# commit still both run: they are different events on different refs.
+# runs. A push to develop still starts both its own run and a new run of the
+# open develop -> main release PR: they are different events on different refs,
+# so they land in different groups. The PR run tests GitHub's merge of develop
+# into main (refs/pull/N/merge), not the develop head commit itself.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
