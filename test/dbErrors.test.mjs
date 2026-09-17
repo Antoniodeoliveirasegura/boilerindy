@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { inspect } from 'node:util'
 import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from '../src/dbErrors.mjs'
 
 // Issue #218: a missing table used to answer 503 with Supabase SQL Editor
@@ -23,7 +24,9 @@ function mockRes() {
 }
 
 // Every console.error call, flattened to one string, so a test can assert what
-// did (or did not) reach the log and therefore Sentry.
+// did (or did not) reach the log and therefore Sentry. Objects are inspected in
+// full rather than turned into "[object Object]": Sentry's captureConsole keeps
+// the raw arguments, so a logged error object would carry details and hint.
 function spyConsoleError(t) {
   const spy = t.mock.method(console, 'error', () => {})
   return {
@@ -31,7 +34,9 @@ function spyConsoleError(t) {
       return spy.mock.callCount()
     },
     text() {
-      return spy.mock.calls.map((call) => call.arguments.map((arg) => String(arg)).join(' ')).join('\n')
+      return spy.mock.calls
+        .map((call) => call.arguments.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 5 }))).join(' '))
+        .join('\n')
     },
   }
 }
@@ -88,6 +93,18 @@ test('isSchemaMissingError: PostgREST and Postgres missing-table errors', () => 
   )
 })
 
+test('isSchemaMissingError: a missing function, operator or type is a query bug, not a migration', () => {
+  // These also say "does not exist", but no table or column is missing, so they
+  // keep the 500 path, which logs every time, instead of a "coming soon" 503.
+  assert.equal(isSchemaMissingError({ code: '42883', message: 'operator does not exist: uuid = text' }), false)
+  assert.equal(isSchemaMissingError({ code: '42883', message: 'function gen_random_uuid() does not exist' }), false)
+  assert.equal(isSchemaMissingError({ code: '42704', message: 'type "listing_status" does not exist' }), false)
+  assert.equal(isSchemaMissingError({ message: 'operator does not exist: uuid = text' }), false)
+  assert.equal(isSchemaMissingError({ message: 'function public.bump_views(uuid) does not exist' }), false)
+  // A code that is not a schema code wins over a message that looks like one.
+  assert.equal(isSchemaMissingError({ code: '42883', message: 'function f(column text) does not exist' }), false)
+})
+
 test('isSchemaMissingError: other errors and non-errors are not schema-missing', () => {
   assert.equal(isSchemaMissingError(uniqueViolation()), false)
   assert.equal(isSchemaMissingError({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }), false)
@@ -115,7 +132,7 @@ test('every feature answers a missing table with 503 and its code, with no opera
   }
 })
 
-test('the operator instruction is logged once per feature and SQL file, never sent to the client', (t) => {
+test('the operator instruction is logged once per feature, SQL file and error code, never sent to the client', (t) => {
   const log = spyConsoleError(t)
   const config = { feature: 'log_once', label: 'Log once', sqlFile: 'db/supabase-log-once.sql', fallback: 'Nope.' }
 
@@ -127,13 +144,30 @@ test('the operator instruction is logged once per feature and SQL file, never se
   assert.doesNotMatch(JSON.stringify(first.body), /supabase-log-once|SQL Editor/)
 
   respondDbError(mockRes(), tableMissing(), config)
-  respondSchemaMissing(mockRes(), config)
+  respondSchemaMissing(mockRes(), config, tableMissing())
   assert.equal(log.count, 1, 'repeat hits stay out of the log (and Sentry)')
 
   // Same feature, different migration: that instruction is new, so it logs.
   respondSchemaMissing(mockRes(), { ...config, sqlFile: 'db/supabase-log-once-extra.sql' })
   assert.equal(log.count, 2)
   assert.match(log.text(), /run db\/supabase-log-once-extra\.sql in/)
+})
+
+test('a new error code for the same feature logs once too, so a new cause is never silent', (t) => {
+  const log = spyConsoleError(t)
+  const config = { feature: 'per_code', label: 'Per code', sqlFile: 'db/supabase-per-code.sql', fallback: 'Nope.' }
+
+  respondDbError(mockRes(), tableMissing(), config)
+  respondDbError(mockRes(), tableMissing(), config)
+  assert.equal(log.count, 1)
+
+  // The table is back but a column from a later migration is not.
+  const columnMissing = { code: '42703', message: 'column per_code.edited_at does not exist' }
+  respondDbError(mockRes(), columnMissing, config)
+  assert.equal(log.count, 2)
+  assert.match(log.text(), /42703 column per_code\.edited_at does not exist/)
+  respondDbError(mockRes(), columnMissing, config)
+  assert.equal(log.count, 2, 'the same code stays logged once')
 })
 
 test('a feature with several SQL files names all of them in the log', (t) => {

@@ -12,19 +12,22 @@
 //   DB_FEATURES                   one config per feature: { feature, label, sqlFile, fallback }.
 //                                 The 503 code is `${feature}_schema_missing`; add a feature
 //                                 here (and to docs/api-error-codes.md) rather than inline.
-//   isSchemaMissingError(err)     true when Supabase reports a table (or other schema object)
-//                                 that does not exist yet, i.e. a migration has not run.
+//   isSchemaMissingError(err)     true when Supabase reports a table or column that does not
+//                                 exist yet, i.e. a migration has not run. A missing function,
+//                                 operator or type is a query bug and answers false.
 //   respondSchemaMissing(res, config, err?)
 //                                 503 { error: { message, code, status } } for a feature that
-//                                 is not set up; logs the SQL file to run once per process.
+//                                 is not set up; logs the SQL file to run once per process
+//                                 for each feature, file and error code.
 //   respondDbError(res, err, config)
 //                                 respondSchemaMissing for a schema-missing error, otherwise
 //                                 logs code and message and answers 500 with config.fallback.
 //
-// Every answer uses the standard envelope { error: { message, status, code? } }
-// documented in docs/api-error-codes.md. Logs carry the error's code and message
-// only, never `details` or `hint`: console.error is forwarded to Sentry
-// (captureConsoleIntegration) and a Postgres detail can hold row values.
+// Every answer from this module uses the standard envelope
+// { error: { message, status, code? } } documented in docs/api-error-codes.md.
+// Logs carry the error's code and message only, never `details` or `hint`:
+// console.error is forwarded to Sentry (captureConsoleIntegration) and a
+// Postgres detail can hold row values.
 
 /**
  * @typedef {object} DbFeature
@@ -99,24 +102,38 @@ export const DB_FEATURES = Object.freeze({
   ),
 })
 
+// A missing table or column: what an unrun CREATE TABLE or ADD COLUMN migration
+// produces. PGRST205 and 42P01 are tables, 42703 and PGRST204 columns (the same
+// pair src/moderation.mjs isMissingColumnError uses).
+const SCHEMA_MISSING_CODES = new Set(['PGRST205', '42P01', '42703', 'PGRST204'])
+// Postgres errors that also say "does not exist" but come from the query, not a
+// missing migration: 42883 undefined function or operator ("operator does not
+// exist: uuid = text"), 42704 undefined object such as a type. They stay 500s.
+const QUERY_BUG_CODES = new Set(['42883', '42704'])
+const MISSING_RELATION_OR_COLUMN = /\b(?:relation|column) .+ does not exist/
+
 /**
- * True when Supabase reports a missing table: PostgREST answers PGRST205
- * ("Could not find the table ... in the schema cache") and Postgres answers
- * 42P01 ("relation ... does not exist"). The message checks catch the same
- * errors when they arrive without a code, plus a missing column or function
- * ("does not exist", "schema cache"), which also means a migration has not run.
+ * True when Supabase reports a table or column that does not exist yet, i.e. a
+ * migration has not run: PostgREST PGRST205 ("Could not find the table ... in
+ * the schema cache") or PGRST204 (a column missing from the schema cache), and
+ * Postgres 42P01 ("relation ... does not exist") or 42703 ("column ... does not
+ * exist"). Without one of those codes, the message decides: "schema cache",
+ * "Could not find the table", or a relation or column that "does not exist".
+ * A missing function, operator or type (42883, 42704) is a query bug and is
+ * never schema-missing, so it keeps the 500 path that logs every time.
  * @param {unknown} err
  * @returns {boolean}
  */
 export function isSchemaMissingError(err) {
   if (!err || typeof err !== 'object') return false
   const code = String(err.code || '')
-  if (code === 'PGRST205' || code === '42P01') return true
+  if (SCHEMA_MISSING_CODES.has(code)) return true
+  if (QUERY_BUG_CODES.has(code)) return false
   const message = String(err.message || '')
   return (
     message.includes('schema cache') ||
     message.includes('Could not find the table') ||
-    message.includes('does not exist')
+    MISSING_RELATION_OR_COLUMN.test(message)
   )
 }
 
@@ -128,16 +145,19 @@ function errorFields(err) {
   return { code: null, message: err == null ? null : String(err) }
 }
 
-// Operator instructions already logged, keyed by feature and SQL file(s), so a
-// missing table hit on every request logs (and reaches Sentry) once per process.
+// Operator instructions already logged, keyed by feature, SQL file(s) and error
+// code, so a missing table hit on every request logs (and reaches Sentry) once
+// per process, while a different cause for the same feature (a missing column
+// after the table exists) still logs its own line once. Only the code goes in
+// the key, never the message, so the Set stays small.
 const loggedSchemaMissing = new Set()
 
 function logSchemaMissingOnce(config, err) {
   const files = [].concat(config.sqlFile).join(' and ')
-  const key = `${config.feature}|${files}`
+  const { code, message } = errorFields(err)
+  const key = `${config.feature}|${files}|${code ?? ''}`
   if (loggedSchemaMissing.has(key)) return
   loggedSchemaMissing.add(key)
-  const { code, message } = errorFields(err)
   console.error(
     `[${config.feature}] schema missing: run ${files} in the Supabase SQL Editor, then retry.`,
     code,
@@ -148,7 +168,7 @@ function logSchemaMissingOnce(config, err) {
 /**
  * Answer 503 for a feature whose tables (or columns) are not in the database
  * yet. The client sees a short message and `${feature}_schema_missing`; the SQL
- * file to run is logged once per feature and file, never sent.
+ * file to run is logged once per feature, file and error code, never sent.
  * @param {{ status: (code: number) => any }} res Express response
  * @param {DbFeature} config
  * @param {unknown} [err] the database error, for the one-time log line
