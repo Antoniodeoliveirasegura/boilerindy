@@ -59,7 +59,18 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
-import { advertiserWriteBucketKey } from './src/userWriteCaps.mjs'
+import {
+  DINING_FAVORITES_CAP_MESSAGE,
+  DRAFT_CAMPAIGNS_CAP_MESSAGE,
+  GRADES_CAP_MESSAGE,
+  MANUAL_TASKS_CAP_MESSAGE,
+  MAX_DINING_FAVORITES,
+  MAX_DRAFT_CAMPAIGNS,
+  MAX_GRADES,
+  MAX_MANUAL_TASKS,
+  advertiserWriteBucketKey,
+  exceedsCap,
+} from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson, isAbortLike } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
@@ -2128,6 +2139,14 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
   const parsed = parseManualTaskCreate(req.body)
   if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
+    const { count, error: countError } = await supabase
+      .from('user_manual_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+    if (countError) throw countError
+    if (exceedsCap(count, MAX_MANUAL_TASKS)) {
+      return res.status(409).json({ error: { message: MANUAL_TASKS_CAP_MESSAGE, status: 409 } })
+    }
     const { data, error } = await supabase
       .from('user_manual_tasks')
       .insert({
@@ -2251,6 +2270,14 @@ app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => 
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid } })
   try {
+    const { count, error: countError } = await supabase
+      .from('user_grades')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+    if (countError) throw countError
+    if (exceedsCap(count, MAX_GRADES)) {
+      return res.status(409).json({ error: { message: GRADES_CAP_MESSAGE, status: 409 } })
+    }
     const { data, error } = await supabase
       .from('user_grades')
       .insert({ user_id: userId, ...value })
@@ -3546,6 +3573,17 @@ app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req
   const itemName = normalizeItemName(req.body?.itemName)
   if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
   try {
+    // Keyed by (user_id, item_name), no id column. Counting the other favorites
+    // lets a re-save of one the user already has through at the cap.
+    const { count, error: countError } = await supabase
+      .from('user_dining_favorites')
+      .select('item_name', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .neq('item_name', itemName)
+    if (countError) throw countError
+    if (exceedsCap(count, MAX_DINING_FAVORITES)) {
+      return res.status(409).json({ error: { message: DINING_FAVORITES_CAP_MESSAGE, status: 409 } })
+    }
     const { error } = await supabase
       .from('user_dining_favorites')
       .upsert({ user_id: userId, item_name: itemName }, { onConflict: 'user_id,item_name' })
@@ -5262,6 +5300,16 @@ app.post('/api/advertiser/campaigns', advertiserWriteRateLimit, requireAdvertise
     fields = normalizeCampaignInput(req.body)
   } catch (error) {
     return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const { count, error: countError } = await supabase
+    .from('campaigns')
+    .select('id', { count: 'exact', head: true })
+    .eq('advertiser_id', req.currentAdvertiser.id)
+    .eq('status', 'draft')
+  if (countError) return respondAdvertiserDbError(res, countError)
+  if (exceedsCap(count, MAX_DRAFT_CAMPAIGNS)) {
+    return res.status(409).json({ error: { message: DRAFT_CAMPAIGNS_CAP_MESSAGE, status: 409 } })
   }
 
   const timestamp = nowIso()
