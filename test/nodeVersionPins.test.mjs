@@ -9,7 +9,12 @@ import { existsSync, readFileSync } from 'node:fs'
 //   `nvm install` and Render (NODE_VERSION=22 in its dashboard, or the root
 //   .nvmrc without it) all resolve that to the newest 22.x, so a Node security
 //   release needs no commit here. An exact pin (22.22.3) left CI older than
-//   the Node Render ran.
+//   the Node Render ran. The cost, which #290's exact pin avoided: `nvm use`
+//   picks the newest 22.x already installed, even one below the engines floor
+//   (22.22.2), and exits 0 instead of asking for `nvm install`; pnpm 11 then
+//   fails below 22.13 and only warns from there up to 22.22.1, while CI stays
+//   green. README "Prerequisites" tells developers to run `nvm install` and
+//   check `node -v`.
 // - Every CI job reads the root .nvmrc with check-latest: true. Without it
 //   actions/setup-node keeps the newest 22.x cached on the runner image, which
 //   trails new releases until GitHub rebuilds the image.
