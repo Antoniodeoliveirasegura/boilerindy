@@ -88,6 +88,7 @@ import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
+import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
@@ -3555,34 +3556,12 @@ app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
 // Board API
 // ============================================================
 
-const BOARD_SQL_FILE = 'db/supabase-board-only.sql'
+const BOARD_SQL_FILE = DB_FEATURES.board.sqlFile
 
-function isBoardSchemaMissingError(err) {
-  const m = String(err?.message || '')
-  const c = String(err?.code || '')
-  return (
-    m.includes('schema cache') ||
-    m.includes('Could not find the table') ||
-    m.includes('does not exist') && m.includes('board_posts') ||
-    c === 'PGRST205' ||
-    c === '42P01'
-  )
-}
-
+// 503 board_schema_missing until the board tables exist, 500 otherwise. Each
+// feature's responder below is the same wrapper over src/dbErrors.mjs (#218).
 function respondBoardDbError(res, err) {
-  console.error('Board DB error:', err?.message || err, err?.code, err?.details)
-  if (isBoardSchemaMissingError(err)) {
-    return res.status(503).json({
-      error: {
-        message: `Campus board tables are missing in Supabase. In the dashboard: SQL Editor → paste and run the file ${BOARD_SQL_FILE} from this repo → Run. Wait a few seconds, then try again.`,
-        code: 'board_schema_missing',
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({
-    error: { message: 'Something went wrong. Please try again.', status: 500 },
-  })
+  return respondDbError(res, err, DB_FEATURES.board)
 }
 
 app.get('/api/board/posts', requireAuth, async (req, res) => {
@@ -4015,19 +3994,8 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-neighborhood-guide.sql.
 // ============================================================
 
-const GUIDE_SQL_FILE = 'db/supabase-neighborhood-guide.sql'
-
 function respondGuideDbError(res, err) {
-  console.error('Guide DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Neighborhood Guide tables are missing in Supabase. In the dashboard: SQL Editor → run ${GUIDE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load the guide. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.guide)
 }
 
 app.get('/api/guide', requireAuth, async (req, res) => {
@@ -4164,31 +4132,19 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-study-groups.sql.
 // ============================================================
 
-const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
 // Soft delete for groups came later (issue #195) and is a separate migration.
 const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
+const STUDY_SOFT_DELETE_DB = {
+  ...DB_FEATURES.study_groups,
+  label: 'Removing study groups',
+  sqlFile: STUDY_SOFT_DELETE_SQL_FILE,
+}
 
 function respondStudyDbError(res, err) {
-  console.error('Study group DB error:', err?.message || err, err?.code)
-  // Checked first: a PGRST204 "column ... in the schema cache" message would
-  // otherwise read as the whole feature missing.
-  if (isMissingColumnError(err, 'deleted_at')) {
-    return res.status(503).json({
-      error: {
-        message: `Removing study groups needs a database update. In the dashboard: SQL Editor → run ${STUDY_SOFT_DELETE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Study Group tables are missing in Supabase. In the dashboard: SQL Editor → run ${STUDY_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load study groups. Please try again.', status: 500 } })
+  // Checked first so the log names the soft-delete migration rather than the
+  // base study-groups file; the client sees study_groups_schema_missing either way.
+  if (isMissingColumnError(err, 'deleted_at')) return respondSchemaMissing(res, STUDY_SOFT_DELETE_DB, err)
+  return respondDbError(res, err, DB_FEATURES.study_groups)
 }
 
 function mapStudyGroupRow(row, userId, memberCounts, myGroupIds) {
@@ -4412,19 +4368,8 @@ app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-campus-deals.sql.
 // ============================================================
 
-const DEALS_SQL_FILE = 'db/supabase-campus-deals.sql'
-
 function respondDealsDbError(res, err) {
-  console.error('Deals DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Campus Perks tables are missing in Supabase. In the dashboard: SQL Editor → run ${DEALS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load deals. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.deals)
 }
 
 app.get('/api/deals', requireAuth, async (req, res) => {
@@ -4503,7 +4448,6 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-marketplace.sql.
 // ============================================================
 
-const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
 const MARKETPLACE_PAGE_SIZE = 24
 const marketplacePhotos = createMarketplacePhotos({ supabase, secret: sessionSecret })
 const marketplacePhotoRateLimit = createRateLimiter({
@@ -4521,16 +4465,7 @@ app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateL
 
 function respondMarketplaceDbError(res, err) {
   if (err instanceof PhotoError) return respondPhotoError(res, err)
-  console.error('Marketplace DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Marketplace tables are missing in Supabase. In the dashboard: SQL Editor → run ${MARKETPLACE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load the marketplace. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.marketplace)
 }
 
 // Browse active, non-hidden listings with optional category/text filter + paging.
@@ -4714,19 +4649,8 @@ app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async 
 // db/supabase-friend-matching.sql.
 // ============================================================
 
-const FRIENDS_SQL_FILE = 'db/supabase-friend-matching.sql'
-
 function respondFriendsDbError(res, err) {
-  console.error('Friend matching DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Friend Matching tables are missing in Supabase. In the dashboard: SQL Editor → run ${FRIENDS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load matches. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.friends)
 }
 
 // My profile + discoverable status.
@@ -4920,35 +4844,20 @@ app.get('/api/me/connections', requireAuth, async (req, res) => {
 // gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
 // ============================================================
 
-const ADVERTISER_SQL_FILE = 'db/supabase-advertiser-portal.sql'
-const ADVERTISER_CAMPAIGNS_SQL_FILE = 'db/supabase-advertiser-campaigns.sql'
+const [ADVERTISER_SQL_FILE, ADVERTISER_CAMPAIGNS_SQL_FILE] = DB_FEATURES.advertiser.sqlFile
 const ADVERTISER_RESETS_SQL_FILE = 'db/supabase-advertiser-password-resets.sql'
 const ADVERTISER_AD_EVENTS_SQL_FILE = 'db/supabase-advertiser-ad-events.sql'
 
-function isAdvertiserSchemaMissingError(err) {
-  const m = String(err?.message || '')
-  const c = String(err?.code || '')
-  return (
-    m.includes('schema cache') ||
-    m.includes('Could not find the table') ||
-    (m.includes('does not exist') && m.includes('advertiser')) ||
-    c === 'PGRST205' ||
-    c === '42P01'
-  )
+// The forgot-password route answers advertiser_schema_missing too, but its log
+// names the password-resets migration.
+const ADVERTISER_RESETS_DB = {
+  ...DB_FEATURES.advertiser,
+  label: 'Password reset',
+  sqlFile: ADVERTISER_RESETS_SQL_FILE,
 }
 
 function respondAdvertiserDbError(res, err) {
-  console.error('Advertiser DB error:', err?.message || err, err?.code, err?.details)
-  if (isAdvertiserSchemaMissingError(err)) {
-    return res.status(503).json({
-      error: {
-        message: `Advertiser tables are missing in Supabase. In the dashboard: SQL Editor → run ${ADVERTISER_SQL_FILE} and ${ADVERTISER_CAMPAIGNS_SQL_FILE} from this repo → Run, then try again.`,
-        code: 'advertiser_schema_missing',
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Something went wrong. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.advertiser)
 }
 
 async function getAdvertiserById(advertiserId) {
@@ -5142,15 +5051,7 @@ app.post('/api/advertiser/forgot-password', passwordResetRateLimit, async (req, 
         console.error('[advertiser reset] email is not configured; reset link was not delivered')
       }
     } catch (sendErr) {
-      if (isAdvertiserSchemaMissingError(sendErr)) {
-        return res.status(503).json({
-          error: {
-            message: `Advertiser reset table is missing. In Supabase: SQL Editor → run ${ADVERTISER_RESETS_SQL_FILE} → Run, then try again.`,
-            code: 'advertiser_schema_missing',
-            status: 503,
-          },
-        })
-      }
+      if (isSchemaMissingError(sendErr)) return respondSchemaMissing(res, ADVERTISER_RESETS_DB, sendErr)
       console.error('Advertiser forgot-password failed:', sendErr?.message || sendErr)
       return res.status(500).json({ error: { message: 'Could not send the reset email. Please try again.', status: 500 } })
     }
@@ -5636,18 +5537,17 @@ function softDeleteConfig(type) {
 }
 
 // A table without deleted_at yet (study groups before their migration) fails
-// every moderation query on the missing column: answer 503 naming the file to
-// run instead of a generic 500.
+// every moderation query on the missing column: answer 503
+// moderation_schema_missing (the log names the file to run) instead of a 500.
 function respondModerationDbError(res, error, cfg, logLabel, message) {
-  console.error(`${logLabel}:`, error.message)
   if (isMissingColumnError(error, 'deleted_at')) {
-    return res.status(503).json({
-      error: {
-        message: `${cfg.label} moderation needs a database update. In the dashboard: SQL Editor → run ${cfg.sqlFile} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
+    return respondSchemaMissing(
+      res,
+      { ...DB_FEATURES.moderation, label: `${cfg.label} moderation`, sqlFile: cfg.sqlFile },
+      error,
+    )
   }
+  console.error(`${logLabel}:`, error.message)
   return res.status(500).json({ error: { message, status: 500 } })
 }
 
@@ -5822,31 +5722,31 @@ app.listen(port, host, async (err) => {
   console.log(`Purdue link mode: ${purdueAuthMode}`)
   console.log(`Database: Supabase`)
   const probe = await supabase.from('board_posts').select('id').limit(1)
-  if (probe.error && isBoardSchemaMissingError(probe.error)) {
+  if (probe.error && isSchemaMissingError(probe.error)) {
     console.warn(
       `\n[BoilerIndy] Campus board: table board_posts not found. Run ${BOARD_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const advProbe = await supabase.from('advertisers').select('id').limit(1)
-  if (advProbe.error && isAdvertiserSchemaMissingError(advProbe.error)) {
+  if (advProbe.error && isSchemaMissingError(advProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table advertisers not found. Run ${ADVERTISER_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const campaignProbe = await supabase.from('campaigns').select('id').limit(1)
-  if (campaignProbe.error && isAdvertiserSchemaMissingError(campaignProbe.error)) {
+  if (campaignProbe.error && isSchemaMissingError(campaignProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table campaigns not found. Run ${ADVERTISER_CAMPAIGNS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const adEventProbe = await supabase.from('ad_events').select('id').limit(1)
-  if (adEventProbe.error && isAdvertiserSchemaMissingError(adEventProbe.error)) {
+  if (adEventProbe.error && isSchemaMissingError(adEventProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table ad_events not found. Run ${ADVERTISER_AD_EVENTS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const analyticsProbe = await supabase.from('analytics_events').select('id').limit(1)
-  if (analyticsProbe.error && isAdvertiserSchemaMissingError(analyticsProbe.error)) {
+  if (analyticsProbe.error && isSchemaMissingError(analyticsProbe.error)) {
     console.warn(
       '\n[BoilerIndy] Analytics: table analytics_events not found. Run db/supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )
