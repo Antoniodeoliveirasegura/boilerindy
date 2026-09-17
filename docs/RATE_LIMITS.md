@@ -71,6 +71,19 @@ per 15 minutes). `GET /api/admin/campaigns` returns the newest 200 rows, so a
 long loop can push genuine submissions out of that view. Capping pending or
 total campaigns per advertiser is an open owner decision.
 
+### How the web app handles a refusal
+
+The React client treats any `4xx` from a write as the server refusing that one
+request, not as being offline
+([`writeFailure.ts`](../boilerindy-react/src/lib/writeFailure.ts), #202). The
+page stays online, undoes what it showed optimistically and shows the
+response's `error.message`, so a `409` cap or a `429` limit reads the same as
+the server wrote it. Only a request that got no response, or a `5xx`, keeps a
+page's offline behaviour: Assignments switches to device-only tasks, the grade
+tracker keeps its local copy, and the dashboard and Services layouts and the
+selected major stay in the local cache until the next successful save. A
+refused layout or major save puts back the value the server last accepted.
+
 ## Configuration
 
 Every limiter can be tuned through environment variables - no code changes:
