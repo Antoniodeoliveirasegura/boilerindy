@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from 'vitest'
-import { parseNextPath, resolvePostLoginPath, shouldSkipSetup, setSkipSetup } from './authApi'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { authRequest, parseNextPath, resolvePostLoginPath, shouldSkipSetup, setSkipSetup } from './authApi'
 
 // Issues #23 (post-login redirect) and #40 (skip the connect-sources screen).
 beforeEach(() => localStorage.clear())
@@ -57,5 +57,58 @@ describe('resolvePostLoginPath', () => {
     expect(resolvePostLoginPath('', { needsScheduleSource: true })).toBe('/dashboard')
     expect(resolvePostLoginPath('?next=/board', { needsScheduleSource: false })).toBe('/board')
     expect(resolvePostLoginPath('?next=//evil.example.com', { needsScheduleSource: false })).toBe('/dashboard')
+  })
+})
+
+// Issue #218: the API's error.code rides on the thrown error so a page can
+// branch on it (for example code.endsWith('_schema_missing') for "coming soon").
+describe('authRequest errors', () => {
+  function jsonResponse(status: number, body: unknown) {
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('copies error.code, status and payload onto the thrown error', async () => {
+    const body = {
+      error: {
+        message: 'The marketplace is not set up yet. Please try again later.',
+        code: 'marketplace_schema_missing',
+        status: 503,
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(503, body)))
+    await expect(authRequest('/api/marketplace')).rejects.toMatchObject({
+      message: 'The marketplace is not set up yet. Please try again later.',
+      status: 503,
+      code: 'marketplace_schema_missing',
+      payload: body,
+    })
+  })
+
+  test('leaves code unset when the answer has none', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse(500, { error: { message: 'Could not load deals. Please try again.', status: 500 } })),
+    )
+    const error = await authRequest('/api/deals').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toMatchObject({ status: 500, message: 'Could not load deals. Please try again.' })
+    expect(error).not.toHaveProperty('code')
+  })
+
+  test('ignores a non-string code and a plain-text body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse(503, { error: { message: 'Nope', code: 42, status: 503 } })),
+    )
+    await expect(authRequest('/api/guide').catch((e: unknown) => e)).resolves.not.toHaveProperty('code')
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('Bad gateway', { status: 502 })))
+    const error = await authRequest('/api/guide').catch((e: unknown) => e)
+    expect(error).toMatchObject({ status: 502, message: 'Bad gateway' })
+    expect(error).not.toHaveProperty('code')
   })
 })
