@@ -3557,11 +3557,24 @@ app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
 // ============================================================
 
 const BOARD_SQL_FILE = DB_FEATURES.board.sqlFile
+// Adds deleted_at to board_posts, marketplace_listings, lost_found_items,
+// guide_recommendations and deals. Their list and delete queries filter on it.
+const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
+
+// For the board, guide, deals and marketplace: a missing deleted_at column still
+// answers the feature's schema_missing code, but the log names the soft-delete
+// migration, since rerunning the feature's own file would not add it (#218).
+function respondSoftDeleteFeatureDbError(res, err, config) {
+  if (isMissingColumnError(err, 'deleted_at')) {
+    return respondSchemaMissing(res, { ...config, sqlFile: SOFT_DELETE_SQL_FILE }, err)
+  }
+  return respondDbError(res, err, config)
+}
 
 // 503 board_schema_missing until the board tables exist, 500 otherwise. Each
 // feature's responder below is the same wrapper over src/dbErrors.mjs (#218).
 function respondBoardDbError(res, err) {
-  return respondDbError(res, err, DB_FEATURES.board)
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.board)
 }
 
 app.get('/api/board/posts', requireAuth, async (req, res) => {
@@ -3995,7 +4008,7 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 // ============================================================
 
 function respondGuideDbError(res, err) {
-  return respondDbError(res, err, DB_FEATURES.guide)
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.guide)
 }
 
 app.get('/api/guide', requireAuth, async (req, res) => {
@@ -4369,7 +4382,7 @@ app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
 // ============================================================
 
 function respondDealsDbError(res, err) {
-  return respondDbError(res, err, DB_FEATURES.deals)
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.deals)
 }
 
 app.get('/api/deals', requireAuth, async (req, res) => {
@@ -4465,7 +4478,7 @@ app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateL
 
 function respondMarketplaceDbError(res, err) {
   if (err instanceof PhotoError) return respondPhotoError(res, err)
-  return respondDbError(res, err, DB_FEATURES.marketplace)
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.marketplace)
 }
 
 // Browse active, non-hidden listings with optional category/text filter + paging.
@@ -5522,7 +5535,6 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 // this is the only hard-delete path. `type` is whitelisted so the param can
 // never reach an arbitrary table.
 // Study groups joined in issue #195; their public DELETE is creator-or-admin.
-const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
 const SOFT_DELETE_TABLES = {
   board: { table: 'board_posts', label: 'Board post', sqlFile: SOFT_DELETE_SQL_FILE },
   marketplace: { table: 'marketplace_listings', label: 'Marketplace listing', sqlFile: SOFT_DELETE_SQL_FILE },

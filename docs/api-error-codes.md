@@ -23,11 +23,11 @@ Not every route has moved to this envelope yet, so a client should read
 
 | Code | Status | Emitted by | Meaning | What clients should do |
 |---|---|---|---|---|
-| `board_schema_missing` | 503 | `/api/board/posts*` | Campus board tables are not in the database yet. | Show the board as "coming soon"; do not retry in a loop. |
-| `guide_schema_missing` | 503 | `/api/guide*` | Neighborhood Guide tables are missing. | Same "coming soon" state for the guide. |
+| `board_schema_missing` | 503 | `/api/board/posts*` | Campus board tables, or their `deleted_at` column, are not in the database yet. | Show the board as "coming soon"; do not retry in a loop. |
+| `guide_schema_missing` | 503 | `/api/guide*` | Neighborhood Guide tables, or their `deleted_at` column, are missing. | Same "coming soon" state for the guide. |
 | `study_groups_schema_missing` | 503 | `/api/study-groups*`, `/api/me/study-groups*` | Study group tables are missing, or (on `DELETE /api/study-groups/:id`) the soft-delete migration has not run. | "Coming soon" for study groups; on delete, show the message and keep the group. |
-| `deals_schema_missing` | 503 | `/api/deals*` | Campus Perks tables are missing. | "Coming soon" for perks. |
-| `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below) | Marketplace tables are missing. | "Coming soon" for the marketplace. |
+| `deals_schema_missing` | 503 | `/api/deals*` | Campus Perks tables, or their `deleted_at` column, are missing. | "Coming soon" for perks. |
+| `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below) | Marketplace tables, or their `deleted_at` column, are missing. | "Coming soon" for the marketplace. |
 | `friends_schema_missing` | 503 | `/api/me/profile-card`, `/api/me/matches`, `/api/connections*`, `/api/me/connections` | Friend matching tables are missing. | "Coming soon" for friend matching. |
 | `advertiser_schema_missing` | 503 | `/api/advertiser/*`, and the portal admin routes `/api/admin/overview`, `/api/admin/leads*`, `/api/admin/campaigns*`, `/api/admin/advertisers` | Advertiser portal tables (portal, campaigns or password resets) are missing. | Show the portal as unavailable. |
 | `moderation_schema_missing` | 503 | `/api/admin/deleted/:type*`, `/api/admin/content/:type/:id` | That content type has no `deleted_at` column yet: `db/supabase-study-groups-soft-delete.sql` for `study-groups`, `db/supabase-soft-delete.sql` for every other type. | Admin view: show the message for that type. Retrying does not help until the migration runs; the message does not name the file (see below). |
@@ -65,6 +65,10 @@ are thin wrappers over `respondDbError`.
   `[marketplace] schema missing: run db/supabase-marketplace.sql in the Supabase SQL Editor, then retry.`
   followed by the database error code and message. Restarting the server logs it
   again on the next hit.
+- For the board, guide, deals and marketplace, a missing `deleted_at` column
+  still answers that feature's code, but the log names
+  `db/supabase-soft-delete.sql`, the migration that adds it. Study groups do the
+  same with `db/supabase-study-groups-soft-delete.sql`.
 - The admin moderation routes follow the same rule, so the Deleted content page
   shows `<Type> moderation is not set up yet.` without the file name. The files
   are listed in the `moderation_schema_missing` row above.
