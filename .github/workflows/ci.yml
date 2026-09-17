@@ -41,10 +41,16 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
 
+      # .nvmrc holds the bare major (22). check-latest looks up the newest 22.x
+      # in actions/node-versions and downloads it when the runner image is behind;
+      # without it setup-node keeps whichever 22.x the image cached, which trails
+      # Node security releases until GitHub rebuilds the image. Render also runs the
+      # newest 22.x, through NODE_VERSION=22 (issue #185).
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
+          check-latest: true
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
@@ -140,10 +146,12 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
 
+      # Same Node resolution as the test job: newest 22.x, not the image cache.
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
+          check-latest: true
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
