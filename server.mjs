@@ -3814,10 +3814,7 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
     .select('id, title, body, is_anon, pinned, upvote_count, reply_count, created_at')
     .single()
 
-  if (error) {
-    console.error('board_posts insert:', error.message, error.code, error.details)
-    return respondBoardDbError(res, error)
-  }
+  if (error) return respondBoardDbError(res, error)
 
   // Fire-and-forget: AI assigns tags in the background
   const tagsPromise = autoTagBoardPost(data.id, title, body)
