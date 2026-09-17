@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 // Issue #185. The Node version used to live in four places that disagreed
 // (.nvmrc said 20, README and CI said 22, no engines field). The policy now:
@@ -11,13 +11,15 @@ import { existsSync, readFileSync } from 'node:fs'
 //   release needs no commit here. An exact pin (22.22.3) left CI older than
 //   the Node Render ran. The cost, which #290's exact pin avoided: `nvm use`
 //   picks the newest 22.x already installed, even one below the engines floor
-//   (22.22.2), and exits 0 instead of asking for `nvm install`; pnpm 11 then
-//   fails below 22.13 and only warns from there up to 22.22.1, while CI stays
-//   green. README "Prerequisites" tells developers to run `nvm install` and
-//   check `node -v`.
-// - Every CI job reads the root .nvmrc with check-latest: true. Without it
-//   actions/setup-node keeps the newest 22.x cached on the runner image, which
-//   trails new releases until GitHub rebuilds the image.
+//   (22.22.2), and exits 0 instead of asking for `nvm install`; a pnpm 11
+//   installed with npm then fails below 22.13 (the standalone pnpm bundles its
+//   own Node and does not), and pnpm only warns on engines up to 22.22.1, while
+//   CI stays green. README "Prerequisites" tells developers to run
+//   `nvm install` and check `node -v`.
+// - Every workflow job that runs Node or pnpm sets up Node once, from the root
+//   .nvmrc with check-latest: true, and no workflow hardcodes node-version.
+//   Without check-latest, actions/setup-node keeps the newest 22.x cached on the
+//   runner image, which trails new releases until GitHub rebuilds the image.
 // - Both package.json files declare the same engines.node range, and the
 //   .nvmrc major must be one of its majors. Vercel ignores .nvmrc and builds
 //   with the newest Node major that boilerindy-react/package.json engines.node
@@ -55,18 +57,33 @@ function satisfiesCaret([major, minor, patch], [floorMajor, floorMinor, floorPat
   return patch >= floorPatch
 }
 
-// Splits ci.yml into its jobs, and each job into its steps. Job ids sit two
-// spaces in under `jobs:`; a step starts at a line whose first token is "- ".
-function ciJobs(yaml) {
-  const body = yaml.split(/^jobs:\s*$/m)[1] ?? ''
+// Splits a workflow file into its jobs, and each job into its steps. Job ids sit
+// two spaces in under `jobs:`, optionally followed by a comment; a step starts at
+// a line whose first token is "- ". Whole-line comments are dropped so a remark
+// such as "# uses Node" cannot make a job look like it runs Node.
+function workflowJobs(yaml) {
+  const body = yaml.replace(/^[ \t]*#.*$/gm, '').split(/^jobs:[ \t]*(?:#.*)?$/m)[1] ?? ''
   return body
-    .split(/^(?= {2}[\w-]+:[ \t]*$)/m)
+    .split(/^(?= {2}[\w-]+:[ \t]*(?:#.*)?$)/m)
     .filter((block) => /^ {2}[\w-]+:/.test(block))
     .map((block) => ({
       id: /^ {2}([\w-]+):/.exec(block)[1],
       steps: block.split(/^(?=[ \t]+- )/m).slice(1),
     }))
 }
+
+const isSetupNode = (step) => /^[ \t]+(- )?uses: actions\/setup-node@/m.test(step)
+// A job needs Node when a step mentions node, pnpm, npm or npx: a run command,
+// pnpm/action-setup, or setup-node itself. A job with none, such as the
+// keep-warm curl ping, runs no JavaScript and needs no setup-node step.
+const runsNode = (job) => job.steps.some((step) => /\b(node|pnpm|npm|npx)\b/.test(step))
+// setup-node reads every input as a string, so a quoted value behaves the same.
+const yamlSetting = (key, value) => new RegExp(`^\\s+${key}:[ \\t]*(['"]?)${value}\\1[ \\t]*(?:#.*)?$`, 'm')
+
+const WORKFLOWS = new URL('.github/workflows/', ROOT)
+const workflows = readdirSync(WORKFLOWS)
+  .filter((file) => /\.ya?ml$/.test(file))
+  .map((file) => ({ file, yaml: readFileSync(new URL(file, WORKFLOWS), 'utf8') }))
 
 test('both .nvmrc files hold the same bare Node major', () => {
   assert.match(
@@ -120,52 +137,65 @@ test('the caret matcher follows semver for the ranges used here', () => {
   assert.deepEqual(parseCaretRange('>=22 || ^24.15.0'), [null, [24, 15, 0]])
 })
 
-test('the ci.yml splitter finds each job and its setup-node step', () => {
-  const jobs = ciJobs(
+test('the workflow splitter finds each job, its steps and whether it runs Node', () => {
+  const jobs = workflowJobs(
     [
       'on: push',
-      'jobs:',
+      'jobs: # all of them',
       '  test:',
       '    steps:',
       '      - uses: actions/checkout@v7',
       '',
-      '      # a comment above a step',
+      '      # a comment above a step that mentions node',
       '      - uses: actions/setup-node@v7',
       '        with:',
-      '          node-version-file: .nvmrc',
-      '  e2e-run:',
+      "          node-version-file: '.nvmrc'",
+      '          check-latest: "true" # quoted',
+      '  e2e-run: # browser tests',
       '    steps:',
       '      - run: pnpm test',
+      '  ping:',
+      '    steps:',
+      '      # no node here either',
+      '      - run: curl -fsS https://example.com/api/health',
       '',
     ].join('\n'),
   )
   assert.deepEqual(
-    jobs.map(({ id, steps }) => [id, steps.length]),
+    jobs.map((job) => [job.id, job.steps.length, runsNode(job)]),
     [
-      ['test', 2],
-      ['e2e-run', 1],
+      ['test', 2, true],
+      ['e2e-run', 1, true],
+      ['ping', 1, false],
     ],
   )
-  assert.match(jobs[0].steps[1], /node-version-file: \.nvmrc/)
+  assert.equal(isSetupNode(jobs[0].steps[1]), true)
+  assert.match(jobs[0].steps[1], yamlSetting('node-version-file', '\\.nvmrc'))
+  assert.match(jobs[0].steps[1], yamlSetting('check-latest', 'true'))
+  assert.doesNotMatch("  check-latest: 'true\"", yamlSetting('check-latest', 'true'))
+  assert.doesNotMatch('  check-latest: false', yamlSetting('check-latest', 'true'))
 })
 
-test('every CI job sets up Node from the root .nvmrc and checks for the newest release', () => {
-  const ci = read('.github/workflows/ci.yml')
-  const jobs = ciJobs(ci)
-  assert.ok(jobs.length > 0, 'no jobs found in ci.yml - the pattern or the path is wrong')
-  for (const { id, steps } of jobs) {
-    const setup = steps.filter((step) => /^[ \t]+(- )?uses: actions\/setup-node@/m.test(step))
-    assert.equal(
-      setup.length,
-      1,
-      `CI job "${id}" needs exactly one actions/setup-node step; without one it runs whatever Node the runner image ships`,
-    )
-    assert.match(setup[0], /^\s+node-version-file: \.nvmrc\s*$/m, `CI job "${id}" does not read node-version-file: .nvmrc`)
-    assert.match(
-      setup[0],
-      /^\s+check-latest: true\s*$/m,
-      `CI job "${id}" lacks check-latest: true, so it would stay on the Node the runner image cached instead of the newest release`,
-    )
+test('every workflow job that runs Node sets it up from the root .nvmrc and checks for the newest release', () => {
+  const ciJobs = workflowJobs(workflows.find(({ file }) => file === 'ci.yml')?.yaml ?? '')
+  assert.ok(ciJobs.some(runsNode), 'no job in ci.yml runs Node - the splitter or the path is wrong')
+  for (const { file, yaml } of workflows) {
+    for (const job of workflowJobs(yaml)) {
+      if (!runsNode(job)) continue
+      const setup = job.steps.filter(isSetupNode)
+      const where = `${file} job "${job.id}"`
+      assert.equal(
+        setup.length,
+        1,
+        `${where} runs Node or pnpm, so it needs exactly one actions/setup-node step; without one it runs whatever Node the runner image ships`,
+      )
+      assert.match(setup[0], yamlSetting('node-version-file', '\\.nvmrc'), `${where} does not read node-version-file: .nvmrc`)
+      assert.match(
+        setup[0],
+        yamlSetting('check-latest', 'true'),
+        `${where} lacks check-latest: true, so it would stay on the Node the runner image cached instead of the newest release`,
+      )
+    }
+    assert.doesNotMatch(yaml, /^\s+node-version:/m, `${file} hardcodes node-version; read it from .nvmrc instead`)
   }
-  assert.doesNotMatch(ci, /^\s+node-version:/m, 'ci.yml hardcodes node-version; read it from .nvmrc instead')
 })
