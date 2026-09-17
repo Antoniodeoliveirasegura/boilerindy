@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { writeFailureMessage } from '../lib/writeFailure'
 
 // Study Group Finder (issue #33). Privacy is opt-in (default off): a student only
 // appears in classmate counts after turning the toggle on, and membership is
@@ -30,6 +31,7 @@ export default function StudyGroups() {
   const [loadingCourses, setLoadingCourses] = useState(true)
   const [coursesError, setCoursesError] = useState('')
   const [optBusy, setOptBusy] = useState(false)
+  const [optError, setOptError] = useState('')
 
   const [selectedCourse, setSelectedCourse] = useState('')
   const [groups, setGroups] = useState<StudyGroup[]>([])
@@ -92,6 +94,7 @@ export default function StudyGroups() {
 
   async function toggleOptIn() {
     setOptBusy(true)
+    setOptError('')
     try {
       const next = !optIn
       const data = (await authRequest('/api/me/study-groups/opt-in', {
@@ -99,8 +102,10 @@ export default function StudyGroups() {
         body: JSON.stringify({ optIn: next }),
       })) as { optIn?: boolean }
       setOptIn(Boolean(data?.optIn))
-    } catch {
-      /* keep previous state on failure */
+    } catch (err) {
+      // Keep the previous state and say why the button did not change: the
+      // user-write limiter's 429 message, or a generic line (issue #202).
+      setOptError(writeFailureMessage(err, 'Could not update your visibility. Please try again.'))
     } finally {
       setOptBusy(false)
     }
@@ -227,6 +232,11 @@ export default function StudyGroups() {
             When on, other opted-in students in your courses can see how many classmates share each course.
             Your name is never shown outside a group you join. Default is off.
           </p>
+          {optError && (
+            <p role="alert" className="text-[12px] text-[var(--color-error)] mt-2">
+              {optError}
+            </p>
+          )}
         </div>
         <button
           type="button"

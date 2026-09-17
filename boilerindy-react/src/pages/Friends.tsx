@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { writeFailureMessage } from '../lib/writeFailure'
 
 // Friend Matching (issue #17). Privacy is opt-in (discoverable, default off):
 // pre-acceptance only name, interests, and shared-course count are shown.
@@ -33,6 +34,7 @@ export default function Friends() {
 
   const [accepted, setAccepted] = useState<Connection[]>([])
   const [incoming, setIncoming] = useState<IncomingRequest[]>([])
+  const [requestError, setRequestError] = useState('')
 
   useEffect(() => {
     track('friends_viewed')
@@ -117,10 +119,15 @@ export default function Friends() {
   }
 
   function respond(req: IncomingRequest, action: 'accept' | 'decline') {
+    setRequestError('')
     setIncoming((prev) => prev.filter((i) => i.userId !== req.userId))
     authRequest(`/api/connections/${req.userId}`, { method: 'PATCH', body: JSON.stringify({ action }) })
       .then(() => loadConnections())
-      .catch(() => loadConnections())
+      .catch((err: unknown) => {
+        // The reload brings the request back; say why (issue #202).
+        loadConnections()
+        setRequestError(writeFailureMessage(err, `Could not ${action} the request. Please try again.`))
+      })
   }
 
   return (
@@ -164,6 +171,7 @@ export default function Friends() {
       </form>
 
       {/* Incoming requests */}
+      {requestError && <div role="alert" className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">{requestError}</div>}
       {incoming.length > 0 && (
         <div className="mb-6">
           <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">Requests</div>
