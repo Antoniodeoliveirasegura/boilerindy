@@ -103,6 +103,23 @@ test('isSchemaMissingError: a missing function, operator or type is a query bug,
   assert.equal(isSchemaMissingError({ message: 'function public.bump_views(uuid) does not exist' }), false)
   // A code that is not a schema code wins over a message that looks like one.
   assert.equal(isSchemaMissingError({ code: '42883', message: 'function f(column text) does not exist' }), false)
+  // PostgREST's missing-function error also says "schema cache"; the code wins.
+  assert.equal(
+    isSchemaMissingError({
+      code: 'PGRST202',
+      message: 'Could not find the function public.sync_board_post_upvote_count(p_post_id) in the schema cache',
+    }),
+    false,
+  )
+})
+
+test('a missing function answers 500 with the fallback, not a schema_missing 503', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(res, { code: 'PGRST202', message: 'Could not find the function public.f(a) in the schema cache' }, DB_FEATURES.guide)
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.body, { error: { message: 'Could not load the guide. Please try again.', status: 500 } })
+  assert.match(log.text(), /^guide DB error: PGRST202 Could not find the function/)
 })
 
 test('isSchemaMissingError: other errors and non-errors are not schema-missing', () => {
@@ -132,7 +149,7 @@ test('every feature answers a missing table with 503 and its code, with no opera
   }
 })
 
-test('the operator instruction is logged once per feature, SQL file and error code, never sent to the client', (t) => {
+test('the operator instruction is logged once per feature, SQL file and database error, never sent to the client', (t) => {
   const log = spyConsoleError(t)
   const config = { feature: 'log_once', label: 'Log once', sqlFile: 'db/supabase-log-once.sql', fallback: 'Nope.' }
 
@@ -167,7 +184,24 @@ test('a new error code for the same feature logs once too, so a new cause is nev
   assert.equal(log.count, 2)
   assert.match(log.text(), /42703 column per_code\.edited_at does not exist/)
   respondDbError(mockRes(), columnMissing, config)
-  assert.equal(log.count, 2, 'the same code stays logged once')
+  assert.equal(log.count, 2, 'the same column stays logged once')
+})
+
+test('a second missing column with the same code logs its own line', (t) => {
+  const log = spyConsoleError(t)
+  const config = { feature: 'per_column', label: 'Per column', sqlFile: 'db/supabase-per-column.sql', fallback: 'Nope.' }
+
+  respondDbError(mockRes(), { code: '42703', message: 'column per_column.deleted_at does not exist' }, config)
+  respondDbError(mockRes(), { code: '42703', message: 'column per_column.deleted_at does not exist' }, config)
+  assert.equal(log.count, 1)
+
+  // The operator fixed deleted_at without a restart; the next missing column
+  // must not be silent while clients keep getting 503.
+  respondDbError(mockRes(), { code: '42703', message: 'column per_column.hidden does not exist' }, config)
+  assert.equal(log.count, 2)
+  assert.match(log.text(), /42703 column per_column\.hidden does not exist/)
+  respondDbError(mockRes(), { code: '42703', message: 'column per_column.hidden does not exist' }, config)
+  assert.equal(log.count, 2)
 })
 
 test('a feature with several SQL files names all of them in the log', (t) => {

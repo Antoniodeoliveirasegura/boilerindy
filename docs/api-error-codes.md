@@ -54,13 +54,14 @@ are thin wrappers over `respondDbError`.
   PostgREST `PGRST205` or `PGRST204`, Postgres `42P01` or `42703`, or, for an
   error without one of those codes, a "schema cache", "Could not find the table"
   or "relation/column ... does not exist" message.
-- A missing function, operator or type (Postgres `42883`, `42704`, such as
-  `operator does not exist: uuid = text`) is a bug in the query, not a migration
-  that has not run, so it takes the `500` path below.
+- A missing function, operator or type (Postgres `42883` or `42704`, such as
+  `operator does not exist: uuid = text`, or PostgREST `PGRST202`) is a bug in
+  the query, not a migration that has not run, so it takes the `500` path below.
 - The SQL file to run is logged instead of sent, once per feature, file and
-  error code per server process, so Render logs and Sentry get it once rather
-  than on every request, and a new cause (a missing column after a missing
-  table) still gets its own line. Look for a line like
+  database error (code and message) per server process, so Render logs and
+  Sentry get it once rather than on every request, and a new cause (a missing
+  column after a missing table, or a second missing column) still gets its own
+  line. Look for a line like
   `[marketplace] schema missing: run db/supabase-marketplace.sql in the Supabase SQL Editor, then retry.`
   followed by the database error code and message. Restarting the server logs it
   again on the next hit.

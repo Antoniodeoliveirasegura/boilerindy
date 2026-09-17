@@ -13,12 +13,13 @@
 //                                 The 503 code is `${feature}_schema_missing`; add a feature
 //                                 here (and to docs/api-error-codes.md) rather than inline.
 //   isSchemaMissingError(err)     true when Supabase reports a table or column that does not
-//                                 exist yet, i.e. a migration has not run. A missing function,
-//                                 operator or type is a query bug and answers false.
+//                                 exist yet, i.e. a migration has not run. A missing function
+//                                 (PGRST202, 42883), operator or type is a query bug and
+//                                 answers false.
 //   respondSchemaMissing(res, config, err?)
 //                                 503 { error: { message, code, status } } for a feature that
 //                                 is not set up; logs the SQL file to run once per process
-//                                 for each feature, file and error code.
+//                                 for each feature, file and database error (code and message).
 //   respondDbError(res, err, config)
 //                                 respondSchemaMissing for a schema-missing error, otherwise
 //                                 logs code and message and answers 500 with config.fallback.
@@ -106,10 +107,12 @@ export const DB_FEATURES = Object.freeze({
 // produces. PGRST205 and 42P01 are tables, 42703 and PGRST204 columns (the same
 // pair src/moderation.mjs isMissingColumnError uses).
 const SCHEMA_MISSING_CODES = new Set(['PGRST205', '42P01', '42703', 'PGRST204'])
-// Postgres errors that also say "does not exist" but come from the query, not a
-// missing migration: 42883 undefined function or operator ("operator does not
-// exist: uuid = text"), 42704 undefined object such as a type. They stay 500s.
-const QUERY_BUG_CODES = new Set(['42883', '42704'])
+// Errors that also say "does not exist" or "schema cache" but come from the
+// query, not a missing table or column: Postgres 42883 undefined function or
+// operator ("operator does not exist: uuid = text"), 42704 undefined object such
+// as a type, and PostgREST PGRST202 ("Could not find the function ... in the
+// schema cache"). They stay 500s.
+const QUERY_BUG_CODES = new Set(['42883', '42704', 'PGRST202'])
 const MISSING_RELATION_OR_COLUMN = /\b(?:relation|column) .+ does not exist/
 
 /**
@@ -119,8 +122,8 @@ const MISSING_RELATION_OR_COLUMN = /\b(?:relation|column) .+ does not exist/
  * Postgres 42P01 ("relation ... does not exist") or 42703 ("column ... does not
  * exist"). Without one of those codes, the message decides: "schema cache",
  * "Could not find the table", or a relation or column that "does not exist".
- * A missing function, operator or type (42883, 42704) is a query bug and is
- * never schema-missing, so it keeps the 500 path that logs every time.
+ * A missing function, operator or type (42883, 42704, PGRST202) is a query bug
+ * and is never schema-missing, so it keeps the 500 path that logs every time.
  * @param {unknown} err
  * @returns {boolean}
  */
@@ -145,18 +148,22 @@ function errorFields(err) {
   return { code: null, message: err == null ? null : String(err) }
 }
 
-// Operator instructions already logged, keyed by feature, SQL file(s) and error
-// code, so a missing table hit on every request logs (and reaches Sentry) once
-// per process, while a different cause for the same feature (a missing column
-// after the table exists) still logs its own line once. Only the code goes in
-// the key, never the message, so the Set stays small.
+// Operator instructions already logged, keyed by feature, SQL file(s), error
+// code and message, so a missing table hit on every request logs (and reaches
+// Sentry) once per process, while a different cause for the same feature (a
+// missing column after the table exists, or a second missing column) still logs
+// its own line once. A schema-missing message names only a table or column, so
+// the schema bounds the keys; the cap is a backstop that starts the log-once
+// window over rather than growing without limit.
 const loggedSchemaMissing = new Set()
+const LOGGED_SCHEMA_MISSING_MAX = 200
 
 function logSchemaMissingOnce(config, err) {
   const files = [].concat(config.sqlFile).join(' and ')
   const { code, message } = errorFields(err)
-  const key = `${config.feature}|${files}|${code ?? ''}`
+  const key = `${config.feature}|${files}|${code ?? ''}|${message ?? ''}`
   if (loggedSchemaMissing.has(key)) return
+  if (loggedSchemaMissing.size >= LOGGED_SCHEMA_MISSING_MAX) loggedSchemaMissing.clear()
   loggedSchemaMissing.add(key)
   console.error(
     `[${config.feature}] schema missing: run ${files} in the Supabase SQL Editor, then retry.`,
@@ -168,7 +175,7 @@ function logSchemaMissingOnce(config, err) {
 /**
  * Answer 503 for a feature whose tables (or columns) are not in the database
  * yet. The client sees a short message and `${feature}_schema_missing`; the SQL
- * file to run is logged once per feature, file and error code, never sent.
+ * file to run is logged once per feature, file and database error, never sent.
  * @param {{ status: (code: number) => any }} res Express response
  * @param {DbFeature} config
  * @param {unknown} [err] the database error, for the one-time log line
