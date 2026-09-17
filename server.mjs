@@ -59,6 +59,7 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
+import { advertiserWriteBucketKey } from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson, isAbortLike } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
@@ -452,6 +453,29 @@ const clubsReadRateLimit = createRateLimiter({
   max: 300,
   keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
+})
+// Authenticated writes that had no limiter (issue #202): the non-GET /api/me/*
+// routes not covered above, the owner-or-admin deletes, the guide pin,
+// connection replies, the mock Purdue link and the admin deal writes. One
+// shared per-user budget, roomy for a student ticking off a to-do list, tight
+// enough to stop a script filling tables. Row caps on the create routes live
+// in src/userWriteCaps.mjs; full list in docs/RATE_LIMITS.md.
+const userWriteRateLimit = createRateLimiter({
+  name: 'user-write',
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: 'You are making changes too quickly. Please wait a moment and try again.',
+})
+// Advertiser campaign creates and edits (issue #202). Portal sessions carry
+// req.session.advertiserId rather than a student userId, so the default key
+// would bucket every advertiser by IP; advertiserWriteBucketKey keys them by
+// the advertiser instead.
+const advertiserWriteRateLimit = createRateLimiter({
+  name: 'advertiser-write',
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyBy: advertiserWriteBucketKey,
+  message: 'Too many campaign changes. Please wait a few minutes and try again.',
 })
 
 function nowIso() {
@@ -1620,7 +1644,7 @@ app.post('/auth/purdue/dev/link', purdueLinkFlowRateLimit, resolvePurdueLinkActo
   }
 })
 
-app.post('/api/purdue/mock-link', requireAuth, async (req, res) => {
+app.post('/api/purdue/mock-link', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!purdueLinkingEnabled) {
     return res.status(400).json({ error: { message: 'Purdue linking is currently disabled.', status: 400 } })
   }
@@ -1938,7 +1962,7 @@ app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, re
   }
 })
 
-app.delete('/api/sources/:sourceId', requireAuth, async (req, res) => {
+app.delete('/api/sources/:sourceId', userWriteRateLimit, requireAuth, async (req, res) => {
   const source = await getSourceForUser(req.params.sourceId, req.currentUser.id)
   if (!source) {
     return res.status(404).json({ error: { message: 'Source not found.', status: 404 } })
@@ -2046,7 +2070,7 @@ app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
+app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { calendarItemId, completed } = req.body || {}
   if (!calendarItemId || typeof completed !== 'boolean') {
@@ -2095,7 +2119,7 @@ app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
+app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
   // client creates undated to-dos from a title alone, which this used to reject outright. A
@@ -2121,7 +2145,7 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
+app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
@@ -2145,7 +2169,7 @@ app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
+app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2222,7 +2246,7 @@ app.get('/api/me/grades', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/grades', requireAuth, async (req, res) => {
+app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid } })
@@ -2240,7 +2264,7 @@ app.post('/api/me/grades', requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/me/grades/:id', requireAuth, async (req, res) => {
+app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
@@ -2265,7 +2289,7 @@ app.patch('/api/me/grades/:id', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/me/grades/:id', requireAuth, async (req, res) => {
+app.delete('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2284,7 +2308,7 @@ app.get('/api/me/degree', requireAuth, async (req, res) => {
   res.json({ major: req.currentUser.major ?? null })
 })
 
-app.put('/api/me/degree', requireAuth, async (req, res) => {
+app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
   const raw = req.body?.major
   const major = raw == null || raw === '' ? null : String(raw)
   if (major !== null && !getProgram(major)) {
@@ -2329,7 +2353,7 @@ app.get('/api/me/calendar-feed', requireAuth, (req, res) => {
   res.json({ feedUrl: token ? feedUrlForToken(token) : null })
 })
 
-app.post('/api/me/calendar-feed/token', requireAuth, async (req, res) => {
+app.post('/api/me/calendar-feed/token', userWriteRateLimit, requireAuth, async (req, res) => {
   const token = crypto.randomUUID()
   const { error } = await supabase
     .from('users')
@@ -2556,7 +2580,7 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
   res.json({ item: mapLostFoundRow(data, userId) })
 })
 
-app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
+app.delete('/api/lost-found/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // Soft delete: hide the item (set deleted_at) instead of removing it. The
@@ -2589,7 +2613,7 @@ app.get('/api/me/dashboard', requireAuth, async (req, res) => {
   res.json({ layout })
 })
 
-app.put('/api/me/dashboard', requireAuth, async (req, res) => {
+app.put('/api/me/dashboard', userWriteRateLimit, requireAuth, async (req, res) => {
   // Sanitize untrusted client input against the widget allowlist before storing.
   const layout = normalizeLayout(req.body?.layout)
   const { error } = await supabase
@@ -2615,7 +2639,7 @@ app.get('/api/me/services', requireAuth, async (req, res) => {
   res.json({ layout })
 })
 
-app.put('/api/me/services', requireAuth, async (req, res) => {
+app.put('/api/me/services', userWriteRateLimit, requireAuth, async (req, res) => {
   // Sanitize untrusted client input against the widget allowlist before storing.
   const layout = normalizeServicesLayout(req.body?.layout)
   const { error } = await supabase
@@ -3517,7 +3541,7 @@ app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/dining/favorites', requireAuth, async (req, res) => {
+app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName)
   if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
@@ -3533,7 +3557,7 @@ app.post('/api/me/dining/favorites', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
+app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
   if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
@@ -3988,7 +4012,7 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
   })
 })
 
-app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
+app.delete('/api/board/posts/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
   // Soft delete: hide the post (set deleted_at). Its replies stay attached and
@@ -4118,7 +4142,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
   }
 })
 
-app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
+app.patch('/api/guide/:id/pin', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!isUserAdmin(req.currentUser)) {
     return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
   }
@@ -4139,7 +4163,7 @@ app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
 })
 
 // Delete - owner or admin (admins take down live recommendations, issue #195).
-app.delete('/api/guide/:id', requireAuth, async (req, res) => {
+app.delete('/api/guide/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const query = supabase
@@ -4247,7 +4271,7 @@ app.get('/api/me/study-groups/courses', requireAuth, async (req, res) => {
 })
 
 // Toggle opt-in; on opt-in, snapshot the user's course codes for classmate counts.
-app.patch('/api/me/study-groups/opt-in', requireAuth, async (req, res) => {
+app.patch('/api/me/study-groups/opt-in', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const optIn = req.body?.optIn === true || req.body?.optIn === 'true'
   try {
@@ -4382,7 +4406,7 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
 // leaves every list, but its members stay attached so an admin restore from the
 // moderation view brings it back whole. Answers 503 (respondStudyDbError) until
 // db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
-app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
+app.delete('/api/study-groups/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const groupId = req.params.id
   if (!isUuid(groupId)) {
     return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
@@ -4451,7 +4475,7 @@ function requireAdminJson(req, res) {
   return true
 }
 
-app.post('/api/deals', requireAuth, async (req, res) => {
+app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4468,7 +4492,7 @@ app.post('/api/deals', requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/deals/:id', requireAuth, async (req, res) => {
+app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4485,7 +4509,7 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/deals/:id', requireAuth, async (req, res) => {
+app.delete('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   try {
     const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
@@ -4664,7 +4688,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
 })
 
 // Delete - owner or admin.
-app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
+app.delete('/api/marketplace/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     // Soft delete: hide the listing (set deleted_at). Admins purge it
@@ -4847,7 +4871,7 @@ app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) 
 })
 
 // Accept or decline an incoming request.
-app.patch('/api/connections/:requesterId', requireAuth, async (req, res) => {
+app.patch('/api/connections/:requesterId', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const requesterId = req.params.requesterId
   const action = String(req.body?.action || '').trim()
@@ -5232,7 +5256,7 @@ app.get('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => 
   res.json({ campaigns: (data || []).map(mapCampaignRow) })
 })
 
-app.post('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => {
+app.post('/api/advertiser/campaigns', advertiserWriteRateLimit, requireAdvertiserAuth, async (req, res) => {
   let fields
   try {
     fields = normalizeCampaignInput(req.body)
@@ -5258,7 +5282,7 @@ app.post('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) =>
   res.status(201).json({ campaign: mapCampaignRow(data) })
 })
 
-app.patch('/api/advertiser/campaigns/:id', requireAdvertiserAuth, async (req, res) => {
+app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireAdvertiserAuth, async (req, res) => {
   const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
   if (lookupError) return respondAdvertiserDbError(res, lookupError)
   if (!campaign) {
