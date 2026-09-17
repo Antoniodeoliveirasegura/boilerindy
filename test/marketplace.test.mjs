@@ -1,9 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   validateListingInput,
   mapListingRow,
+  isMissingGalleryPricingColumn,
   MARKETPLACE_CATEGORIES,
+  MARKETPLACE_GALLERY_PRICING_COLUMNS,
+  MARKETPLACE_GALLERY_PRICING_SQL_FILE,
   MAX_LISTING_TITLE,
 } from '../src/marketplace.mjs'
 
@@ -69,4 +73,31 @@ test('normalizes zero, free and best offer, preserving pricing on unrelated patc
   assert.equal(mapListingRow({ price_cents: 0 }).priceMode, 'free')
   assert.deepEqual(mapListingRow({ image_url: 'old' }).images, ['old'])
   assert.deepEqual(mapListingRow({ image_url: 'a', image_urls: ['a', 'b'] }).images, ['a', 'b'])
+})
+
+// Issue #218: a database without the gallery and pricing migration answers
+// marketplace_schema_missing, and the log must name the file that adds the
+// missing column rather than the base marketplace file.
+test('a missing gallery or pricing column is matched to the migration that adds it', () => {
+  const pgrst204 = (column) => ({ code: 'PGRST204', message: `Could not find the '${column}' column of 'marketplace_listings' in the schema cache` })
+  const pg42703 = (column) => ({ code: '42703', message: `column marketplace_listings.${column} does not exist` })
+  for (const column of ['image_urls', 'price_mode']) {
+    assert.equal(isMissingGalleryPricingColumn(pgrst204(column)), true, column)
+    assert.equal(isMissingGalleryPricingColumn(pg42703(column)), true, column)
+  }
+  // image_url comes from the base file and deleted_at from the soft-delete file.
+  assert.equal(isMissingGalleryPricingColumn(pg42703('image_url')), false)
+  assert.equal(isMissingGalleryPricingColumn(pgrst204('image_url')), false)
+  assert.equal(isMissingGalleryPricingColumn(pgrst204('deleted_at')), false)
+  assert.equal(isMissingGalleryPricingColumn({ code: 'PGRST205', message: "Could not find the table 'public.marketplace_listings' in the schema cache" }), false)
+  assert.equal(isMissingGalleryPricingColumn({ code: '23505', message: 'duplicate key value on price_mode' }), false)
+  assert.equal(isMissingGalleryPricingColumn(null), false)
+
+  const sql = (file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+  const galleryPricing = sql(MARKETPLACE_GALLERY_PRICING_SQL_FILE)
+  const base = sql('db/supabase-marketplace.sql')
+  for (const column of MARKETPLACE_GALLERY_PRICING_COLUMNS) {
+    assert.match(galleryPricing, new RegExp(`ADD COLUMN IF NOT EXISTS ${column}\\b`), column)
+    assert.doesNotMatch(base, new RegExp(`\\b${column}\\b`), column)
+  }
 })

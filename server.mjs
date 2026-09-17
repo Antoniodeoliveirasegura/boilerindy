@@ -90,7 +90,13 @@ import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } f
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
 import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
-import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
+import {
+  isMissingGalleryPricingColumn,
+  mapListingRow,
+  MARKETPLACE_GALLERY_PRICING_SQL_FILE,
+  REPORTS_TO_HIDE,
+  validateListingInput,
+} from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
@@ -4473,8 +4479,14 @@ async function findOwnedMarketplaceListing(id, userId) {
 app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
   photoAuthorizationHandler({ photos: marketplacePhotos, findOwnedListing: findOwnedMarketplaceListing }))
 
+// A missing image_urls or price_mode column also answers marketplace_schema_missing,
+// with the gallery and pricing migration named in the log, since the base
+// marketplace file does not add them (#218).
 function respondMarketplaceDbError(res, err) {
   if (err instanceof PhotoError) return respondPhotoError(res, err)
+  if (isMissingGalleryPricingColumn(err)) {
+    return respondSchemaMissing(res, { ...DB_FEATURES.marketplace, sqlFile: MARKETPLACE_GALLERY_PRICING_SQL_FILE }, err)
+  }
   return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.marketplace)
 }
 

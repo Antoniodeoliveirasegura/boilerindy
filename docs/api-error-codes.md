@@ -27,7 +27,7 @@ Not every route has moved to this envelope yet, so a client should read
 | `guide_schema_missing` | 503 | `/api/guide*` | Neighborhood Guide tables, or their `deleted_at` column, are missing. | Same "coming soon" state for the guide. |
 | `study_groups_schema_missing` | 503 | `/api/study-groups*`, `/api/me/study-groups*` | Study group tables are missing, or (on `DELETE /api/study-groups/:id`) the soft-delete migration has not run. | "Coming soon" for study groups; on delete, show the message and keep the group. |
 | `deals_schema_missing` | 503 | `/api/deals*` | Campus Perks tables, or their `deleted_at` column, are missing. | "Coming soon" for perks. |
-| `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below) | Marketplace tables, or their `deleted_at` column, are missing. | "Coming soon" for the marketplace. |
+| `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below) | Marketplace tables, their `deleted_at` column, or the gallery and pricing columns (`image_urls`, `price_mode`) are missing. | "Coming soon" for the marketplace. |
 | `friends_schema_missing` | 503 | `/api/me/profile-card`, `/api/me/matches`, `/api/connections*`, `/api/me/connections` | Friend matching tables are missing. | "Coming soon" for friend matching. |
 | `advertiser_schema_missing` | 503 | `/api/advertiser/*`, and the portal admin routes `/api/admin/leads*`, `/api/admin/campaigns*`, `/api/admin/advertisers` | Advertiser portal tables (portal, campaigns or password resets) are missing. Count-only reads cannot see a missing table: `/api/admin/overview` and the impression and tap counts of `/api/advertiser/campaigns/:id/stats` answer `200` with zeros instead. | Show the portal as unavailable. |
 | `moderation_schema_missing` | 503 | `/api/admin/deleted/:type*`, `/api/admin/content/:type/:id` | That content type has no `deleted_at` column yet: `db/supabase-study-groups-soft-delete.sql` for `study-groups`, `db/supabase-soft-delete.sql` for every other type. | Admin view: show the message for that type. Retrying does not help until the migration runs; the message does not name the file (see below). |
@@ -68,7 +68,9 @@ are thin wrappers over `respondDbError`.
 - For the board, guide, deals and marketplace, a missing `deleted_at` column
   still answers that feature's code, but the log names
   `db/supabase-soft-delete.sql`, the migration that adds it. Study groups do the
-  same with `db/supabase-study-groups-soft-delete.sql`.
+  same with `db/supabase-study-groups-soft-delete.sql`, and a missing marketplace
+  `image_urls` or `price_mode` column names
+  `db/supabase-marketplace-gallery-pricing.sql`.
 - The admin moderation routes follow the same rule, so the Deleted content page
   shows `<Type> moderation is not set up yet.` without the file name. The files
   are listed in the `moderation_schema_missing` row above.
