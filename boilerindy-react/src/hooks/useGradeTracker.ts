@@ -7,6 +7,7 @@ import {
   loadLocalGrades,
   saveLocalGrades,
 } from '../lib/gradeTrackerStore'
+import { isServerRefusal, writeFailureMessage } from '../lib/writeFailure'
 
 /**
  * Owns the user's course list for the grade tracker (issue #10).
@@ -14,9 +15,13 @@ import {
  * Lifecycle mirrors useDashboardLayout: instant paint from the localStorage
  * cache, then GET /api/me/grades as the cross-device source of truth (falling
  * back to the cache, then an empty list). Mutations update local state + cache
- * immediately (optimistic) and sync to the server; a failed network call leaves
- * the optimistic copy in place so the UI stays responsive offline. Migrated to
- * TypeScript (issue #20).
+ * immediately (optimistic) and sync to the server; a failed network call (or a
+ * 5xx) leaves the optimistic copy in place so the UI stays responsive offline.
+ * A 4xx is the server refusing the change (the 500-course cap's 409, the
+ * user-write limiter's 429, a validation error), so the change is undone and
+ * the server's message shown instead: a kept copy would be a course the
+ * account never gets, and with a temp id its later edits and deletes would
+ * never reach the server either (issue #202). Migrated to TypeScript (issue #20).
  */
 
 // Matches the shape produced by normalizeGrade in src/gradeTracker.mjs.
@@ -113,6 +118,13 @@ export function useGradeTracker(userId: string | null | undefined) {
         }
         return true
       } catch (err) {
+        if (isServerRefusal(err)) {
+          // Drop the optimistic row and report failure so the form keeps what
+          // was typed for another try.
+          persist(next.filter((g) => g.id !== tempId))
+          setError(writeFailureMessage(err, 'Could not save course. Please try again.'))
+          return false
+        }
         setError(errorMessage(err) || 'Could not save course (offline - kept locally).')
         return true // optimistic copy stays; cache keeps it
       }
@@ -130,7 +142,7 @@ export function useGradeTracker(userId: string | null | undefined) {
         return false
       }
       setError('')
-      persist(grades.map((g) => (g.id === id ? { ...merged, id } : g)))
+      const next = persist(grades.map((g) => (g.id === id ? { ...merged, id } : g)))
       // Don't PATCH an unsynced optimistic row; the create call carries its data.
       if (String(id).startsWith('temp-')) return true
       try {
@@ -139,6 +151,12 @@ export function useGradeTracker(userId: string | null | undefined) {
           body: JSON.stringify(updates),
         })
       } catch (err) {
+        if (isServerRefusal(err)) {
+          // Put the saved row back; false keeps the edit form open.
+          persist(next.map((g) => (g.id === id ? current : g)))
+          setError(writeFailureMessage(err, 'Could not update course. Please try again.'))
+          return false
+        }
         setError(errorMessage(err) || 'Could not update course (offline - kept locally).')
       }
       return true
@@ -148,11 +166,20 @@ export function useGradeTracker(userId: string | null | undefined) {
 
   const deleteGrade = useCallback(
     async (id: string): Promise<void> => {
-      persist(grades.filter((g) => g.id !== id))
+      setError('')
+      const index = grades.findIndex((g) => g.id === id)
+      const removed = index >= 0 ? grades[index] : null
+      const next = persist(grades.filter((g) => g.id !== id))
       if (String(id).startsWith('temp-')) return
       try {
         await authRequest(`/api/me/grades/${id}`, { method: 'DELETE' })
       } catch (err) {
+        if (isServerRefusal(err)) {
+          // The course is still on the account: put it back where it was.
+          if (removed) persist([...next.slice(0, index), removed, ...next.slice(index)])
+          setError(writeFailureMessage(err, 'Could not delete course. Please try again.'))
+          return
+        }
         setError(errorMessage(err) || 'Could not delete course (offline).')
       }
     },
