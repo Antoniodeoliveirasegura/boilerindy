@@ -13,6 +13,18 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the PR run it supersedes: only the latest
+# head matters there. Pushes to main and develop are post-merge verification, so
+# each one gets a group of its own (the run ID) and is never cancelled or held
+# back. A shared group with cancel-in-progress: false would not give that:
+# GitHub keeps one pending run per group and cancels the older pending run when
+# a newer one arrives, so a quick batch of merges would drop the middle commits'
+# runs. A develop push run and the develop -> main release PR run for the same
+# commit still both run: they are different events on different refs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
