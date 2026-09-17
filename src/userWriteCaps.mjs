@@ -6,9 +6,17 @@
 // every dashboard or portal load, and a flood of campaigns pushed real
 // submissions out of the admin review list. The user-write and
 // advertiser-write limiters in server.mjs slow the flood; these caps bound the
-// total. Each create route counts the caller's rows with a HEAD count before
-// the insert and answers 409 at the cap. Two requests racing past the cap can
-// land one row over it, which is acceptable.
+// rows a caller keeps. The draft campaign cap counts drafts only, so it does
+// not bound campaigns submitted for review: an advertiser who submits or ends
+// each draft frees its slot, and advertiser-write is all that slows that loop
+// (docs/RATE_LIMITS.md).
+//
+// Each create route counts the caller's rows with a HEAD count before the
+// insert and answers 409 at the cap. The count is not atomic with the insert:
+// parallel requests that all count before any of them inserts each get
+// through, so one burst can overshoot a cap by up to the write limiter's
+// remaining budget, and the first request after it is refused. That race is
+// accepted.
 
 export const MAX_MANUAL_TASKS = 500
 export const MAX_GRADES = 500

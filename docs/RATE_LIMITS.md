@@ -46,9 +46,16 @@ bulk id-sweeps that would harvest every seller's address (#114).
 A rate limit slows a script down; a row cap bounds what it can store. These
 create routes count the caller's rows right before the insert and answer `409`
 with the standard error shape, `{ error: { message, status: 409 } }`, once the
-cap is reached (#202). Two requests racing past the cap can land one row over
-it, which is accepted. The caps are constants in
+cap is reached (#202). The caps are constants in
 [`userWriteCaps.mjs`](../src/userWriteCaps.mjs), not environment variables.
+
+The count is not atomic with the insert. Parallel requests that all count
+before any of them inserts each get through, so one burst can overshoot a cap
+by nearly the write limiter's whole remaining budget (`user-write` allows 120
+requests per 15 minutes and `advertiser-write` 60, counted per server
+instance); the first request after the burst is refused. That race is
+accepted. A count query that fails does not block the write either: the route
+logs the failure with its HTTP status and goes on to the insert.
 
 | Route | Cap | Counted per |
 |---|---|---|
@@ -56,6 +63,13 @@ it, which is accepted. The caps are constants in
 | `POST /api/me/grades` | 500 courses | user |
 | `POST /api/me/dining/favorites` | 300 favorites (re-saving one the user already has still succeeds at the cap) | user |
 | `POST /api/advertiser/campaigns` | 20 campaigns in `draft` (campaigns pending review, active, paused or ended do not count) | advertiser |
+
+The draft cap does not bound the admin review queue. An advertiser who submits
+or ends each draft frees its slot, so a create-then-submit loop can keep adding
+`pending_review` campaigns, slowed only by `advertiser-write` (about 30 pairs
+per 15 minutes). `GET /api/admin/campaigns` returns the newest 200 rows, so a
+long loop can push genuine submissions out of that view. Capping pending or
+total campaigns per advertiser is an open owner decision.
 
 ## Configuration
 
