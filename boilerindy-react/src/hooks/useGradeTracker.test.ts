@@ -22,14 +22,21 @@ function httpError(status: number, message: string) {
 }
 
 let nextWrite: unknown = null
+// When set, writes wait here until a test settles them, so requests can overlap.
+let held: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] | null = null
 
 beforeEach(() => {
   localStorage.clear()
   nextWrite = null
+  held = null
   vi.mocked(authRequest)
     .mockReset()
     .mockImplementation(async (_path, options) => {
       if (!options?.method) return { grades: [saved] }
+      if (held) {
+        const queue = held
+        return new Promise((resolve, reject) => queue.push({ resolve, reject }))
+      }
       if (nextWrite) {
         const error = nextWrite
         nextWrite = null
@@ -112,4 +119,94 @@ it('a network error on adding a course still keeps it on this device', async () 
   expect(result.current.error).toBe('Failed to fetch')
   expect(result.current.grades.map((g) => g.courseName)).toEqual(['CS 18000', 'MA 26100'])
   expect(cachedNames()).toEqual(['CS 18000', 'MA 26100'])
+})
+
+// Overlapping writes (a burst of clicks at the limit): an undo must apply to
+// the list as it is when the refusal lands, not to a copy from click time.
+
+const second = { id: 'grade-2', courseName: 'MA 26100', term: 'Other', creditHours: 3, letterGrade: 'B' }
+
+it('an accepted add followed by a refused overlapping add keeps the saved row', async () => {
+  const { result } = await renderTracker()
+  held = []
+  const writes = held
+  let first: Promise<boolean> = Promise.resolve(false)
+  let refused: Promise<boolean> = Promise.resolve(true)
+  act(() => {
+    first = result.current.addGrade({ courseName: 'MA 26100', letterGrade: 'B' })
+  })
+  act(() => {
+    refused = result.current.addGrade({ courseName: 'PHYS 17200', letterGrade: 'A' })
+  })
+  expect(result.current.grades.map((g) => g.courseName)).toEqual(['CS 18000', 'MA 26100', 'PHYS 17200'])
+
+  await act(async () => {
+    writes[0].resolve({ grade: second })
+    await first
+  })
+  await act(async () => {
+    writes[1].reject(httpError(429, LIMITED))
+    await refused
+  })
+
+  expect(result.current.grades.map((g) => g.id)).toEqual(['grade-1', 'grade-2'])
+  expect(cachedNames()).toEqual(['CS 18000', 'MA 26100'])
+  expect(result.current.error).toBe(LIMITED)
+})
+
+it('two refused adds of the same course (a double click at the cap) leave no row behind', async () => {
+  const { result } = await renderTracker()
+  held = []
+  const writes = held
+  let one: Promise<boolean> = Promise.resolve(true)
+  let two: Promise<boolean> = Promise.resolve(true)
+  act(() => {
+    one = result.current.addGrade({ courseName: 'MA 26100', letterGrade: 'B' })
+  })
+  act(() => {
+    two = result.current.addGrade({ courseName: 'MA 26100', letterGrade: 'B' })
+  })
+
+  await act(async () => {
+    writes[0].reject(httpError(409, CAPPED))
+    await one
+  })
+  await act(async () => {
+    writes[1].reject(httpError(409, CAPPED))
+    await two
+  })
+
+  expect(result.current.grades.map((g) => g.courseName)).toEqual(['CS 18000'])
+  expect(cachedNames()).toEqual(['CS 18000'])
+  expect(result.current.error).toBe(CAPPED)
+})
+
+it('a refused delete does not bring back a course whose overlapping delete was accepted', async () => {
+  const writes: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = []
+  vi.mocked(authRequest).mockImplementation(async (_path, options) => {
+    if (!options?.method) return { grades: [saved, second] }
+    return new Promise((resolve, reject) => writes.push({ resolve, reject }))
+  })
+  const { result } = await renderTracker()
+  let refused: Promise<void> = Promise.resolve()
+  let accepted: Promise<void> = Promise.resolve()
+  act(() => {
+    refused = result.current.deleteGrade('grade-1')
+  })
+  act(() => {
+    accepted = result.current.deleteGrade('grade-2')
+  })
+  expect(result.current.grades).toEqual([])
+
+  await act(async () => {
+    writes[1].resolve({ ok: true })
+    await accepted
+  })
+  await act(async () => {
+    writes[0].reject(httpError(429, LIMITED))
+    await refused
+  })
+
+  expect(result.current.grades.map((g) => g.id)).toEqual(['grade-1'])
+  expect(cachedNames()).toEqual(['CS 18000'])
 })
