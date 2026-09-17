@@ -13,9 +13,26 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the PR run it supersedes: only the latest
+# head matters there. Pushes to main and develop are post-merge verification, so
+# each one gets a group of its own (the run ID) and is never cancelled or held
+# back. A shared group with cancel-in-progress: false would not give that:
+# GitHub keeps one pending run per group and cancels the older pending run when
+# a newer one arrives, so a quick batch of merges would drop the middle commits'
+# runs. A push to develop still starts both its own run and a new run of the
+# open develop -> main release PR: they are different events on different refs,
+# so they land in different groups. The PR run tests GitHub's merge of develop
+# into main (refs/pull/N/merge), not the develop head commit itself.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Without a cap a hung step holds the runner for GitHub's 6 hour default.
+    # Measured 2026-09-17: the job took 43 to 86 s over the last 38 runs.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -39,6 +56,31 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: boilerindy-react
+
+      # The admin scripts in scripts/ are run by hand, mostly against the
+      # production Supabase project, and no test imports them (only
+      # scripts/lib/ is tested), so a syntax error would otherwise show up
+      # mid-operation. node --check parses each file without running it and does
+      # not resolve imports. find covers scripts/lib/ too, and an empty match
+      # fails so a moved directory cannot turn this into a silent pass.
+      - name: Syntax-check admin scripts
+        shell: bash
+        run: |
+          count=0
+          failed=0
+          while IFS= read -r f; do
+            count=$((count + 1))
+            node --check "$f" || failed=$((failed + 1))
+          done < <(find scripts -name '*.mjs' | sort)
+          if [ "$count" -eq 0 ]; then
+            echo "No .mjs files found under scripts/."
+            exit 1
+          fi
+          if [ "$failed" -gt 0 ]; then
+            echo "$failed of $count scripts/ files failed node --check."
+            exit 1
+          fi
+          echo "node --check passed for $count scripts/ files."
 
       # Lint must pass: the source is error-clean. Covers .ts/.tsx as well as the
       # few remaining .js files (issue #183); the React Compiler advisory rules
@@ -86,6 +128,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # Measured 2026-09-17: 81 to 143 s over the last 38 runs, 191 s at most in
+    # the last 300. The cap stops a hung preview server or browser from holding
+    # the runner for GitHub's 6 hour default.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
