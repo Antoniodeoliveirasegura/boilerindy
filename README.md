@@ -49,7 +49,7 @@ This section explains how to run the full stack (frontend + backend) on your own
 
 ### Prerequisites
 
-- **Node.js 22.22.2+** - check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`. (CI runs on Node 22; `boilerindy-react/.nvmrc` pins 22.22.3.)
+- **Node.js 22.22.2+ (or 24.15+)** - check with `node -v`. Install from [nodejs.org](https://nodejs.org) or use `nvm`: `nvm use` in the repo root or in `boilerindy-react/` picks 22.22.3, the version both `.nvmrc` files pin and CI runs. Both `package.json` files declare the supported range, `^22.22.2 || ^24.15.0`, in `engines` (jsdom 30 sets that floor); pnpm warns but still installs on a Node outside it.
 - **pnpm 11 or newer** - see [pnpm.io/installation](https://pnpm.io/installation). Both `package.json` files pin `pnpm@11.6.0` in `packageManager`, and pnpm 11+ downloads and runs that exact version on its own. Do not install dependencies with npm: it ignores `pnpm-lock.yaml`, resolves fresh versions and writes a `package-lock.json`, so your tree would no longer match CI or production.
 - **Supabase project** - you and your teammate share the same Supabase project. Get the credentials from the project owner or the Supabase dashboard.
 
@@ -302,6 +302,7 @@ All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT E
 - **Backend** - Render, running `node server.mjs`
 - **Routing** - `boilerindy-react/vercel.json` rewrites `/api/*` and `/auth/purdue/*` to the Render backend URL
 - **Installs** - both hosts must install from the pnpm lockfiles. Their install and build commands are dashboard settings, not files in this repo. Render's build command should be `pnpm install --frozen-lockfile`, with `node server.mjs` as the start command. On Vercel, leave the Install Command at its default so Vercel picks pnpm from `boilerindy-react/pnpm-lock.yaml`: an override such as `pnpm install` makes Vercel run the oldest pnpm in its build image. Vercel's build log shows which pnpm version ran.
+- **Node** - Render runs the backend on the newest Node 22 release (22.23.2 at the 2026-09-17 deploy) because the service sets `NODE_VERSION=22` in its dashboard, and Render reads that variable before the root `.nvmrc` or `engines`. Vercel builds the frontend on Node 24.x. It ignores `.nvmrc` and takes the newest major that `engines.node` in `boilerindy-react/package.json` allows, which overrides the Node.js Version project setting (also 24.x), so move the build to another major by editing that range, not the dashboard. Keep an upper bound on every clause: an open range such as `>=22` would switch the production build to each new Node major as Vercel adds it (`test/nodeVersionPins.test.mjs` enforces this).
 
 The Render free tier sleeps after ~15 minutes idle and takes 20 to 50 s to wake, which every first page load used to pay (issue #164). A Supabase `pg_cron` job (`db/supabase-keep-warm.sql`, step 29 above) pings `/api/health` every 5 minutes to keep it awake, the GitHub keep-warm workflow is the backstop, and the app shows a "waking up" notice whenever a request is slow. Setup and verification: [docs/keep-warm.md](docs/keep-warm.md).
 
