@@ -28,6 +28,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Without a cap a hung step holds the runner for GitHub's 6 hour default.
+    # Measured 2026-09-17: the job took 43 to 86 s over the last 38 runs.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -98,6 +101,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # Measured 2026-09-17: 81 to 143 s over the last 38 runs, 191 s at most in
+    # the last 300. The cap stops a hung preview server or browser from holding
+    # the runner for GitHub's 6 hour default.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
