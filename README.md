@@ -316,6 +316,9 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 - Database: Supabase (Postgres via `@supabase/supabase-js`)
 - Auth: local email/password + optional Purdue CAS
 - External integrations: Nutrislice dining API, TransLoc transit API, Groq (AI)
+- Errors: every JSON error is `{ error: { message, status, code? } }`; the codes
+  clients can branch on (such as `marketplace_schema_missing` while a feature's
+  tables are not installed) are listed in [docs/api-error-codes.md](docs/api-error-codes.md)
 
 ### Manual tasks (issue #216)
 
