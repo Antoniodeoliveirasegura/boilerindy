@@ -100,7 +100,15 @@ import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
-import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from './src/dbErrors.mjs'
+import {
+  badRequest,
+  DB_FEATURES,
+  isSchemaMissingError,
+  logRouteError,
+  respondDbError,
+  respondRouteError,
+  respondSchemaMissing,
+} from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import {
   isMissingGalleryPricingColumn,
@@ -1245,7 +1253,10 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       ) {
         return res.status(400).json({ error: { message: 'An account with that email already exists.', status: 400 } })
       }
-      return res.status(400).json({ error: { message: raw, status: 400 } })
+      // GoTrue's own text can name the column it rejected and echo the value
+      // back; the client gets one generic line and the reason stays in the log.
+      console.warn('[register] GoTrue rejected sign-up:', authError.code, raw)
+      return badRequest(res, 'Could not create your account. Check the email and password and try again.')
     }
 
     const authUser = created.user
@@ -1267,7 +1278,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       .single()
 
     if (insertError) {
-      console.error('register-supabase: public.users insert failed:', insertError)
+      logRouteError('register-supabase: public.users insert failed', insertError)
       return res.status(500).json({
         error: { message: 'Could not create your profile.', status: 500 },
       })
@@ -1540,7 +1551,7 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
         .single()
 
       if (error) {
-        console.error('Failed to update user:', error)
+        logRouteError('Failed to update user', error)
       } else {
         user = data
       }
@@ -1570,7 +1581,7 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
       })
     })
   } catch (error) {
-    console.error('Supabase sync error:', error)
+    logRouteError('Supabase sync error', error)
     res.status(500).json({ error: { message: 'Could not sync user.', status: 500 } })
   }
 })
@@ -2092,7 +2103,7 @@ app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, asy
   const userId = req.currentUser.id
   const { calendarItemId, completed } = req.body || {}
   if (!calendarItemId || typeof completed !== 'boolean') {
-    return res.status(400).json({ error: { message: 'calendarItemId and completed (boolean) required' } })
+    return badRequest(res, 'calendarItemId and completed (boolean) required')
   }
   const { data: row, error: findErr } = await supabase
     .from('calendar_items')
@@ -2132,8 +2143,7 @@ app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, asy
     }
     res.json({ ok: true })
   } catch (e) {
-    console.error('POST /api/me/tasks/calendar/complete:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not update completion' } })
+    respondRouteError(res, e, { label: 'POST /api/me/tasks/calendar/complete', fallback: 'Could not update completion' })
   }
 })
 
@@ -2144,7 +2154,7 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
   // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
   // rather than being silently stored as no deadline at all.
   const parsed = parseManualTaskCreate(req.body)
-  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
+  if (!parsed.ok) return badRequest(res, parsed.message)
   try {
     const countResult = await supabase
       .from('user_manual_tasks')
@@ -2167,8 +2177,7 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
     if (error) throw error
     res.json({ task: mapManualTaskRow(data) })
   } catch (e) {
-    console.error('POST /api/me/tasks/manual:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not create task' } })
+    respondRouteError(res, e, { label: 'POST /api/me/tasks/manual', fallback: 'Could not create task' })
   }
 })
 
@@ -2178,7 +2187,7 @@ app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (re
   // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
   // value is a 400 like POST instead of being dropped while the other fields save.
   const parsed = parseManualTaskUpdate(req.body, { now: nowIso() })
-  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
+  if (!parsed.ok) return badRequest(res, parsed.message)
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
@@ -2191,8 +2200,7 @@ app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (re
     if (!data) return res.status(404).json({ error: { message: 'Task not found' } })
     res.json({ task: mapManualTaskRow(data) })
   } catch (e) {
-    console.error('PATCH /api/me/tasks/manual:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not update task' } })
+    respondRouteError(res, e, { label: 'PATCH /api/me/tasks/manual', fallback: 'Could not update task' })
   }
 })
 
@@ -2204,8 +2212,7 @@ app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (r
     if (error) throw error
     res.json({ ok: true })
   } catch (e) {
-    console.error('DELETE /api/me/tasks/manual:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not delete task' } })
+    respondRouteError(res, e, { label: 'DELETE /api/me/tasks/manual', fallback: 'Could not delete task' })
   }
 })
 
@@ -2276,7 +2283,7 @@ app.get('/api/me/grades', requireAuth, async (req, res) => {
 app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
-  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  if (invalid) return badRequest(res, invalid)
   try {
     const countResult = await supabase
       .from('user_grades')
@@ -2295,8 +2302,7 @@ app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => 
     if (error) throw error
     res.json({ grade: mapGradeRow(data) })
   } catch (e) {
-    console.error('POST /api/me/grades:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not save course' } })
+    respondRouteError(res, e, { label: 'POST /api/me/grades', fallback: 'Could not save course' })
   }
 })
 
@@ -2304,9 +2310,9 @@ app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res
   const userId = req.currentUser.id
   const { id } = req.params
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
-  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  if (invalid) return badRequest(res, invalid)
   if (Object.keys(value).length === 0) {
-    return res.status(400).json({ error: { message: 'No valid fields to update' } })
+    return badRequest(res, 'No valid fields to update')
   }
   try {
     const { data, error } = await supabase
@@ -2320,8 +2326,7 @@ app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res
     if (!data) return res.status(404).json({ error: { message: 'Course not found' } })
     res.json({ grade: mapGradeRow(data) })
   } catch (e) {
-    console.error('PATCH /api/me/grades/:id:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not update course' } })
+    respondRouteError(res, e, { label: 'PATCH /api/me/grades/:id', fallback: 'Could not update course' })
   }
 })
 
@@ -2333,8 +2338,7 @@ app.delete('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, re
     if (error) throw error
     res.json({ ok: true })
   } catch (e) {
-    console.error('DELETE /api/me/grades/:id:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not delete course' } })
+    respondRouteError(res, e, { label: 'DELETE /api/me/grades/:id', fallback: 'Could not delete course' })
   }
 })
 
@@ -2348,7 +2352,7 @@ app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
   const raw = req.body?.major
   const major = raw == null || raw === '' ? null : String(raw)
   if (major !== null && !getProgram(major)) {
-    return res.status(400).json({ error: { message: 'Unknown major' } })
+    return badRequest(res, 'Unknown major')
   }
   const { error } = await supabase.from('users').update({ major }).eq('id', req.currentUser.id)
   if (error) {
@@ -3580,7 +3584,7 @@ app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
 app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName)
-  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  if (!itemName) return badRequest(res, 'An item name is required')
   try {
     // Keyed by (user_id, item_name), no id column. Counting the other favorites
     // lets a re-save of one the user already has through at the cap.
@@ -3600,15 +3604,14 @@ app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req
     if (error) throw error
     res.json({ ok: true, itemName })
   } catch (e) {
-    console.error('POST /api/me/dining/favorites:', e?.message || e)
-    res.status(500).json({ error: { message: e.message || 'Could not save favorite' } })
+    respondRouteError(res, e, { label: 'POST /api/me/dining/favorites', fallback: 'Could not save favorite' })
   }
 })
 
 app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
-  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  if (!itemName) return badRequest(res, 'An item name is required')
   try {
     const { error } = await supabase
       .from('user_dining_favorites')
@@ -3618,8 +3621,7 @@ app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (r
     if (error) throw error
     res.json({ ok: true })
   } catch (e) {
-    console.error('DELETE /api/me/dining/favorites:', e?.message || e)
-    res.status(500).json({ error: { message: e.message || 'Could not remove favorite' } })
+    respondRouteError(res, e, { label: 'DELETE /api/me/dining/favorites', fallback: 'Could not remove favorite' })
   }
 })
 

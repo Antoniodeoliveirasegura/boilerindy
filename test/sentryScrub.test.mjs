@@ -108,3 +108,45 @@ test('redacts Groq API keys (gsk_ prefix)', () => {
   const out = scrubSentryEvent({ message: 'boot with gsk_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP set' })
   assert.equal(out.message, 'boot with [token] set')
 })
+
+test('redacts the row value in a PostgREST unique-violation detail (issue #206)', () => {
+  const event = scrubSentryEvent({
+    extra: {
+      pgError: {
+        code: '23505',
+        message: 'duplicate key value violates unique constraint "users_purdue_username_key"',
+        details: 'Key (purdue_username)=(jdoe) already exists.',
+        hint: null,
+      },
+    },
+  })
+  assert.equal(event.extra.pgError.details, '[redacted]')
+  // The constraint name is schema, not a student, so the message survives.
+  assert.match(event.extra.pgError.message, /users_purdue_username_key/)
+  assert.equal(event.extra.pgError.code, '23505')
+})
+
+test('redacts the row value when the detail rides inside an exception message', () => {
+  const event = scrubSentryEvent({
+    exception: {
+      values: [
+        {
+          type: 'PostgrestError',
+          value: 'insert failed: Key (email)=(jdoe@purdue.edu) already exists.',
+        },
+      ],
+    },
+  })
+  const { value } = event.exception.values[0]
+  assert.ok(!value.includes('jdoe@purdue.edu'), 'row value survived scrubbing')
+  assert.ok(!value.includes('jdoe'), 'local part survived scrubbing')
+  // The column name stays: it says which constraint fired without naming anyone.
+  assert.match(value, /Key \(email\)=\(\[redacted\]\)/)
+})
+
+test('keeps a hint that is not quoting a row', () => {
+  const event = scrubSentryEvent({
+    extra: { pgError: { hint: 'Perhaps you meant the column "users.display_name".' } },
+  })
+  assert.equal(event.extra.pgError.hint, 'Perhaps you meant the column "users.display_name".')
+})
