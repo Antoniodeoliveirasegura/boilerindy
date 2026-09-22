@@ -23,6 +23,14 @@
 //   respondDbError(res, err, config)
 //                                 respondSchemaMissing for a schema-missing error, otherwise
 //                                 logs code and message and answers 500 with config.fallback.
+//   badRequest(res, message)      400 { error: { message, status: 400 } } (issue #206).
+//   respondRouteError(res, err, { label, fallback })
+//                                 for routes with no DB_FEATURES entry (tasks, grades, dining
+//                                 favorites, account routes): a missing row or a malformed id
+//                                 (PGRST116, 22P02) answers 404 without a log line; anything
+//                                 else logs `${label}:` code and message and answers 500 with
+//                                 fallback, never the database text (issue #206).
+//   logRouteError(label, err)     that log line alone, for a route that answers on its own.
 //
 // Every answer from this module uses the standard envelope
 // { error: { message, status, code? } } documented in docs/api-error-codes.md.
@@ -204,4 +212,56 @@ export function respondDbError(res, err, config) {
   const { code, message } = errorFields(err)
   console.error(`${config.feature} DB error:`, code, message)
   return res.status(500).json({ error: { message: config.fallback, status: 500 } })
+}
+
+// ---- Routes outside DB_FEATURES (issue #206) --------------------------------
+//
+// The per-user tasks, grades and dining favorites routes used to answer
+// `500 { error: { message: e.message } }`, which put the PostgREST text
+// (constraint names, "invalid input syntax for type uuid: ...") in front of the
+// student, and logged the whole error object, details and hint included.
+
+// PostgREST PGRST116: `.single()` found no row (or several). Postgres 22P02:
+// invalid text for the column type, such as a malformed uuid in an :id param.
+// Either way the row the client named is not there (issue #196), and a probe
+// learns nothing more than "not found".
+const NOT_FOUND_CODES = new Set(['PGRST116', '22P02'])
+
+/**
+ * Answer 400 in the standard envelope.
+ * @param {{ status: (code: number) => any }} res Express response
+ * @param {string} message client-safe text
+ */
+export function badRequest(res, message) {
+  return res.status(400).json({ error: { message, status: 400 } })
+}
+
+/**
+ * Log a failed call as `${label}:` followed by the error's code and message.
+ * Never the whole object: console.error reaches Sentry, and `details` or
+ * `hint` can hold row values ("Key (purdue_username)=(jdoe) already exists.").
+ * @param {string} label route or operation, e.g. 'POST /api/me/grades'
+ * @param {unknown} err
+ */
+export function logRouteError(label, err) {
+  const { code, message } = errorFields(err)
+  console.error(`${label}:`, code, message)
+}
+
+/**
+ * Answer a failed route that has no DB_FEATURES entry. A missing row or a
+ * malformed id answers 404 `Not found.` without logging; any other error is
+ * logged with logRouteError and answers 500 with `fallback`. The database
+ * message never reaches the client.
+ * @param {{ status: (code: number) => any }} res Express response
+ * @param {unknown} err
+ * @param {{ label: string, fallback?: string }} options label starts the log line;
+ *   fallback is the client message for a 500
+ */
+export function respondRouteError(res, err, { label = 'Route error', fallback = 'Something went wrong. Please try again.' } = {}) {
+  if (err && typeof err === 'object' && NOT_FOUND_CODES.has(String(err.code))) {
+    return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
+  }
+  logRouteError(label, err)
+  return res.status(500).json({ error: { message: fallback, status: 500 } })
 }
