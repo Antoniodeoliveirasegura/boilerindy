@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { inspect } from 'node:util'
+import { formatWithOptions } from 'node:util'
 import {
   DB_FEATURES,
   badRequest,
@@ -31,10 +31,12 @@ function mockRes() {
   }
 }
 
-// Every console.error call, flattened to one string, so a test can assert what
-// did (or did not) reach the log and therefore Sentry. Objects are inspected in
-// full rather than turned into "[object Object]": Sentry's captureConsole keeps
-// the raw arguments, so a logged error object would carry details and hint.
+// Every console.error call, rendered the way Node renders it, so a test can
+// assert what did (or did not) reach the log and therefore Sentry. formatWithOptions
+// is what console.error itself uses, so a literal '%s' format string resolves here
+// exactly as it does in the log. Objects are inspected deeply rather than turned
+// into "[object Object]": Sentry's captureConsole keeps the raw arguments, so a
+// logged error object would carry details and hint.
 function spyConsoleError(t) {
   const spy = t.mock.method(console, 'error', () => {})
   return {
@@ -43,7 +45,7 @@ function spyConsoleError(t) {
     },
     text() {
       return spy.mock.calls
-        .map((call) => call.arguments.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 5 }))).join(' '))
+        .map((call) => formatWithOptions({ depth: 5 }, ...call.arguments))
         .join('\n')
     },
   }

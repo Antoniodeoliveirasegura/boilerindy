@@ -245,7 +245,10 @@ export function badRequest(res, message) {
  */
 export function logRouteError(label, err) {
   const { code, message } = errorFields(err)
-  console.error(`${label}:`, code, message)
+  // Literal format string: a label built from a request value would otherwise
+  // sit in console.error's format slot, where a `%s` in it swallows the next
+  // argument (CodeQL js/tainted-format-string, see #322).
+  console.error('%s:', label, code, message)
 }
 
 /**
