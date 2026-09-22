@@ -13,11 +13,12 @@ export const INLINE_REPLIES = 5
 export const REPLY_PAGE_SIZE = 50
 
 // Reply rows the list route will read to build the inline previews. One page of
-// posts shows at most BOARD_PAGE_SIZE * INLINE_REPLIES of them, and PostgREST
-// cannot LIMIT per post, so the cap is global with headroom: a page carrying a
-// few busy threads still previews the quiet ones. A post the cap starves keeps
-// its real reply count and loads its thread from GET /api/board/posts/:id/replies.
-export const INLINE_REPLY_FETCH_LIMIT = BOARD_PAGE_SIZE * INLINE_REPLIES * 2
+// posts only shows INLINE_REPLIES each, but PostgREST cannot LIMIT per post, so
+// the budget is global and generous, 25 rows per post on the page. A page
+// carrying a few busy threads can still spend it before every post is served;
+// the route notices when the cap binds and leaves those posts marked, so they
+// load their thread from GET /api/board/posts/:id/replies like any long one.
+export const INLINE_REPLY_FETCH_LIMIT = BOARD_PAGE_SIZE * 25
 
 const text = (value) => String(value ?? '').trim()
 

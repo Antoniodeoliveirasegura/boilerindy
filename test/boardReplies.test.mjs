@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { groupRepliesByPost } from '../src/boardReplies.mjs'
+import { groupRepliesByPost, mapBoardReply } from '../src/boardReplies.mjs'
 import {
   BOARD_PAGE_SIZE,
   INLINE_REPLIES,
@@ -121,4 +121,24 @@ test('30 posts by 50 replies: 5 inline each, every reply reachable by page', () 
   }
   assert.equal(seen.length, 50)
   assert.deepEqual(new Set(seen.map((r) => r.id)).size, 50)
+})
+
+// Both board routes shape a reply row through the same mapper, so an inline
+// preview and a page of the full thread are the same object to the client.
+test('names a non-anonymous author from the batch lookup', () => {
+  const row = { id: 'r1', body: 'hi', is_anon: false, user_id: 'u1', created_at: at(1) }
+  assert.deepEqual(mapBoardReply(row, { u1: 'Jo Doe' }), { id: 'r1', body: 'hi', user: 'Jo Doe', time: at(1) })
+})
+
+test('falls back to Student when the name lookup missed', () => {
+  const row = { id: 'r1', body: 'hi', is_anon: false, user_id: 'u1', created_at: at(1) }
+  assert.equal(mapBoardReply(row, {}).user, 'Student')
+  assert.equal(mapBoardReply(row).user, 'Student')
+})
+
+test('never leaks the author of an anonymous reply', () => {
+  const row = { id: 'r1', body: 'hi', is_anon: true, user_id: 'u1', created_at: at(1) }
+  const mapped = mapBoardReply(row, { u1: 'Jo Doe' })
+  assert.equal(mapped.user, 'Anonymous')
+  assert.ok(!Object.values(mapped).includes('u1'), 'the user id must not reach the client')
 })

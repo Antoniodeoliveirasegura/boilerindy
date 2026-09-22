@@ -48,3 +48,17 @@ export function groupRepliesByPost(replies, { perPost = INLINE_REPLIES } = {}) {
 
   return { byPost, truncatedPostIds }
 }
+
+/**
+ * Shape one reply row the way both board routes return it.
+ * @param {{ id: string, body: string, is_anon?: boolean, user_id?: string, created_at?: string }} reply
+ * @param {Record<string, string>} nameMap display names by user id
+ */
+export function mapBoardReply(reply, nameMap = {}) {
+  return {
+    id: reply.id,
+    body: reply.body,
+    user: reply.is_anon ? 'Anonymous' : (nameMap[reply.user_id] || 'Student'),
+    time: reply.created_at,
+  }
+}

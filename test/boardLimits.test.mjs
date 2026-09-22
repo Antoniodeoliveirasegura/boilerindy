@@ -81,6 +81,8 @@ test('the page sizes are the ones the website and the routes agree on', () => {
   assert.equal(BOARD_PAGE_SIZE, 20)
   assert.equal(INLINE_REPLIES, 5)
   assert.equal(REPLY_PAGE_SIZE, 50)
-  // The list route reads at most this many reply rows per page of posts.
-  assert.equal(INLINE_REPLY_FETCH_LIMIT, BOARD_PAGE_SIZE * INLINE_REPLIES * 2)
+  // The list route reads at most this many reply rows per page of posts: a
+  // global budget of 25 rows per post, well over the INLINE_REPLIES it shows.
+  assert.equal(INLINE_REPLY_FETCH_LIMIT, BOARD_PAGE_SIZE * 25)
+  assert.ok(INLINE_REPLY_FETCH_LIMIT > BOARD_PAGE_SIZE * INLINE_REPLIES)
 })

@@ -106,7 +106,7 @@ import {
   validateBoardPost,
   validateBoardReply,
 } from './src/boardLimits.mjs'
-import { groupRepliesByPost } from './src/boardReplies.mjs'
+import { groupRepliesByPost, mapBoardReply } from './src/boardReplies.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
 import { requireUuidParam } from './src/httpGuards.mjs'
@@ -3685,15 +3685,6 @@ async function boardDisplayNames(...rowSets) {
   return nameMap
 }
 
-function mapBoardReply(reply, nameMap) {
-  return {
-    id: reply.id,
-    body: reply.body,
-    user: reply.is_anon ? 'Anonymous' : (nameMap[reply.user_id] || 'Student'),
-    time: reply.created_at,
-  }
-}
-
 app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
   const page = Math.max(0, parseInt(req.query.page, 10) || 0)
@@ -3734,6 +3725,10 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   }
   const { byPost: inlineReplies, truncatedPostIds } = groupRepliesByPost(repliesData, { perPost: INLINE_REPLIES })
   const truncated = new Set(truncatedPostIds)
+  // The reply budget is global. When it binds, a post that came back with fewer
+  // than INLINE_REPLIES may have been starved by a busier thread rather than be
+  // short, so it keeps its marker and loads the thread from the replies route.
+  const replyFetchCapped = repliesData.length >= INLINE_REPLY_FETCH_LIMIT
   const previewedReplies = Object.values(inlineReplies).flat()
 
   const nameMap = await boardDisplayNames(postsData, previewedReplies)
@@ -3770,7 +3765,9 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
       isMine: p.user_id === myId,
       replies,
       replyCount,
-      hasMoreReplies: truncated.has(p.id) || replyCount > replies.length,
+      hasMoreReplies: truncated.has(p.id)
+        || replyCount > replies.length
+        || (replyFetchCapped && replies.length < INLINE_REPLIES),
     }
   })
 
