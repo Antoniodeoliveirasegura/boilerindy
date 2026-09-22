@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
 
 // Neighborhood Guide (issue #31): student-submitted local recommendations.
@@ -160,8 +161,11 @@ export default function Guide() {
     setRecs((prev) => prev.filter((r) => r.id !== rec.id))
     try {
       await authRequest(`/api/guide/${rec.id}`, { method: 'DELETE' })
-    } catch {
+    } catch (err) {
+      // The reload brings the card back; say why (load clears the banner
+      // first, so set it after). Issue #202.
       load(activeCat)
+      setError(writeFailureMessage(err, 'Could not delete the recommendation. Please try again.'))
     }
   }
 
@@ -171,7 +175,10 @@ export default function Guide() {
       body: JSON.stringify({ pinned: !rec.pinned }),
     })
       .then(() => load(activeCat))
-      .catch(() => load(activeCat))
+      .catch((err: unknown) => {
+        load(activeCat)
+        setError(writeFailureMessage(err, 'Could not update the pin. Please try again.'))
+      })
   }
 
   const mapped = useMemo(() => recs.filter((r) => r.lat != null && r.lng != null), [recs])

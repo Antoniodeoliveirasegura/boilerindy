@@ -3,6 +3,7 @@ import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
 
 // Campus Perks (issue #24): admin-curated local student deals.
@@ -183,8 +184,11 @@ export default function Perks() {
     setDeals((prev) => prev.filter((d) => d.id !== deal.id))
     try {
       await authRequest(`/api/deals/${deal.id}`, { method: 'DELETE' })
-    } catch {
+    } catch (err) {
+      // The reload brings the deal back; say why (load clears the banner
+      // first, so set it after). Issue #202.
       load()
+      setError(writeFailureMessage(err, 'Could not delete the deal. Please try again.'))
     }
   }
 

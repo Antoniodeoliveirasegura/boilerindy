@@ -59,6 +59,18 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter } from './src/rateLimiter.mjs'
+import {
+  DINING_FAVORITES_CAP_MESSAGE,
+  DRAFT_CAMPAIGNS_CAP_MESSAGE,
+  GRADES_CAP_MESSAGE,
+  MANUAL_TASKS_CAP_MESSAGE,
+  MAX_DINING_FAVORITES,
+  MAX_DRAFT_CAMPAIGNS,
+  MAX_GRADES,
+  MAX_MANUAL_TASKS,
+  advertiserWriteBucketKey,
+  capCheck,
+} from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson, isAbortLike } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
@@ -88,8 +100,15 @@ import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
+import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
-import { validateListingInput, mapListingRow, REPORTS_TO_HIDE } from './src/marketplace.mjs'
+import {
+  isMissingGalleryPricingColumn,
+  mapListingRow,
+  MARKETPLACE_GALLERY_PRICING_SQL_FILE,
+  REPORTS_TO_HIDE,
+  validateListingInput,
+} from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
@@ -452,6 +471,29 @@ const clubsReadRateLimit = createRateLimiter({
   max: 300,
   keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
+})
+// Authenticated writes that had no limiter (issue #202): the non-GET /api/me/*
+// routes not covered above, the owner-or-admin deletes, the guide pin,
+// connection replies, the mock Purdue link and the admin deal writes. One
+// shared per-user budget, roomy for a student ticking off a to-do list, tight
+// enough to stop a script filling tables. Row caps on the create routes live
+// in src/userWriteCaps.mjs; full list in docs/RATE_LIMITS.md.
+const userWriteRateLimit = createRateLimiter({
+  name: 'user-write',
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: 'You are making changes too quickly. Please wait a moment and try again.',
+})
+// Advertiser campaign creates and edits (issue #202). Portal sessions carry
+// req.session.advertiserId rather than a student userId, so the default key
+// would bucket every advertiser by IP; advertiserWriteBucketKey keys them by
+// the advertiser instead.
+const advertiserWriteRateLimit = createRateLimiter({
+  name: 'advertiser-write',
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyBy: advertiserWriteBucketKey,
+  message: 'Too many campaign changes. Please wait a few minutes and try again.',
 })
 
 function nowIso() {
@@ -1620,7 +1662,7 @@ app.post('/auth/purdue/dev/link', purdueLinkFlowRateLimit, resolvePurdueLinkActo
   }
 })
 
-app.post('/api/purdue/mock-link', requireAuth, async (req, res) => {
+app.post('/api/purdue/mock-link', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!purdueLinkingEnabled) {
     return res.status(400).json({ error: { message: 'Purdue linking is currently disabled.', status: 400 } })
   }
@@ -1938,7 +1980,7 @@ app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, re
   }
 })
 
-app.delete('/api/sources/:sourceId', requireAuth, async (req, res) => {
+app.delete('/api/sources/:sourceId', userWriteRateLimit, requireAuth, async (req, res) => {
   const source = await getSourceForUser(req.params.sourceId, req.currentUser.id)
   if (!source) {
     return res.status(404).json({ error: { message: 'Source not found.', status: 404 } })
@@ -2046,7 +2088,7 @@ app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
+app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { calendarItemId, completed } = req.body || {}
   if (!calendarItemId || typeof completed !== 'boolean') {
@@ -2095,7 +2137,7 @@ app.post('/api/me/tasks/calendar/complete', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
+app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
   // client creates undated to-dos from a title alone, which this used to reject outright. A
@@ -2104,6 +2146,15 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   const parsed = parseManualTaskCreate(req.body)
   if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
   try {
+    const countResult = await supabase
+      .from('user_manual_tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+    const cap = capCheck(countResult, MAX_MANUAL_TASKS)
+    if (cap.failure) console.error('POST /api/me/tasks/manual:', cap.failure, countResult.error)
+    if (cap.blocked) {
+      return res.status(409).json({ error: { message: MANUAL_TASKS_CAP_MESSAGE, status: 409 } })
+    }
     const { data, error } = await supabase
       .from('user_manual_tasks')
       .insert({
@@ -2121,7 +2172,7 @@ app.post('/api/me/tasks/manual', requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
+app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
@@ -2145,7 +2196,7 @@ app.patch('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/me/tasks/manual/:id', requireAuth, async (req, res) => {
+app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2222,11 +2273,20 @@ app.get('/api/me/grades', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/grades', requireAuth, async (req, res) => {
+app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid } })
   try {
+    const countResult = await supabase
+      .from('user_grades')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+    const cap = capCheck(countResult, MAX_GRADES)
+    if (cap.failure) console.error('POST /api/me/grades:', cap.failure, countResult.error)
+    if (cap.blocked) {
+      return res.status(409).json({ error: { message: GRADES_CAP_MESSAGE, status: 409 } })
+    }
     const { data, error } = await supabase
       .from('user_grades')
       .insert({ user_id: userId, ...value })
@@ -2240,7 +2300,7 @@ app.post('/api/me/grades', requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/me/grades/:id', requireAuth, async (req, res) => {
+app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
@@ -2265,7 +2325,7 @@ app.patch('/api/me/grades/:id', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/me/grades/:id', requireAuth, async (req, res) => {
+app.delete('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2284,7 +2344,7 @@ app.get('/api/me/degree', requireAuth, async (req, res) => {
   res.json({ major: req.currentUser.major ?? null })
 })
 
-app.put('/api/me/degree', requireAuth, async (req, res) => {
+app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
   const raw = req.body?.major
   const major = raw == null || raw === '' ? null : String(raw)
   if (major !== null && !getProgram(major)) {
@@ -2329,7 +2389,7 @@ app.get('/api/me/calendar-feed', requireAuth, (req, res) => {
   res.json({ feedUrl: token ? feedUrlForToken(token) : null })
 })
 
-app.post('/api/me/calendar-feed/token', requireAuth, async (req, res) => {
+app.post('/api/me/calendar-feed/token', userWriteRateLimit, requireAuth, async (req, res) => {
   const token = crypto.randomUUID()
   const { error } = await supabase
     .from('users')
@@ -2556,7 +2616,7 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
   res.json({ item: mapLostFoundRow(data, userId) })
 })
 
-app.delete('/api/lost-found/:id', requireAuth, async (req, res) => {
+app.delete('/api/lost-found/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // Soft delete: hide the item (set deleted_at) instead of removing it. The
@@ -2589,7 +2649,7 @@ app.get('/api/me/dashboard', requireAuth, async (req, res) => {
   res.json({ layout })
 })
 
-app.put('/api/me/dashboard', requireAuth, async (req, res) => {
+app.put('/api/me/dashboard', userWriteRateLimit, requireAuth, async (req, res) => {
   // Sanitize untrusted client input against the widget allowlist before storing.
   const layout = normalizeLayout(req.body?.layout)
   const { error } = await supabase
@@ -2615,7 +2675,7 @@ app.get('/api/me/services', requireAuth, async (req, res) => {
   res.json({ layout })
 })
 
-app.put('/api/me/services', requireAuth, async (req, res) => {
+app.put('/api/me/services', userWriteRateLimit, requireAuth, async (req, res) => {
   // Sanitize untrusted client input against the widget allowlist before storing.
   const layout = normalizeServicesLayout(req.body?.layout)
   const { error } = await supabase
@@ -3517,11 +3577,23 @@ app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/me/dining/favorites', requireAuth, async (req, res) => {
+app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName)
   if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
   try {
+    // Keyed by (user_id, item_name), no id column. Counting the other favorites
+    // lets a re-save of one the user already has through at the cap.
+    const countResult = await supabase
+      .from('user_dining_favorites')
+      .select('item_name', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .neq('item_name', itemName)
+    const cap = capCheck(countResult, MAX_DINING_FAVORITES)
+    if (cap.failure) console.error('POST /api/me/dining/favorites:', cap.failure, countResult.error)
+    if (cap.blocked) {
+      return res.status(409).json({ error: { message: DINING_FAVORITES_CAP_MESSAGE, status: 409 } })
+    }
     const { error } = await supabase
       .from('user_dining_favorites')
       .upsert({ user_id: userId, item_name: itemName }, { onConflict: 'user_id,item_name' })
@@ -3533,7 +3605,7 @@ app.post('/api/me/dining/favorites', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
+app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
   if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
@@ -3555,34 +3627,25 @@ app.delete('/api/me/dining/favorites', requireAuth, async (req, res) => {
 // Board API
 // ============================================================
 
-const BOARD_SQL_FILE = 'db/supabase-board-only.sql'
+const BOARD_SQL_FILE = DB_FEATURES.board.sqlFile
+// Adds deleted_at to board_posts, marketplace_listings, lost_found_items,
+// guide_recommendations and deals. Their list and delete queries filter on it.
+const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
 
-function isBoardSchemaMissingError(err) {
-  const m = String(err?.message || '')
-  const c = String(err?.code || '')
-  return (
-    m.includes('schema cache') ||
-    m.includes('Could not find the table') ||
-    m.includes('does not exist') && m.includes('board_posts') ||
-    c === 'PGRST205' ||
-    c === '42P01'
-  )
+// For the board, guide, deals and marketplace: a missing deleted_at column still
+// answers the feature's schema_missing code, but the log names the soft-delete
+// migration, since rerunning the feature's own file would not add it (#218).
+function respondSoftDeleteFeatureDbError(res, err, config) {
+  if (isMissingColumnError(err, 'deleted_at')) {
+    return respondSchemaMissing(res, { ...config, sqlFile: SOFT_DELETE_SQL_FILE }, err)
+  }
+  return respondDbError(res, err, config)
 }
 
+// 503 board_schema_missing until the board tables exist, 500 otherwise. Each
+// feature's responder below is the same wrapper over src/dbErrors.mjs (#218).
 function respondBoardDbError(res, err) {
-  console.error('Board DB error:', err?.message || err, err?.code, err?.details)
-  if (isBoardSchemaMissingError(err)) {
-    return res.status(503).json({
-      error: {
-        message: `Campus board tables are missing in Supabase. In the dashboard: SQL Editor → paste and run the file ${BOARD_SQL_FILE} from this repo → Run. Wait a few seconds, then try again.`,
-        code: 'board_schema_missing',
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({
-    error: { message: 'Something went wrong. Please try again.', status: 500 },
-  })
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.board)
 }
 
 app.get('/api/board/posts', requireAuth, async (req, res) => {
@@ -3822,10 +3885,7 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
     .select('id, title, body, is_anon, pinned, upvote_count, reply_count, created_at')
     .single()
 
-  if (error) {
-    console.error('board_posts insert:', error.message, error.code, error.details)
-    return respondBoardDbError(res, error)
-  }
+  if (error) return respondBoardDbError(res, error)
 
   // Fire-and-forget: AI assigns tags in the background
   const tagsPromise = autoTagBoardPost(data.id, title, body)
@@ -3988,7 +4048,7 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
   })
 })
 
-app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
+app.delete('/api/board/posts/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
   // Soft delete: hide the post (set deleted_at). Its replies stay attached and
@@ -4015,19 +4075,8 @@ app.delete('/api/board/posts/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-neighborhood-guide.sql.
 // ============================================================
 
-const GUIDE_SQL_FILE = 'db/supabase-neighborhood-guide.sql'
-
 function respondGuideDbError(res, err) {
-  console.error('Guide DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Neighborhood Guide tables are missing in Supabase. In the dashboard: SQL Editor → run ${GUIDE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load the guide. Please try again.', status: 500 } })
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.guide)
 }
 
 app.get('/api/guide', requireAuth, async (req, res) => {
@@ -4118,7 +4167,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
   }
 })
 
-app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
+app.patch('/api/guide/:id/pin', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!isUserAdmin(req.currentUser)) {
     return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
   }
@@ -4139,7 +4188,7 @@ app.patch('/api/guide/:id/pin', requireAuth, async (req, res) => {
 })
 
 // Delete - owner or admin (admins take down live recommendations, issue #195).
-app.delete('/api/guide/:id', requireAuth, async (req, res) => {
+app.delete('/api/guide/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const query = supabase
@@ -4164,31 +4213,19 @@ app.delete('/api/guide/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-study-groups.sql.
 // ============================================================
 
-const STUDY_SQL_FILE = 'db/supabase-study-groups.sql'
 // Soft delete for groups came later (issue #195) and is a separate migration.
 const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
+const STUDY_SOFT_DELETE_DB = {
+  ...DB_FEATURES.study_groups,
+  label: 'Removing study groups',
+  sqlFile: STUDY_SOFT_DELETE_SQL_FILE,
+}
 
 function respondStudyDbError(res, err) {
-  console.error('Study group DB error:', err?.message || err, err?.code)
-  // Checked first: a PGRST204 "column ... in the schema cache" message would
-  // otherwise read as the whole feature missing.
-  if (isMissingColumnError(err, 'deleted_at')) {
-    return res.status(503).json({
-      error: {
-        message: `Removing study groups needs a database update. In the dashboard: SQL Editor → run ${STUDY_SOFT_DELETE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Study Group tables are missing in Supabase. In the dashboard: SQL Editor → run ${STUDY_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load study groups. Please try again.', status: 500 } })
+  // Checked first so the log names the soft-delete migration rather than the
+  // base study-groups file; the client sees study_groups_schema_missing either way.
+  if (isMissingColumnError(err, 'deleted_at')) return respondSchemaMissing(res, STUDY_SOFT_DELETE_DB, err)
+  return respondDbError(res, err, DB_FEATURES.study_groups)
 }
 
 function mapStudyGroupRow(row, userId, memberCounts, myGroupIds) {
@@ -4247,7 +4284,7 @@ app.get('/api/me/study-groups/courses', requireAuth, async (req, res) => {
 })
 
 // Toggle opt-in; on opt-in, snapshot the user's course codes for classmate counts.
-app.patch('/api/me/study-groups/opt-in', requireAuth, async (req, res) => {
+app.patch('/api/me/study-groups/opt-in', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const optIn = req.body?.optIn === true || req.body?.optIn === 'true'
   try {
@@ -4382,7 +4419,7 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
 // leaves every list, but its members stay attached so an admin restore from the
 // moderation view brings it back whole. Answers 503 (respondStudyDbError) until
 // db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
-app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
+app.delete('/api/study-groups/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const groupId = req.params.id
   if (!isUuid(groupId)) {
     return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
@@ -4412,19 +4449,8 @@ app.delete('/api/study-groups/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-campus-deals.sql.
 // ============================================================
 
-const DEALS_SQL_FILE = 'db/supabase-campus-deals.sql'
-
 function respondDealsDbError(res, err) {
-  console.error('Deals DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Campus Perks tables are missing in Supabase. In the dashboard: SQL Editor → run ${DEALS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load deals. Please try again.', status: 500 } })
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.deals)
 }
 
 app.get('/api/deals', requireAuth, async (req, res) => {
@@ -4451,7 +4477,7 @@ function requireAdminJson(req, res) {
   return true
 }
 
-app.post('/api/deals', requireAuth, async (req, res) => {
+app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4468,7 +4494,7 @@ app.post('/api/deals', requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/deals/:id', requireAuth, async (req, res) => {
+app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4485,7 +4511,7 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   }
 })
 
-app.delete('/api/deals/:id', requireAuth, async (req, res) => {
+app.delete('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   try {
     const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
@@ -4503,7 +4529,6 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
 // Requires db/supabase-marketplace.sql.
 // ============================================================
 
-const MARKETPLACE_SQL_FILE = 'db/supabase-marketplace.sql'
 const MARKETPLACE_PAGE_SIZE = 24
 const marketplacePhotos = createMarketplacePhotos({ supabase, secret: sessionSecret })
 const marketplacePhotoRateLimit = createRateLimiter({
@@ -4519,18 +4544,15 @@ async function findOwnedMarketplaceListing(id, userId) {
 app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
   photoAuthorizationHandler({ photos: marketplacePhotos, findOwnedListing: findOwnedMarketplaceListing }))
 
+// A missing image_urls or price_mode column also answers marketplace_schema_missing,
+// with the gallery and pricing migration named in the log, since the base
+// marketplace file does not add them (#218).
 function respondMarketplaceDbError(res, err) {
   if (err instanceof PhotoError) return respondPhotoError(res, err)
-  console.error('Marketplace DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Marketplace tables are missing in Supabase. In the dashboard: SQL Editor → run ${MARKETPLACE_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
+  if (isMissingGalleryPricingColumn(err)) {
+    return respondSchemaMissing(res, { ...DB_FEATURES.marketplace, sqlFile: MARKETPLACE_GALLERY_PRICING_SQL_FILE }, err)
   }
-  return res.status(500).json({ error: { message: 'Could not load the marketplace. Please try again.', status: 500 } })
+  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.marketplace)
 }
 
 // Browse active, non-hidden listings with optional category/text filter + paging.
@@ -4664,7 +4686,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
 })
 
 // Delete - owner or admin.
-app.delete('/api/marketplace/:id', requireAuth, async (req, res) => {
+app.delete('/api/marketplace/:id', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     // Soft delete: hide the listing (set deleted_at). Admins purge it
@@ -4714,19 +4736,8 @@ app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async 
 // db/supabase-friend-matching.sql.
 // ============================================================
 
-const FRIENDS_SQL_FILE = 'db/supabase-friend-matching.sql'
-
 function respondFriendsDbError(res, err) {
-  console.error('Friend matching DB error:', err?.message || err, err?.code)
-  if (isBoardSchemaMissingError(err) || err?.code === 'PGRST205' || err?.code === '42P01') {
-    return res.status(503).json({
-      error: {
-        message: `Friend Matching tables are missing in Supabase. In the dashboard: SQL Editor → run ${FRIENDS_SQL_FILE} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Could not load matches. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.friends)
 }
 
 // My profile + discoverable status.
@@ -4847,7 +4858,7 @@ app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) 
 })
 
 // Accept or decline an incoming request.
-app.patch('/api/connections/:requesterId', requireAuth, async (req, res) => {
+app.patch('/api/connections/:requesterId', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const requesterId = req.params.requesterId
   const action = String(req.body?.action || '').trim()
@@ -4920,35 +4931,20 @@ app.get('/api/me/connections', requireAuth, async (req, res) => {
 // gates advertiser routes; requireAuth (student) ignores advertiserId entirely.
 // ============================================================
 
-const ADVERTISER_SQL_FILE = 'db/supabase-advertiser-portal.sql'
-const ADVERTISER_CAMPAIGNS_SQL_FILE = 'db/supabase-advertiser-campaigns.sql'
+const [ADVERTISER_SQL_FILE, ADVERTISER_CAMPAIGNS_SQL_FILE] = DB_FEATURES.advertiser.sqlFile
 const ADVERTISER_RESETS_SQL_FILE = 'db/supabase-advertiser-password-resets.sql'
 const ADVERTISER_AD_EVENTS_SQL_FILE = 'db/supabase-advertiser-ad-events.sql'
 
-function isAdvertiserSchemaMissingError(err) {
-  const m = String(err?.message || '')
-  const c = String(err?.code || '')
-  return (
-    m.includes('schema cache') ||
-    m.includes('Could not find the table') ||
-    (m.includes('does not exist') && m.includes('advertiser')) ||
-    c === 'PGRST205' ||
-    c === '42P01'
-  )
+// The forgot-password route answers advertiser_schema_missing too, but its log
+// names the password-resets migration.
+const ADVERTISER_RESETS_DB = {
+  ...DB_FEATURES.advertiser,
+  label: 'Password reset',
+  sqlFile: ADVERTISER_RESETS_SQL_FILE,
 }
 
 function respondAdvertiserDbError(res, err) {
-  console.error('Advertiser DB error:', err?.message || err, err?.code, err?.details)
-  if (isAdvertiserSchemaMissingError(err)) {
-    return res.status(503).json({
-      error: {
-        message: `Advertiser tables are missing in Supabase. In the dashboard: SQL Editor → run ${ADVERTISER_SQL_FILE} and ${ADVERTISER_CAMPAIGNS_SQL_FILE} from this repo → Run, then try again.`,
-        code: 'advertiser_schema_missing',
-        status: 503,
-      },
-    })
-  }
-  return res.status(500).json({ error: { message: 'Something went wrong. Please try again.', status: 500 } })
+  return respondDbError(res, err, DB_FEATURES.advertiser)
 }
 
 async function getAdvertiserById(advertiserId) {
@@ -5142,15 +5138,7 @@ app.post('/api/advertiser/forgot-password', passwordResetRateLimit, async (req, 
         console.error('[advertiser reset] email is not configured; reset link was not delivered')
       }
     } catch (sendErr) {
-      if (isAdvertiserSchemaMissingError(sendErr)) {
-        return res.status(503).json({
-          error: {
-            message: `Advertiser reset table is missing. In Supabase: SQL Editor → run ${ADVERTISER_RESETS_SQL_FILE} → Run, then try again.`,
-            code: 'advertiser_schema_missing',
-            status: 503,
-          },
-        })
-      }
+      if (isSchemaMissingError(sendErr)) return respondSchemaMissing(res, ADVERTISER_RESETS_DB, sendErr)
       console.error('Advertiser forgot-password failed:', sendErr?.message || sendErr)
       return res.status(500).json({ error: { message: 'Could not send the reset email. Please try again.', status: 500 } })
     }
@@ -5232,12 +5220,23 @@ app.get('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => 
   res.json({ campaigns: (data || []).map(mapCampaignRow) })
 })
 
-app.post('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) => {
+app.post('/api/advertiser/campaigns', advertiserWriteRateLimit, requireAdvertiserAuth, async (req, res) => {
   let fields
   try {
     fields = normalizeCampaignInput(req.body)
   } catch (error) {
     return res.status(400).json({ error: { message: error.message, status: 400 } })
+  }
+
+  const countResult = await supabase
+    .from('campaigns')
+    .select('id', { count: 'exact', head: true })
+    .eq('advertiser_id', req.currentAdvertiser.id)
+    .eq('status', 'draft')
+  const cap = capCheck(countResult, MAX_DRAFT_CAMPAIGNS)
+  if (cap.failure) console.error('POST /api/advertiser/campaigns:', cap.failure, countResult.error)
+  if (cap.blocked) {
+    return res.status(409).json({ error: { message: DRAFT_CAMPAIGNS_CAP_MESSAGE, status: 409 } })
   }
 
   const timestamp = nowIso()
@@ -5258,7 +5257,7 @@ app.post('/api/advertiser/campaigns', requireAdvertiserAuth, async (req, res) =>
   res.status(201).json({ campaign: mapCampaignRow(data) })
 })
 
-app.patch('/api/advertiser/campaigns/:id', requireAdvertiserAuth, async (req, res) => {
+app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireAdvertiserAuth, async (req, res) => {
   const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
   if (lookupError) return respondAdvertiserDbError(res, lookupError)
   if (!campaign) {
@@ -5621,7 +5620,6 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 // this is the only hard-delete path. `type` is whitelisted so the param can
 // never reach an arbitrary table.
 // Study groups joined in issue #195; their public DELETE is creator-or-admin.
-const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
 const SOFT_DELETE_TABLES = {
   board: { table: 'board_posts', label: 'Board post', sqlFile: SOFT_DELETE_SQL_FILE },
   marketplace: { table: 'marketplace_listings', label: 'Marketplace listing', sqlFile: SOFT_DELETE_SQL_FILE },
@@ -5636,18 +5634,20 @@ function softDeleteConfig(type) {
 }
 
 // A table without deleted_at yet (study groups before their migration) fails
-// every moderation query on the missing column: answer 503 naming the file to
-// run instead of a generic 500.
+// every moderation query on the missing column: answer 503
+// moderation_schema_missing (the log names the file to run) instead of a 500.
 function respondModerationDbError(res, error, cfg, logLabel, message) {
-  console.error(`${logLabel}:`, error.message)
   if (isMissingColumnError(error, 'deleted_at')) {
-    return res.status(503).json({
-      error: {
-        message: `${cfg.label} moderation needs a database update. In the dashboard: SQL Editor → run ${cfg.sqlFile} from this repo → Run, wait a few seconds, then retry.`,
-        status: 503,
-      },
-    })
+    return respondSchemaMissing(
+      res,
+      { ...DB_FEATURES.moderation, label: `${cfg.label} moderation`, sqlFile: cfg.sqlFile },
+      error,
+    )
   }
+  // logLabel carries req.params.type, so it must not sit in console.error's
+  // format-string slot: a `%s` in the value would consume error.message
+  // (CodeQL js/tainted-format-string). A literal format keeps the same output.
+  console.error('%s:', logLabel, error.message)
   return res.status(500).json({ error: { message, status: 500 } })
 }
 
@@ -5822,31 +5822,31 @@ app.listen(port, host, async (err) => {
   console.log(`Purdue link mode: ${purdueAuthMode}`)
   console.log(`Database: Supabase`)
   const probe = await supabase.from('board_posts').select('id').limit(1)
-  if (probe.error && isBoardSchemaMissingError(probe.error)) {
+  if (probe.error && isSchemaMissingError(probe.error)) {
     console.warn(
       `\n[BoilerIndy] Campus board: table board_posts not found. Run ${BOARD_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const advProbe = await supabase.from('advertisers').select('id').limit(1)
-  if (advProbe.error && isAdvertiserSchemaMissingError(advProbe.error)) {
+  if (advProbe.error && isSchemaMissingError(advProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table advertisers not found. Run ${ADVERTISER_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const campaignProbe = await supabase.from('campaigns').select('id').limit(1)
-  if (campaignProbe.error && isAdvertiserSchemaMissingError(campaignProbe.error)) {
+  if (campaignProbe.error && isSchemaMissingError(campaignProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table campaigns not found. Run ${ADVERTISER_CAMPAIGNS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const adEventProbe = await supabase.from('ad_events').select('id').limit(1)
-  if (adEventProbe.error && isAdvertiserSchemaMissingError(adEventProbe.error)) {
+  if (adEventProbe.error && isSchemaMissingError(adEventProbe.error)) {
     console.warn(
       `\n[BoilerIndy] Advertiser portal: table ad_events not found. Run ${ADVERTISER_AD_EVENTS_SQL_FILE} in Supabase SQL Editor, then restart the server.\n`,
     )
   }
   const analyticsProbe = await supabase.from('analytics_events').select('id').limit(1)
-  if (analyticsProbe.error && isAdvertiserSchemaMissingError(analyticsProbe.error)) {
+  if (analyticsProbe.error && isSchemaMissingError(analyticsProbe.error)) {
     console.warn(
       '\n[BoilerIndy] Analytics: table analytics_events not found. Run db/supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )

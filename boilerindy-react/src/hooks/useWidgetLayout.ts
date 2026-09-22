@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { authRequest } from '../lib/authApi'
+import { createWholeValueSaves, writeFailureMessage, type RefusedSave } from '../lib/writeFailure'
 
 // Owns a customizable widget board's layout (issue #52, generalized for the
 // Services board). All layout values are run through the board's normalizeLayout
@@ -33,6 +34,15 @@ export function useWidgetLayout({
     () => loadLocalLayout(userId) || defaultLayout(),
   )
   const [editing, setEditing] = useState(false)
+  // Why the last layout change did not save (issue #202). A refused PUT (the
+  // user-write limiter's 429) puts back the layout the server last accepted,
+  // so the board never shows an arrangement the next load would drop. A
+  // network or 5xx failure keeps the change on screen and in the cache, and
+  // the next successful PUT carries it.
+  const [saveError, setSaveError] = useState('')
+  // One bookkeeping object for the hook's lifetime, seeded with the layout the
+  // board first painted (the cache, or the default).
+  const [saves] = useState(() => createWholeValueSaves<WidgetLayoutEntry[]>(layout))
 
   useEffect(() => {
     let cancelled = false
@@ -43,6 +53,7 @@ export function useWidgetLayout({
         const next = normalizeLayout(data?.layout)
         setLayout(next)
         saveLocalLayout(userId, next)
+        saves.loaded(next)
       } catch {
         if (cancelled) return
         const cached = loadLocalLayout(userId)
@@ -53,7 +64,7 @@ export function useWidgetLayout({
     return () => {
       cancelled = true
     }
-  }, [userId, endpoint, defaultLayout, normalizeLayout, loadLocalLayout, saveLocalLayout])
+  }, [userId, endpoint, defaultLayout, normalizeLayout, loadLocalLayout, saveLocalLayout, saves])
 
   // Single write path: normalize, cache locally, and sync to the server.
   const commit = useCallback(
@@ -61,14 +72,24 @@ export function useWidgetLayout({
       const normalized = normalizeLayout(next)
       setLayout(normalized)
       saveLocalLayout(userId, normalized)
+      setSaveError('')
+      const ticket = saves.start()
+      const restore = (refused: RefusedSave<WidgetLayoutEntry[]> | null) => {
+        if (!refused) return
+        setLayout(refused.restore)
+        saveLocalLayout(userId, refused.restore)
+        setSaveError(writeFailureMessage(refused.error, 'Could not save your layout. Please try again.'))
+      }
       authRequest(endpoint, {
         method: 'PUT',
         body: JSON.stringify({ layout: normalized }),
-      }).catch(() => {
-        /* offline - localStorage copy will re-sync via the next successful PUT */
-      })
+      }).then(
+        () => restore(saves.succeeded(ticket, normalized)),
+        // offline or 5xx - localStorage copy will re-sync via the next successful PUT
+        (err: unknown) => restore(saves.failed(ticket, err)),
+      )
     },
-    [userId, endpoint, normalizeLayout, saveLocalLayout],
+    [userId, endpoint, normalizeLayout, saveLocalLayout, saves],
   )
 
   // Move a widget one slot up/down among the *visible* widgets. dir: -1 | +1.
@@ -138,5 +159,5 @@ export function useWidgetLayout({
 
   const reset = useCallback(() => commit(defaultLayout()), [commit, defaultLayout])
 
-  return { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset }
+  return { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError }
 }

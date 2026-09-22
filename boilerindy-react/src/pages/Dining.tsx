@@ -3,6 +3,7 @@ import Icon from '../components/Icons'
 import { track } from '../lib/usageStats'
 import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
+import { writeFailureMessage } from '../lib/writeFailure'
 import {
   SHORT_DAY,
   WEEKDAY_ORDER,
@@ -120,6 +121,9 @@ export default function Dining() {
   // Favorites (issue #49): a Set of normalized item names. Loaded once for the
   // signed-in user; failures leave it empty so the page still works.
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
+  // Why the last star toggle did not save. Favorites have no device-only copy,
+  // so every failure rolls the star back and says so (issue #202).
+  const [favoriteError, setFavoriteError] = useState('')
 
   useEffect(() => {
     let active = true
@@ -143,23 +147,32 @@ export default function Dining() {
       const key = normalizeItemName(rawName)
       if (!key) return
       const adding = !favorites.has(key)
+      setFavoriteError('')
       setFavorites((prev) => {
         const next = new Set(prev)
         if (adding) next.add(key)
         else next.delete(key)
         return next
       })
-      // Persist optimistically; roll back the toggle if the request fails.
+      // Persist optimistically; roll back the toggle if the request fails and
+      // show why: the server's message for the 300-favorite cap (409) or the
+      // user-write limiter (429), a generic line otherwise.
       authRequest('/api/me/dining/favorites', {
         method: adding ? 'POST' : 'DELETE',
         body: JSON.stringify({ itemName: key }),
-      }).catch(() => {
+      }).catch((err: unknown) => {
         setFavorites((prev) => {
           const next = new Set(prev)
           if (adding) next.delete(key)
           else next.add(key)
           return next
         })
+        setFavoriteError(
+          writeFailureMessage(
+            err,
+            adding ? 'Could not save that favorite. Please try again.' : 'Could not remove that favorite. Please try again.',
+          ),
+        )
       })
     },
     [favorites],
@@ -442,6 +455,16 @@ export default function Dining() {
                   </a>
                 </div>
               </div>
+
+              {favoriteError && (
+                <div
+                  role="alert"
+                  className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
+                  data-dining-favorite-error
+                >
+                  {favoriteError}
+                </div>
+              )}
 
               {/* Station grid, or the honest reason there is none */}
               {(selected.stations || []).length === 0 ? (

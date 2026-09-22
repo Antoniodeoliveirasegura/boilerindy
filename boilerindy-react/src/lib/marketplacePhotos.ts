@@ -162,7 +162,7 @@ export async function prepareListingPhoto(file: Blob): Promise<Blob> {
 }
 
 export async function authorizePhotoUpload(byteSize: number, listingId?: string | null): Promise<PhotoUpload> {
-  let data: { upload?: PhotoUpload } | null = null
+  let data: { upload?: PhotoUpload }
   try {
     data = (await authRequest('/api/marketplace/photos/authorize', {
       method: 'POST',
@@ -171,7 +171,7 @@ export async function authorizePhotoUpload(byteSize: number, listingId?: string 
   } catch (error) {
     throw toPhotoError(error, 'Could not start the photo upload. Please retry.')
   }
-  if (!data?.upload?.token || !data.upload.receipt || !data.upload.path) {
+  if (!data.upload?.token || !data.upload.receipt || !data.upload.path) {
     throw new PhotoUploadError('Could not start the photo upload. Please retry.')
   }
   return data.upload

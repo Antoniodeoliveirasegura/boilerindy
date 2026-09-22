@@ -27,6 +27,8 @@ method, and path for abuse review.
 | `clubs-read` | `GET /api/clubs` (club directory search; served from an hours-long cache, never hits BoilerLink per request, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
 | `push-write` | `PUT /api/push/settings`, `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | 30 | 15 min | user, falls back to IP |
 | `push-test` | `POST /api/push/test` (sends a real notification to every registered device) | 10 | 1 hour | user, falls back to IP |
+| `user-write` | Every non-GET `/api/me/*` route without a bucket of its own: `POST /api/me/tasks/calendar/complete`, `POST /api/me/tasks/manual`, `PATCH` and `DELETE /api/me/tasks/manual/:id`, `POST /api/me/grades`, `PATCH` and `DELETE /api/me/grades/:id`, `PUT /api/me/degree`, `POST /api/me/calendar-feed/token`, `PUT /api/me/dashboard`, `PUT /api/me/services`, `POST` and `DELETE /api/me/dining/favorites`, `PATCH /api/me/study-groups/opt-in` (`PATCH /api/me/profile` and `POST /api/me/delete-account` stay on `sign-in`, `PUT /api/me/profile-card` on `board-write`). Also the owner-or-admin deletes `DELETE /api/sources/:sourceId`, `/api/lost-found/:id`, `/api/board/posts/:id`, `/api/guide/:id`, `/api/study-groups/:id` and `/api/marketplace/:id`, plus `PATCH /api/guide/:id/pin`, `PATCH /api/connections/:requesterId`, `POST /api/purdue/mock-link` and the admin deal writes `POST /api/deals`, `PATCH` and `DELETE /api/deals/:id` (#202) | 120 | 15 min | user, falls back to IP |
+| `advertiser-write` | `POST /api/advertiser/campaigns`, `PATCH /api/advertiser/campaigns/:id` (#202) | 60 | 15 min | advertiser portal session (`req.session.advertiserId`), falls back to IP |
 | AI assistant (pre-existing) | `POST /api/assistant` | 10 | 1 hour | user, falls back to IP |
 | AI board suggestions (pre-existing) | `POST /api/board/ai-suggestions` | 10 | 1 hour | user |
 
@@ -38,6 +40,49 @@ burn the upstream quota,
 and `GET /api/marketplace/:id`, which returns the seller's contact
 email and is therefore enumeration-sensitive; `marketplace-read` throttles the
 bulk id-sweeps that would harvest every seller's address (#114).
+
+### Row caps
+
+A rate limit slows a script down; a row cap bounds what it can store. These
+create routes count the caller's rows right before the insert and answer `409`
+with the standard error shape, `{ error: { message, status: 409 } }`, once the
+cap is reached (#202). The caps are constants in
+[`userWriteCaps.mjs`](../src/userWriteCaps.mjs), not environment variables.
+
+The count is not atomic with the insert. Parallel requests that all count
+before any of them inserts each get through, so one burst can overshoot a cap
+by nearly the write limiter's whole remaining budget (`user-write` allows 120
+requests per 15 minutes and `advertiser-write` 60, counted per server
+instance); the first request after the burst is refused. That race is
+accepted. A count query that fails does not block the write either: the route
+logs the failure with its HTTP status and goes on to the insert.
+
+| Route | Cap | Counted per |
+|---|---|---|
+| `POST /api/me/tasks/manual` | 500 manual tasks | user |
+| `POST /api/me/grades` | 500 courses | user |
+| `POST /api/me/dining/favorites` | 300 favorites (re-saving one the user already has still succeeds at the cap) | user |
+| `POST /api/advertiser/campaigns` | 20 campaigns in `draft` (campaigns pending review, active, paused or ended do not count) | advertiser |
+
+The draft cap does not bound the admin review queue. An advertiser who submits
+or ends each draft frees its slot, so a create-then-submit loop can keep adding
+`pending_review` campaigns, slowed only by `advertiser-write` (about 30 pairs
+per 15 minutes). `GET /api/admin/campaigns` returns the newest 200 rows, so a
+long loop can push genuine submissions out of that view. Capping pending or
+total campaigns per advertiser is an open owner decision.
+
+### How the web app handles a refusal
+
+The React client treats any `4xx` from a write as the server refusing that one
+request, not as being offline
+([`writeFailure.ts`](../boilerindy-react/src/lib/writeFailure.ts), #202). The
+page stays online, undoes what it showed optimistically and shows the
+response's `error.message`, so a `409` cap or a `429` limit reads the same as
+the server wrote it. Only a request that got no response, or a `5xx`, keeps a
+page's offline behaviour: Assignments switches to device-only tasks, the grade
+tracker keeps its local copy, and the dashboard and Services layouts and the
+selected major stay in the local cache until the next successful save. A
+refused layout or major save puts back the value the server last accepted.
 
 ## Configuration
 

@@ -255,7 +255,7 @@ export default function Services() {
   const { user } = useAuth()
   const userId = user?.id as string | undefined
   const reducedMotion = usePrefersReducedMotion()
-  const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset } = useServicesLayout(userId)
+  const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError } = useServicesLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const visibleWidgets = layout.filter((w) => w.visible && servicesWidgets[w.id])
@@ -301,11 +301,18 @@ export default function Services() {
 
       {/* Customize toolbar - toggles widget edit mode for the resource board. */}
       <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
-        <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
-          {editing
-            ? 'Drag a card or use the arrows to reorder. Resize with − / +, hide with ×; add hidden cards below.'
-            : ''}
-        </p>
+        {/* A refused layout save (issue #202) replaces the hint until the next change. */}
+        {saveError ? (
+          <p role="alert" className="text-[12px] text-[var(--color-error)] min-h-[1rem]">
+            {saveError}
+          </p>
+        ) : (
+          <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
+            {editing
+              ? 'Drag a card or use the arrows to reorder. Resize with − / +, hide with ×; add hidden cards below.'
+              : ''}
+          </p>
+        )}
         <div className="flex items-center gap-2 shrink-0">
           {editing && (
             <button

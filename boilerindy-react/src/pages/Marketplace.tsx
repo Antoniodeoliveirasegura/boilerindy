@@ -167,7 +167,7 @@ function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, o
   const hasPicked = photo.status !== 'idle'
   const count = linkUrls.length + (photo.status === 'ready' ? 1 : 0)
 
-  let message = ''
+  let message: string
   let messageTone = 'text-[var(--color-txt-3)]'
   if (photo.status === 'working') {
     message = `${STEP_TEXT[photo.step]}…`

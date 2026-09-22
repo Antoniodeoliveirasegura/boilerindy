@@ -472,7 +472,7 @@ export default function Home() {
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const userId = user?.id as string | undefined
-  const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset } = useDashboardLayout(userId)
+  const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError } = useDashboardLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const { summary: gpaSummary } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
@@ -1620,11 +1620,18 @@ export default function Home() {
 
       {/* Customize toolbar - fixed chrome that toggles widget edit mode. */}
       <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
-        <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
-          {editing
-            ? 'Drag a card or use the arrows to reorder. Hide with ×; add hidden widgets below.'
-            : ''}
-        </p>
+        {/* A refused layout save (issue #202) replaces the hint until the next change. */}
+        {saveError ? (
+          <p role="alert" className="text-[12px] text-[var(--color-error)] min-h-[1rem]">
+            {saveError}
+          </p>
+        ) : (
+          <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
+            {editing
+              ? 'Drag a card or use the arrows to reorder. Hide with ×; add hidden widgets below.'
+              : ''}
+          </p>
+        )}
         <div className="flex items-center gap-2 shrink-0">
           {editing && (
             <button
