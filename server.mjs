@@ -101,6 +101,7 @@ import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
 import { requireUuidParam } from './src/httpGuards.mjs'
+import { joinStudyGroup, joinOutcomeToResponse } from './src/studyGroupJoin.mjs'
 import {
   badRequest,
   DB_FEATURES,
@@ -4400,16 +4401,19 @@ app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireIdParam('id')
     if (gErr) throw gErr
     if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
 
-    const { data: members } = await supabase.from('study_group_members').select('user_id').eq('group_id', groupId)
-    const already = (members || []).some((m) => m.user_id === userId)
-    if (!already && group.capacity && (members || []).length >= group.capacity) {
-      return res.status(409).json({ error: { message: 'This group is full.', status: 409 } })
-    }
-    const { error: insErr } = await supabase
-      .from('study_group_members')
-      .insert({ group_id: groupId, user_id: userId, joined_at: nowIso() })
-    if (insErr && insErr.code !== '23505') throw insErr
-    res.json({ ok: true, memberCount: (members || []).length + (already ? 0 : 1) })
+    // Counting members here and inserting after let two students take the same
+    // last seat (#207). src/studyGroupJoin.mjs prefers a Postgres function that
+    // locks the group and does count, check and insert in one transaction, and
+    // falls back to the old read-then-insert until that migration runs.
+    const result = await joinStudyGroup(supabase, {
+      groupId,
+      userId,
+      capacity: group.capacity,
+      now: nowIso(),
+    })
+    if (result.error) throw result.error
+    const { status, body } = joinOutcomeToResponse(result)
+    res.status(status).json(body)
   } catch (e) {
     return respondStudyDbError(res, e)
   }
