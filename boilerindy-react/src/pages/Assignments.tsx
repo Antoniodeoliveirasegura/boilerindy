@@ -9,6 +9,7 @@ import SourceErrorNotice from '../components/SourceErrorNotice'
 import TaskCompleteReward from '../components/TaskCompleteReward'
 import { rewardOriginFromEvent, type RewardOrigin } from '../lib/rewardOrigin'
 import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/taskLocalStore'
+import { isServerRefusal, writeFailureMessage } from '../lib/writeFailure'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
@@ -584,6 +585,16 @@ export default function Assignments() {
       })
     } catch (err) {
       console.error(err)
+      if (isServerRefusal(err)) {
+        // The server answered and refused (the user-write limiter's 429, a 404
+        // for an item a sync removed): stay online, undo the tick and reconcile
+        // with what the server has. Only no response or a 5xx means offline
+        // (issue #202, src/lib/writeFailure.ts).
+        applyOptimisticToggle(item, item.completed)
+        setTaskError(writeFailureMessage(err, 'Could not update this task. Please try again.'))
+        void loadTaskMeta({ retainOnError: true })
+        return
+      }
       setTaskError(errorText(err, 'Server sync failed - saved on this device.'))
       applyLocalToggle(uid, item, nextDone)
     }
@@ -608,6 +619,12 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (e) {
       console.error(e)
+      if (isServerRefusal(e)) {
+        // Refused, not offline: the task is still on the server, so keep it
+        // listed and keep calling the server (issue #202).
+        setTaskError(writeFailureMessage(e, 'Could not delete this task. Please try again.'))
+        return
+      }
       setTaskError(errorText(e, 'Could not delete on server - removed on this device only.'))
       const raw = loadLocalTasks(uid)
       raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
@@ -657,6 +674,13 @@ export default function Assignments() {
       await loadTaskMeta()
     } catch (err) {
       console.error(err)
+      if (isServerRefusal(err)) {
+        // Refused, not offline (the 500-task cap's 409, the limiter's 429):
+        // nothing was saved, so keep the typed title for another try and stay
+        // online instead of saving a task the account never gets (issue #202).
+        setTaskError(writeFailureMessage(err, 'Could not add this task. Please try again.'))
+        return
+      }
       setTaskError(errorText(err, 'Could not save to server - saved on this device.'))
       const raw = loadLocalTasks(uid)
       raw.manualTasks.push({

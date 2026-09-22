@@ -20,6 +20,8 @@ type DegreeProgressProps = {
   /** Log (or re-grade) a requirement course straight from the checklist. */
   onLogCourse: (course: ReqCourse, letterGrade: string, existingId: string | null) => void
   onRemoveCourse: (id: string) => void
+  /** Why the last major change did not save, if it did not (issue #202). */
+  majorError?: string
 }
 
 type ReqGroup = {
@@ -76,6 +78,7 @@ export default function DegreeProgress({
   grades,
   onLogCourse,
   onRemoveCourse,
+  majorError,
 }: DegreeProgressProps) {
   const program = getProgram(major)
   const progress = useMemo<ProgressData | null>(
@@ -134,6 +137,11 @@ export default function DegreeProgress({
         </div>
         <MajorPicker value={major} onChange={onChangeMajor} />
       </div>
+      {majorError && (
+        <p role="alert" className="text-[12px] text-[var(--color-error)] mt-2">
+          {majorError}
+        </p>
+      )}
 
       {!program ? (
         <p className="text-[13px] text-[var(--color-txt-2)] mt-2">

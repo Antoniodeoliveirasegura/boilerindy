@@ -54,7 +54,7 @@ export default function GradeTracker() {
   const { grades, summary, loading, error, addGrade, updateGrade, deleteGrade } = useGradeTracker(
     userId,
   )
-  const { major, setMajor } = useMajor(userId)
+  const { major, setMajor, error: majorError } = useMajor(userId)
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -168,6 +168,7 @@ export default function GradeTracker() {
         grades={grades}
         onLogCourse={logRequirement}
         onRemoveCourse={deleteGrade}
+        majorError={majorError}
       />
 
       {/* Add / edit form */}

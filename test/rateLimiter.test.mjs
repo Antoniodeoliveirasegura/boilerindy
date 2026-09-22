@@ -118,6 +118,28 @@ test('two actors behind one IP get separate buckets with a keyBy function', () =
   assert.equal(pass(limiter, b), true, 'bob still has his own budget behind the same IP')
 })
 
+test('a keyBy returning adv:<id> buckets separately from the IP bucket on the same address (#202)', () => {
+  const byAdvertiser = (req) => (req.session?.advertiserId ? `adv:${req.session.advertiserId}` : null)
+  const limiter = createRateLimiter({ name: 'test-keyfn-adv', windowMs: 60_000, max: 1, keyBy: byAdvertiser })
+  const advertiser = mockReqRes({ ip: '10.0.0.8' })
+  advertiser.req.session = { advertiserId: 'x' }
+  const anonymous = mockReqRes({ ip: '10.0.0.8' })
+
+  assert.equal(bucketKey(advertiser.req, byAdvertiser), 'k:adv:x')
+  assert.equal(bucketKey(anonymous.req, byAdvertiser), 'ip:10.0.0.8')
+
+  const warn = console.warn
+  console.warn = () => {}
+  try {
+    assert.equal(pass(limiter, advertiser), true)
+    assert.equal(pass(limiter, advertiser), false, 'adv:x is out of budget')
+    assert.equal(pass(limiter, anonymous), true, 'the IP bucket behind the same address is untouched')
+    assert.equal(pass(limiter, anonymous), false, 'and runs out on its own count')
+  } finally {
+    console.warn = warn
+  }
+})
+
 // ── onLimit (#293) ───────────────────────────────────────────────────────────
 
 test('onLimit answers a blocked request in place of the JSON 429', () => {
