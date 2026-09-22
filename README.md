@@ -25,7 +25,7 @@ boilerindy/
 │   ├── supabase-user-tasks.sql     # User tasks
 │   └── …                           # calendar feed, lost & found, dashboard, advertiser, analytics
 ├── scripts/                    # Admin / maintenance CLI scripts
-├── docs/                       # Feature & ops documentation
+├── docs/                       # Feature & ops documentation (index: docs/README.md)
 ├── .env.example                # Backend env template - copy to .env
 └── boilerindy-react/           # React + Vite frontend
     ├── src/
