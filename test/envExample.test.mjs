@@ -31,15 +31,21 @@ function sourceFiles() {
 // line per bucket. Everything else is a literal name and must be listed.
 const isPattern = (name) => name.startsWith('RATE_LIMIT_')
 
+// scripts/check-conventions.mjs runs in the CI "conventions" job and reads what
+// GitHub Actions sets (GITHUB_*) plus two values ci.yml hands it from the event
+// payload. None of that is deploy configuration, so it stays out of .env.example.
+const isCiOnly = (name, file) =>
+  file === 'scripts/check-conventions.mjs' && (name.startsWith('GITHUB_') || name === 'EVENT_BEFORE' || name === 'PR_BODY')
+
 function readEnvNames() {
   const used = new Map()
   for (const file of sourceFiles()) {
     const text = readFileSync(file, 'utf8')
+    const where = path.relative(root, file).split(path.sep).join('/')
     for (const match of text.matchAll(/process\.env\.([A-Z0-9_]+)/g)) {
       const name = match[1]
-      if (isPattern(name)) continue
+      if (isPattern(name) || isCiOnly(name, where)) continue
       if (!used.has(name)) used.set(name, [])
-      const where = path.relative(root, file)
       if (!used.get(name).includes(where)) used.get(name).push(where)
     }
   }

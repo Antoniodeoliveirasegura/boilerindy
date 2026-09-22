@@ -8,6 +8,7 @@
     "node": "^22.22.2 || ^24.15.0"
   },
   "scripts": {
+    "preinstall": "npx -y only-allow pnpm",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",

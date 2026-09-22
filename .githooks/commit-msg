@@ -1,0 +1,6 @@
+#!/bin/sh
+# Committed hook, activated by `pnpm install` (root package.json "prepare"
+# points core.hooksPath here). Rejects Co-Authored-By trailers and
+# "Generated with" footers that credit an AI assistant, as CI does for every
+# pushed commit. Skip it once with `git commit --no-verify`; CI still runs.
+exec node scripts/check-conventions.mjs commit-msg "$1"
