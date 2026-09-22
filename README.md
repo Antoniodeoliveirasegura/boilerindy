@@ -286,7 +286,7 @@ file in `db/`; running it in order satisfies each file's dependencies.
 31. *(optional)* `db/supabase-marketplace-gallery-pricing.sql` - adds `image_urls` (the ordered photo gallery, backfilled from `image_url`) and `price_mode` (`fixed` / `free` / `best_offer`, backfilled from `price_cents`) to `marketplace_listings`, with their check constraints and a GIN index; needs step 13. Additive and safe to rerun; keep the columns if rolling back code. Until it runs, `GET /api/marketplace/capabilities` answers 503 and both clients hold off on galleries and price choices. Already applied to production on 2026-09-09. See [docs/marketplace-photos.md](docs/marketplace-photos.md).
 32. *(optional, production only)* `db/supabase-source-resync.sql` - schedules the hourly `pg_cron` call to `POST /api/internal/sources/resync` so linked Brightspace and Purdue feeds are re-imported without the student pressing Sync (issue #12). Creates no tables; needs the extensions from step 29 and `PUSH_CRON_SECRET` on Render. See [docs/source-resync.md](docs/source-resync.md).
 33. `db/supabase-calendar-category-counts.sql` - adds `calendar_category_counts()`, which counts a user's `calendar_items` per category in Postgres for `GET /api/me/calendar/categories` instead of streaming every row to Node, where PostgREST's 1000-row cap silently under-counted (issue #198); needs step 1. Read-only and safe to rerun. Until it runs the server still works: the route falls back to counting in Node.
-34. *(optional)* `db/supabase-study-groups-soft-delete.sql` - adds `deleted_at` plus live/deleted partial indexes to `study_groups`, so a group's creator or an admin can take it down with `DELETE /api/study-groups/:id` and an admin can restore it from the Deleted content page (issue #195); needs step 16. Idempotent and safe to rerun. Until it runs the study-group lists still work, while that delete route and the Study groups tab of the Deleted content page answer 503 naming this file.
+34. *(optional)* `db/supabase-study-groups-soft-delete.sql` - adds `deleted_at` plus live/deleted partial indexes to `study_groups`, so a group's creator or an admin can take it down with `DELETE /api/study-groups/:id` and an admin can restore it from the Deleted content page (issue #195); needs step 16. Idempotent and safe to rerun. Until it runs the study-group lists still work, while that delete route answers 503 `study_groups_schema_missing` and the Study groups tab of the Deleted content page answers 503 `moderation_schema_missing`. Neither response names this file; the server log names it on the first hit after each restart (see [docs/api-error-codes.md](docs/api-error-codes.md)).
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
@@ -316,6 +316,10 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 - Database: Supabase (Postgres via `@supabase/supabase-js`)
 - Auth: local email/password + optional Purdue CAS
 - External integrations: Nutrislice dining API, TransLoc transit API, Groq (AI)
+- Errors: the standard JSON error is `{ error: { message, status, code? } }`
+  (a few older routes still differ); the envelope, those exceptions and the codes
+  clients can branch on (such as `marketplace_schema_missing` while a feature's
+  tables are not installed) are listed in [docs/api-error-codes.md](docs/api-error-codes.md)
 
 ### Manual tasks (issue #216)
 
