@@ -7,11 +7,15 @@
     "node": "^22.22.2 || ^24.15.0"
   },
   "scripts": {
+    "preinstall": "npx -y only-allow pnpm",
+    "prepare": "node scripts/setup-git-hooks.mjs",
     "dev": "node server.mjs",
     "start": "node server.mjs",
     "test": "node --test \"test/**/*.test.mjs\" && pnpm -C boilerindy-react test",
     "test:backend": "node --test \"test/**/*.test.mjs\"",
     "test:e2e": "playwright test",
+    "check:conventions": "node scripts/check-conventions.mjs dashes && node scripts/check-conventions.mjs commits",
+    "check:db": "node scripts/check-db-apply.mjs",
     "playwright:install": "playwright install chromium",
     "vapid:generate": "node scripts/generate-vapid-keys.mjs"
   },

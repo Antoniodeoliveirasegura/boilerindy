@@ -98,9 +98,28 @@ import {
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
+import {
+  BOARD_PAGE_SIZE,
+  INLINE_REPLIES,
+  INLINE_REPLY_FETCH_LIMIT,
+  REPLY_PAGE_SIZE,
+  validateBoardPost,
+  validateBoardReply,
+} from './src/boardLimits.mjs'
+import { groupRepliesByPost, mapBoardReply } from './src/boardReplies.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
-import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from './src/dbErrors.mjs'
+import { requireUuidParam } from './src/httpGuards.mjs'
+import { joinStudyGroup, joinOutcomeToResponse } from './src/studyGroupJoin.mjs'
+import {
+  badRequest,
+  DB_FEATURES,
+  isSchemaMissingError,
+  logRouteError,
+  respondDbError,
+  respondRouteError,
+  respondSchemaMissing,
+} from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import {
   isMissingGalleryPricingColumn,
@@ -1245,7 +1264,10 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       ) {
         return res.status(400).json({ error: { message: 'An account with that email already exists.', status: 400 } })
       }
-      return res.status(400).json({ error: { message: raw, status: 400 } })
+      // GoTrue's own text can name the column it rejected and echo the value
+      // back; the client gets one generic line and the reason stays in the log.
+      console.warn('[register] GoTrue rejected sign-up:', authError.code, raw)
+      return badRequest(res, 'Could not create your account. Check the email and password and try again.')
     }
 
     const authUser = created.user
@@ -1267,7 +1289,7 @@ app.post('/api/auth/register-supabase', accountCreateRateLimit, async (req, res)
       .single()
 
     if (insertError) {
-      console.error('register-supabase: public.users insert failed:', insertError)
+      logRouteError('register-supabase: public.users insert failed', insertError)
       return res.status(500).json({
         error: { message: 'Could not create your profile.', status: 500 },
       })
@@ -1540,7 +1562,7 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
         .single()
 
       if (error) {
-        console.error('Failed to update user:', error)
+        logRouteError('Failed to update user', error)
       } else {
         user = data
       }
@@ -1570,7 +1592,7 @@ app.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit
       })
     })
   } catch (error) {
-    console.error('Supabase sync error:', error)
+    logRouteError('Supabase sync error', error)
     res.status(500).json({ error: { message: 'Could not sync user.', status: 500 } })
   }
 })
@@ -1793,7 +1815,14 @@ app.get('/api/me/sources', requireAuth, async (req, res) => {
 })
 
 // Debug endpoint to diagnose calendar import issues (disabled in production)
-app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
+// Issue #196: an id-shaped route param that is not a UUID reaches PostgREST as
+// 22P02 and used to surface as a 500 that Sentry recorded as an error. Answer
+// 404, the same as a row that is not there, so a prober cannot tell a malformed
+// id from a missing one. `:type` (admin content type) and the calendar feed
+// token are not UUIDs and keep their own validation.
+const requireIdParam = (...names) => requireUuidParam(...names, { status: 404, message: 'Not found.' })
+
+app.get('/api/debug/source/:sourceId', requireIdParam('sourceId'), requireAuth, async (req, res) => {
   if (isProduction) {
     return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
   }
@@ -1952,7 +1981,7 @@ app.post('/api/sources/brightspace/schedule', sourceSyncRateLimit, requireAuth, 
   }
 })
 
-app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, res) => {
+app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireIdParam('sourceId'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const sourceId = req.params.sourceId
   
@@ -1980,7 +2009,7 @@ app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, re
   }
 })
 
-app.delete('/api/sources/:sourceId', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/sources/:sourceId', userWriteRateLimit, requireIdParam('sourceId'), requireAuth, async (req, res) => {
   const source = await getSourceForUser(req.params.sourceId, req.currentUser.id)
   if (!source) {
     return res.status(404).json({ error: { message: 'Source not found.', status: 404 } })
@@ -2092,7 +2121,7 @@ app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, asy
   const userId = req.currentUser.id
   const { calendarItemId, completed } = req.body || {}
   if (!calendarItemId || typeof completed !== 'boolean') {
-    return res.status(400).json({ error: { message: 'calendarItemId and completed (boolean) required' } })
+    return badRequest(res, 'calendarItemId and completed (boolean) required')
   }
   const { data: row, error: findErr } = await supabase
     .from('calendar_items')
@@ -2132,8 +2161,7 @@ app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, asy
     }
     res.json({ ok: true })
   } catch (e) {
-    console.error('POST /api/me/tasks/calendar/complete:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not update completion' } })
+    respondRouteError(res, e, { label: 'POST /api/me/tasks/calendar/complete', fallback: 'Could not update completion' })
   }
 })
 
@@ -2144,7 +2172,7 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
   // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
   // rather than being silently stored as no deadline at all.
   const parsed = parseManualTaskCreate(req.body)
-  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
+  if (!parsed.ok) return badRequest(res, parsed.message)
   try {
     const countResult = await supabase
       .from('user_manual_tasks')
@@ -2167,18 +2195,17 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
     if (error) throw error
     res.json({ task: mapManualTaskRow(data) })
   } catch (e) {
-    console.error('POST /api/me/tasks/manual:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not create task' } })
+    respondRouteError(res, e, { label: 'POST /api/me/tasks/manual', fallback: 'Could not create task' })
   }
 })
 
-app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
   // value is a 400 like POST instead of being dropped while the other fields save.
   const parsed = parseManualTaskUpdate(req.body, { now: nowIso() })
-  if (!parsed.ok) return res.status(400).json({ error: { message: parsed.message } })
+  if (!parsed.ok) return badRequest(res, parsed.message)
   try {
     const { data, error } = await supabase
       .from('user_manual_tasks')
@@ -2186,17 +2213,18 @@ app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (re
       .eq('id', id)
       .eq('user_id', userId)
       .select()
-      .single()
+      // maybeSingle: .single() answers PGRST116 for zero rows, which made the
+      // 404 below unreachable and sent someone else's id down the 500 path (#196).
+      .maybeSingle()
     if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Task not found' } })
+    if (!data) return res.status(404).json({ error: { message: 'Task not found.', status: 404 } })
     res.json({ task: mapManualTaskRow(data) })
   } catch (e) {
-    console.error('PATCH /api/me/tasks/manual:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not update task' } })
+    respondRouteError(res, e, { label: 'PATCH /api/me/tasks/manual', fallback: 'Could not update task' })
   }
 })
 
-app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2204,8 +2232,7 @@ app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (r
     if (error) throw error
     res.json({ ok: true })
   } catch (e) {
-    console.error('DELETE /api/me/tasks/manual:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not delete task' } })
+    respondRouteError(res, e, { label: 'DELETE /api/me/tasks/manual', fallback: 'Could not delete task' })
   }
 })
 
@@ -2276,7 +2303,7 @@ app.get('/api/me/grades', requireAuth, async (req, res) => {
 app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
-  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  if (invalid) return badRequest(res, invalid)
   try {
     const countResult = await supabase
       .from('user_grades')
@@ -2295,18 +2322,17 @@ app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => 
     if (error) throw error
     res.json({ grade: mapGradeRow(data) })
   } catch (e) {
-    console.error('POST /api/me/grades:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not save course' } })
+    respondRouteError(res, e, { label: 'POST /api/me/grades', fallback: 'Could not save course' })
   }
 })
 
-app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/me/grades/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
-  if (invalid) return res.status(400).json({ error: { message: invalid } })
+  if (invalid) return badRequest(res, invalid)
   if (Object.keys(value).length === 0) {
-    return res.status(400).json({ error: { message: 'No valid fields to update' } })
+    return badRequest(res, 'No valid fields to update')
   }
   try {
     const { data, error } = await supabase
@@ -2315,17 +2341,16 @@ app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res
       .eq('id', id)
       .eq('user_id', userId)
       .select()
-      .single()
+      .maybeSingle()
     if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Course not found' } })
+    if (!data) return res.status(404).json({ error: { message: 'Course not found.', status: 404 } })
     res.json({ grade: mapGradeRow(data) })
   } catch (e) {
-    console.error('PATCH /api/me/grades/:id:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not update course' } })
+    respondRouteError(res, e, { label: 'PATCH /api/me/grades/:id', fallback: 'Could not update course' })
   }
 })
 
-app.delete('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/me/grades/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2333,8 +2358,7 @@ app.delete('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, re
     if (error) throw error
     res.json({ ok: true })
   } catch (e) {
-    console.error('DELETE /api/me/grades/:id:', e)
-    res.status(500).json({ error: { message: e.message || 'Could not delete course' } })
+    respondRouteError(res, e, { label: 'DELETE /api/me/grades/:id', fallback: 'Could not delete course' })
   }
 })
 
@@ -2348,7 +2372,7 @@ app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
   const raw = req.body?.major
   const major = raw == null || raw === '' ? null : String(raw)
   if (major !== null && !getProgram(major)) {
-    return res.status(400).json({ error: { message: 'Unknown major' } })
+    return badRequest(res, 'Unknown major')
   }
   const { error } = await supabase.from('users').update({ major }).eq('id', req.currentUser.id)
   if (error) {
@@ -2561,7 +2585,7 @@ app.post('/api/lost-found', lostFoundWriteRateLimit, requireAuth, async (req, re
   res.status(201).json({ item: mapLostFoundRow(data, userId) })
 })
 
-app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
 
@@ -2616,7 +2640,7 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
   res.json({ item: mapLostFoundRow(data, userId) })
 })
 
-app.delete('/api/lost-found/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/lost-found/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // Soft delete: hide the item (set deleted_at) instead of removing it. The
@@ -3580,7 +3604,7 @@ app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
 app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName)
-  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  if (!itemName) return badRequest(res, 'An item name is required')
   try {
     // Keyed by (user_id, item_name), no id column. Counting the other favorites
     // lets a re-save of one the user already has through at the cap.
@@ -3600,15 +3624,14 @@ app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req
     if (error) throw error
     res.json({ ok: true, itemName })
   } catch (e) {
-    console.error('POST /api/me/dining/favorites:', e?.message || e)
-    res.status(500).json({ error: { message: e.message || 'Could not save favorite' } })
+    respondRouteError(res, e, { label: 'POST /api/me/dining/favorites', fallback: 'Could not save favorite' })
   }
 })
 
 app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
-  if (!itemName) return res.status(400).json({ error: { message: 'An item name is required' } })
+  if (!itemName) return badRequest(res, 'An item name is required')
   try {
     const { error } = await supabase
       .from('user_dining_favorites')
@@ -3618,8 +3641,7 @@ app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (r
     if (error) throw error
     res.json({ ok: true })
   } catch (e) {
-    console.error('DELETE /api/me/dining/favorites:', e?.message || e)
-    res.status(500).json({ error: { message: e.message || 'Could not remove favorite' } })
+    respondRouteError(res, e, { label: 'DELETE /api/me/dining/favorites', fallback: 'Could not remove favorite' })
   }
 })
 
@@ -3648,8 +3670,24 @@ function respondBoardDbError(res, err) {
   return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.board)
 }
 
+// Display names for the non-anonymous authors of a batch of posts or replies.
+// Anonymous rows never reach the lookup, so an author who only ever posts
+// anonymously is never read.
+async function boardDisplayNames(...rowSets) {
+  const userIds = new Set()
+  for (const rows of rowSets) {
+    for (const row of rows) { if (!row.is_anon) userIds.add(row.user_id) }
+  }
+  const nameMap = {}
+  if (userIds.size === 0) return nameMap
+  const { data } = await supabase.from('users').select('id, display_name').in('id', [...userIds])
+  for (const u of data || []) nameMap[u.id] = u.display_name
+  return nameMap
+}
+
 app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
 
   // select('*') keeps the board working whether or not the optional
   // edited_at migration (db/supabase-board-only.sql) has been applied yet
@@ -3667,34 +3705,33 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
       .order('pinned', { ascending: false })
       .order('created_at', { ascending: false })
   }
-  const { data: postsData, error: postsError } = await query.limit(100)
+  const { data: postsData, error: postsError } = await query
+    .range(page * BOARD_PAGE_SIZE, page * BOARD_PAGE_SIZE + BOARD_PAGE_SIZE - 1)
   if (postsError) return respondBoardDbError(res, postsError)
 
   const postIds = postsData.map(p => p.id)
   let repliesData = []
   if (postIds.length > 0) {
+    // Newest first with a hard cap (issue #200): only the newest INLINE_REPLIES
+    // per post are previewed, and the rest of a thread comes from
+    // GET /api/board/posts/:id/replies.
     const { data: rd } = await supabase
       .from('board_replies')
       .select('id, post_id, body, is_anon, created_at, user_id')
       .in('post_id', postIds)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(INLINE_REPLY_FETCH_LIMIT)
     repliesData = rd || []
   }
+  const { byPost: inlineReplies, truncatedPostIds } = groupRepliesByPost(repliesData, { perPost: INLINE_REPLIES })
+  const truncated = new Set(truncatedPostIds)
+  // The reply budget is global. When it binds, a post that came back with fewer
+  // than INLINE_REPLIES may have been starved by a busier thread rather than be
+  // short, so it keeps its marker and loads the thread from the replies route.
+  const replyFetchCapped = repliesData.length >= INLINE_REPLY_FETCH_LIMIT
+  const previewedReplies = Object.values(inlineReplies).flat()
 
-  // Batch-fetch display names for all non-anonymous user IDs
-  const allUserIds = new Set()
-  for (const p of postsData) { if (!p.is_anon) allUserIds.add(p.user_id) }
-  for (const r of repliesData) { if (!r.is_anon) allUserIds.add(r.user_id) }
-  const nameMap = {}
-  if (allUserIds.size > 0) {
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, display_name')
-      .in('id', [...allUserIds])
-    if (usersData) {
-      for (const u of usersData) nameMap[u.id] = u.display_name
-    }
-  }
+  const nameMap = await boardDisplayNames(postsData, previewedReplies)
 
   let upvotedIds = new Set()
   if (postIds.length > 0) {
@@ -3706,36 +3743,67 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
     if (uv) uv.forEach(r => upvotedIds.add(r.post_id))
   }
 
-  const repliesByPost = {}
-  for (const reply of repliesData) {
-    if (!repliesByPost[reply.post_id]) repliesByPost[reply.post_id] = []
-    repliesByPost[reply.post_id].push({
-      id: reply.id,
-      body: reply.body,
-      user: reply.is_anon ? 'Anonymous' : (nameMap[reply.user_id] || 'Student'),
-      time: reply.created_at,
-    })
-  }
-
   const myId = req.currentUser.id
-  const posts = postsData.map(p => ({
-    id: p.id,
-    title: p.title,
-    body: p.body,
-    anon: p.is_anon,
-    user: p.is_anon ? 'Anonymous' : (nameMap[p.user_id] || 'Student'),
-    upvotes: p.upvote_count,
-    pinned: p.pinned,
-    hot: !p.pinned && p.upvote_count >= 10,
-    time: p.created_at,
-    tags: Array.isArray(p.tags) ? p.tags : [],
-    editedTime: p.edited_at || null,
-    upvotedByMe: upvotedIds.has(p.id),
-    isMine: p.user_id === myId,
-    replies: repliesByPost[p.id] || [],
-  }))
+  const posts = postsData.map(p => {
+    const replies = (inlineReplies[p.id] || []).map(r => mapBoardReply(r, nameMap))
+    // reply_count is maintained by sync_board_post_reply_count; fall back to what
+    // is on screen so a post still counts its replies on an unmigrated database.
+    const replyCount = Number.isFinite(p.reply_count) ? p.reply_count : replies.length
+    return {
+      id: p.id,
+      title: p.title,
+      body: p.body,
+      anon: p.is_anon,
+      user: p.is_anon ? 'Anonymous' : (nameMap[p.user_id] || 'Student'),
+      upvotes: p.upvote_count,
+      pinned: p.pinned,
+      hot: !p.pinned && p.upvote_count >= 10,
+      time: p.created_at,
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      editedTime: p.edited_at || null,
+      upvotedByMe: upvotedIds.has(p.id),
+      isMine: p.user_id === myId,
+      replies,
+      replyCount,
+      hasMoreReplies: truncated.has(p.id)
+        || replyCount > replies.length
+        || (replyFetchCapped && replies.length < INLINE_REPLIES),
+    }
+  })
 
-  res.json({ posts })
+  res.json({ posts, page, hasMore: postsData.length === BOARD_PAGE_SIZE })
+})
+
+// The rest of a thread the list route only previewed (issue #200). A read, so no
+// write limiter; requireIdParam answers 404 for a non-uuid before the handler.
+app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async (req, res) => {
+  const postId = req.params.id
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
+
+  const { data: post, error: postError } = await supabase
+    .from('board_posts')
+    .select('id')
+    .eq('id', postId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (postError) return respondBoardDbError(res, postError)
+  if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+
+  const { data, error } = await supabase
+    .from('board_replies')
+    .select('id, post_id, body, is_anon, created_at, user_id')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true })
+    .range(page * REPLY_PAGE_SIZE, page * REPLY_PAGE_SIZE + REPLY_PAGE_SIZE - 1)
+  if (error) return respondBoardDbError(res, error)
+
+  const rows = data || []
+  const nameMap = await boardDisplayNames(rows)
+  res.json({
+    replies: rows.map(r => mapBoardReply(r, nameMap)),
+    page,
+    hasMore: rows.length === REPLY_PAGE_SIZE,
+  })
 })
 
 const BOARD_TAG_CANDIDATES = [
@@ -3861,8 +3929,8 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
   const body  = String(req.body.body  || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
 
-  if (!title) return res.status(400).json({ error: { message: 'Title is required.', status: 400 } })
-  if (title.length > 300) return res.status(400).json({ error: { message: 'Title must be 300 characters or fewer.', status: 400 } })
+  const limits = validateBoardPost({ title, body })
+  if (!limits.ok) return badRequest(res, limits.message)
 
   const profanityCheck = assertBoardPostTextAllowed(title, body)
   if (!profanityCheck.ok) {
@@ -3917,12 +3985,13 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
   res.status(201).json({ post: postPayload })
 })
 
-app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const body   = String(req.body.body || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
 
-  if (!body) return res.status(400).json({ error: { message: 'Reply body is required.', status: 400 } })
+  const limits = validateBoardReply({ body })
+  if (!limits.ok) return badRequest(res, limits.message)
   if (boardTextFailsPolicy(body)) {
     return res.status(400).json({ error: { message: BOARD_PROFANITY_USER_MESSAGE, status: 400 } })
   }
@@ -3932,7 +4001,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
     .select('id')
     .eq('id', postId)
     .is('deleted_at', null)
-    .single()
+    .maybeSingle()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
 
@@ -3962,7 +4031,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
   })
 })
 
-app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
 
@@ -3971,7 +4040,7 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
     .select('id')
     .eq('id', postId)
     .is('deleted_at', null)
-    .single()
+    .maybeSingle()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
 
@@ -3996,16 +4065,14 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
 })
 
 // Owner-only edit of a post's title/body (issue #7)
-app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/board/posts/:id', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
   const title = String(req.body.title ?? '').trim()
   const body = String(req.body.body ?? '').trim()
 
-  if (!title) return res.status(400).json({ error: { message: 'Title is required.', status: 400 } })
-  if (title.length > 300) {
-    return res.status(400).json({ error: { message: 'Title must be 300 characters or fewer.', status: 400 } })
-  }
+  const limits = validateBoardPost({ title, body })
+  if (!limits.ok) return badRequest(res, limits.message)
 
   const profanityCheck = assertBoardPostTextAllowed(title, body)
   if (!profanityCheck.ok) {
@@ -4018,6 +4085,9 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
     .update({ title, body, edited_at: editedAt, updated_at: editedAt })
     .eq('id', postId)
     .eq('user_id', userId)
+    // A taken-down post is not editable; DELETE and reply already scope this way,
+    // and without it the admin restore view showed content edited after removal (#196).
+    .is('deleted_at', null)
     .select('*')
 
   // Retry without edited_at when the optional column migration hasn't run yet
@@ -4027,6 +4097,7 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
       .update({ title, body, updated_at: editedAt })
       .eq('id', postId)
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .select('*'))
   }
 
@@ -4048,7 +4119,7 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
   })
 })
 
-app.delete('/api/board/posts/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/board/posts/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
   // Soft delete: hide the post (set deleted_at). Its replies stay attached and
@@ -4131,7 +4202,7 @@ app.post('/api/guide', boardWriteRateLimit, requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const recId = req.params.id
   const userId = req.currentUser.id
   try {
@@ -4140,7 +4211,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
       .select('id')
       .eq('id', recId)
       .is('deleted_at', null)
-      .single()
+      .maybeSingle()
     if (recErr) throw recErr
     if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
 
@@ -4167,7 +4238,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
   }
 })
 
-app.patch('/api/guide/:id/pin', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   if (!isUserAdmin(req.currentUser)) {
     return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
   }
@@ -4188,7 +4259,7 @@ app.patch('/api/guide/:id/pin', userWriteRateLimit, requireAuth, async (req, res
 })
 
 // Delete - owner or admin (admins take down live recommendations, issue #195).
-app.delete('/api/guide/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/guide/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const query = supabase
@@ -4371,7 +4442,7 @@ app.post('/api/study-groups', boardWriteRateLimit, requireAuth, async (req, res)
 })
 
 // Join a group (respects capacity).
-app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const groupId = req.params.id
   try {
@@ -4384,23 +4455,26 @@ app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (
     if (gErr) throw gErr
     if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
 
-    const { data: members } = await supabase.from('study_group_members').select('user_id').eq('group_id', groupId)
-    const already = (members || []).some((m) => m.user_id === userId)
-    if (!already && group.capacity && (members || []).length >= group.capacity) {
-      return res.status(409).json({ error: { message: 'This group is full.', status: 409 } })
-    }
-    const { error: insErr } = await supabase
-      .from('study_group_members')
-      .insert({ group_id: groupId, user_id: userId, joined_at: nowIso() })
-    if (insErr && insErr.code !== '23505') throw insErr
-    res.json({ ok: true, memberCount: (members || []).length + (already ? 0 : 1) })
+    // Counting members here and inserting after let two students take the same
+    // last seat (#207). src/studyGroupJoin.mjs prefers a Postgres function that
+    // locks the group and does count, check and insert in one transaction, and
+    // falls back to the old read-then-insert until that migration runs.
+    const result = await joinStudyGroup(supabase, {
+      groupId,
+      userId,
+      capacity: group.capacity,
+      now: nowIso(),
+    })
+    if (result.error) throw result.error
+    const { status, body } = joinOutcomeToResponse(result)
+    res.status(status).json(body)
   } catch (e) {
     return respondStudyDbError(res, e)
   }
 })
 
 // Leave a group.
-app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const { error } = await supabase
@@ -4419,7 +4493,7 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
 // leaves every list, but its members stay attached so an admin restore from the
 // moderation view brings it back whole. Answers 503 (respondStudyDbError) until
 // db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
-app.delete('/api/study-groups/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/study-groups/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const groupId = req.params.id
   if (!isUuid(groupId)) {
     return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
@@ -4494,7 +4568,7 @@ app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4502,7 +4576,7 @@ app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) =>
     return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
   }
   try {
-    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').single()
+    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').maybeSingle()
     if (error) throw error
     if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
     res.json({ deal: mapDealRow(data) })
@@ -4511,7 +4585,7 @@ app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) =>
   }
 })
 
-app.delete('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   try {
     const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
@@ -4616,10 +4690,10 @@ app.get('/api/marketplace/capabilities', requireAuth, async (_req, res) => {
 
 // Listing detail - reveals seller contact (name + Purdue email) to signed-in
 // users, so it is rate-limited to blunt bulk id-enumeration harvesting (#114).
-app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireAuth, async (req, res) => {
+app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
-    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).single()
+    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).maybeSingle()
     if (error) throw error
     if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
       return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
@@ -4655,7 +4729,7 @@ app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) 
 })
 
 // Edit / mark sold - owner only.
-app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/marketplace/:id', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4686,7 +4760,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
 })
 
 // Delete - owner or admin.
-app.delete('/api/marketplace/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/marketplace/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     // Soft delete: hide the listing (set deleted_at). Admins purge it
@@ -4706,7 +4780,7 @@ app.delete('/api/marketplace/:id', userWriteRateLimit, requireAuth, async (req, 
 })
 
 // Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters.
-app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const listingId = req.params.id
   const reason = String(req.body?.reason || '').trim().slice(0, 500)
@@ -4858,7 +4932,7 @@ app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) 
 })
 
 // Accept or decline an incoming request.
-app.patch('/api/connections/:requesterId', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/connections/:requesterId', userWriteRateLimit, requireIdParam('requesterId'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const requesterId = req.params.requesterId
   const action = String(req.body?.action || '').trim()
@@ -5257,7 +5331,7 @@ app.post('/api/advertiser/campaigns', advertiserWriteRateLimit, requireAdvertise
   res.status(201).json({ campaign: mapCampaignRow(data) })
 })
 
-app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireAdvertiserAuth, async (req, res) => {
+app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireIdParam('id'), requireAdvertiserAuth, async (req, res) => {
   const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
   if (lookupError) return respondAdvertiserDbError(res, lookupError)
   if (!campaign) {
@@ -5284,7 +5358,7 @@ app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireAdve
 })
 
 // Aggregate impression/tap stats for one of the advertiser's own campaigns (M3).
-app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req, res) => {
+app.get('/api/advertiser/campaigns/:id/stats', requireIdParam('id'), requireAdvertiserAuth, async (req, res) => {
   const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
   if (lookupError) return respondAdvertiserDbError(res, lookupError)
   if (!campaign) {
@@ -5341,7 +5415,7 @@ app.get('/api/spotlight/active', requireAuth, async (req, res) => {
   res.json({ ad, ads: ad ? [ad] : [] })
 })
 
-app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
+app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireIdParam('campaignId'), requireAuth, async (req, res) => {
   const kind = req.body?.kind
   if (!isValidAdEventKind(kind)) {
     return res.status(400).json({ error: { message: 'Invalid ad event kind.', status: 400 } })
@@ -5433,7 +5507,7 @@ app.get('/api/admin/leads', requireAuth, requireAdmin, async (req, res) => {
   res.json({ leads: (data || []).map(mapLeadRow) })
 })
 
-app.patch('/api/admin/leads/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.patch('/api/admin/leads/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   let status
   try {
     status = normalizeLeadStatusInput(req.body?.status)
@@ -5474,7 +5548,7 @@ app.get('/api/admin/campaigns', requireAuth, requireAdmin, async (req, res) => {
   res.json({ campaigns: (data || []).map(mapAdminCampaignRow) })
 })
 
-app.patch('/api/admin/campaigns/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.patch('/api/admin/campaigns/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const { data: current, error: lookupError } = await supabase
     .from('campaigns')
     .select('*')
@@ -5670,7 +5744,7 @@ app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) 
 // id from a report and previews the row here, then removes it through the
 // type's own DELETE route, which lets admins past the owner filter. The row
 // then shows up in the deleted list above, where it can be restored.
-app.get('/api/admin/content/:type/:id', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/content/:type/:id', requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
   if (!isUuid(req.params.id)) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
@@ -5687,7 +5761,7 @@ app.get('/api/admin/content/:type/:id', requireAuth, requireAdmin, async (req, r
   res.json({ item: data, label: cfg.label })
 })
 
-app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
   const { data, error } = await supabase
@@ -5703,7 +5777,7 @@ app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAut
   res.json({ ok: true })
 })
 
-app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
   // Hard delete - permanent. Only already-soft-deleted rows can be purged, so a

@@ -101,30 +101,6 @@ jobs:
         run: pnpm run typecheck
         working-directory: boilerindy-react
 
-      # Ban the em dash (U+2014) and en dash (U+2013) repo-wide. See the
-      # "Conventions" section in README.md. Uses Node (Unicode-correct and always
-      # present here); grep -P's \x{} support is too environment-dependent.
-      - name: No em/en dashes (use a hyphen)
-        run: |
-          node -e '
-            const { execSync } = require("node:child_process");
-            const { readFileSync } = require("node:fs");
-            const files = execSync("git ls-files").toString().split("\n").filter(Boolean)
-              .filter(f => !/\.(lock|svg|png|ico|webp|jpe?g|woff2?|ttf)$|pnpm-lock\.yaml$/.test(f));
-            const DASH = new RegExp("[" + String.fromCharCode(0x2013, 0x2014) + "]");
-            const bad = [];
-            for (const f of files) {
-              let t; try { t = readFileSync(f, "utf8"); } catch { continue; }
-              t.split("\n").forEach((ln, i) => { if (DASH.test(ln)) bad.push(f + ":" + (i + 1) + ": " + ln.trim().slice(0, 80)); });
-            }
-            if (bad.length) {
-              console.error("Em dash (U+2014) or en dash (U+2013) found. Use a hyphen (-). See README.md Conventions:");
-              console.error(bad.slice(0, 50).join("\n"));
-              process.exit(1);
-            }
-            console.log("No em/en dashes across " + files.length + " tracked files.");
-          '
-
       - name: Run tests (backend + frontend)
         run: pnpm test
 
@@ -195,3 +171,93 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # The repo conventions every contributor is held to, with or without an AI
+  # assistant (README "Conventions"): no em/en dashes in tracked files, no
+  # Co-Authored-By trailers or "Generated with" footers that credit an AI
+  # assistant, in commits or in the PR description. The same script backs the
+  # committed git hooks in .githooks/, so a hit here means the author skipped
+  # them. No install step: scripts/check-conventions.mjs has no dependencies.
+  conventions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Full history, so the commit scan can walk the PR's commits
+          # (origin/<base>..HEAD) or the pushed range. The other jobs stay shallow.
+          fetch-depth: 0
+
+      # Same Node resolution as the test job: newest 22.x, not the image cache.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+
+      - name: No em/en dashes (use a hyphen)
+        run: node scripts/check-conventions.mjs dashes
+
+      # On a push the range is the old tip..new tip from the event payload; the
+      # script falls back to the head commit alone when the old tip is unknown.
+      - name: No AI co-author trailers in commit messages
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: node scripts/check-conventions.mjs commits
+
+      # The description is passed through the environment, never interpolated
+      # into the shell line, so its content cannot become a command.
+      - name: No AI footer in the pull request description
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-conventions.mjs pr-body
+
+  # Every db/*.sql file applied in README "Database setup" order on an empty
+  # Postgres, after db/ci/prelude.sql stands in for the roles, auth schema and
+  # pg_cron/pg_net objects a Supabase project has out of the box. Proves that
+  # each file parses, depends only on files listed before it, and that the list
+  # covers all of db/ (test/dbApplyOrder.test.mjs checks that last part without
+  # a database, in pnpm test). postgres:15 is the oldest major Supabase runs.
+  db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # The job's steps wait for a healthy server.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Same Node resolution as the test job: newest 22.x, not the image cache.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+
+      # ubuntu-latest ships psql; the fallback covers an image that drops it.
+      - name: Ensure psql is available
+        run: command -v psql || sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Apply every db/ file in README order on an empty Postgres
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: node scripts/check-db-apply.mjs

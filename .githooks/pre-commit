@@ -1,0 +1,5 @@
+#!/bin/sh
+# Committed hook, activated by `pnpm install` (root package.json "prepare"
+# points core.hooksPath here). Runs the same em/en dash scan as CI on the
+# staged files only. Skip it once with `git commit --no-verify`; CI still runs.
+exec node scripts/check-conventions.mjs dashes --staged

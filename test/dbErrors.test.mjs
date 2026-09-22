@@ -1,7 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { inspect } from 'node:util'
-import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing } from '../src/dbErrors.mjs'
+import { formatWithOptions } from 'node:util'
+import {
+  DB_FEATURES,
+  badRequest,
+  isSchemaMissingError,
+  logRouteError,
+  respondDbError,
+  respondRouteError,
+  respondSchemaMissing,
+} from '../src/dbErrors.mjs'
 
 // Issue #218: a missing table used to answer 503 with Supabase SQL Editor
 // instructions in the client body and, for most features, no code. Clients key
@@ -23,10 +31,12 @@ function mockRes() {
   }
 }
 
-// Every console.error call, flattened to one string, so a test can assert what
-// did (or did not) reach the log and therefore Sentry. Objects are inspected in
-// full rather than turned into "[object Object]": Sentry's captureConsole keeps
-// the raw arguments, so a logged error object would carry details and hint.
+// Every console.error call, rendered the way Node renders it, so a test can
+// assert what did (or did not) reach the log and therefore Sentry. formatWithOptions
+// is what console.error itself uses, so a literal '%s' format string resolves here
+// exactly as it does in the log. Objects are inspected deeply rather than turned
+// into "[object Object]": Sentry's captureConsole keeps the raw arguments, so a
+// logged error object would carry details and hint.
 function spyConsoleError(t) {
   const spy = t.mock.method(console, 'error', () => {})
   return {
@@ -35,7 +45,7 @@ function spyConsoleError(t) {
     },
     text() {
       return spy.mock.calls
-        .map((call) => call.arguments.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 5 }))).join(' '))
+        .map((call) => formatWithOptions({ depth: 5 }, ...call.arguments))
         .join('\n')
     },
   }
@@ -257,4 +267,137 @@ test('a thrown non-object is logged as its string form and answers 500', (t) => 
   assert.equal(res.statusCode, 500)
   assert.equal(res.body.error.message, 'Could not load matches. Please try again.')
   assert.match(log.text(), /friends DB error: null socket hang up/)
+})
+
+// ---- Routes outside DB_FEATURES (issue #206) --------------------------------
+//
+// Tasks, grades and dining favorites answered 500 with the PostgREST message and
+// no status, and logged the whole error object. respondRouteError keeps the
+// database text in the log (code and message only) and sends a fallback.
+
+test('badRequest answers 400 in the standard envelope', () => {
+  const res = mockRes()
+  const returned = badRequest(res, 'An item name is required')
+  assert.equal(returned, res, 'returns the response so a handler can `return badRequest(...)`')
+  assert.equal(res.statusCode, 400)
+  assert.deepEqual(res.body, { error: { message: 'An item name is required', status: 400 } })
+})
+
+test('respondRouteError answers 500 with the fallback and logs code and message under the label', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  const notNull = {
+    code: '23502',
+    message: 'null value in column "due_at" of relation "user_manual_tasks" violates not-null constraint',
+    details: 'Failing row contains (5d1c, jdoe-private-title, null).',
+    hint: null,
+  }
+  respondRouteError(res, notNull, { label: 'POST /api/me/tasks/manual', fallback: 'Could not create task' })
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.body, { error: { message: 'Could not create task', status: 500 } })
+  assert.equal(log.count, 1)
+  assert.match(log.text(), /^POST \/api\/me\/tasks\/manual: 23502 null value in column "due_at"/)
+  assert.doesNotMatch(log.text(), /Failing row|jdoe-private-title/)
+})
+
+test('respondRouteError never sends the database text, details or hint to the client', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondRouteError(res, uniqueViolation(), { label: 'POST /api/me/dining/favorites', fallback: 'Could not save favorite' })
+  const body = JSON.stringify(res.body)
+  assert.doesNotMatch(body, /duplicate key|users_purdue_username_key|jdoe|secret-hint-value/)
+  assert.doesNotMatch(log.text(), /jdoe|Key \(|secret-hint-value/)
+})
+
+test('respondRouteError answers a missing row or a malformed id with 404 and no log line', (t) => {
+  const log = spyConsoleError(t)
+  for (const err of [
+    { code: 'PGRST116', message: 'Cannot coerce the result to a single JSON object', details: 'The result contains 0 rows' },
+    { code: '22P02', message: 'invalid input syntax for type uuid: "not-a-uuid"' },
+  ]) {
+    const res = mockRes()
+    respondRouteError(res, err, { label: 'PATCH /api/me/grades/:id', fallback: 'Could not update course' })
+    assert.equal(res.statusCode, 404, err.code)
+    assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+  }
+  assert.equal(log.count, 0, 'an expected 404 stays out of the log (and Sentry)')
+})
+
+test('respondRouteError handles thrown non-database values and missing options', (t) => {
+  const log = spyConsoleError(t)
+
+  const typeError = mockRes()
+  respondRouteError(typeError, new TypeError("Cannot read properties of undefined (reading 'email')"), {
+    label: 'POST /api/auth/register-supabase',
+    fallback: 'Could not create account.',
+  })
+  assert.equal(typeError.statusCode, 500)
+  assert.deepEqual(typeError.body, { error: { message: 'Could not create account.', status: 500 } })
+
+  const thrownString = mockRes()
+  respondRouteError(thrownString, 'socket hang up')
+  assert.equal(thrownString.statusCode, 500)
+  assert.deepEqual(thrownString.body, { error: { message: 'Something went wrong. Please try again.', status: 500 } })
+
+  // A code that only looks like a not-found code as a string is not one.
+  respondRouteError(mockRes(), 'PGRST116', { label: 'x', fallback: 'y' })
+
+  assert.equal(log.count, 3)
+  const lines = log.text().split('\n')
+  assert.match(lines[0], /^POST \/api\/auth\/register-supabase: null Cannot read properties of undefined/)
+  assert.equal(lines[1], 'Route error: null socket hang up')
+  assert.equal(lines[2], 'x: null PGRST116')
+})
+
+test('logRouteError logs the label, code and message only', (t) => {
+  const log = spyConsoleError(t)
+  logRouteError('register-supabase: public.users insert failed', {
+    code: '23505',
+    message: 'duplicate key value violates unique constraint "users_email_key"',
+    details: 'Key (email)=(student@purdue.edu) already exists.',
+    hint: 'secret-hint-value',
+  })
+  assert.equal(log.count, 1)
+  assert.equal(
+    log.text(),
+    'register-supabase: public.users insert failed: 23505 duplicate key value violates unique constraint "users_email_key"',
+  )
+})
+
+// Issue #196: a client naming a row that is not there, or an id that is not a
+// uuid at all, used to take the 500 path and be logged, which filed every miss
+// in Sentry through captureConsoleIntegration.
+
+test('respondDbError answers 404 for a zero-row .single(), with nothing logged', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(
+    res,
+    { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' },
+    DB_FEATURES.board,
+  )
+  assert.equal(res.statusCode, 404)
+  assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+  assert.equal(log.count, 0)
+})
+
+test('respondDbError answers 404 for a malformed uuid, with nothing logged', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(
+    res,
+    { code: '22P02', message: 'invalid input syntax for type uuid: "abc"' },
+    DB_FEATURES.marketplace,
+  )
+  assert.equal(res.statusCode, 404)
+  assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+  assert.equal(log.count, 0)
+  assert.ok(!JSON.stringify(res.body).includes('abc'), 'the rejected id came back to the client')
+})
+
+test('respondDbError still answers 503 when the table is missing, not 404', (t) => {
+  spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(res, tableMissing(), DB_FEATURES.guide)
+  assert.equal(res.statusCode, 503)
 })

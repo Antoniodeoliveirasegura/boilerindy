@@ -24,6 +24,18 @@ const GROQ_KEY_RE = /\bgsk_[0-9A-Za-z]{20,}/g
 const URL_SECRET_PARAM_RE = /([?&](?:key|api[_-]?key|token|access_token|password|secret)=)[^&\s#]+/gi
 // The calendar-feed capability token lives in the request path, not a query param.
 const FEED_TOKEN_RE = /(\/feeds\/calendar\/)[^/\s?#]+/gi
+// PostgREST hands a 23505 back with a detail that quotes the row that clashed:
+// "Key (purdue_username)=(jdoe) already exists." The column name is harmless,
+// the value is the student. Matched anywhere, since the detail also turns up
+// inside an exception message, not only under a `details` key (issue #206).
+const PG_UNIQUE_DETAIL_RE = /Key \(([^()=]*)\)=\([^()]*\)/g
+// Same shape without /g: a global regex carries lastIndex between .test() calls.
+const PG_UNIQUE_DETAIL_TEST = /Key \([^()=]*\)=\([^()]*\)/
+
+// Whole-value redaction: a PostgREST error's `details` and `hint` exist to quote
+// the offending row, so when one carries the unique-violation shape nothing in
+// it is worth keeping.
+const ROW_DETAIL_KEYS = new Set(['details', 'hint'])
 
 const DROPPED_HEADERS = ['cookie', 'set-cookie', 'authorization', 'x-api-key', 'apikey']
 
@@ -49,6 +61,7 @@ const PASSTHROUGH_KEYS = new Set([
 
 function scrubString(value) {
   return value
+    .replace(PG_UNIQUE_DETAIL_RE, 'Key ($1)=([redacted])')
     .replace(URL_SECRET_PARAM_RE, '$1[redacted]')
     .replace(FEED_TOKEN_RE, '$1[redacted]')
     .replace(JWT_RE, '[token]')
@@ -63,7 +76,12 @@ function scrubString(value) {
 
 function scrubDeep(value, key) {
   if (key !== undefined && PASSTHROUGH_KEYS.has(key)) return value
-  if (typeof value === 'string') return scrubString(value)
+  if (typeof value === 'string') {
+    if (key !== undefined && ROW_DETAIL_KEYS.has(key) && PG_UNIQUE_DETAIL_TEST.test(value)) {
+      return '[redacted]'
+    }
+    return scrubString(value)
+  }
   if (Array.isArray(value)) return value.map((entry) => scrubDeep(entry))
   if (value && typeof value === 'object') {
     const out = {}

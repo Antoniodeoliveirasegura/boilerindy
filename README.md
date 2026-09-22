@@ -108,6 +108,39 @@ Open `.env` and fill in the values:
 
 > **Note:** `GROQ_API_KEY` is optional. If omitted, the campus assistant replies with an offline notice, board AI suggestions return a 503, new posts are not auto-tagged, and everything else works.
 
+<details>
+<summary><strong>Advanced variables</strong> (everything else the server reads)</summary>
+
+The table above is what a local run needs. These have working defaults, so set
+them only when the default is wrong for your deployment. Each one is also in
+[`.env.example`](.env.example) with a longer comment, and
+[`test/envExample.test.mjs`](test/envExample.test.mjs) fails the build if the
+code starts reading a name that file does not list (issue #210).
+
+| Variable | What it changes |
+|---|---|
+| `NODE_ENV` | `production`, `development` or `test`. Any other value stops the server at boot rather than running a half-production configuration. Unset means development |
+| `TRUST_PROXY` | `1` trusts the `X-Forwarded-For` chain outside production, so `req.ip` is the real client and rate-limit buckets are per client. Production always trusts the proxy |
+| `BACKEND_PUBLIC_URL` | Public base URL the backend uses for links to itself. Defaults to `BETTER_AUTH_URL`, then `http://HOST:PORT` |
+| `PURDUE_CAS_LOGIN_URL`, `PURDUE_CAS_VALIDATE_URL` | Required when `PURDUE_AUTH_MODE=cas`; not read in `mock` mode |
+| `ADMIN_EMAILS` | Comma-separated addresses that get the admin pages and the moderation routes |
+| `BOARD_BLOCKED_WORDS` | Extra comma-separated blocked words for the board and guide filter, added to the built-in list. Read once at first use |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_<NAME>_MAX`, `RATE_LIMIT_<NAME>_WINDOW_MS` | Master switch and per-bucket tuning. See [docs/RATE_LIMITS.md](docs/RATE_LIMITS.md) for the bucket names |
+| `RESEND_API_KEY`, `RESEND_FROM`, `MAIL_REPLY_TO`, `MAIL_POSTAL_ADDRESS` | Outbound email for the advertiser portal; blank keeps email off |
+| `TRANSLOC_API_KEY` | Live transit feed; blank falls back to the cached snapshot |
+| `NUTRISLICE_API_BASE`, `NUTRISLICE_CACHE_MS` | Dining menu upstream and how long its answers are cached |
+| `PARKING_STATUS_URL`, `PARKING_STATUS_CACHE_MS` | Garage occupancy upstream and its cache window |
+| `BOILERLINK_CLUBS_URL`, `BOILERLINK_CLUBS_CACHE_MS` | Club directory upstream and its cache window |
+| `VAPID_SUBJECT` | Contact address push services can reach. Defaults to `mailto:support@boilerindy.app` |
+| `GROQ_REASONING_EFFORT` | Reasoning effort passed to Groq for assistant replies |
+| `DOTENV_CONFIG_QUIET` | `true` keeps dotenv from printing its summary line at boot |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, `PLAYWRIGHT_BROWSERS_PATH` | Local-only: where the Purdue schedule auto-capture finds its browser |
+| `ADVERTISER_EMAIL`, `ADVERTISER_PASSWORD`, `ADVERTISER_COMPANY`, `ADVERTISER_CONTACT` | Read by `scripts/create-advertiser.mjs` only |
+| `SUPABASE_SMOKE_PUBLIC_KEY` | Read by `scripts/test-marketplace-photo-storage.mjs` only, for the anonymous half of the check |
+| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `XAI_API_KEY` | Deprecated. Fallbacks for `SESSION_SECRET` and `BACKEND_PUBLIC_URL`, and the old AI provider key, which is now read only to warn at boot. Prefer the replacements |
+
+</details>
+
 ---
 
 ### 4. Install frontend dependencies
@@ -287,12 +320,24 @@ file in `db/`; running it in order satisfies each file's dependencies.
 32. *(optional, production only)* `db/supabase-source-resync.sql` - schedules the hourly `pg_cron` call to `POST /api/internal/sources/resync` so linked Brightspace and Purdue feeds are re-imported without the student pressing Sync (issue #12). Creates no tables; needs the extensions from step 29 and `PUSH_CRON_SECRET` on Render. See [docs/source-resync.md](docs/source-resync.md).
 33. `db/supabase-calendar-category-counts.sql` - adds `calendar_category_counts()`, which counts a user's `calendar_items` per category in Postgres for `GET /api/me/calendar/categories` instead of streaming every row to Node, where PostgREST's 1000-row cap silently under-counted (issue #198); needs step 1. Read-only and safe to rerun. Until it runs the server still works: the route falls back to counting in Node.
 34. *(optional)* `db/supabase-study-groups-soft-delete.sql` - adds `deleted_at` plus live/deleted partial indexes to `study_groups`, so a group's creator or an admin can take it down with `DELETE /api/study-groups/:id` and an admin can restore it from the Deleted content page (issue #195); needs step 16. Idempotent and safe to rerun. Until it runs the study-group lists still work, while that delete route answers 503 `study_groups_schema_missing` and the Study groups tab of the Deleted content page answers 503 `moderation_schema_missing`. Neither response names this file; the server log names it on the first hit after each restart (see [docs/api-error-codes.md](docs/api-error-codes.md)).
+35. *(optional)* `db/supabase-study-group-join.sql` - adds `join_study_group()`, which locks the group row and then counts, checks capacity and inserts the member in one transaction, so two students taking the last seat at the same time can no longer both get it (issue #207); needs step 16. Safe to rerun and deletes nothing. Until it runs joins still work: `POST /api/study-groups/:id/join` falls back to the old read-then-insert, which stays racy. The file's header explains how to verify the lock by hand from two SQL Editor sessions.
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
+CI replays this list. The `db` job in `.github/workflows/ci.yml` applies every
+file above, top to bottom, on an empty stock Postgres 15, after
+`db/ci/prelude.sql` stands in for the roles, `auth` schema and pg_cron/pg_net
+objects a Supabase project has out of the box. A file that does not parse,
+depends on a later step, or is missing from this list fails the build before
+it can reach production. `test/dbApplyOrder.test.mjs` checks the list against
+`db/` without a database, as part of `pnpm test`. To replay it yourself against
+a scratch server: `PGHOST=127.0.0.1 PGUSER=postgres PGPASSWORD=... pnpm run check:db`.
+It creates and drops a database named `boilerindy_ci_apply`; never point it at
+a Supabase project.
+
 > If you add a file to `db/`, add it here too. This list is the only place the
 > full run order is written down, and a migration missing from it is a migration
-> that goes unrun in production.
+> that goes unrun in production. Since the `db` job it is also a failed build.
 
 ---
 
@@ -393,6 +438,8 @@ pnpm run dev                   # Start backend on :3000
 pnpm run test:backend          # Run backend unit tests (node:test)
 pnpm run test:e2e              # Run Playwright E2E suite (builds + previews the frontend,
                                # mocks the backend - no Supabase creds needed)
+pnpm run check:conventions     # Dash scan + AI co-author trailer check, same as CI
+pnpm run check:db              # Replay every db/ file on a scratch Postgres (PGHOST etc.), same as CI
 
 # From boilerindy-react/
 pnpm install --frozen-lockfile # Install frontend dependencies
@@ -423,8 +470,29 @@ asks you to type it back first. Pass `--yes` to skip the prompt; without a termi
 comments, docs, and commit messages - instead of the em dash (U+2014) or the en
 dash (U+2013). They read as machine-generated, so this repo bans them: CI fails
 the build if either character appears anywhere in the source (the "No em/en
-dashes" step in `.github/workflows/ci.yml`). When you would reach for one, use a
-spaced hyphen ( - ), a comma, or a colon.
+dashes" step of the `conventions` job in `.github/workflows/ci.yml`). When you
+would reach for one, use a spaced hyphen ( - ), a comma, or a colon.
+
+**No AI co-author trailers or footers.** Commit messages and pull request
+descriptions must not carry a `Co-Authored-By:` trailer or a "Generated with"
+footer that credits an AI assistant (Claude, Copilot, Codex, ChatGPT, Gemini,
+Cursor). GitHub turns such a trailer into a contributor badge on the repo.
+Crediting a person is fine. The `conventions` job scans every commit in a pull
+request, every push to `develop` and `main`, and the PR description; remove the
+line with `git commit --amend` or a rebase and push again.
+
+**pnpm only.** Both `package.json` files refuse `npm install` and `yarn` through
+an `only-allow` preinstall script, so a foreign lockfile or a differently
+resolved `node_modules` cannot happen by accident.
+
+**Committed git hooks.** `pnpm install` at the repo root points `core.hooksPath`
+at `.githooks/` (the `prepare` script), so from then on `git commit` runs the
+dash scan on the staged files and the trailer check on the message before
+anything reaches CI. `git commit --no-verify` skips them once; CI still runs the
+same checks. `pnpm run check:conventions` runs them by hand over the tracked
+files and the commits not yet on `origin/develop`. The rules live in
+`scripts/lib/conventions.mjs` and are pinned by `test/conventions.test.mjs`, so
+they are the same for everyone, whatever editor or AI assistant wrote the change.
 
 **LF line endings everywhere.** `.gitattributes` sets `* text=auto eol=lf`, so git
 normalizes text files to LF in the repository and checks them out as LF on every
