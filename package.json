@@ -13,12 +13,12 @@
     "vapid:generate": "node scripts/generate-vapid-keys.mjs"
   },
   "dependencies": {
-    "@sentry/node": "^10.74.0",
+    "@sentry/node": "^10.75.0",
     "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
-    "node-ical": "^0.27.1"
+    "node-ical": "^0.27.2"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
