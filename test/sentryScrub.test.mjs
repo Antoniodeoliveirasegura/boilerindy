@@ -50,8 +50,20 @@ test('redacts the calendar-feed token, UUIDs, and API keys in URLs', () => {
   })
   assert.ok(!event.request.url.includes('2f1c9e7a-4b6d-4a1e-9c3f-8d2b7e5a1f04'), 'feed token survived scrubbing')
   assert.ok(event.request.url.includes('[redacted]'))
-  assert.ok(!event.breadcrumbs[0].data.url.includes('AIzaSy'), 'Gemini key survived scrubbing')
+  assert.ok(!event.breadcrumbs[0].data.url.includes('AIzaSy'), 'Google key survived scrubbing')
   assert.ok(!event.breadcrumbs[1].message.includes('8882812681'), 'transit key survived scrubbing')
+})
+
+test('redacts Groq API keys, which are neither hex nor JWT shaped', () => {
+  const key = `gsk_${'a1B2c3D4e5F6g7H8i9J0'.repeat(2)}kLmN`
+  const event = scrubSentryEvent({
+    breadcrumbs: [
+      { message: `Groq 401: invalid api key ${key}` },
+      { data: { headers: { Authorization: `Bearer ${key}` } } },
+    ],
+  })
+  assert.ok(!event.breadcrumbs[0].message.includes(key), 'Groq key survived scrubbing')
+  assert.ok(!JSON.stringify(event.breadcrumbs[1]).includes(key), 'Groq bearer token survived scrubbing')
 })
 
 test('returns null/undefined unchanged and never throws on odd shapes', () => {
