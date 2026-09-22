@@ -24,7 +24,7 @@ describe('aiCacheKey', () => {
   test('one user never reads what another user cached', () => {
     writeAiCache(aiCacheKey('week-ahead', 'user-1', '2026-09-14'), 'You have CS 180 on MWF.')
     expect(readAiCache(aiCacheKey('week-ahead', 'user-2', '2026-09-14'))).toBeNull()
-    expect(readAiCache(aiCacheKey('week-ahead', 'user-1', '2026-09-14'))).toBe('You have CS 180 on MWF.')
+    expect(readAiCache(aiCacheKey('week-ahead', 'user-1', '2026-09-14'))?.text).toBe('You have CS 180 on MWF.')
   })
 })
 
@@ -36,10 +36,23 @@ describe('boardDraftKey', () => {
 })
 
 describe('readAiCache / writeAiCache', () => {
-  test('round-trips insight text as JSON', () => {
-    writeAiCache('ai-event-recs-user-1-2026-09-15', 'Go to the career fair.')
-    expect(localStorage.getItem('ai-event-recs-user-1-2026-09-15')).toBe('"Go to the career fair."')
-    expect(readAiCache('ai-event-recs-user-1-2026-09-15')).toBe('Go to the career fair.')
+  test('round-trips insight text with a generated-at stamp', () => {
+    const written = writeAiCache('ai-event-recs-user-1-2026-09-15', 'Go to the career fair.')
+    expect(JSON.parse(localStorage.getItem('ai-event-recs-user-1-2026-09-15') || 'null')).toEqual({
+      text: 'Go to the career fair.',
+      at: written.at,
+    })
+    expect(readAiCache('ai-event-recs-user-1-2026-09-15')).toEqual(written)
+  })
+
+  test('an entry past the TTL reads as nothing', () => {
+    writeAiCache('ai-week-ahead-user-1-2026-09-14', 'stale')
+    expect(readAiCache('ai-week-ahead-user-1-2026-09-14', -1)).toBeNull()
+  })
+
+  test('a pre-timestamp bare string reads as expired, not as undated text', () => {
+    localStorage.setItem('ai-week-ahead-user-1-2026-09-14', '"written by an older build"')
+    expect(readAiCache('ai-week-ahead-user-1-2026-09-14')).toBeNull()
   })
 
   test('a null key (no user id yet) reads nothing and writes nothing', () => {

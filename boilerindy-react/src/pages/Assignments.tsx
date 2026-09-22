@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
-import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
+import { linkifyText, stripHtml } from '../lib/linkifyText'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import SourceErrorNotice from '../components/SourceErrorNotice'
 import TaskCompleteReward from '../components/TaskCompleteReward'
@@ -12,7 +13,7 @@ import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/t
 import { isServerRefusal, writeFailureMessage } from '../lib/writeFailure'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
-import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import { aiCacheKey, describeAge, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 
 type Category = { id: string; label?: string; count?: number }
 type Completion = { calendar_item_id?: string; completed_at?: string }
@@ -252,8 +253,16 @@ export default function Assignments() {
   const [selectedItem, setSelectedItem] = useState<MergedItem | null>(null)
 
   const [insightsMode, setInsightsMode] = useState('priority')
-  const [insightsText, setInsightsText] = useState<string | null>(() => readAiCache(getInsightsCacheKey(userId, 'priority')))
-  const [studyPlan, setStudyPlan] = useState<string | null>(() => readAiCache(getInsightsCacheKey(userId, 'study')))
+  const [insightsText, setInsightsText] = useState<string | null>(
+    () => readAiCache(getInsightsCacheKey(userId, 'priority'))?.text ?? null,
+  )
+  const [studyPlan, setStudyPlan] = useState<string | null>(
+    () => readAiCache(getInsightsCacheKey(userId, 'study'))?.text ?? null,
+  )
+  const [insightsAt, setInsightsAt] = useState<Record<string, number | null>>(() => ({
+    priority: readAiCache(getInsightsCacheKey(userId, 'priority'))?.at ?? null,
+    study: readAiCache(getInsightsCacheKey(userId, 'study'))?.at ?? null,
+  }))
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(true)
 
@@ -284,8 +293,8 @@ export default function Assignments() {
   const generateInsights = (mode: string) => {
     setInsightsLoading(true)
     const prompt = mode === 'study'
-      ? 'Look at my free time between classes this week and my upcoming assignments. Create a short study plan: which assignment to work on, when (day and time), and for how long. Max 5 items. Plain text only, no markdown, no asterisks, no bold, no headers. Complete every sentence.'
-      : 'Rank my upcoming assignments by urgency. Most urgent first. One line per item with format: [!] or [~] or [ok] then the assignment name and when it is due. Plain text only, no markdown, no asterisks, no bold, no headers. Complete every line.'
+      ? 'Look at my free time between classes this week, my upcoming assignments and my own task list. Build a short study plan: which item to work on, when (day and time), and for how long. Max 5 "-" bullets, each starting with the day and time in bold. Skip anything already marked DONE. No intro line, no closing line.'
+      : 'Rank what I still have to do by urgency, most urgent first, pulling from both my synced assignments and my own task list. Max 6 "-" bullets. Bold the due date on each line and say in a few words why it ranks there. Skip anything already marked DONE and call out anything OVERDUE first. No intro line, no closing line.'
     fetch('/api/assistant', {
       method: 'POST',
       credentials: 'include',
@@ -295,14 +304,10 @@ export default function Assignments() {
       .then((r) => r.json())
       .then((d) => {
         if (d.reply && mountedRef.current) {
-          const clean = cleanAiText(d.reply)
-          if (mode === 'study') {
-            setStudyPlan(clean)
-            writeAiCache(getInsightsCacheKey(userId, 'study'), clean)
-          } else {
-            setInsightsText(clean)
-            writeAiCache(getInsightsCacheKey(userId, 'priority'), clean)
-          }
+          const { at } = writeAiCache(getInsightsCacheKey(userId, mode), d.reply)
+          if (mode === 'study') setStudyPlan(d.reply)
+          else setInsightsText(d.reply)
+          setInsightsAt((prev) => ({ ...prev, [mode]: at }))
         }
       })
       .catch(() => {})
@@ -909,7 +914,14 @@ export default function Assignments() {
                   Analyzing your assignments…
                 </div>
               ) : activeInsight ? (
-                <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed whitespace-pre-line">{activeInsight}</p>
+                <>
+                  <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{activeInsight}</AiMarkdown>
+                  {insightsAt[insightsMode] && (
+                    <p className="mt-2 text-[11px] text-[var(--color-txt-3)]">
+                      Generated {describeAge(insightsAt[insightsMode])} - refresh after you check things off.
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-[12px] text-[var(--color-txt-3)] py-1">
                   Click &ldquo;Generate&rdquo; to get AI-powered {insightsMode === 'priority' ? 'priority ranking' : 'study plan'} based on your schedule and deadlines.
