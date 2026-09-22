@@ -134,11 +134,11 @@ export default function CampusAssistant() {
           chips?: string[]
         }
         if (cancelled) return
-        // Only latch on success, so closing the panel mid-request or a failed
-        // fetch does not leave the generic greeting for the rest of the session.
-        briefingLoaded.current = true
         if (data.chips?.length) setQuickQuestions(data.chips)
+        // The server's catch path is { headline: '', chips: [] }. Latches only
+        // once we have a real greeting, otherwise the next open retries.
         if (!data.headline) return
+        briefingLoaded.current = true
         setMessages((prev) => {
           // Only replace the opener, never a real conversation.
           if (prev.length !== 1 || prev[0].role !== 'assistant') return prev
