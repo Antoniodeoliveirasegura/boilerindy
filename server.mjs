@@ -100,6 +100,7 @@ import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
+import { requireUuidParam } from './src/httpGuards.mjs'
 import {
   badRequest,
   DB_FEATURES,
@@ -1804,7 +1805,14 @@ app.get('/api/me/sources', requireAuth, async (req, res) => {
 })
 
 // Debug endpoint to diagnose calendar import issues (disabled in production)
-app.get('/api/debug/source/:sourceId', requireAuth, async (req, res) => {
+// Issue #196: an id-shaped route param that is not a UUID reaches PostgREST as
+// 22P02 and used to surface as a 500 that Sentry recorded as an error. Answer
+// 404, the same as a row that is not there, so a prober cannot tell a malformed
+// id from a missing one. `:type` (admin content type) and the calendar feed
+// token are not UUIDs and keep their own validation.
+const requireIdParam = (...names) => requireUuidParam(...names, { status: 404, message: 'Not found.' })
+
+app.get('/api/debug/source/:sourceId', requireIdParam('sourceId'), requireAuth, async (req, res) => {
   if (isProduction) {
     return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
   }
@@ -1963,7 +1971,7 @@ app.post('/api/sources/brightspace/schedule', sourceSyncRateLimit, requireAuth, 
   }
 })
 
-app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, res) => {
+app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireIdParam('sourceId'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const sourceId = req.params.sourceId
   
@@ -1991,7 +1999,7 @@ app.post('/api/sync/:sourceId', sourceSyncRateLimit, requireAuth, async (req, re
   }
 })
 
-app.delete('/api/sources/:sourceId', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/sources/:sourceId', userWriteRateLimit, requireIdParam('sourceId'), requireAuth, async (req, res) => {
   const source = await getSourceForUser(req.params.sourceId, req.currentUser.id)
   if (!source) {
     return res.status(404).json({ error: { message: 'Source not found.', status: 404 } })
@@ -2181,7 +2189,7 @@ app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, re
   }
 })
 
-app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
@@ -2195,16 +2203,18 @@ app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (re
       .eq('id', id)
       .eq('user_id', userId)
       .select()
-      .single()
+      // maybeSingle: .single() answers PGRST116 for zero rows, which made the
+      // 404 below unreachable and sent someone else's id down the 500 path (#196).
+      .maybeSingle()
     if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Task not found' } })
+    if (!data) return res.status(404).json({ error: { message: 'Task not found.', status: 404 } })
     res.json({ task: mapManualTaskRow(data) })
   } catch (e) {
     respondRouteError(res, e, { label: 'PATCH /api/me/tasks/manual', fallback: 'Could not update task' })
   }
 })
 
-app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2306,7 +2316,7 @@ app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => 
   }
 })
 
-app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/me/grades/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
@@ -2321,16 +2331,16 @@ app.patch('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res
       .eq('id', id)
       .eq('user_id', userId)
       .select()
-      .single()
+      .maybeSingle()
     if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Course not found' } })
+    if (!data) return res.status(404).json({ error: { message: 'Course not found.', status: 404 } })
     res.json({ grade: mapGradeRow(data) })
   } catch (e) {
     respondRouteError(res, e, { label: 'PATCH /api/me/grades/:id', fallback: 'Could not update course' })
   }
 })
 
-app.delete('/api/me/grades/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/me/grades/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   try {
@@ -2565,7 +2575,7 @@ app.post('/api/lost-found', lostFoundWriteRateLimit, requireAuth, async (req, re
   res.status(201).json({ item: mapLostFoundRow(data, userId) })
 })
 
-app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
 
@@ -2620,7 +2630,7 @@ app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireAuth, async (re
   res.json({ item: mapLostFoundRow(data, userId) })
 })
 
-app.delete('/api/lost-found/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/lost-found/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { id } = req.params
   // Soft delete: hide the item (set deleted_at) instead of removing it. The
@@ -3919,7 +3929,7 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
   res.status(201).json({ post: postPayload })
 })
 
-app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const body   = String(req.body.body || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
@@ -3934,7 +3944,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
     .select('id')
     .eq('id', postId)
     .is('deleted_at', null)
-    .single()
+    .maybeSingle()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
 
@@ -3964,7 +3974,7 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireAuth, async (
   })
 })
 
-app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
 
@@ -3973,7 +3983,7 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
     .select('id')
     .eq('id', postId)
     .is('deleted_at', null)
-    .single()
+    .maybeSingle()
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
 
@@ -3998,7 +4008,7 @@ app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireAuth, async 
 })
 
 // Owner-only edit of a post's title/body (issue #7)
-app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/board/posts/:id', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
   const title = String(req.body.title ?? '').trim()
@@ -4020,6 +4030,9 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
     .update({ title, body, edited_at: editedAt, updated_at: editedAt })
     .eq('id', postId)
     .eq('user_id', userId)
+    // A taken-down post is not editable; DELETE and reply already scope this way,
+    // and without it the admin restore view showed content edited after removal (#196).
+    .is('deleted_at', null)
     .select('*')
 
   // Retry without edited_at when the optional column migration hasn't run yet
@@ -4029,6 +4042,7 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
       .update({ title, body, updated_at: editedAt })
       .eq('id', postId)
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .select('*'))
   }
 
@@ -4050,7 +4064,7 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireAuth, async (req, 
   })
 })
 
-app.delete('/api/board/posts/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/board/posts/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
   // Soft delete: hide the post (set deleted_at). Its replies stay attached and
@@ -4133,7 +4147,7 @@ app.post('/api/guide', boardWriteRateLimit, requireAuth, async (req, res) => {
   }
 })
 
-app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const recId = req.params.id
   const userId = req.currentUser.id
   try {
@@ -4142,7 +4156,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
       .select('id')
       .eq('id', recId)
       .is('deleted_at', null)
-      .single()
+      .maybeSingle()
     if (recErr) throw recErr
     if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
 
@@ -4169,7 +4183,7 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireAuth, async (req, 
   }
 })
 
-app.patch('/api/guide/:id/pin', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   if (!isUserAdmin(req.currentUser)) {
     return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
   }
@@ -4190,7 +4204,7 @@ app.patch('/api/guide/:id/pin', userWriteRateLimit, requireAuth, async (req, res
 })
 
 // Delete - owner or admin (admins take down live recommendations, issue #195).
-app.delete('/api/guide/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/guide/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const query = supabase
@@ -4373,7 +4387,7 @@ app.post('/api/study-groups', boardWriteRateLimit, requireAuth, async (req, res)
 })
 
 // Join a group (respects capacity).
-app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const groupId = req.params.id
   try {
@@ -4402,7 +4416,7 @@ app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireAuth, async (
 })
 
 // Leave a group.
-app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     const { error } = await supabase
@@ -4421,7 +4435,7 @@ app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireAuth, async 
 // leaves every list, but its members stay attached so an admin restore from the
 // moderation view brings it back whole. Answers 503 (respondStudyDbError) until
 // db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
-app.delete('/api/study-groups/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/study-groups/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const groupId = req.params.id
   if (!isUuid(groupId)) {
     return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
@@ -4496,7 +4510,7 @@ app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4504,7 +4518,7 @@ app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) =>
     return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
   }
   try {
-    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').single()
+    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').maybeSingle()
     if (error) throw error
     if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
     res.json({ deal: mapDealRow(data) })
@@ -4513,7 +4527,7 @@ app.patch('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) =>
   }
 })
 
-app.delete('/api/deals/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   if (!requireAdminJson(req, res)) return
   try {
     const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
@@ -4618,10 +4632,10 @@ app.get('/api/marketplace/capabilities', requireAuth, async (_req, res) => {
 
 // Listing detail - reveals seller contact (name + Purdue email) to signed-in
 // users, so it is rate-limited to blunt bulk id-enumeration harvesting (#114).
-app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireAuth, async (req, res) => {
+app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
-    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).single()
+    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).maybeSingle()
     if (error) throw error
     if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
       return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
@@ -4657,7 +4671,7 @@ app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) 
 })
 
 // Edit / mark sold - owner only.
-app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/marketplace/:id', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
@@ -4688,7 +4702,7 @@ app.patch('/api/marketplace/:id', boardWriteRateLimit, requireAuth, async (req, 
 })
 
 // Delete - owner or admin.
-app.delete('/api/marketplace/:id', userWriteRateLimit, requireAuth, async (req, res) => {
+app.delete('/api/marketplace/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   try {
     // Soft delete: hide the listing (set deleted_at). Admins purge it
@@ -4708,7 +4722,7 @@ app.delete('/api/marketplace/:id', userWriteRateLimit, requireAuth, async (req, 
 })
 
 // Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters.
-app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireAuth, async (req, res) => {
+app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const listingId = req.params.id
   const reason = String(req.body?.reason || '').trim().slice(0, 500)
@@ -4860,7 +4874,7 @@ app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) 
 })
 
 // Accept or decline an incoming request.
-app.patch('/api/connections/:requesterId', userWriteRateLimit, requireAuth, async (req, res) => {
+app.patch('/api/connections/:requesterId', userWriteRateLimit, requireIdParam('requesterId'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const requesterId = req.params.requesterId
   const action = String(req.body?.action || '').trim()
@@ -5259,7 +5273,7 @@ app.post('/api/advertiser/campaigns', advertiserWriteRateLimit, requireAdvertise
   res.status(201).json({ campaign: mapCampaignRow(data) })
 })
 
-app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireAdvertiserAuth, async (req, res) => {
+app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireIdParam('id'), requireAdvertiserAuth, async (req, res) => {
   const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
   if (lookupError) return respondAdvertiserDbError(res, lookupError)
   if (!campaign) {
@@ -5286,7 +5300,7 @@ app.patch('/api/advertiser/campaigns/:id', advertiserWriteRateLimit, requireAdve
 })
 
 // Aggregate impression/tap stats for one of the advertiser's own campaigns (M3).
-app.get('/api/advertiser/campaigns/:id/stats', requireAdvertiserAuth, async (req, res) => {
+app.get('/api/advertiser/campaigns/:id/stats', requireIdParam('id'), requireAdvertiserAuth, async (req, res) => {
   const { campaign, error: lookupError } = await getCampaignForAdvertiser(req.params.id, req.currentAdvertiser.id)
   if (lookupError) return respondAdvertiserDbError(res, lookupError)
   if (!campaign) {
@@ -5343,7 +5357,7 @@ app.get('/api/spotlight/active', requireAuth, async (req, res) => {
   res.json({ ad, ads: ad ? [ad] : [] })
 })
 
-app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireAuth, async (req, res) => {
+app.post('/api/spotlight/:campaignId/event', adEventRateLimit, requireIdParam('campaignId'), requireAuth, async (req, res) => {
   const kind = req.body?.kind
   if (!isValidAdEventKind(kind)) {
     return res.status(400).json({ error: { message: 'Invalid ad event kind.', status: 400 } })
@@ -5435,7 +5449,7 @@ app.get('/api/admin/leads', requireAuth, requireAdmin, async (req, res) => {
   res.json({ leads: (data || []).map(mapLeadRow) })
 })
 
-app.patch('/api/admin/leads/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.patch('/api/admin/leads/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   let status
   try {
     status = normalizeLeadStatusInput(req.body?.status)
@@ -5476,7 +5490,7 @@ app.get('/api/admin/campaigns', requireAuth, requireAdmin, async (req, res) => {
   res.json({ campaigns: (data || []).map(mapAdminCampaignRow) })
 })
 
-app.patch('/api/admin/campaigns/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.patch('/api/admin/campaigns/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const { data: current, error: lookupError } = await supabase
     .from('campaigns')
     .select('*')
@@ -5672,7 +5686,7 @@ app.get('/api/admin/deleted/:type', requireAuth, requireAdmin, async (req, res) 
 // id from a report and previews the row here, then removes it through the
 // type's own DELETE route, which lets admins past the owner filter. The row
 // then shows up in the deleted list above, where it can be restored.
-app.get('/api/admin/content/:type/:id', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/content/:type/:id', requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
   if (!isUuid(req.params.id)) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
@@ -5689,7 +5703,7 @@ app.get('/api/admin/content/:type/:id', requireAuth, requireAdmin, async (req, r
   res.json({ item: data, label: cfg.label })
 })
 
-app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
   const { data, error } = await supabase
@@ -5705,7 +5719,7 @@ app.post('/api/admin/deleted/:type/:id/restore', adminWriteRateLimit, requireAut
   res.json({ ok: true })
 })
 
-app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
+app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const cfg = softDeleteConfig(req.params.type)
   if (!cfg) return res.status(404).json({ error: { message: 'Unknown content type.', status: 404 } })
   // Hard delete - permanent. Only already-soft-deleted rows can be purged, so a

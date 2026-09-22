@@ -363,3 +363,41 @@ test('logRouteError logs the label, code and message only', (t) => {
     'register-supabase: public.users insert failed: 23505 duplicate key value violates unique constraint "users_email_key"',
   )
 })
+
+// Issue #196: a client naming a row that is not there, or an id that is not a
+// uuid at all, used to take the 500 path and be logged, which filed every miss
+// in Sentry through captureConsoleIntegration.
+
+test('respondDbError answers 404 for a zero-row .single(), with nothing logged', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(
+    res,
+    { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' },
+    DB_FEATURES.board,
+  )
+  assert.equal(res.statusCode, 404)
+  assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+  assert.equal(log.count, 0)
+})
+
+test('respondDbError answers 404 for a malformed uuid, with nothing logged', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(
+    res,
+    { code: '22P02', message: 'invalid input syntax for type uuid: "abc"' },
+    DB_FEATURES.marketplace,
+  )
+  assert.equal(res.statusCode, 404)
+  assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+  assert.equal(log.count, 0)
+  assert.ok(!JSON.stringify(res.body).includes('abc'), 'the rejected id came back to the client')
+})
+
+test('respondDbError still answers 503 when the table is missing, not 404', (t) => {
+  spyConsoleError(t)
+  const res = mockRes()
+  respondDbError(res, tableMissing(), DB_FEATURES.guide)
+  assert.equal(res.statusCode, 503)
+})

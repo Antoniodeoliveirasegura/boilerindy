@@ -207,8 +207,31 @@ export function respondSchemaMissing(res, config, err) {
  * @param {unknown} err
  * @param {DbFeature} config
  */
+// PostgREST PGRST116: `.single()` found no row (or several). Postgres 22P02:
+// invalid text for the column type, such as a malformed uuid in an :id param.
+// Either way the row the client named is not there (issue #196), and a probe
+// learns nothing more than "not found". Shared by both responders below.
+const NOT_FOUND_CODES = new Set(['PGRST116', '22P02'])
+
+/**
+ * True when the error says the row the client named is not there, rather than
+ * that something went wrong.
+ * @param {unknown} err
+ */
+function isNotFoundError(err) {
+  return Boolean(err) && typeof err === 'object' && NOT_FOUND_CODES.has(String(err.code))
+}
+
+/** Answer 404 in the standard envelope, with nothing logged. */
+function respondNotFound(res) {
+  return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
+}
+
 export function respondDbError(res, err, config) {
   if (isSchemaMissingError(err)) return respondSchemaMissing(res, config, err)
+  // No log line: a client asking for a row that is not there is not an error,
+  // and captureConsoleIntegration would file every miss in Sentry (issue #196).
+  if (isNotFoundError(err)) return respondNotFound(res)
   const { code, message } = errorFields(err)
   console.error(`${config.feature} DB error:`, code, message)
   return res.status(500).json({ error: { message: config.fallback, status: 500 } })
@@ -220,12 +243,6 @@ export function respondDbError(res, err, config) {
 // `500 { error: { message: e.message } }`, which put the PostgREST text
 // (constraint names, "invalid input syntax for type uuid: ...") in front of the
 // student, and logged the whole error object, details and hint included.
-
-// PostgREST PGRST116: `.single()` found no row (or several). Postgres 22P02:
-// invalid text for the column type, such as a malformed uuid in an :id param.
-// Either way the row the client named is not there (issue #196), and a probe
-// learns nothing more than "not found".
-const NOT_FOUND_CODES = new Set(['PGRST116', '22P02'])
 
 /**
  * Answer 400 in the standard envelope.
@@ -262,9 +279,7 @@ export function logRouteError(label, err) {
  *   fallback is the client message for a 500
  */
 export function respondRouteError(res, err, { label = 'Route error', fallback = 'Something went wrong. Please try again.' } = {}) {
-  if (err && typeof err === 'object' && NOT_FOUND_CODES.has(String(err.code))) {
-    return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
-  }
+  if (isNotFoundError(err)) return respondNotFound(res)
   logRouteError(label, err)
   return res.status(500).json({ error: { message: fallback, status: 500 } })
 }
