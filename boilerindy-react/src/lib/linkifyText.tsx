@@ -20,20 +20,9 @@ export function stripHtml(html: string | null | undefined): string {
     .trim()
 }
 
-/**
- * Clean AI-generated text: strip markdown formatting Gemini sometimes adds.
- */
-export function cleanAiText(text: unknown): string {
-  if (text == null || text === '') return ''
-  const s = typeof text === 'string' ? text : String(text)
-  return s
-    .replace(/^#+\s+/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/^[\s]*[-*]\s+/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
+// cleanAiText() lived here and stripped the markdown Gemini returns - including
+// the bullet markers - which is what flattened structured answers into a wall of
+// text. AI replies now render through components/AiMarkdown.tsx instead.
 
 /**
  * Turn raw text with http(s) URLs into React nodes with clickable, wrapping links.
