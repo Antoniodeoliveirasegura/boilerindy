@@ -5644,7 +5644,10 @@ function respondModerationDbError(res, error, cfg, logLabel, message) {
       error,
     )
   }
-  console.error(`${logLabel}:`, error.message)
+  // logLabel carries req.params.type, so it must not sit in console.error's
+  // format-string slot: a `%s` in the value would consume error.message
+  // (CodeQL js/tainted-format-string). A literal format keeps the same output.
+  console.error('%s:', logLabel, error.message)
   return res.status(500).json({ error: { message, status: 500 } })
 }
 
