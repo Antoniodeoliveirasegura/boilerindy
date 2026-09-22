@@ -2,6 +2,8 @@
 // unit-testable without DB/HTTP. No payments and no messaging in Phase 1 -
 // contact is the seller's display name + Purdue email shown on the detail page.
 
+import { isMissingColumnError } from './moderation.mjs'
+
 export const MARKETPLACE_CATEGORIES = [
   'textbooks', 'furniture', 'electronics', 'housing', 'rideshare', 'tutoring', 'tickets', 'misc',
 ]
@@ -11,6 +13,22 @@ const STATUS_SET = new Set(['active', 'sold', 'removed'])
 export const MAX_LISTING_TITLE = 120
 export const MAX_LISTING_DESCRIPTION = 2000
 export const REPORTS_TO_HIDE = 3
+
+// db/supabase-marketplace.sql does not create image_urls or price_mode; the
+// later gallery and pricing migration (README step 31) adds them. A database
+// error naming one of them sends the operator to that file (#218).
+export const MARKETPLACE_GALLERY_PRICING_SQL_FILE = 'db/supabase-marketplace-gallery-pricing.sql'
+export const MARKETPLACE_GALLERY_PRICING_COLUMNS = Object.freeze(['image_urls', 'price_mode'])
+
+/**
+ * True when the database reports that a column from
+ * MARKETPLACE_GALLERY_PRICING_COLUMNS does not exist yet (42703 or PGRST204).
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isMissingGalleryPricingColumn(err) {
+  return MARKETPLACE_GALLERY_PRICING_COLUMNS.some((column) => isMissingColumnError(err, column))
+}
 
 function isHttpUrl(value) {
   try {

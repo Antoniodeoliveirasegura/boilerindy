@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0"
+  },
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
@@ -15,7 +18,7 @@
   "dependencies": {
     "@sentry/node": "^10.75.0",
     "@supabase/supabase-js": "^2.116.0",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "node-ical": "^0.27.2"

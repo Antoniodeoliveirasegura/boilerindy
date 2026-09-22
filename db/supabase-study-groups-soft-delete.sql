@@ -6,8 +6,10 @@
 -- whole, and the admin hard delete cascades them. Idempotent - safe to re-run.
 --
 -- Until it runs the server still works: the study-group lists skip the filter,
--- while DELETE /api/study-groups/:id and the study-group tab of the admin
--- moderation view answer 503 naming this file.
+-- while DELETE /api/study-groups/:id answers 503 study_groups_schema_missing
+-- and the study-group tab of the admin moderation view answers 503
+-- moderation_schema_missing. Neither response names this file; the server log
+-- names it on the first hit after each restart (docs/api-error-codes.md).
 
 ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 

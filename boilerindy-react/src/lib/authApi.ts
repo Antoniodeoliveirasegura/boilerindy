@@ -3,6 +3,9 @@
 
 type UserLike = { name?: string | null; email?: string | null } | null | undefined
 
+/** What authRequest throws for a non-2xx answer. `code` is the API's error.code when it sent one. */
+export type ApiRequestError = Error & { status?: number; payload?: unknown; code?: string }
+
 export async function registerSupabaseUser(
   email: string,
   password: string,
@@ -41,15 +44,18 @@ export async function authRequest(url: string, options: RequestInit = {}): Promi
       window.location.replace(`/login?next=${next}&message=session-expired`)
       await new Promise(() => {})
     }
-    const p = payload as { error?: { message?: string }; message?: string } | string | null
+    const p = payload as { error?: { message?: string; code?: unknown }; message?: string } | string | null
     const message =
       (typeof p === 'object' && p?.error?.message) ||
       (typeof p === 'object' && p?.message) ||
       (typeof p === 'string' && p) ||
       'Request failed'
-    const error = new Error(message) as Error & { status?: number; payload?: unknown }
+    const error = new Error(message) as ApiRequestError
     error.status = response.status
     error.payload = payload
+    // Machine-readable reason, e.g. marketplace_schema_missing (docs/api-error-codes.md).
+    const code = typeof p === 'object' ? p?.error?.code : undefined
+    if (typeof code === 'string') error.code = code
     throw error
   }
 
