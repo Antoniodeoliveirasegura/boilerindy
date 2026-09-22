@@ -1,9 +1,16 @@
 /**
- * Client-side schedule corrections that survive ICS re-sync.
- * Keyed by backend user id (same pattern as task priorities).
- * Scraped meetings stay in the feed; we overlay edits/hides/manual classes
- * when building the weekly schedule view.
+ * Schedule corrections that survive ICS re-sync: hidden series, edited details
+ * and manually added class blocks. Scraped meetings stay in the feed; we overlay
+ * the edits when building the weekly schedule view.
+ *
+ * localStorage stays the read path so every call site can stay synchronous and
+ * renders never flicker, but the state is mirrored to the server so it follows
+ * the student across devices and the campus assistant can see it. Reads and
+ * writes are keyed by backend user id.
  */
+
+import { useEffect, useState } from 'react'
+import { authRequest } from './authApi'
 
 export type ScheduleSeriesOverride = {
   code?: string
@@ -49,66 +56,205 @@ function normalizeHm(value: string): string {
   return `${String(Math.min(23, Math.max(0, h))).padStart(2, '0')}:${String(Math.min(59, Math.max(0, m))).padStart(2, '0')}`
 }
 
+/** Validate an untrusted override document (localStorage or API) into state. */
+function coerceOverrideState(parsed: unknown): ScheduleOverrideState {
+  if (typeof parsed !== 'object' || parsed === null) return { series: {}, manual: [] }
+  const raw = parsed as { series?: unknown; manual?: unknown }
+
+  const series: Record<string, ScheduleSeriesOverride> = {}
+  if (raw.series && typeof raw.series === 'object') {
+    for (const [key, value] of Object.entries(raw.series as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue
+      const v = value as ScheduleSeriesOverride
+      const next: ScheduleSeriesOverride = {}
+      if (typeof v.code === 'string') next.code = v.code
+      if (typeof v.name === 'string') next.name = v.name
+      if (typeof v.room === 'string') next.room = v.room
+      if (isHm(v.startHm)) next.startHm = normalizeHm(v.startHm)
+      if (isHm(v.endHm)) next.endHm = normalizeHm(v.endHm)
+      if (Array.isArray(v.days)) {
+        next.days = v.days.filter((d): d is string => typeof d === 'string')
+      }
+      if (v.hidden === true) next.hidden = true
+      if (Object.keys(next).length) series[key] = next
+    }
+  }
+
+  const manual: ManualClass[] = []
+  if (Array.isArray(raw.manual)) {
+    for (const row of raw.manual) {
+      if (!row || typeof row !== 'object') continue
+      const m = row as ManualClass
+      if (typeof m.id !== 'string' || typeof m.code !== 'string') continue
+      if (!isHm(m.startHm) || !isHm(m.endHm) || !Array.isArray(m.days)) continue
+      manual.push({
+        id: m.id,
+        code: m.code,
+        name: typeof m.name === 'string' ? m.name : 'Class meeting',
+        room: typeof m.room === 'string' ? m.room : '',
+        days: m.days.filter((d): d is string => typeof d === 'string'),
+        startHm: normalizeHm(m.startHm),
+        endHm: normalizeHm(m.endHm),
+      })
+    }
+  }
+
+  return { series, manual }
+}
+
 export function loadScheduleOverrides(userId: string | null | undefined): ScheduleOverrideState {
   if (!userId) return { series: {}, manual: [] }
   try {
     const raw = localStorage.getItem(storageKey(userId))
     if (!raw) return { series: {}, manual: [] }
-    const parsed = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return { series: {}, manual: [] }
-
-    const series: Record<string, ScheduleSeriesOverride> = {}
-    if (parsed.series && typeof parsed.series === 'object') {
-      for (const [key, value] of Object.entries(parsed.series as Record<string, unknown>)) {
-        if (!value || typeof value !== 'object') continue
-        const v = value as ScheduleSeriesOverride
-        const next: ScheduleSeriesOverride = {}
-        if (typeof v.code === 'string') next.code = v.code
-        if (typeof v.name === 'string') next.name = v.name
-        if (typeof v.room === 'string') next.room = v.room
-        if (isHm(v.startHm)) next.startHm = normalizeHm(v.startHm)
-        if (isHm(v.endHm)) next.endHm = normalizeHm(v.endHm)
-        if (Array.isArray(v.days)) {
-          next.days = v.days.filter((d): d is string => typeof d === 'string')
-        }
-        if (v.hidden === true) next.hidden = true
-        if (Object.keys(next).length) series[key] = next
-      }
-    }
-
-    const manual: ManualClass[] = []
-    if (Array.isArray(parsed.manual)) {
-      for (const row of parsed.manual) {
-        if (!row || typeof row !== 'object') continue
-        const m = row as ManualClass
-        if (typeof m.id !== 'string' || typeof m.code !== 'string') continue
-        if (!isHm(m.startHm) || !isHm(m.endHm) || !Array.isArray(m.days)) continue
-        manual.push({
-          id: m.id,
-          code: m.code,
-          name: typeof m.name === 'string' ? m.name : 'Class meeting',
-          room: typeof m.room === 'string' ? m.room : '',
-          days: m.days.filter((d): d is string => typeof d === 'string'),
-          startHm: normalizeHm(m.startHm),
-          endHm: normalizeHm(m.endHm),
-        })
-      }
-    }
-
-    return { series, manual }
+    return coerceOverrideState(JSON.parse(raw))
   } catch {
     return { series: {}, manual: [] }
   }
 }
 
+/** Fires whenever overrides change locally or a server pull lands. */
+export const SCHEDULE_OVERRIDES_EVENT = 'boilerindy-schedule-overrides-changed'
+
+function writeLocal(userId: string, state: ScheduleOverrideState): void {
+  try {
+    localStorage.setItem(storageKey(userId), JSON.stringify(state))
+  } catch {
+    /* quota */
+  }
+}
+
+// Survives reloads: set the moment an edit is made and cleared only once the
+// server has acknowledged that exact state. Without it, an upload that failed
+// (offline, 500, tab closed mid-flight) would be silently overwritten by the
+// server copy on the next sync, losing the student's corrections.
+function dirtyKey(userId: string): string {
+  return `boilerindy-schedule-overrides-dirty-v1-${userId}`
+}
+
+function markDirty(userId: string): void {
+  try {
+    localStorage.setItem(dirtyKey(userId), '1')
+  } catch {
+    /* quota */
+  }
+}
+
+function clearDirty(userId: string): void {
+  try {
+    localStorage.removeItem(dirtyKey(userId))
+  } catch {
+    /* ignore */
+  }
+}
+
+function hasUnsyncedEdits(userId: string): boolean {
+  if (pushTimers.has(userId)) return true
+  try {
+    return localStorage.getItem(dirtyKey(userId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+// Edits arrive in bursts (typing a room name, toggling days), so the upload is
+// debounced and only the newest state is sent.
+const pushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function schedulePush(userId: string, state: ScheduleOverrideState): void {
+  markDirty(userId)
+  const existing = pushTimers.get(userId)
+  if (existing) clearTimeout(existing)
+  const payload = JSON.stringify({ overrides: state })
+  pushTimers.set(
+    userId,
+    setTimeout(() => {
+      pushTimers.delete(userId)
+      authRequest('/api/me/schedule-overrides', { method: 'PUT', body: payload })
+        .then(() => {
+          // A newer edit may have queued while this was in flight; that push
+          // owns the flag now, so leave it set.
+          if (!pushTimers.has(userId)) clearDirty(userId)
+        })
+        // localStorage still holds the truth for this device and the dirty flag
+        // makes the next page load retry, so a failure is not fatal.
+        .catch(() => {})
+    }, 600),
+  )
+}
+
 function persist(userId: string | null | undefined, state: ScheduleOverrideState): ScheduleOverrideState {
   if (userId) {
-    try {
-      localStorage.setItem(storageKey(userId), JSON.stringify(state))
-    } catch {
-      /* quota */
-    }
+    writeLocal(userId, state)
+    schedulePush(userId, state)
+    window.dispatchEvent(new Event(SCHEDULE_OVERRIDES_EVENT))
   }
+  return state
+}
+
+function isEmptyState(state: ScheduleOverrideState): boolean {
+  return Object.keys(state.series).length === 0 && state.manual.length === 0
+}
+
+/**
+ * Reconcile this device with the server once per session.
+ *
+ * Whoever has data wins: a fresh device adopts the server copy, and a device
+ * that still has pre-migration localStorage edits uploads them. When both sides
+ * have data the server wins, since it is the shared copy.
+ */
+export async function syncScheduleOverridesFromServer(
+  userId: string | null | undefined,
+): Promise<ScheduleOverrideState> {
+  const before = loadScheduleOverrides(userId)
+  if (!userId) return before
+
+  try {
+    const data = (await authRequest('/api/me/schedule-overrides')) as {
+      overrides?: unknown
+      unavailable?: boolean
+    }
+    if (data.unavailable) return before
+
+    // The student can edit while this request is in flight. Re-read rather than
+    // trusting the snapshot, or the response would overwrite a newer local edit.
+    const local = loadScheduleOverrides(userId)
+    const localChangedDuringFetch = JSON.stringify(local) !== JSON.stringify(before)
+
+    if (hasUnsyncedEdits(userId) || localChangedDuringFetch) {
+      // schedulePush replaces any queued payload, so pass the newest state.
+      schedulePush(userId, local)
+      return local
+    }
+
+    const remote = coerceOverrideState(data.overrides)
+    if (isEmptyState(remote) && !isEmptyState(local)) {
+      schedulePush(userId, local)
+      return local
+    }
+
+    writeLocal(userId, remote)
+    window.dispatchEvent(new Event(SCHEDULE_OVERRIDES_EVENT))
+    return remote
+  } catch {
+    return loadScheduleOverrides(userId)
+  }
+}
+
+/**
+ * Overrides for the current user, kept current as edits land on any page and
+ * after the initial server pull.
+ */
+export function useScheduleOverrides(userId: string | null | undefined): ScheduleOverrideState {
+  const [state, setState] = useState<ScheduleOverrideState>(() => loadScheduleOverrides(userId))
+
+  useEffect(() => {
+    setState(loadScheduleOverrides(userId))
+    const onChange = () => setState(loadScheduleOverrides(userId))
+    window.addEventListener(SCHEDULE_OVERRIDES_EVENT, onChange)
+    return () => window.removeEventListener(SCHEDULE_OVERRIDES_EVENT, onChange)
+  }, [userId])
+
   return state
 }
 

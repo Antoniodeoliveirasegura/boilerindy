@@ -1,5 +1,7 @@
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { syncScheduleOverridesFromServer } from '../lib/scheduleOverrideStore'
 import Navbar from './Navbar'
 import CampusAssistant from './CampusAssistant'
 import SessionExpiryWatcher from './SessionExpiryWatcher'
@@ -8,6 +10,17 @@ import SiteDisclaimer from './SiteDisclaimer'
 import PageLoader from './PageLoader'
 
 export default function AppLayout() {
+  const { user } = useAuth()
+  const userId = (user?.id as string | undefined) ?? null
+
+  // Reconcile this device's schedule edits with the server once the user is
+  // known. Every page reads them from localStorage synchronously, so this only
+  // has to land before the next render, not before the first one.
+  useEffect(() => {
+    if (!userId) return
+    syncScheduleOverridesFromServer(userId)
+  }, [userId])
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />

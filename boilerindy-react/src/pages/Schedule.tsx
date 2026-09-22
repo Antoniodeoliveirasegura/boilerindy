@@ -14,6 +14,7 @@ import {
   loadScheduleOverrides,
   removeManualClass,
   saveSeriesOverride,
+  SCHEDULE_OVERRIDES_EVENT,
   updateManualClass,
   type ScheduleOverrideState,
   type ScheduleSeriesOverride,
@@ -289,8 +290,13 @@ export default function Schedule() {
     }
   }
 
+  // Re-read on user change and whenever the server pull (or another tab) lands,
+  // so edits made elsewhere show up without a reload.
   useEffect(() => {
-    setOverrides(loadScheduleOverrides(userId))
+    const refresh = () => setOverrides(loadScheduleOverrides(userId))
+    refresh()
+    window.addEventListener(SCHEDULE_OVERRIDES_EVENT, refresh)
+    return () => window.removeEventListener(SCHEDULE_OVERRIDES_EVENT, refresh)
   }, [userId])
 
   useEffect(() => {
