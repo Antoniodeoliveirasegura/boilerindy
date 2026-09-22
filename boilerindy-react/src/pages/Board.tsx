@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
 
@@ -336,7 +337,7 @@ export default function Board() {
         body: JSON.stringify({
           messages: [{
             role: 'user',
-            content: `Summarize this campus board discussion in 2-3 concise bullet points. What is the main question and what are the key answers or opinions? No markdown headers.\n\n${threadText}`,
+            content: `Summarize this campus board discussion in 2-3 concise "-" bullets. What is the main question and what are the key answers or opinions? No headings, no intro line.\n\n${threadText}`,
           }],
         }),
       })
@@ -853,9 +854,9 @@ export default function Board() {
                                     Thread summary
                                   </span>
                                 </div>
-                                <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed whitespace-pre-line">
-                                  {threadSummaries[post.id]}
-                                </p>
+                    <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">
+                      {threadSummaries[post.id]}
+                    </AiMarkdown>
                               </div>
                             ) : (
                               <button

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { track } from '../lib/usageStats'
 import { authRequest } from '../lib/authApi'
@@ -230,7 +231,7 @@ export default function Dining() {
       body: JSON.stringify({
         messages: [{
           role: 'user',
-          content: "Based on what's currently being served at open dining locations on campus, give me a quick meal recommendation. Mention the specific location, a dish or two, and a short reason. Keep it to 2-3 sentences. No markdown.",
+          content: "Based on what's currently being served at open dining locations on campus, give me a quick meal recommendation. Name the specific location in bold and the actual dishes being served there today, plus a short reason. 2-3 sentences, no bullets, no headings.",
         }],
       }),
     })
@@ -395,7 +396,7 @@ export default function Dining() {
               <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{aiSuggestion}</p>
+              <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{aiSuggestion}</AiMarkdown>
             </div>
             <button
               onClick={() => setAiSuggestion(null)}

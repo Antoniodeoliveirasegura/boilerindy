@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
-import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
+import { linkifyText, stripHtml } from '../lib/linkifyText'
+import { readAiCache, writeAiCache } from '../lib/aiCache'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
 
@@ -97,7 +99,7 @@ export default function Events() {
   const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
 
   const [eventRecs, setEventRecs] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem(getRecsCacheKey()) || 'null') ?? null } catch { return null }
+    return readAiCache(getRecsCacheKey())?.text ?? null
   })
   const [recsLoading, setRecsLoading] = useState(false)
 
@@ -110,16 +112,15 @@ export default function Events() {
       body: JSON.stringify({
         messages: [{
           role: 'user',
-          content: 'Pick 2-3 upcoming campus events I should attend based on my free time this week. For each, write one sentence: the event name, the day/time, and why I should go. Plain text only, no markdown, no asterisks, no bold, no bullet points. Complete every sentence.',
+          content: 'Pick 2-3 upcoming campus events I should attend based on my free time this week. One "-" bullet each: the event name in bold, then the day and time, then one sentence on why it fits my schedule. No intro line, no closing line.',
         }],
       }),
     })
       .then((r) => r.json())
       .then((d) => {
         if (d.reply) {
-          const clean = cleanAiText(d.reply)
-          setEventRecs(clean)
-          try { localStorage.setItem(getRecsCacheKey(), JSON.stringify(clean)) } catch { /* ignore */ }
+          setEventRecs(d.reply)
+          writeAiCache(getRecsCacheKey(), d.reply)
         }
       })
       .catch(() => {})
@@ -295,7 +296,7 @@ export default function Events() {
               Finding events that fit your schedule…
             </div>
           ) : eventRecs ? (
-            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed whitespace-pre-line">{eventRecs}</p>
+            <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{eventRecs}</AiMarkdown>
           ) : (
             <p className="text-[12px] text-[var(--color-txt-3)]">
               AI picks campus events that fit your free time. Tap &ldquo;Get Picks&rdquo; to try it.

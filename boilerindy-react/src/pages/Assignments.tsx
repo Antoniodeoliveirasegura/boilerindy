@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
-import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
+import { linkifyText, stripHtml } from '../lib/linkifyText'
+import { describeAge, readAiCache, writeAiCache } from '../lib/aiCache'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import TaskCompleteReward, {
   rewardOriginFromEvent,
@@ -248,12 +250,16 @@ export default function Assignments() {
   const [selectedItem, setSelectedItem] = useState<MergedItem | null>(null)
 
   const [insightsMode, setInsightsMode] = useState('priority')
-  const [insightsText, setInsightsText] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('priority')) || 'null') ?? null } catch { return null }
-  })
-  const [studyPlan, setStudyPlan] = useState<string | null>(() => {
-    try { return JSON.parse(localStorage.getItem(getInsightsCacheKey('study')) || 'null') ?? null } catch { return null }
-  })
+  const [insightsText, setInsightsText] = useState<string | null>(
+    () => readAiCache(getInsightsCacheKey('priority'))?.text ?? null,
+  )
+  const [studyPlan, setStudyPlan] = useState<string | null>(
+    () => readAiCache(getInsightsCacheKey('study'))?.text ?? null,
+  )
+  const [insightsAt, setInsightsAt] = useState<Record<string, number | null>>(() => ({
+    priority: readAiCache(getInsightsCacheKey('priority'))?.at ?? null,
+    study: readAiCache(getInsightsCacheKey('study'))?.at ?? null,
+  }))
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(true)
 
@@ -275,8 +281,8 @@ export default function Assignments() {
   const generateInsights = (mode: string) => {
     setInsightsLoading(true)
     const prompt = mode === 'study'
-      ? 'Look at my free time between classes this week and my upcoming assignments. Create a short study plan: which assignment to work on, when (day and time), and for how long. Max 5 items. Plain text only, no markdown, no asterisks, no bold, no headers. Complete every sentence.'
-      : 'Rank my upcoming assignments by urgency. Most urgent first. One line per item with format: [!] or [~] or [ok] then the assignment name and when it is due. Plain text only, no markdown, no asterisks, no bold, no headers. Complete every line.'
+      ? 'Look at my free time between classes this week, my upcoming assignments and my own task list. Build a short study plan: which item to work on, when (day and time), and for how long. Max 5 "-" bullets, each starting with the day and time in bold. Skip anything already marked DONE. No intro line, no closing line.'
+      : 'Rank what I still have to do by urgency, most urgent first, pulling from both my synced assignments and my own task list. Max 6 "-" bullets. Bold the due date on each line and say in a few words why it ranks there. Skip anything already marked DONE and call out anything OVERDUE first. No intro line, no closing line.'
     fetch('/api/assistant', {
       method: 'POST',
       credentials: 'include',
@@ -286,14 +292,10 @@ export default function Assignments() {
       .then((r) => r.json())
       .then((d) => {
         if (d.reply) {
-          const clean = cleanAiText(d.reply)
-          if (mode === 'study') {
-            setStudyPlan(clean)
-            try { localStorage.setItem(getInsightsCacheKey('study'), JSON.stringify(clean)) } catch { /* quota */ }
-          } else {
-            setInsightsText(clean)
-            try { localStorage.setItem(getInsightsCacheKey('priority'), JSON.stringify(clean)) } catch { /* quota */ }
-          }
+          const { at } = writeAiCache(getInsightsCacheKey(mode), d.reply)
+          if (mode === 'study') setStudyPlan(d.reply)
+          else setInsightsText(d.reply)
+          setInsightsAt((prev) => ({ ...prev, [mode]: at }))
         }
       })
       .catch(() => {})
@@ -875,7 +877,14 @@ export default function Assignments() {
                   Analyzing your assignments…
                 </div>
               ) : activeInsight ? (
-                <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed whitespace-pre-line">{activeInsight}</p>
+                <>
+                  <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{activeInsight}</AiMarkdown>
+                  {insightsAt[insightsMode] && (
+                    <p className="mt-2 text-[11px] text-[var(--color-txt-3)]">
+                      Generated {describeAge(insightsAt[insightsMode])} - refresh after you check things off.
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-[12px] text-[var(--color-txt-3)] py-1">
                   Click &ldquo;Generate&rdquo; to get AI-powered {insightsMode === 'priority' ? 'priority ranking' : 'study plan'} based on your schedule and deadlines.
