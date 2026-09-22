@@ -98,6 +98,15 @@ import {
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
 import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
+import {
+  BOARD_PAGE_SIZE,
+  INLINE_REPLIES,
+  INLINE_REPLY_FETCH_LIMIT,
+  REPLY_PAGE_SIZE,
+  validateBoardPost,
+  validateBoardReply,
+} from './src/boardLimits.mjs'
+import { groupRepliesByPost, mapBoardReply } from './src/boardReplies.mjs'
 import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
 import { requireUuidParam } from './src/httpGuards.mjs'
@@ -3661,8 +3670,24 @@ function respondBoardDbError(res, err) {
   return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.board)
 }
 
+// Display names for the non-anonymous authors of a batch of posts or replies.
+// Anonymous rows never reach the lookup, so an author who only ever posts
+// anonymously is never read.
+async function boardDisplayNames(...rowSets) {
+  const userIds = new Set()
+  for (const rows of rowSets) {
+    for (const row of rows) { if (!row.is_anon) userIds.add(row.user_id) }
+  }
+  const nameMap = {}
+  if (userIds.size === 0) return nameMap
+  const { data } = await supabase.from('users').select('id, display_name').in('id', [...userIds])
+  for (const u of data || []) nameMap[u.id] = u.display_name
+  return nameMap
+}
+
 app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
 
   // select('*') keeps the board working whether or not the optional
   // edited_at migration (db/supabase-board-only.sql) has been applied yet
@@ -3680,34 +3705,33 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
       .order('pinned', { ascending: false })
       .order('created_at', { ascending: false })
   }
-  const { data: postsData, error: postsError } = await query.limit(100)
+  const { data: postsData, error: postsError } = await query
+    .range(page * BOARD_PAGE_SIZE, page * BOARD_PAGE_SIZE + BOARD_PAGE_SIZE - 1)
   if (postsError) return respondBoardDbError(res, postsError)
 
   const postIds = postsData.map(p => p.id)
   let repliesData = []
   if (postIds.length > 0) {
+    // Newest first with a hard cap (issue #200): only the newest INLINE_REPLIES
+    // per post are previewed, and the rest of a thread comes from
+    // GET /api/board/posts/:id/replies.
     const { data: rd } = await supabase
       .from('board_replies')
       .select('id, post_id, body, is_anon, created_at, user_id')
       .in('post_id', postIds)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(INLINE_REPLY_FETCH_LIMIT)
     repliesData = rd || []
   }
+  const { byPost: inlineReplies, truncatedPostIds } = groupRepliesByPost(repliesData, { perPost: INLINE_REPLIES })
+  const truncated = new Set(truncatedPostIds)
+  // The reply budget is global. When it binds, a post that came back with fewer
+  // than INLINE_REPLIES may have been starved by a busier thread rather than be
+  // short, so it keeps its marker and loads the thread from the replies route.
+  const replyFetchCapped = repliesData.length >= INLINE_REPLY_FETCH_LIMIT
+  const previewedReplies = Object.values(inlineReplies).flat()
 
-  // Batch-fetch display names for all non-anonymous user IDs
-  const allUserIds = new Set()
-  for (const p of postsData) { if (!p.is_anon) allUserIds.add(p.user_id) }
-  for (const r of repliesData) { if (!r.is_anon) allUserIds.add(r.user_id) }
-  const nameMap = {}
-  if (allUserIds.size > 0) {
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, display_name')
-      .in('id', [...allUserIds])
-    if (usersData) {
-      for (const u of usersData) nameMap[u.id] = u.display_name
-    }
-  }
+  const nameMap = await boardDisplayNames(postsData, previewedReplies)
 
   let upvotedIds = new Set()
   if (postIds.length > 0) {
@@ -3719,36 +3743,67 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
     if (uv) uv.forEach(r => upvotedIds.add(r.post_id))
   }
 
-  const repliesByPost = {}
-  for (const reply of repliesData) {
-    if (!repliesByPost[reply.post_id]) repliesByPost[reply.post_id] = []
-    repliesByPost[reply.post_id].push({
-      id: reply.id,
-      body: reply.body,
-      user: reply.is_anon ? 'Anonymous' : (nameMap[reply.user_id] || 'Student'),
-      time: reply.created_at,
-    })
-  }
-
   const myId = req.currentUser.id
-  const posts = postsData.map(p => ({
-    id: p.id,
-    title: p.title,
-    body: p.body,
-    anon: p.is_anon,
-    user: p.is_anon ? 'Anonymous' : (nameMap[p.user_id] || 'Student'),
-    upvotes: p.upvote_count,
-    pinned: p.pinned,
-    hot: !p.pinned && p.upvote_count >= 10,
-    time: p.created_at,
-    tags: Array.isArray(p.tags) ? p.tags : [],
-    editedTime: p.edited_at || null,
-    upvotedByMe: upvotedIds.has(p.id),
-    isMine: p.user_id === myId,
-    replies: repliesByPost[p.id] || [],
-  }))
+  const posts = postsData.map(p => {
+    const replies = (inlineReplies[p.id] || []).map(r => mapBoardReply(r, nameMap))
+    // reply_count is maintained by sync_board_post_reply_count; fall back to what
+    // is on screen so a post still counts its replies on an unmigrated database.
+    const replyCount = Number.isFinite(p.reply_count) ? p.reply_count : replies.length
+    return {
+      id: p.id,
+      title: p.title,
+      body: p.body,
+      anon: p.is_anon,
+      user: p.is_anon ? 'Anonymous' : (nameMap[p.user_id] || 'Student'),
+      upvotes: p.upvote_count,
+      pinned: p.pinned,
+      hot: !p.pinned && p.upvote_count >= 10,
+      time: p.created_at,
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      editedTime: p.edited_at || null,
+      upvotedByMe: upvotedIds.has(p.id),
+      isMine: p.user_id === myId,
+      replies,
+      replyCount,
+      hasMoreReplies: truncated.has(p.id)
+        || replyCount > replies.length
+        || (replyFetchCapped && replies.length < INLINE_REPLIES),
+    }
+  })
 
-  res.json({ posts })
+  res.json({ posts, page, hasMore: postsData.length === BOARD_PAGE_SIZE })
+})
+
+// The rest of a thread the list route only previewed (issue #200). A read, so no
+// write limiter; requireIdParam answers 404 for a non-uuid before the handler.
+app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async (req, res) => {
+  const postId = req.params.id
+  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
+
+  const { data: post, error: postError } = await supabase
+    .from('board_posts')
+    .select('id')
+    .eq('id', postId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (postError) return respondBoardDbError(res, postError)
+  if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+
+  const { data, error } = await supabase
+    .from('board_replies')
+    .select('id, post_id, body, is_anon, created_at, user_id')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true })
+    .range(page * REPLY_PAGE_SIZE, page * REPLY_PAGE_SIZE + REPLY_PAGE_SIZE - 1)
+  if (error) return respondBoardDbError(res, error)
+
+  const rows = data || []
+  const nameMap = await boardDisplayNames(rows)
+  res.json({
+    replies: rows.map(r => mapBoardReply(r, nameMap)),
+    page,
+    hasMore: rows.length === REPLY_PAGE_SIZE,
+  })
 })
 
 const BOARD_TAG_CANDIDATES = [
@@ -3874,8 +3929,8 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
   const body  = String(req.body.body  || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
 
-  if (!title) return res.status(400).json({ error: { message: 'Title is required.', status: 400 } })
-  if (title.length > 300) return res.status(400).json({ error: { message: 'Title must be 300 characters or fewer.', status: 400 } })
+  const limits = validateBoardPost({ title, body })
+  if (!limits.ok) return badRequest(res, limits.message)
 
   const profanityCheck = assertBoardPostTextAllowed(title, body)
   if (!profanityCheck.ok) {
@@ -3935,7 +3990,8 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id')
   const body   = String(req.body.body || '').trim()
   const isAnon = req.body.anon === true || req.body.anon === 'true'
 
-  if (!body) return res.status(400).json({ error: { message: 'Reply body is required.', status: 400 } })
+  const limits = validateBoardReply({ body })
+  if (!limits.ok) return badRequest(res, limits.message)
   if (boardTextFailsPolicy(body)) {
     return res.status(400).json({ error: { message: BOARD_PROFANITY_USER_MESSAGE, status: 400 } })
   }
@@ -4015,10 +4071,8 @@ app.patch('/api/board/posts/:id', boardWriteRateLimit, requireIdParam('id'), req
   const title = String(req.body.title ?? '').trim()
   const body = String(req.body.body ?? '').trim()
 
-  if (!title) return res.status(400).json({ error: { message: 'Title is required.', status: 400 } })
-  if (title.length > 300) {
-    return res.status(400).json({ error: { message: 'Title must be 300 characters or fewer.', status: 400 } })
-  }
+  const limits = validateBoardPost({ title, body })
+  if (!limits.ok) return badRequest(res, limits.message)
 
   const profanityCheck = assertBoardPostTextAllowed(title, body)
   if (!profanityCheck.ok) {

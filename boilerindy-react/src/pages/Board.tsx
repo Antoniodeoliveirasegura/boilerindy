@@ -5,6 +5,12 @@ import { boardDraftKey } from '../lib/aiInsightCache'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+// Same caps and page sizes the API enforces (issue #200)
+import {
+  MAX_BOARD_TITLE,
+  MAX_BOARD_BODY,
+  MAX_BOARD_REPLY,
+} from '../../../src/boardLimits.mjs'
 
 type Reply = { id?: string; user?: string; body?: string; time?: string; [key: string]: unknown }
 type Post = {
@@ -21,9 +27,12 @@ type Post = {
   user?: string
   tags?: string[]
   replies: Reply[]
+  replyCount?: number
+  hasMoreReplies?: boolean
   [key: string]: unknown
 }
 type LiveCompose = { betterTitle?: string; bodyAddOn?: string; tags?: string[] }
+type BoardPage = { posts?: Post[]; page?: number; hasMore?: boolean }
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
@@ -38,6 +47,13 @@ export default function Board() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [repliesOpen, setRepliesOpen] = useState<Set<string>>(new Set())
+  // The list route serves one page of posts with a few replies previewed per
+  // post (issue #200); the rest of each thread comes from its own route.
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [replyPages, setReplyPages] = useState<Record<string, number>>({})
+  const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set())
   // Drafts survive session-expiry redirects to /login (issue #23), per user so
   // the next account on a shared computer never sees them (issue #219)
   const [showForm, setShowForm] = useState(() => {
@@ -95,21 +111,72 @@ export default function Board() {
   const fetchPosts = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
       if (!silent) setLoading(true)
-      const data = (await authRequest(`/api/board/posts?sort=${sort}`)) as { posts?: Post[] }
-      setPosts((data.posts || []).map((p) => ({
-        ...p,
-        isMine: Boolean(p.isMine),
-        time: formatRelative(p.time),
-        editedTime: p.editedTime ? formatRelative(p.editedTime) : null,
-        replies: (p.replies || []).map((r) => ({ ...r, time: formatRelative(r.time) })),
-      })))
+      const data = (await authRequest(`/api/board/posts?sort=${sort}&page=0`)) as BoardPage
+      setPosts((data.posts || []).map(withRelativeTimes))
+      setPage(0)
+      setHasMore(Boolean(data.hasMore))
+      setReplyPages({})
     } catch (err) {
       console.error('Board fetch error', err)
-      if (!silent) setPosts([])
+      if (!silent) {
+        setPosts([])
+        setHasMore(false)
+      }
     } finally {
       if (!silent) setLoading(false)
     }
   }, [sort])
+
+  const loadMorePosts = async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    const next = page + 1
+    try {
+      const data = (await authRequest(`/api/board/posts?sort=${sort}&page=${next}`)) as BoardPage
+      const incoming = (data.posts || []).map(withRelativeTimes)
+      // A post published while you were reading shifts the window, so drop any
+      // id already on screen rather than showing it twice.
+      setPosts((prev) => {
+        const seen = new Set(prev.map((p) => p.id))
+        return [...prev, ...incoming.filter((p) => !seen.has(p.id))]
+      })
+      setPage(next)
+      setHasMore(Boolean(data.hasMore))
+    } catch (err) {
+      console.error('Board load more error', err)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // ── Load the rest of one thread (issue #200) ───────────────────────────────
+  const loadThreadReplies = async (postId: string) => {
+    if (loadingReplies.has(postId)) return
+    const loaded = replyPages[postId]
+    const first = loaded === undefined
+    const next = first ? 0 : loaded + 1
+    setLoadingReplies((prev) => new Set(prev).add(postId))
+    try {
+      const data = (await authRequest(`/api/board/posts/${postId}/replies?page=${next}`)) as {
+        replies?: Reply[]
+        hasMore?: boolean
+      }
+      const incoming = (data.replies || []).map((r) => ({ ...r, time: formatRelative(r.time) }))
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId
+            // Page 0 replaces the preview; later pages append to it.
+            ? { ...p, replies: dedupeReplies(first ? incoming : [...p.replies, ...incoming]), hasMoreReplies: Boolean(data.hasMore) }
+            : p,
+        ),
+      )
+      setReplyPages((prev) => ({ ...prev, [postId]: next }))
+    } catch (err) {
+      console.error('Board replies fetch error', err)
+    } finally {
+      setLoadingReplies((prev) => { const n = new Set(prev); n.delete(postId); return n })
+    }
+  }
 
   useEffect(() => {
     // fetchPosts performs its setState after an await; wrap it in an IIFE so the
@@ -315,7 +382,11 @@ export default function Board() {
     setPosts((prev) =>
       prev.map((p) =>
         p.id === postId
-          ? { ...p, replies: [...p.replies, { ...data.reply, time: 'Just now' }] }
+          ? {
+              ...p,
+              replies: [...p.replies, { ...data.reply, time: 'Just now' }],
+              replyCount: (p.replyCount ?? p.replies.length) + 1,
+            }
           : p,
       ),
     )
@@ -443,23 +514,31 @@ export default function Board() {
           <label className="sr-only" htmlFor="board-new-title">
             Question title
           </label>
-          <input
-            id="board-new-title"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="What do you want to ask campus?"
-            className="input w-full text-[15px] font-medium px-4 py-3.5 mb-3 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
-          />
+          <div className="mb-3">
+            <input
+              id="board-new-title"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              maxLength={MAX_BOARD_TITLE}
+              placeholder="What do you want to ask campus?"
+              className="input w-full text-[15px] font-medium px-4 py-3.5 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+            />
+            <CharCount value={newTitle} max={MAX_BOARD_TITLE} />
+          </div>
           <label className="sr-only" htmlFor="board-new-body">
             Optional details
           </label>
-          <textarea
-            id="board-new-body"
-            value={newBody}
-            onChange={(e) => setNewBody(e.target.value)}
-            placeholder="Optional context - course, building, deadline…"
-            className="input w-full text-[14px] px-4 py-3.5 resize-y min-h-[108px] mb-4 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
-          />
+          <div className="mb-4">
+            <textarea
+              id="board-new-body"
+              value={newBody}
+              onChange={(e) => setNewBody(e.target.value)}
+              maxLength={MAX_BOARD_BODY}
+              placeholder="Optional context - course, building, deadline…"
+              className="input w-full text-[14px] px-4 py-3.5 resize-y min-h-[108px] rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+            />
+            <CharCount value={newBody} max={MAX_BOARD_BODY} />
+          </div>
 
           {(liveComposeLoading || liveCompose) && (
             <div className="mb-5 rounded-xl border border-[var(--color-accent)]/20 bg-[var(--color-accent-bg)]/40 px-4 py-3">
@@ -719,12 +798,16 @@ export default function Board() {
                       <label className="sr-only" htmlFor={`edit-title-${post.id}`}>
                         Edit title
                       </label>
-                      <input
-                        id={`edit-title-${post.id}`}
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        className="input w-full text-[15px] font-medium px-3 py-2.5 mb-2 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
-                      />
+                      <div className="mb-2">
+                        <input
+                          id={`edit-title-${post.id}`}
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          maxLength={MAX_BOARD_TITLE}
+                          className="input w-full text-[15px] font-medium px-3 py-2.5 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+                        />
+                        <CharCount value={editTitle} max={MAX_BOARD_TITLE} />
+                      </div>
                       <label className="sr-only" htmlFor={`edit-body-${post.id}`}>
                         Edit details
                       </label>
@@ -732,9 +815,11 @@ export default function Board() {
                         id={`edit-body-${post.id}`}
                         value={editBody}
                         onChange={(e) => setEditBody(e.target.value)}
+                        maxLength={MAX_BOARD_BODY}
                         placeholder="Optional context - course, building, deadline…"
                         className="input w-full text-[14px] px-3 py-2.5 resize-y min-h-[88px] rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
                       />
+                      <CharCount value={editBody} max={MAX_BOARD_BODY} />
                       {editError && (
                         <p className="text-[12px] text-red-600 dark:text-red-400 mt-2" role="alert">
                           {editError}
@@ -837,7 +922,7 @@ export default function Board() {
                       className="inline-flex items-center gap-1.5 ml-auto sm:ml-0 text-[var(--color-accent)] font-semibold hover:underline"
                     >
                       <Icon name="message" size={13} />
-                      {post.replies.length} {post.replies.length === 1 ? 'reply' : 'replies'}
+                      {replyCountOf(post)} {replyCountOf(post) === 1 ? 'reply' : 'replies'}
                     </button>
                   </div>
 
@@ -848,7 +933,7 @@ export default function Board() {
                   >
                     <div className="overflow-hidden min-h-0">
                       <div className="rounded-xl bg-[var(--color-stat)]/60 border border-[var(--color-border)] p-4 sm:p-5">
-                        {post.replies.length >= 5 && (
+                        {replyCountOf(post) >= 5 && (
                           <div className="mb-4">
                             {threadSummaries[post.id] ? (
                               <div className="rounded-xl p-4 bg-[var(--color-surface)] border border-[var(--color-gold)]/25 shadow-[var(--shadow-sm)]">
@@ -894,6 +979,20 @@ export default function Board() {
                             </li>
                           ))}
                         </ul>
+                        {post.hasMoreReplies && (
+                          <button
+                            type="button"
+                            onClick={() => void loadThreadReplies(post.id)}
+                            disabled={loadingReplies.has(post.id)}
+                            className="mt-1 text-[12px] font-semibold text-[var(--color-accent)] hover:underline disabled:opacity-45"
+                          >
+                            {loadingReplies.has(post.id)
+                              ? 'Loading replies…'
+                              : replyPages[post.id] === undefined
+                                ? `Show all ${replyCountOf(post)} replies`
+                                : 'Load more replies'}
+                          </button>
+                        )}
                         <ReplyInput
                           threadTitle={post.title}
                           threadBody={post.body || ''}
@@ -906,6 +1005,19 @@ export default function Board() {
               </div>
             </article>
           ))}
+
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => void loadMorePosts()}
+                disabled={loadingMore}
+                className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-semibold border border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)] disabled:opacity-45 transition-colors"
+              >
+                {loadingMore ? 'Loading…' : 'Load more posts'}
+              </button>
+            </div>
+          )}
 
           {sortedPosts.length === 0 && (
             <div className="rounded-2xl border-2 border-dashed border-[var(--color-border-2)] bg-[var(--color-stat)]/40 py-16 px-8 text-center">
@@ -1058,6 +1170,7 @@ function ReplyInput({
             if (replyError) setReplyError('')
           }}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void handleSubmit()}
+          maxLength={MAX_BOARD_REPLY}
           placeholder="Share what you know…"
           className="input flex-1 text-[13px] px-4 py-3 rounded-xl border-[var(--color-border-2)] bg-[var(--color-surface)] min-w-0"
         />
@@ -1071,11 +1184,53 @@ function ReplyInput({
           Reply
         </button>
       </div>
+      <CharCount value={text} max={MAX_BOARD_REPLY} />
     </div>
   )
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
+
+// How many replies the thread holds, not how many are on screen: the list route
+// previews only the newest few of a long one (issue #200).
+function replyCountOf(post: Post) {
+  return post.replyCount ?? post.replies.length
+}
+
+function dedupeReplies(replies: Reply[]) {
+  const seen = new Set<string>()
+  return replies.filter((r) => {
+    const id = r.id
+    if (!id) return true
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
+function withRelativeTimes(post: Post): Post {
+  return {
+    ...post,
+    isMine: Boolean(post.isMine),
+    time: formatRelative(post.time),
+    editedTime: post.editedTime ? formatRelative(post.editedTime) : null,
+    replies: (post.replies || []).map((r) => ({ ...r, time: formatRelative(r.time) })),
+  }
+}
+
+// Quiet until the field is nearly full, so a short post carries no chrome.
+function CharCount({ value, max }: { value: string; max: number }) {
+  if (value.length < max * 0.8) return null
+  return (
+    <p
+      className={`text-[11px] tabular-nums text-right mt-1 ${
+        value.length >= max ? 'text-[var(--color-error)]' : 'text-[var(--color-txt-3)]'
+      }`}
+    >
+      {value.length} / {max}
+    </p>
+  )
+}
 
 // Both no-op without a user id (session still loading).
 function loadBoardDraft(userId: string | undefined) {
