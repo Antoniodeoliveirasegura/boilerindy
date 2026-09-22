@@ -324,9 +324,20 @@ file in `db/`; running it in order satisfies each file's dependencies.
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
+CI replays this list. The `db` job in `.github/workflows/ci.yml` applies every
+file above, top to bottom, on an empty stock Postgres 15, after
+`db/ci/prelude.sql` stands in for the roles, `auth` schema and pg_cron/pg_net
+objects a Supabase project has out of the box. A file that does not parse,
+depends on a later step, or is missing from this list fails the build before
+it can reach production. `test/dbApplyOrder.test.mjs` checks the list against
+`db/` without a database, as part of `pnpm test`. To replay it yourself against
+a scratch server: `PGHOST=127.0.0.1 PGUSER=postgres PGPASSWORD=... pnpm run check:db`.
+It creates and drops a database named `boilerindy_ci_apply`; never point it at
+a Supabase project.
+
 > If you add a file to `db/`, add it here too. This list is the only place the
 > full run order is written down, and a migration missing from it is a migration
-> that goes unrun in production.
+> that goes unrun in production. Since the `db` job it is also a failed build.
 
 ---
 
@@ -427,6 +438,8 @@ pnpm run dev                   # Start backend on :3000
 pnpm run test:backend          # Run backend unit tests (node:test)
 pnpm run test:e2e              # Run Playwright E2E suite (builds + previews the frontend,
                                # mocks the backend - no Supabase creds needed)
+pnpm run check:conventions     # Dash scan + AI co-author trailer check, same as CI
+pnpm run check:db              # Replay every db/ file on a scratch Postgres (PGHOST etc.), same as CI
 
 # From boilerindy-react/
 pnpm install --frozen-lockfile # Install frontend dependencies
@@ -457,8 +470,29 @@ asks you to type it back first. Pass `--yes` to skip the prompt; without a termi
 comments, docs, and commit messages - instead of the em dash (U+2014) or the en
 dash (U+2013). They read as machine-generated, so this repo bans them: CI fails
 the build if either character appears anywhere in the source (the "No em/en
-dashes" step in `.github/workflows/ci.yml`). When you would reach for one, use a
-spaced hyphen ( - ), a comma, or a colon.
+dashes" step of the `conventions` job in `.github/workflows/ci.yml`). When you
+would reach for one, use a spaced hyphen ( - ), a comma, or a colon.
+
+**No AI co-author trailers or footers.** Commit messages and pull request
+descriptions must not carry a `Co-Authored-By:` trailer or a "Generated with"
+footer that credits an AI assistant (Claude, Copilot, Codex, ChatGPT, Gemini,
+Cursor). GitHub turns such a trailer into a contributor badge on the repo.
+Crediting a person is fine. The `conventions` job scans every commit in a pull
+request, every push to `develop` and `main`, and the PR description; remove the
+line with `git commit --amend` or a rebase and push again.
+
+**pnpm only.** Both `package.json` files refuse `npm install` and `yarn` through
+an `only-allow` preinstall script, so a foreign lockfile or a differently
+resolved `node_modules` cannot happen by accident.
+
+**Committed git hooks.** `pnpm install` at the repo root points `core.hooksPath`
+at `.githooks/` (the `prepare` script), so from then on `git commit` runs the
+dash scan on the staged files and the trailer check on the message before
+anything reaches CI. `git commit --no-verify` skips them once; CI still runs the
+same checks. `pnpm run check:conventions` runs them by hand over the tracked
+files and the commits not yet on `origin/develop`. The rules live in
+`scripts/lib/conventions.mjs` and are pinned by `test/conventions.test.mjs`, so
+they are the same for everyone, whatever editor or AI assistant wrote the change.
 
 **LF line endings everywhere.** `.gitattributes` sets `* text=auto eol=lf`, so git
 normalizes text files to LF in the repository and checks them out as LF on every
