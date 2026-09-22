@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0"
+  },
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
