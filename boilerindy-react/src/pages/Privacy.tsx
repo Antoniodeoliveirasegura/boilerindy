@@ -48,10 +48,12 @@ you, so only share what you're comfortable making visible on campus.`,
   },
   {
     title: 'AI assistant',
-    body: `When you use the Campus Assistant, your message and relevant context from your own
-calendar (event titles, times, and locations) are sent to Google's Gemini API to generate a
-reply. We do not send your email, password, or device location to the AI. If you don't use the
-assistant, nothing is sent to it.`,
+    body: `When you use the Campus Assistant, your message is sent to Groq's inference API along
+with context from your own account: your class schedule (including classes you have edited,
+hidden, or added yourself), upcoming assignments and deadlines, the to-do list you keep in the
+app and which items you have checked off, campus events on your calendar, and the public dining
+menu for the day. We do not send your email, password, grades or GPA, device location, or
+anything you post on the campus board. If you don't use the assistant, nothing is sent to it.`,
   },
   {
     title: 'Location',

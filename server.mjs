@@ -79,8 +79,14 @@ import {
   formatClassesToday,
   formatDiningOpen,
   formatAssignments,
+  intentFocusHint,
   ASSISTANT_OFFLINE_MESSAGE,
 } from './src/assistantRouter.mjs'
+import {
+  normalizeScheduleOverrides,
+  applyScheduleOverridesToRows,
+  manualClassesAsRows,
+} from './src/scheduleOverrides.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
@@ -2156,6 +2162,54 @@ app.put('/api/me/degree', requireAuth, async (req, res) => {
   res.json({ major })
 })
 
+// ---- Schedule overrides --------------------------------------------------
+// Hidden / edited / manually added class meetings. Previously localStorage only,
+// so they were lost on a new device and invisible to the campus assistant.
+// Stored as one JSONB document because the client always reads and writes the
+// whole state at once.
+async function readScheduleOverrides(userId) {
+  const { data, error } = await supabase
+    .from('user_schedule_overrides')
+    .select('series, manual')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error || !data) return { series: {}, manual: [] }
+  return normalizeScheduleOverrides(data)
+}
+
+app.get('/api/me/schedule-overrides', requireAuth, async (req, res) => {
+  try {
+    res.json({ overrides: await readScheduleOverrides(req.currentUser.id) })
+  } catch (e) {
+    console.error('GET /api/me/schedule-overrides:', e?.message || e)
+    // The client keeps a local copy, so an unavailable table degrades to
+    // "no server state yet" rather than wiping the student's edits.
+    res.json({ overrides: { series: {}, manual: [] }, unavailable: true })
+  }
+})
+
+app.put('/api/me/schedule-overrides', requireAuth, async (req, res) => {
+  const overrides = normalizeScheduleOverrides(req.body?.overrides)
+  try {
+    const { error } = await supabase
+      .from('user_schedule_overrides')
+      .upsert(
+        {
+          user_id: req.currentUser.id,
+          series: overrides.series,
+          manual: overrides.manual,
+          updated_at: nowIso(),
+        },
+        { onConflict: 'user_id' },
+      )
+    if (error) throw error
+    res.json({ overrides })
+  } catch (e) {
+    console.error('PUT /api/me/schedule-overrides:', e?.message || e)
+    res.status(500).json({ error: { message: 'Could not save schedule changes.' } })
+  }
+})
+
 app.get('/api/me/classes', requireAuth, async (req, res) => {
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
   const term = typeof req.query.term === 'string' ? req.query.term : 'auto'
@@ -2492,24 +2546,68 @@ app.get('/', (_req, res) => {
 })
 
 // ============================================================
-// Gemini campus assistant
+// Campus assistant (Groq)
 // ============================================================
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
+// Groq speaks the OpenAI chat-completions dialect, so this is a plain
+// system/user/assistant message list rather than Gemini's parts-and-contents
+// shape. Accepts the mixed-case Groq_API_KEY some .env files ended up with.
+const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.Groq_API_KEY
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
+// Groq's two current production text models. The Llama IDs that older guides
+// reference were retired and now 404, so keep these pinned and overridable.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+// Cheaper and ~2x faster; used for the short classification-style calls.
+const GROQ_FAST_MODEL = process.env.GROQ_FAST_MODEL || 'openai/gpt-oss-20b'
 const TZ = 'America/Indiana/Indianapolis'
 
+/**
+ * One request to Groq's chat-completions endpoint.
+ * @returns {Promise<string>} the assistant text
+ * @throws {Error} with `.status` set when the upstream call fails
+ */
+async function callGroq({ system, messages, maxTokens = 1024, temperature = 0.5, model = GROQ_MODEL }) {
+  const payload = {
+    model,
+    messages: [...(system ? [{ role: 'system', content: system }] : []), ...messages],
+    temperature,
+    // gpt-oss models reject the legacy `max_tokens` in favour of this.
+    max_completion_tokens: maxTokens,
+  }
+
+  const response = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    const err = new Error(`Groq ${response.status}: ${detail.slice(0, 500)}`)
+    err.status = response.status
+    throw err
+  }
+
+  const data = await response.json()
+  // gpt-oss is a reasoning model: chain-of-thought comes back on a separate
+  // `reasoning` field, so `content` is already the clean answer.
+  return data.choices?.[0]?.message?.content?.trim() ?? ''
+}
+
 // In-memory rate limiter: keyed by user ID (authed) or IP (anon)
-const _geminiWindows = new Map()
+const _aiRateWindows = new Map()
 setInterval(() => {
   const now = Date.now()
-  for (const [k, v] of _geminiWindows) if (now >= v.resetAt) _geminiWindows.delete(k)
+  for (const [k, v] of _aiRateWindows) if (now >= v.resetAt) _aiRateWindows.delete(k)
 }, 60 * 60 * 1000)
 
-function geminiAllowed(key, max) {
+function aiRateAllowed(key, max) {
   const now = Date.now()
-  const win = _geminiWindows.get(key)
+  const win = _aiRateWindows.get(key)
   if (!win || now >= win.resetAt) {
-    _geminiWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
+    _aiRateWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
     return true
   }
   if (win.count >= max) return false
@@ -2531,9 +2629,24 @@ You help students with:
 - Student services: ASC tutoring (Campus Center 2nd floor), printing (library 25 free pages/day), Health & Wellness Center, Financial Aid (Cavanaugh Hall), Registrar (Cavanaugh Hall)
 - General student life at Purdue Indy
 
+How to read the context block:
+- COURSES, TODAY and HAPPENING NOW already reflect the student's own edits: classes they deleted are gone, times and rooms they corrected are applied, and classes they added by hand are included and marked [added by you]. Treat it as the truth. Never mention a class that is not listed.
+- Anything marked [DONE] is already finished. Never tell the student to do it, and never count it as pending work.
+- YOUR TASK LIST is the to-dos the student typed in themselves. It is just as real as synced coursework - weave both together rather than treating the synced list as the only one.
+- Items marked [OVERDUE] are late. Call those out first when the student asks what to work on.
+
+Formatting (the app renders your reply as markdown):
+- Use "-" bullets for lists of classes, deadlines, menu items or steps. Never write a numbered plan as one long paragraph.
+- Bold the thing that matters most in a line - a course code, a time, a deadline - with **double asterisks**. Do not bold whole sentences.
+- No headings for short answers. Only use "###" when the reply genuinely has two or more distinct sections.
+- Write times the way a person says them: "2:30pm", not "14:30" or "2:30 PM Eastern".
+- Never output raw JSON, tables, code fences or a dump of the context block.
+
 Rules:
-- Be concise and friendly. For simple questions: 2-4 sentences. For "what should I do now?", "plan my afternoon", or similar planning questions: give a short prioritized plan (3-6 sentences or brief bullets), because multiple commitments may apply.
+- Be concise and friendly. For simple questions: 2-4 sentences, no bullets. For "what should I do now?", "plan my afternoon", or similar planning questions: a short prioritized list of 3-5 bullets, each one concrete and tied to a real time.
+- Open with the answer. No "Sure!", no "Great question", no restating what they asked.
 - Answer directly from the context data when available - do not hedge or defer.
+- Refer to the student's own data specifically. "You have CS 30200 at 2:30pm in ET 202" beats "you have a class this afternoon".
 - When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
 - For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
@@ -2606,10 +2719,14 @@ function isSameZonedCalendarDay(isoStr, refDate, timeZone) {
 }
 
 /** Rich calendar context for /api/assistant: today, ongoing, exams, assignments, events, study hints. */
-function buildAssistantCalendarContext(calendarData, now) {
+function buildAssistantCalendarContext(calendarData, now, completedIds = new Set()) {
   if (!calendarData?.length) {
     return '=== CALENDAR ===\nNo calendar items in the fetched window.'
   }
+  // Completed work still has to appear (the student may ask "did I finish X?"),
+  // but it is labelled so the model stops recommending things already done.
+  const doneMark = (row) => (completedIds.has(row.id) ? ' [DONE]' : '')
+  const addedMark = (row) => (row.manual ? ' [added by you]' : '')
 
   const examTitleRe = /\b(midterm|final|exam|quiz|test)\b/i
   const nowMs = now.getTime()
@@ -2638,7 +2755,7 @@ function buildAssistantCalendarContext(calendarData, now) {
     parts.push('=== HAPPENING NOW (in session) ===')
     parts.push(
       ongoing
-        .map((i) => `- Until ${fmtTime(i.end_time)}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}`)
+        .map((i) => `- Until ${fmtTime(i.end_time)}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}${addedMark(i)}`)
         .join('\n'),
     )
   }
@@ -2657,17 +2774,17 @@ function buildAssistantCalendarContext(calendarData, now) {
           const range = i.end_time
             ? `${fmtTime(i.start_time)}-${fmtTime(i.end_time)}`
             : fmtTime(i.start_time)
-          return `- ${range}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}`
+          return `- ${range}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}${addedMark(i)}${doneMark(i)}`
         })
         .join('\n'),
     )
   }
 
   if (assignmentRows.length) {
-    parts.push('=== UPCOMING ASSIGNMENTS / HOMEWORK / DEADLINES ===')
+    parts.push('=== UPCOMING ASSIGNMENTS / HOMEWORK / DEADLINES (from synced courses) ===')
     parts.push(
       assignmentRows
-        .map((i) => `- Due ${fmtDate(i.start_time)} ${fmtTime(i.start_time)}: ${i.title}${i.location ? ` (${i.location})` : ''} [${i.category}]`)
+        .map((i) => `- Due ${fmtDate(i.start_time)} ${fmtTime(i.start_time)}: ${i.title}${i.location ? ` (${i.location})` : ''} [${i.category}]${doneMark(i)}`)
         .join('\n'),
     )
   } else {
@@ -2702,17 +2819,44 @@ function buildAssistantCalendarContext(calendarData, now) {
   return parts.join('\n\n')
 }
 
-// Intent router (issue #45): answer common questions straight from the DB so
-// they cost zero Gemini tokens. Returns a reply string, or null to fall through.
-async function buildAssistantRouterReply(intent, req, now) {
-  const userId = req.currentUser.id
+// Model calls per user per hour. The intent router used to absorb the most
+// common asks for free; now every question reaches the model, so the ceiling has
+// to be high enough for a real conversation.
+const ASSISTANT_HOURLY_LIMIT = 40
+
+/** Tells the model which screen the student is looking at, when the client says. */
+function describeAssistantPage(page) {
+  if (typeof page !== 'string') return ''
+  const label = ASSISTANT_PAGE_LABELS[page]
+  if (!label) return ''
+  return `=== WHERE THEY ARE ===\nThe student is on the ${label}. Prefer answers that are useful from this screen, and do not tell them to open the page they are already on.`
+}
+
+const ASSISTANT_PAGE_LABELS = {
+  '/dashboard': 'dashboard',
+  '/schedule': 'class schedule page',
+  '/assignments': 'assignments and tasks page',
+  '/dining': 'dining page',
+  '/events': 'campus events page',
+  '/board': 'campus board',
+  '/transit': 'transit page',
+  '/map': 'campus map',
+  '/more': 'more / tools page',
+  '/settings': 'settings page',
+}
+
+/**
+ * Last-resort answers for when GROQ_API_KEY is missing. This is the templated
+ * path that used to run for every matching question; it now only runs when
+ * there is no model available at all.
+ */
+async function buildOfflineAssistantReply(intent, userId, now) {
   if (intent === 'next_class' || intent === 'classes_today') {
     const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 50 })
     return intent === 'next_class' ? formatNextClass(items, now, TZ) : formatClassesToday(items, now, TZ)
   }
   if (intent === 'dining_open') {
-    const dining = await getDiningSnapshot({}).catch(() => null)
-    return formatDiningOpen(dining)
+    return formatDiningOpen(await getDiningSnapshot({}).catch(() => null))
   }
   if (intent === 'assignments') {
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
@@ -2725,6 +2869,89 @@ async function buildAssistantRouterReply(intent, req, now) {
     return formatAssignments(items, now, TZ)
   }
   return null
+}
+
+/**
+ * The student's own to-do list (user_manual_tasks). These never lived in
+ * calendar_items, which is why the assistant used to be blind to anything the
+ * student added by hand.
+ */
+function buildManualTaskContext(tasks, now) {
+  if (!tasks?.length) {
+    return '=== YOUR TASK LIST (to-dos the student added by hand) ===\nEmpty - the student has not added any of their own tasks.'
+  }
+  const lines = tasks.map((t) => {
+    const done = t.completed_at ? '[DONE] ' : ''
+    if (!t.due_at) return `- ${done}${t.title} (no due date)`
+    const overdue = !t.completed_at && new Date(t.due_at) < now ? ' [OVERDUE]' : ''
+    return `- ${done}Due ${fmtDate(t.due_at)} ${fmtTime(t.due_at)}: ${t.title}${overdue}`
+  })
+  return `=== YOUR TASK LIST (to-dos the student added by hand) ===\n${lines.join('\n')}`
+}
+
+/**
+ * Everything the assistant knows about this student, assembled in parallel.
+ *
+ * Deliberately mirrors what the student sees in the UI: schedule overrides are
+ * replayed and manually added classes injected, so the assistant cannot talk
+ * about a class the student deleted or miss one they created.
+ */
+async function gatherAssistantContext(userId, now) {
+  const nowISOStr = now.toISOString()
+  const lowerBound = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString()
+  const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const sel = 'id, title, description, start_time, end_time, location, category'
+
+  const [dining, calendar, taskMeta, overrides] = await Promise.all([
+    getDiningSnapshot({}).catch(() => null),
+    (async () => {
+      const [upcomingRes, ongoingRes] = await Promise.all([
+        supabase
+          .from('calendar_items')
+          .select(sel)
+          .eq('user_id', userId)
+          .gte('start_time', lowerBound)
+          .lte('start_time', horizon)
+          .order('start_time', { ascending: true })
+          .limit(60),
+        supabase
+          .from('calendar_items')
+          .select(sel)
+          .eq('user_id', userId)
+          .lt('start_time', nowISOStr)
+          .gt('end_time', nowISOStr)
+          .limit(25),
+      ])
+      const byId = new Map()
+      for (const r of ongoingRes.data || []) byId.set(r.id, r)
+      for (const r of upcomingRes.data || []) byId.set(r.id, r)
+      return [...byId.values()]
+    })().catch(() => []),
+    (async () => {
+      const [compRes, manualRes] = await Promise.all([
+        supabase.from('user_task_completions').select('calendar_item_id').eq('user_id', userId),
+        supabase
+          .from('user_manual_tasks')
+          .select('title, due_at, completed_at')
+          .eq('user_id', userId)
+          .order('due_at', { ascending: true })
+          .limit(60),
+      ])
+      return {
+        completedIds: new Set((compRes.data || []).map((r) => r.calendar_item_id)),
+        manualTasks: manualRes.data || [],
+      }
+    })().catch(() => ({ completedIds: new Set(), manualTasks: [] })),
+    readScheduleOverrides(userId).catch(() => ({ series: {}, manual: [] })),
+  ])
+
+  const corrected = applyScheduleOverridesToRows(calendar, overrides, TZ)
+  const manualClasses = manualClassesAsRows(overrides.manual, new Date(lowerBound), new Date(horizon), TZ)
+  const calendarRows = [...corrected, ...manualClasses].sort(
+    (a, b) => new Date(a.start_time) - new Date(b.start_time),
+  )
+
+  return { dining, calendarRows, ...taskMeta }
 }
 
 app.post('/api/assistant', requireAuth, async (req, res) => {
@@ -2741,114 +2968,137 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
   }
 
-  // Router runs above the API-key check so structured asks work even with no key.
   const lastUserMessage = [...messages].reverse().find((m) => m?.role === 'user')?.content || ''
-  const intent = matchIntent(lastUserMessage)
-  if (intent) {
-    try {
-      const routed = await buildAssistantRouterReply(intent, req, new Date())
-      if (routed) return res.json({ reply: routed, source: 'router' })
-    } catch {
-      /* fall through to the LLM path */
-    }
-  }
 
-  if (!GEMINI_API_KEY) {
-    // Friendly fallback instead of a bare 503 - the router still handles asks above.
+  if (!GROQ_API_KEY) {
+    // Without a key the formatters are the only thing that can answer, so this
+    // is the one path where their templated output is still shown verbatim.
+    const now = new Date()
+    try {
+      const routed = await buildOfflineAssistantReply(matchIntent(lastUserMessage), req.currentUser.id, now)
+      if (routed) return res.json({ reply: routed, source: 'offline-router' })
+    } catch {
+      /* fall through to the generic offline notice */
+    }
     return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
   }
 
-  const rlKey = req.session?.userId || req.ip || 'anon'
-  if (!geminiAllowed(rlKey, 10)) {
-    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
+  // Separate bucket from the board helpers, so a long conversation cannot use up
+  // a student's compose suggestions and vice versa.
+  const rlKey = `assistant:${req.session?.userId || req.ip || 'anon'}`
+  if (!aiRateAllowed(rlKey, ASSISTANT_HOURLY_LIMIT)) {
+    return res.status(429).json({ error: 'You have hit the hourly assistant limit. Try again in a little while.' })
   }
 
   const now = new Date()
-  const nowISOStr = now.toISOString()
-  // Context trim (issue #45): 7 days instead of 4 weeks keeps the LLM prompt small.
-  const fourWeeksOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
   const nowLabel = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const timeLabel = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
 
-  // Fetch all context in parallel
-  const [diningData, calendarData] = await Promise.all([
-    getDiningSnapshot({}).catch(() => null),
-    (async () => {
-      try {
-        const user = await getCurrentUser(req)
-        if (!user) return null
-        const lowerBound = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString()
-        const sel = 'id, title, start_time, end_time, location, category'
-        const [upcomingRes, ongoingRes] = await Promise.all([
-          supabase
-            .from('calendar_items')
-            .select(sel)
-            .eq('user_id', user.id)
-            .gte('start_time', lowerBound)
-            .lte('start_time', fourWeeksOut)
-            .order('start_time', { ascending: true })
-            .limit(30),
-          supabase
-            .from('calendar_items')
-            .select(sel)
-            .eq('user_id', user.id)
-            .lt('start_time', nowISOStr)
-            .gt('end_time', nowISOStr)
-            .limit(25),
-        ])
-        const upcoming = upcomingRes.data || []
-        const ongoingRows = ongoingRes.data || []
-        const byId = new Map()
-        for (const r of ongoingRows) byId.set(r.id, r)
-        for (const r of upcoming) byId.set(r.id, r)
-        return [...byId.values()].sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-      } catch {
-        return null
-      }
-    })(),
-  ])
+  const { dining, calendarRows, completedIds, manualTasks } = await gatherAssistantContext(
+    req.currentUser.id,
+    now,
+  )
 
-  const diningCtx = buildDiningContext(diningData)
-  const calendarCtx = calendarData ? buildAssistantCalendarContext(calendarData, now) : ''
+  // A matched intent no longer answers for the model, it just tells it which
+  // section to lead with.
+  const focusHint = intentFocusHint(matchIntent(lastUserMessage))
+  const pageHint = describeAssistantPage(req.body?.page)
 
   const contextBlock = [
     `=== CURRENT DATE & TIME ===\n${nowLabel} at ${timeLabel} (Eastern)`,
-    diningCtx,
-    calendarCtx,
+    pageHint,
+    buildDiningContext(dining),
+    calendarRows.length ? buildAssistantCalendarContext(calendarRows, now, completedIds) : '',
+    buildManualTaskContext(manualTasks, now),
+    focusHint ? `=== WHAT THEY ARE ASKING ABOUT ===\n${focusHint}` : '',
   ].filter(Boolean).join('\n\n')
 
   const systemPrompt = CAMPUS_SYSTEM_PROMPT + '\n\n' + contextBlock
 
-  const contents = messages
+  const history = messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }))
+    .map((m) => ({ role: m.role, content: m.content }))
 
   try {
-    const response = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        generationConfig: { maxOutputTokens: 2800, temperature: 0.52 },
-      }),
+    const text = await callGroq({
+      system: systemPrompt,
+      messages: history,
+      maxTokens: 2800,
+      temperature: 0.52,
     })
-
-    if (!response.ok) {
-      const err = await response.text()
-      console.error('Gemini error:', err)
-      return res.status(502).json({ error: 'AI service error' })
-    }
-
-    const data = await response.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "Sorry, I couldn't generate a response."
-    res.json({ reply: text })
+    res.json({ reply: text || "Sorry, I couldn't generate a response." })
   } catch (err) {
-    console.error('Assistant error:', err)
+    console.error('Assistant error:', err?.message || err)
+    // Upstream refusals/outages are the model's problem, not a bug in our
+    // handler, so surface them as a gateway error rather than a 500.
+    if (err?.status) return res.status(502).json({ error: 'AI service error' })
     res.status(500).json({ error: 'Assistant request failed' })
+  }
+})
+
+/**
+ * Opening state for the chat panel: what is actually going on right now, plus
+ * suggested questions that match it.
+ *
+ * Deliberately NOT a model call. The panel used to greet everyone with the same
+ * hardcoded sentence and the same five fixed chips, which is what made it read
+ * as a generic chat box. This is real data, rendered deterministically, so it is
+ * instant and free - the model still writes every actual answer.
+ */
+app.get('/api/assistant/briefing', requireAuth, async (req, res) => {
+  const now = new Date()
+  try {
+    const { dining, calendarRows, completedIds, manualTasks } = await gatherAssistantContext(
+      req.currentUser.id,
+      now,
+    )
+
+    const isDone = (row) => completedIds.has(row.id)
+    const classesLeftToday = calendarRows.filter(
+      (r) => r.category === 'class' && isSameZonedCalendarDay(r.start_time, now, TZ) && new Date(r.start_time) > now,
+    )
+    const inSession = calendarRows.find(
+      (r) => r.start_time && r.end_time && new Date(r.start_time) <= now && new Date(r.end_time) > now,
+    )
+
+    const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const dueThisWeek = calendarRows.filter(
+      (r) =>
+        ASSISTANT_ASSIGNMENT_CATEGORIES.has(r.category) &&
+        !isDone(r) &&
+        new Date(r.start_time) >= now &&
+        new Date(r.start_time) <= weekOut,
+    )
+    const openTasks = manualTasks.filter((t) => !t.completed_at)
+    const overdue = openTasks.filter((t) => t.due_at && new Date(t.due_at) < now)
+    const openDining = (dining?.locations || []).filter((l) => l.is_open)
+
+    const facts = []
+    if (inSession) facts.push(`${inSession.title} until ${fmtTime(inSession.end_time)}`)
+    else if (classesLeftToday.length) {
+      const next = classesLeftToday[0]
+      facts.push(`${next.title} at ${fmtTime(next.start_time)}`)
+    }
+    const pending = dueThisWeek.length + openTasks.length
+    if (pending) facts.push(`${pending} thing${pending === 1 ? '' : 's'} on your plate`)
+    if (overdue.length) facts.push(`${overdue.length} overdue`)
+
+    const chips = []
+    if (classesLeftToday.length || inSession) chips.push("What's my next class?")
+    if (overdue.length) chips.push("What am I behind on?")
+    if (dueThisWeek.length || openTasks.length) chips.push('What should I work on tonight?')
+    chips.push('What should I do right now?')
+    if (openDining.length) chips.push("What's good at dining right now?")
+    chips.push('Plan my week')
+
+    res.json({
+      headline: facts.length ? facts.join(' · ') : 'Nothing scheduled right now',
+      chips: chips.slice(0, 5),
+    })
+  } catch (e) {
+    console.error('GET /api/assistant/briefing:', e?.message || e)
+    // The panel falls back to a plain greeting; never block opening the chat.
+    res.json({ headline: '', chips: [] })
   }
 })
 
@@ -3419,13 +3669,13 @@ const BOARD_TAG_CANDIDATES = [
 ]
 
 app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
-  if (!GEMINI_API_KEY) {
+  if (!GROQ_API_KEY) {
     return res.status(503).json({
       error: { message: 'AI suggestions are not configured.', status: 503 },
     })
   }
 
-  if (!geminiAllowed(req.session.userId, 10)) {
+  if (!aiRateAllowed(`board:${req.session.userId}`, 30)) {
     return res.status(429).json({
       error: { message: 'Rate limit reached. Try again in an hour.', status: 429 },
     })
@@ -3452,21 +3702,20 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       : `Campus board thread title: ${postTitle}\nOriginal post:\n${postBody || '(no body)'}\n\nStudent's reply draft:\n${draft}\n\nReturn ONLY JSON: {"replyTip":string|null} - one concise coaching sentence (tone, specificity, or missing info), or null if the draft is fine.`
 
   try {
-    const response = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: userText }] }],
-        generationConfig: { maxOutputTokens: 350, temperature: 0.35 },
-      }),
-    })
-    if (!response.ok) {
-      console.error('Board AI suggestions:', await response.text())
+    let raw
+    try {
+      raw = await callGroq({
+        messages: [{ role: 'user', content: userText }],
+        maxTokens: 350,
+        temperature: 0.35,
+      })
+    } catch (upstream) {
+      console.error('Board AI suggestions:', upstream?.message || upstream)
       return res.status(502).json({ error: { message: 'AI service error', status: 502 } })
     }
-    const data = await response.json()
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
-    const match = raw.match(/\{[\s\S]*\}/)
+    // Models still wrap JSON in prose or fences now and then, so pull out the
+    // object rather than parsing the whole reply.
+    const match = (raw || '{}').match(/\{[\s\S]*\}/)
     if (!match) {
       return context === 'compose'
         ? res.json({ betterTitle: null, bodyAddOn: null, tags: [] })
@@ -3508,27 +3757,24 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
   }
 })
 
-async function autoTagBoardPost(postId, title, body) {
-  if (!GEMINI_API_KEY) return []
+async function autoTagBoardPost(postId, title, body, userId) {
+  if (!GROQ_API_KEY) return []
+  // Fire-and-forget calls used to skip the quota entirely, so a posting loop
+  // could run up the inference bill unmetered. Tagging is a nicety; dropping it
+  // over the limit costs the student nothing.
+  if (userId && !aiRateAllowed(`board-tag:${userId}`, 30)) return []
   const combined = `${title}\n${body}`.slice(0, 400)
   try {
-    const resp = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{
-            text: `You are a campus board post auto-tagger. Given a student's post, pick 1-3 of the most relevant tags from this list: ${BOARD_TAG_CANDIDATES.join(', ')}. Return ONLY a JSON array of strings, e.g. ["dining","parking"]. If nothing fits, return [].`,
-          }],
-        },
-        contents: [{ role: 'user', parts: [{ text: combined }] }],
-        generationConfig: { maxOutputTokens: 60, temperature: 0.1 },
-      }),
+    // Short classification job, so the small model is plenty and keeps the
+    // fire-and-forget path from adding latency to a post.
+    const raw = await callGroq({
+      system: `You are a campus board post auto-tagger. Given a student's post, pick 1-3 of the most relevant tags from this list: ${BOARD_TAG_CANDIDATES.join(', ')}. Return ONLY a JSON array of strings, e.g. ["dining","parking"]. If nothing fits, return [].`,
+      messages: [{ role: 'user', content: combined }],
+      maxTokens: 200,
+      temperature: 0.1,
+      model: GROQ_FAST_MODEL,
     })
-    if (!resp.ok) return []
-    const data = await resp.json()
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
-    const match = raw.match(/\[.*\]/)
+    const match = (raw || '[]').match(/\[.*\]/s)
     if (!match) return []
     const parsed = JSON.parse(match[0])
     const tags = parsed
@@ -3580,7 +3826,7 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
   }
 
   // Fire-and-forget: AI assigns tags in the background
-  const tagsPromise = autoTagBoardPost(data.id, title, body)
+  const tagsPromise = autoTagBoardPost(data.id, title, body, req.session?.userId)
 
   // Respond immediately so the UI doesn't block on AI
   const postPayload = {
