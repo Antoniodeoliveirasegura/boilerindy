@@ -94,7 +94,9 @@ analysis), not part of this file.
 ## Known operational risks (accepted)
 
 Tracked for a conscious decision rather than fixed in code (see the 2026-07-16
-security audit `security-audit-2026-07-16.md` and issue #135):
+security audit
+[docs/security/security-audit-2026-07-16.md](docs/security/security-audit-2026-07-16.md)
+and issue #135):
 
 - **In-process session store.** `express-session` uses the default `MemoryStore`.
   Fine for the current single Render instance, but it grows in memory over long
