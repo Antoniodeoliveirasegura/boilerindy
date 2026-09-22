@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, type BackendSession } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { parseNextPath, registerSupabaseUser, resolvePostLoginPath } from '../lib/authApi'
-import { sendPasswordResetEmail, signInWithEmail, supabase } from '../lib/supabase'
+import { sendPasswordResetEmail, signInWithEmail, signInWithGoogle, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 
@@ -31,6 +31,7 @@ export default function Login() {
   const [pwVisible, setPwVisible] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [oauthSubmitting, setOauthSubmitting] = useState(false)
   // Seed banners from the redirect URL once at mount. These arrive via a CAS
   // redirect, so reading them in the initializer (instead of a setState-in-effect)
   // is both correct and avoids the cascading-render lint warning.
@@ -41,6 +42,7 @@ export default function Login() {
       'cas-config': 'Purdue linking is not configured yet on the backend.',
       'missing-ticket': 'Purdue CAS did not return a ticket. Try again from setup.',
       'cas-validation': 'Purdue CAS could not validate the identity. Try again from setup.',
+      'oauth-error': 'Google sign-in could not be completed. Please try again.',
     }
     return messages[error] || 'Authentication could not be completed.'
   })
@@ -69,6 +71,26 @@ export default function Login() {
     setBanner('')
     setSuccessBanner('')
     setFieldErr({})
+  }
+
+  // Hands off to Supabase, which redirects the browser to Google and back to
+  // /auth/callback. On success this page unmounts mid-flight, so the spinner is
+  // only ever cleared on failure.
+  async function handleGoogleSignIn() {
+    clearErrors()
+    setOauthSubmitting(true)
+    try {
+      // Only an explicit ?next survives the round-trip; without one the callback
+      // resolves setup-vs-dashboard from the onboarding state it gets back.
+      const next = searchParams.get('next')
+      if (next) sessionStorage.setItem('postAuthNext', next)
+      else sessionStorage.removeItem('postAuthNext')
+      await signInWithGoogle()
+    } catch (error) {
+      sessionStorage.removeItem('postAuthNext')
+      setBanner(error instanceof Error ? error.message : 'Google sign-in failed. Please try again.')
+      setOauthSubmitting(false)
+    }
   }
 
   async function handleForgotSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -304,6 +326,26 @@ export default function Login() {
               <Icon name="check" size={16} className="shrink-0 mt-0.5" />
               <span>{successBanner}</span>
             </div>
+          )}
+
+          {!forgotMode && (
+            <>
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={oauthSubmitting || submitting}
+                className="w-full inline-flex items-center justify-center gap-2.5 text-[14px] font-semibold text-[var(--color-txt-0)] bg-[var(--color-surface)] border border-[var(--color-border-2)] px-5 py-3 rounded-xl cursor-pointer hover:bg-[var(--color-bg-2)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Icon name="google" size={17} />
+                {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
+              </button>
+
+              <div className="flex items-center gap-3 my-5" aria-hidden="true">
+                <span className="h-px flex-1 bg-[var(--color-border-2)]" />
+                <span className="text-[11px] text-[var(--color-txt-3)]">or use your email</span>
+                <span className="h-px flex-1 bg-[var(--color-border-2)]" />
+              </div>
+            </>
           )}
 
           {forgotMode ? (

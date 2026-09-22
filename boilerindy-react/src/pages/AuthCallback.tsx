@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { resolvePostLoginPath } from '../lib/authApi'
+
+async function waitForSession(attempts = 10, delayMs = 200) {
+  for (let i = 0; i < attempts; i += 1) {
+    const { data } = await supabase.auth.getSession()
+    if (data.session) return true
+    await new Promise((resolve) => setTimeout(resolve, delayMs))
+  }
+  return false
+}
 
 export default function AuthCallback() {
   const navigate = useNavigate()
@@ -25,21 +35,28 @@ export default function AuthCallback() {
           throw sessionError
         }
 
-        if (session) {
-          await establishSession()
-          navigate('/', { replace: true })
-        } else {
+        if (!session) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
             window.location.href
           )
-          
-          if (exchangeError) {
+
+          // detectSessionInUrl means the client may already be exchanging the
+          // same PKCE code, which consumes the verifier and fails this call.
+          // A session appearing shortly after means that race, not a failure.
+          if (exchangeError && !(await waitForSession())) {
             throw exchangeError
           }
-
-          await establishSession()
-          navigate('/', { replace: true })
         }
+
+        const backendSession = await establishSession()
+        // Google drops us on a bare /auth/callback, so the destination comes
+        // from the ?next stashed before the redirect (if any) plus the freshly
+        // synced onboarding state - otherwise OAuth users land on the marketing
+        // page instead of setup or the dashboard.
+        const next = sessionStorage.getItem('postAuthNext')
+        sessionStorage.removeItem('postAuthNext')
+        const search = next ? `?next=${encodeURIComponent(next)}` : ''
+        navigate(resolvePostLoginPath(search, backendSession?.onboarding), { replace: true })
       } catch (err) {
         console.error('Auth callback error:', err)
         setError(err instanceof Error ? err.message : 'Authentication failed')
