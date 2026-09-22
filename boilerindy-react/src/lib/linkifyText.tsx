@@ -39,6 +39,10 @@ export function stripHtml(html: string | null | undefined): string {
   return s.replace(/\n{3,}/g, '\n\n').trim()
 }
 
+// The assistant bubble no longer uses this: its replies render through
+// components/AiMarkdown.tsx, because stripping the bullet markers here is what
+// flattened structured answers into a wall of text. Events, Home and Assignments
+// still render their one-line AI summaries as plain text, so it stays.
 /**
  * Clean AI-generated text: strip markdown formatting the model sometimes adds.
  */
