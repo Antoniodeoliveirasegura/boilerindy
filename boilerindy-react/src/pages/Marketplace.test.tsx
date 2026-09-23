@@ -173,3 +173,36 @@ it('keeps the report form and shows the server message when a report fails', asy
   expect(reasons.getByLabelText('Scam or fraud')).toBeChecked()
   expectNoBrowserDialogs()
 })
+
+// Issue #204: three reports hide a listing automatically. Until now its owner
+// saw it sitting in "My listings" looking perfectly normal while nobody else
+// could find it, with nothing anywhere saying why.
+
+it('tells the owner when reports hid a listing, and how many there were', async () => {
+  const hidden = { id: 'hid', title: 'Mini fridge', priceCents: 4000, isMine: true, hidden: true, reportCount: 3 }
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace/mine') return { listings: [hidden] }
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  const card = await myListing('Mini fridge')
+  expect(card.getByText(/Hidden after 3 reports/)).toBeInTheDocument()
+  expect(card.getByText(/Only you can see it/)).toBeInTheDocument()
+})
+
+it('counts a single report in the singular and leaves a live listing unmarked', async () => {
+  const one = { id: 'one', title: 'Desk lamp', priceCents: 500, isMine: true, hidden: true, reportCount: 1 }
+  const live = { id: 'live', title: 'Kettle', priceCents: 900, isMine: true, hidden: false }
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace/mine') return { listings: [one, live] }
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  const flagged = await myListing('Desk lamp')
+  expect(flagged.getByText(/Hidden after 1 report\./)).toBeInTheDocument()
+  const ok = within((await screen.findByText('Kettle')).closest('article') as HTMLElement)
+  expect(ok.queryByText(/Hidden after/)).not.toBeInTheDocument()
+})
+
