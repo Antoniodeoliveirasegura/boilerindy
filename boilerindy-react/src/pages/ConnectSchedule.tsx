@@ -270,7 +270,7 @@ export default function ConnectSchedule() {
     if (!confirm('Delete this source and all its imported items?')) return
     setBanner('')
     try {
-      await authRequest(`/api/me/sources/${encodeURIComponent(sourceId)}/remove`, { method: 'POST' })
+      await authRequest(`/api/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' })
       await refreshSession()
       await loadData()
       setBannerType('success')
