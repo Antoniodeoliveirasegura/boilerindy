@@ -481,6 +481,12 @@ export const test = base.extend({
       categories: [],
       manualTasks: [],
       completions: [],
+      // What GET /api/assistant/briefing answers: the panel's greeting line and
+      // the suggestion chips that replaced the old hardcoded five.
+      assistantBriefing: {
+        headline: 'You have CS 30200 at 2:30pm in ET 202.',
+        chips: ['What should I work on first?', 'When is my next class?'],
+      },
       feedUrl: null,
       // null === never customized; the GET handler then returns the default.
       dashboardLayout: null,
@@ -578,6 +584,16 @@ export const test = base.extend({
 
       if (pathname === '/api/me/calendar') {
         return json(route, 200, { items: state.calendarItems })
+      }
+
+      // The assistant panel pulls its greeting and suggestion chips from here on
+      // every open, so without it the panel falls back to the generic chips and
+      // any test waiting on a real one hangs.
+      if (pathname === '/api/assistant/briefing') {
+        return json(route, 200, {
+          headline: state.assistantBriefing.headline,
+          chips: state.assistantBriefing.chips,
+        })
       }
 
       if (pathname === '/api/me/calendar/categories') {

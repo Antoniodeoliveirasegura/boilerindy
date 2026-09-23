@@ -187,7 +187,7 @@ test.describe('Mobile layout (390px)', () => {
     await expect(assistant).toBeVisible()
     await settle(page)
     await assistant.click()
-    await expect(page.getByRole('button', { name: 'Is Tower Dining open now?' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'What should I work on first?' })).toBeVisible()
 
     const expectPanelFits = async () => {
       // Wait out the open transition (translate and scale) before measuring.
