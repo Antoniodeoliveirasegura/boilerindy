@@ -143,6 +143,9 @@ import {
   formatAssignments,
   ASSISTANT_OFFLINE_MESSAGE,
 } from './src/assistantRouter.mjs'
+import {
+  normalizeScheduleOverrides,
+} from './src/scheduleOverrides.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
@@ -2382,6 +2385,54 @@ app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
     return res.status(500).json({ error: { message: 'Could not save your major.' } })
   }
   res.json({ major })
+})
+
+// ---- Schedule overrides --------------------------------------------------
+// Hidden / edited / manually added class meetings. Previously localStorage only,
+// so they were lost on a new device and invisible to the campus assistant.
+// Stored as one JSONB document because the client always reads and writes the
+// whole state at once.
+async function readScheduleOverrides(userId) {
+  const { data, error } = await supabase
+    .from('user_schedule_overrides')
+    .select('series, manual')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error || !data) return { series: {}, manual: [] }
+  return normalizeScheduleOverrides(data)
+}
+
+app.get('/api/me/schedule-overrides', requireAuth, async (req, res) => {
+  try {
+    res.json({ overrides: await readScheduleOverrides(req.currentUser.id) })
+  } catch (e) {
+    console.error('GET /api/me/schedule-overrides:', e?.message || e)
+    // The client keeps a local copy, so an unavailable table degrades to
+    // "no server state yet" rather than wiping the student's edits.
+    res.json({ overrides: { series: {}, manual: [] }, unavailable: true })
+  }
+})
+
+app.put('/api/me/schedule-overrides', userWriteRateLimit, requireAuth, async (req, res) => {
+  const overrides = normalizeScheduleOverrides(req.body?.overrides)
+  try {
+    const { error } = await supabase
+      .from('user_schedule_overrides')
+      .upsert(
+        {
+          user_id: req.currentUser.id,
+          series: overrides.series,
+          manual: overrides.manual,
+          updated_at: nowIso(),
+        },
+        { onConflict: 'user_id' },
+      )
+    if (error) throw error
+    res.json({ overrides })
+  } catch (e) {
+    console.error('PUT /api/me/schedule-overrides:', e?.message || e)
+    res.status(500).json({ error: { message: 'Could not save schedule changes.' } })
+  }
 })
 
 app.get('/api/me/classes', requireAuth, async (req, res) => {
