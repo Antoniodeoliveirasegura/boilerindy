@@ -32,28 +32,58 @@ export function boardDraftKey(userId: string): string {
   return `${BOARD_DRAFT_PREFIX}-${userId}`
 }
 
+export type CachedAiText = { text: string; at: number }
+
+export const AI_CACHE_TTL_MS = 6 * 60 * 60 * 1000
+
 /**
- * Cached insight text, or null when nothing usable is stored. A null key (no
- * user id yet) reads nothing.
+ * Cached insight text with the time it was generated, or null when nothing
+ * usable is stored. A null key (no user id yet) reads nothing.
+ *
+ * Entries used to be a bare JSON string with no timestamp, so revisiting a page
+ * replayed text that could be hours or days old: the student saw an "insight"
+ * listing work they had since finished, which is a large part of why the AI felt
+ * pre-loaded. Entries now expire on their own and the UI can say how fresh they
+ * are. A pre-timestamp entry reads as expired rather than as undated text.
  */
-export function readAiCache(key: string | null): string | null {
+export function readAiCache(key: string | null, ttlMs: number = AI_CACHE_TTL_MS): CachedAiText | null {
   if (!key) return null
   try {
-    const raw = JSON.parse(localStorage.getItem(key) || 'null')
-    return typeof raw === 'string' && raw.trim() ? raw : null
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed === 'string') return null
+    if (!parsed || typeof parsed !== 'object') return null
+
+    const { text, at } = parsed as Partial<CachedAiText>
+    if (typeof text !== 'string' || !text.trim() || typeof at !== 'number') return null
+    if (Date.now() - at > ttlMs) return null
+    return { text, at }
   } catch {
     return null
   }
 }
 
-/** Persist insight text. No-ops for a null key (no user id yet). */
-export function writeAiCache(key: string | null, value: string): void {
-  if (!key) return
+/** Persist insight text with a generated-at stamp. No-ops for a null key. */
+export function writeAiCache(key: string | null, text: string): CachedAiText {
+  const entry: CachedAiText = { text, at: Date.now() }
+  if (!key) return entry
   try {
-    localStorage.setItem(key, JSON.stringify(value))
+    localStorage.setItem(key, JSON.stringify(entry))
   } catch {
     /* quota / storage unavailable - the card simply regenerates next time */
   }
+  return entry
+}
+
+/** "just now" / "12 min ago" / "3 hours ago" - for the freshness label. */
+export function describeAge(at: number | null | undefined): string {
+  if (!at) return ''
+  const minutes = Math.floor((Date.now() - at) / 60000)
+  if (minutes < 2) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  return `${hours} hour${hours === 1 ? '' : 's'} ago`
 }
 
 function isBoardDraftKey(key: string): boolean {

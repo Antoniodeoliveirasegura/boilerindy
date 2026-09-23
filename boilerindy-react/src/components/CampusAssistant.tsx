@@ -1,31 +1,56 @@
 import { useState, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { useSpeechRecognition } from '../lib/useSpeechRecognition'
+import AiMarkdown from './AiMarkdown'
 import Icon from './Icons'
 
-const quickQuestions = [
+// Shown only until the briefing lands, and if the briefing request fails.
+const fallbackQuestions = [
   'What should I do right now?',
-  "What's for lunch today?",
-  "What's my next assignment due?",
-  'What events are coming up?',
-  'Is Tower Dining open now?',
+  'What should I work on tonight?',
+  'Plan my week',
 ]
 
 type ChatMessage = { role: string; content: string }
 
+const historyKey = (userId: string) => `boilerindy-assistant-history-v1-${userId}`
+const MAX_STORED_MESSAGES = 20
+
+function loadHistory(userId: string | undefined): ChatMessage[] | null {
+  if (!userId) return null
+  try {
+    const raw = sessionStorage.getItem(historyKey(userId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed) || !parsed.length) return null
+    return parsed.filter(
+      (m): m is ChatMessage =>
+        m && typeof m.content === 'string' && (m.role === 'user' || m.role === 'assistant'),
+    )
+  } catch {
+    return null
+  }
+}
+
 export default function CampusAssistant() {
-  const { getFirstName } = useAuth()
+  const { getFirstName, user } = useAuth()
   const firstName = getFirstName()
+  const userId = user?.id as string | undefined
+  const { pathname } = useLocation()
 
   const [open, setOpen] = useState(false)
   // Each message: { role: 'user' | 'assistant', content: string }
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       role: 'assistant',
       content: `Hey ${firstName}! Ask me anything - e.g. what to do right now with your classes and homework, dining, buses, or where to study.`,
     },
   ])
+  const [quickQuestions, setQuickQuestions] = useState<string[]>(fallbackQuestions)
+  const briefingLoaded = useRef(false)
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
@@ -81,10 +106,81 @@ export default function CampusAssistant() {
     if (open) setTimeout(() => inputRef.current?.focus(), 100)
   }, [open])
 
+  // Restore an in-progress conversation so closing the panel or reloading the
+  // page does not throw away what was already asked.
+  useEffect(() => {
+    const stored = loadHistory(userId)
+    if (stored) setMessages(stored)
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId || messages.length <= 1) return
+    try {
+      sessionStorage.setItem(historyKey(userId), JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)))
+    } catch {
+      /* quota */
+    }
+  }, [messages, userId])
+
+  // Greet with what is actually going on, not a fixed sentence. Deferred until
+  // the panel is first opened so it costs nothing on pages nobody asks from.
+  useEffect(() => {
+    if (!open || briefingLoaded.current) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = (await authRequest('/api/assistant/briefing')) as {
+          headline?: string
+          chips?: string[]
+        }
+        if (cancelled) return
+        if (data.chips?.length) setQuickQuestions(data.chips)
+        // The server's catch path is { headline: '', chips: [] }. Latches only
+        // once we have a real greeting, otherwise the next open retries.
+        if (!data.headline) return
+        briefingLoaded.current = true
+        setMessages((prev) => {
+          // Only replace the opener, never a real conversation.
+          if (prev.length !== 1 || prev[0].role !== 'assistant') return prev
+          return [
+            {
+              role: 'assistant',
+              content: `Hey ${firstName} - here's where you stand: **${data.headline}**.\n\nAsk me anything about your schedule, coursework, dining or getting around campus.`,
+            },
+          ]
+        })
+      } catch {
+        /* keep the plain greeting; the next open retries */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, firstName])
+
   // Stop dictation when the panel closes so the mic does not keep listening.
   useEffect(() => {
     if (!open && listening) stopMic()
   }, [open, listening, stopMic])
+
+  function resetConversation() {
+    setMessages([
+      {
+        role: 'assistant',
+        content: `Hey ${firstName}! Ask me anything - e.g. what to do right now with your classes and homework, dining, buses, or where to study.`,
+      },
+    ])
+    setInput('')
+    // Let the next open pull a fresh briefing rather than reusing stale counts.
+    briefingLoaded.current = false
+    if (userId) {
+      try {
+        sessionStorage.removeItem(historyKey(userId))
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   async function handleSend(text: string = input) {
     const userMsg = text.trim()
@@ -102,7 +198,9 @@ export default function CampusAssistant() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: nextMessages }),
+        // `page` lets the server tell the model which screen they are on, so it
+        // stops suggesting they open the tab they are already looking at.
+        body: JSON.stringify({ messages: nextMessages, page: pathname }),
       })
       const data = await res.json()
       const reply = data.reply || data.error || "Sorry, I couldn't get a response."
@@ -131,13 +229,13 @@ export default function CampusAssistant() {
           </div>
         )}
         <div
-          className={`text-[13px] px-4 py-2.5 rounded-2xl max-w-[85%] leading-relaxed whitespace-pre-wrap
+          className={`text-[13px] px-4 py-2.5 rounded-2xl max-w-[85%] leading-relaxed
             ${isUser
-              ? 'bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] text-[var(--color-gold)] rounded-br-md'
+              ? 'bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] text-[var(--color-gold)] rounded-br-md whitespace-pre-wrap'
               : 'bg-[var(--color-stat)] text-[var(--color-txt-0)] rounded-bl-md'
             }`}
         >
-          {msg.content}
+          {isUser ? msg.content : <AiMarkdown>{msg.content}</AiMarkdown>}
         </div>
       </div>
     )
@@ -168,13 +266,25 @@ export default function CampusAssistant() {
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="Close the assistant"
-              className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 flex items-center justify-center text-[var(--color-gold)]/70 hover:text-[var(--color-gold)] hover:bg-[var(--color-gold)]/20 transition-colors"
-            >
-              <Icon name="close" size={16} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              {messages.length > 1 && (
+                <button
+                  onClick={resetConversation}
+                  aria-label="Start a new conversation"
+                  title="New conversation"
+                  className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 flex items-center justify-center text-[var(--color-gold)]/70 hover:text-[var(--color-gold)] hover:bg-[var(--color-gold)]/20 transition-colors"
+                >
+                  <Icon name="refresh" size={15} />
+                </button>
+              )}
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close the assistant"
+                className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 flex items-center justify-center text-[var(--color-gold)]/70 hover:text-[var(--color-gold)] hover:bg-[var(--color-gold)]/20 transition-colors"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
           </div>
 
           {/* Messages: below md the cap also leaves room for the top bar (64px), an

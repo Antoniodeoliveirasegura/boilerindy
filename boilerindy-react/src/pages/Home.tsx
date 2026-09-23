@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, shouldSkipSetup } from '../lib/authApi'
-import { cleanAiText } from '../lib/linkifyText'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import SourceErrorNotice from '../components/SourceErrorNotice'
 import FeaturedDeal from '../components/FeaturedDeal'
@@ -26,8 +26,8 @@ import {
 } from '../lib/scheduleFilters'
 import {
   applyScheduleOverridesToItems,
-  loadScheduleOverrides,
   manualClassesAsItems,
+  useScheduleOverrides,
 } from '../lib/scheduleOverrideStore'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
 import { allowedSizesFor } from '../lib/dashboardLayoutStore'
@@ -69,12 +69,11 @@ const HOME_CALENDAR_CATEGORIES =
 const WEEK_AHEAD_PROMPT = `Write a concise "Week Ahead" summary for my dashboard using ONLY the class schedule, assignments, deadlines, and events in your context. Do not invent courses, due dates, or events.
 
 Requirements:
-- Plain text only. No markdown, no bullets, no numbered lists, no emoji.
-- Use 2-4 short paragraphs separated by a blank line between each.
-- First paragraph: my weekly class rhythm - each course and which days it meets.
-- Next: assignments, exams, or deadlines due this calendar week, or clearly say nothing major is due.
-- Last: notable campus or career events this week, or say none scheduled.
-- Stay under 160 words. Write in second person ("you"). Be warm and skimmable.`
+- One short opening sentence on the shape of the week, then three "-" bullets.
+- Bullet 1: my class rhythm - each course and which days it meets, course codes in bold.
+- Bullet 2: assignments, exams or deadlines due this calendar week with the due day in bold, or clearly say nothing major is due. Skip anything marked DONE.
+- Bullet 3: notable campus or career events this week, or say none are scheduled.
+- No headings, no emoji. Stay under 150 words. Write in second person ("you"). Be warm and skimmable.`
 
 const homeEventCategory: Record<string, { label: string; badge: string; dot: string }> = {
   campus_event: {
@@ -455,14 +454,18 @@ function buildSuggestions({
     })
   }
 
-  // Pad with fallbacks if under 3
-  const fallbacks = [
-    { icon: 'coffee', text: 'Grab coffee at the Union', time: '5 min walk', variant: 'default' },
-    { icon: 'book', text: 'Study at Cavanaugh Hall', time: 'Quiet floor', variant: 'default' },
-    { icon: 'mapPin', text: 'Explore the Campus Center', time: 'Nearby', variant: 'default' },
-  ]
-  let i = 0
-  while (list.length < 3 && i < fallbacks.length) list.push(fallbacks[i++])
+  // Generic campus ideas, only worth showing when the student actually has a
+  // window to fill. Padding these in unconditionally is what made the widget
+  // look like it was making things up on a fully booked day.
+  if (freeMinutes >= 30) {
+    const fillers = [
+      { icon: 'coffee', text: 'Grab coffee at the Union', time: '5 min walk', variant: 'default' },
+      { icon: 'book', text: 'Study at Cavanaugh Hall', time: 'Quiet floor', variant: 'default' },
+      { icon: 'mapPin', text: 'Explore the Campus Center', time: 'Nearby', variant: 'default' },
+    ]
+    let i = 0
+    while (list.length < 3 && i < fillers.length) list.push(fillers[i++])
+  }
 
   return list.slice(0, 3)
 }
@@ -472,6 +475,7 @@ export default function Home() {
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const userId = user?.id as string | undefined
+  const overrides = useScheduleOverrides(userId)
   const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError } = useDashboardLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const { summary: gpaSummary } = useGradeTracker(userId)
@@ -508,7 +512,8 @@ export default function Home() {
   }
 
   function readCachedWeekDigest(): string | null {
-    return readAiCache(getWeekDigestStorageKey())
+    const cached = readAiCache(getWeekDigestStorageKey())
+    return cached?.text.trim() ? cached.text : null
   }
 
   const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
@@ -542,9 +547,8 @@ export default function Home() {
       .then((r) => r.json())
       .then((d) => {
         if (d.reply && mountedRef.current) {
-          const clean = cleanAiText(d.reply)
-          setWeekAheadText(clean)
-          writeAiCache(getWeekDigestStorageKey(), clean)
+          setWeekAheadText(d.reply)
+          writeAiCache(getWeekDigestStorageKey(), d.reply)
         }
       })
       .catch(() => {})
@@ -710,12 +714,11 @@ export default function Home() {
     [calendarItems],
   )
   const homeClasses = useMemo(() => {
-    // Re-read overrides whenever Home recalculates so deletes/edits from
-    // Schedule apply to today's class strip and free-time suggestions.
-    const overrides = loadScheduleOverrides(userId)
+    // Deletes/edits made on Schedule apply to today's class strip and the
+    // free-time math; the hook also refreshes these after the server pull.
     const filtered = applyScheduleOverridesToItems(getHomeClassItems(classes), overrides)
     return [...filtered, ...manualClassesAsItems(overrides.manual, now)]
-  }, [classes, userId, now])
+  }, [classes, overrides, now])
   const scheduleState = useMemo(() => deriveScheduleState(homeClasses, now), [homeClasses, now])
   const suggestions = useMemo(() => buildSuggestions({
     freeMinutes: scheduleState.freeMinutes,
@@ -925,13 +928,7 @@ export default function Home() {
               Generating your week summary…
             </div>
           ) : typeof weekAheadText === 'string' && weekAheadText ? (
-            <div className="text-[13px] text-[var(--color-txt-1)] leading-relaxed space-y-3 whitespace-pre-line">
-              {weekAheadText.split(/\n\n+/).map((para, i) => (
-                <p key={i} className="m-0">
-                  {para.trim()}
-                </p>
-              ))}
-            </div>
+            <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{weekAheadText}</AiMarkdown>
           ) : null}
         </div>
       </div>
@@ -1098,9 +1095,12 @@ export default function Home() {
             <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               Free Time
             </span>
-            <span className="badge bg-[var(--color-gold)]/10 text-[var(--color-gold-muted)]">
-              <Icon name="sparkles" size={10} />
-              Live Suggestions
+            {/* Not AI: buildSuggestions() is deterministic logic over the
+                schedule. The sparkle badge made it read as a model answer and
+                undercut the real assistant sitting right below it. */}
+            <span className="badge bg-[var(--color-stat)] text-[var(--color-txt-2)]">
+              <Icon name="clock" size={10} />
+              From your schedule
             </span>
           </div>
 

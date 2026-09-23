@@ -1,7 +1,14 @@
-// Grounded assistant intent router (issue #45). Answers common questions from
-// the DB with ZERO LLM tokens. matchIntent is a pure keyword/regex matcher;
-// the formatters take already-fetched data and return a reply string (or null
-// to fall through to the LLM). All pure → unit-testable without DB/HTTP.
+// Grounded assistant intent hints. matchIntent is a pure keyword/regex matcher;
+// the formatters take already-fetched data and return a summary string (or null).
+// All pure → unit-testable without DB/HTTP.
+//
+// These used to ANSWER the student directly, skipping the LLM entirely to save
+// tokens (issue #45). That made the assistant feel canned: "what's for lunch
+// today?" matched the dining intent and got back a list of open halls instead of
+// a menu, and "help me plan my homework" got a flat five-item deadline dump.
+// Now a match only tells the prompt builder which sections to emphasise, and the
+// model always writes the reply. The offline message below is the one remaining
+// case where a formatter's output is shown verbatim.
 
 const INTENT_PATTERNS = [
   ['next_class', /\bnext class\b|when'?s?\b.*\bclass\b|my next class/],
@@ -90,3 +97,24 @@ export function formatAssignments(items, now = new Date(), timeZone = 'America/I
 
 export const ASSISTANT_OFFLINE_MESSAGE =
   "I can still answer schedule and dining questions, but the open-ended AI assistant is offline right now. Try asking about your next class, today's classes, what's due, or whether dining is open."
+
+/**
+ * Which context sections the prompt should lead with, given the matched intent.
+ * The model still sees the full context; this just tells it where to look first.
+ * @param {string|null} intent
+ * @returns {string|null} a line to append to the prompt, or null
+ */
+export function intentFocusHint(intent) {
+  switch (intent) {
+    case 'next_class':
+      return 'The student is asking about their next class. Lead with the COURSES and TODAY sections.'
+    case 'classes_today':
+      return "The student is asking about today's classes. Lead with the TODAY section and list every class with its time and room."
+    case 'dining_open':
+      return 'The student is asking about food. Lead with the DINING section - name the actual menu items when they asked what is being served, not just which halls are open.'
+    case 'assignments':
+      return 'The student is asking about coursework. Lead with the ASSIGNMENTS and TASK LIST sections, skip anything already marked DONE, and order by how soon it is due.'
+    default:
+      return null
+  }
+}

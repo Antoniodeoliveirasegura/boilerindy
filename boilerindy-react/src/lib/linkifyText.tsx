@@ -39,20 +39,6 @@ export function stripHtml(html: string | null | undefined): string {
   return s.replace(/\n{3,}/g, '\n\n').trim()
 }
 
-/**
- * Clean AI-generated text: strip markdown formatting the model sometimes adds.
- */
-export function cleanAiText(text: unknown): string {
-  if (text == null || text === '') return ''
-  const s = typeof text === 'string' ? text : String(text)
-  return s
-    .replace(/^#+\s+/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/^[\s]*[-*]\s+/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
 
 /**
  * Turn raw text with http(s) URLs into React nodes with clickable, wrapping links.

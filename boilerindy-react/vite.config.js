@@ -45,6 +45,9 @@ export default defineConfig(({ mode }) => {
             if (id.includes('leaflet')) return 'leaflet'
             if (id.includes('@sentry')) return 'sentry'
             if (id.includes('@supabase')) return 'supabase'
+            // react-markdown pulls in the whole remark/unified tree; keep it out
+            // of the main bundle since only AI surfaces need it.
+            if (/[\\/](react-markdown|remark-.*|micromark.*|mdast-.*|unist-.*|hast-.*|unified|vfile.*|devlop|decode-named-character-reference|character-entities.*|property-information|space-separated-tokens|comma-separated-tokens|html-url-attributes|trim-lines|zwitch|longest-streak|ccount|markdown-table|escape-string-regexp|bail|is-plain-obj|trough|extend|estree-.*)[\\/]/.test(id)) return 'markdown'
             if (/[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'react-vendor'
           },
         },
