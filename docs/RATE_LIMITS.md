@@ -41,7 +41,7 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `push-test` | `POST /api/push/test` (sends a real notification to every registered device) | 10 | 1 hour | user, falls back to IP |
 | `ad-event` | `POST /api/spotlight/:campaignId/event` (impression and click beacons from the spotlight rails, one per ad shown) | 200 | 5 min | user, falls back to IP |
 | `analytics` | `POST /api/usage/events` (the first-party usage beacon, batched by the client, #51) | 60 | 5 min | user, falls back to IP |
-| `admin-write` | `PATCH /api/admin/leads/:id`, `PATCH /api/admin/campaigns/:id`, `POST /api/admin/advertisers`, `POST /api/admin/purdue-links/clear`, `POST /api/admin/deleted/:type/:id/restore`, `DELETE /api/admin/deleted/:type/:id` | 60 | 15 min | user, falls back to IP |
+| `admin-write` | `PATCH /api/admin/leads/:id`, `PATCH /api/admin/campaigns/:id`, `POST /api/admin/advertisers`, `POST /api/admin/purdue-links/clear`, `POST /api/admin/deleted/:type/:id/restore`, `DELETE /api/admin/deleted/:type/:id`, `POST /api/admin/hidden/marketplace/:id/unhide`, `POST /api/admin/hidden/marketplace/:id/takedown` | 60 | 15 min | user, falls back to IP |
 | AI assistant (pre-existing, not a `createRateLimiter` bucket) | `POST /api/assistant` | 10 | 1 hour | user, falls back to IP |
 | AI board suggestions (pre-existing, not a `createRateLimiter` bucket) | `POST /api/board/ai-suggestions` | 10 | 1 hour | user |
 

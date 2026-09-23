@@ -20,6 +20,10 @@ export type Listing = {
   status?: string
   createdAt?: string
   isMine?: boolean
+  /** Auto-hidden after REPORTS_TO_HIDE distinct reports (#204). Browse never returns these. */
+  hidden?: boolean
+  /** Reports against the listing, sent to its owner only and only while it is hidden (#204). */
+  reportCount?: number
   sellerName?: string
   sellerEmail?: string | null
 }

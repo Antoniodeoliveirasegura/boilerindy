@@ -14,6 +14,64 @@ export const MAX_LISTING_TITLE = 120
 export const MAX_LISTING_DESCRIPTION = 2000
 export const REPORTS_TO_HIDE = 3
 
+// Report reasons (issue #204). The website's report form (#224) sends one
+// flattened string: a bare reason, or `other: <details>` when the reporter
+// typed something. A client may instead send { reason, details } as separate
+// fields. parseReportInput accepts both and stores one shape, so the enum lives
+// here rather than in the page: boilerindy-react imports these values.
+export const REPORT_REASONS = ['spam', 'scam', 'prohibited', 'other']
+const REPORT_REASON_SET = new Set(REPORT_REASONS)
+
+// marketplace_reports.reason is CHECK (char_length(reason) <= 500), so the
+// composed string is cut to fit rather than rejected: a reporter who pastes an
+// essay still gets their report filed.
+export const MAX_REPORT_REASON = 500
+export const REPORT_DETAILS_SEPARATOR = ': '
+
+/**
+ * Validate a report body and compose the stored reason.
+ * @param {{ reason?: unknown, details?: unknown }} body
+ * @returns {{ ok: true, reason: string } | { ok: false, message: string }}
+ */
+export function parseReportInput(body) {
+  const raw = String(body?.reason ?? '').trim()
+  if (!raw) return { ok: false, message: 'Choose a reason for the report.' }
+  // Split on the first separator so `other: it never shipped` reads as the
+  // reason `other` with details, and a colon inside the details survives.
+  const cut = raw.indexOf(':')
+  const reason = (cut === -1 ? raw : raw.slice(0, cut)).trim().toLowerCase()
+  if (!REPORT_REASON_SET.has(reason)) {
+    return { ok: false, message: `Reason must be one of: ${REPORT_REASONS.join(', ')}.` }
+  }
+  const details = String(body?.details ?? '').trim() || (cut === -1 ? '' : raw.slice(cut + 1).trim())
+  const composed = details ? `${reason}${REPORT_DETAILS_SEPARATOR}${details}` : reason
+  return { ok: true, reason: composed.slice(0, MAX_REPORT_REASON) }
+}
+
+/**
+ * Decide whether a report may be filed against a listing. The route looks the
+ * listing up first (live rows only), which is what keeps a soft-deleted or
+ * unknown id from reaching the insert and failing as a foreign-key 500.
+ * @param {{ listing?: { user_id?: string } | null, reporterId?: string }} input
+ * @returns {{ status: 200 } | { status: 400 | 404, message: string }}
+ */
+export function evaluateReportTarget({ listing, reporterId } = {}) {
+  if (!listing) return { status: 404, message: 'Listing not found.' }
+  if (listing.user_id === reporterId) return { status: 400, message: 'You cannot report your own listing.' }
+  return { status: 200 }
+}
+
+/**
+ * True once a listing has drawn reports from REPORTS_TO_HIDE distinct accounts.
+ * The primary key on (listing_id, reporter_id) is what makes the row count a
+ * count of reporters.
+ * @param {unknown} count
+ * @returns {boolean}
+ */
+export function shouldAutoHide(count) {
+  return Number(count) >= REPORTS_TO_HIDE
+}
+
 // db/supabase-marketplace.sql does not create image_urls or price_mode; the
 // later gallery and pricing migration (README step 31) adds them. A database
 // error naming one of them sends the operator to that file (#218).
@@ -107,9 +165,10 @@ export function validateListingInput(body, { partial = false } = {}) {
 
 /**
  * Shape a DB row for the API. Seller contact (name + Purdue email) is included
- * only when `seller` is supplied (detail view for signed-in users).
+ * only when `seller` is supplied (detail view for signed-in users), and
+ * `reportCount` only when the row belongs to the caller (issue #204).
  */
-export function mapListingRow(row, currentUserId, seller = null) {
+export function mapListingRow(row, currentUserId, seller = null, { reportCount } = {}) {
   const base = {
     id: row.id,
     title: row.title,
@@ -122,7 +181,12 @@ export function mapListingRow(row, currentUserId, seller = null) {
     status: row.status,
     createdAt: row.created_at,
     isMine: row.user_id === currentUserId,
+    hidden: Boolean(row.hidden),
   }
+  // Report totals are moderation data: the owner sees why their own listing
+  // went dark, nobody else sees who is being reported or how close they are to
+  // the threshold.
+  if (base.isMine && Number.isFinite(reportCount)) base.reportCount = Number(reportCount)
   if (seller) {
     base.sellerName = seller.name || 'Student'
     base.sellerEmail = seller.email || null

@@ -122,10 +122,12 @@ import {
 } from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import {
+  evaluateReportTarget,
   isMissingGalleryPricingColumn,
   mapListingRow,
   MARKETPLACE_GALLERY_PRICING_SQL_FILE,
-  REPORTS_TO_HIDE,
+  parseReportInput,
+  shouldAutoHide,
   validateListingInput,
 } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
@@ -4615,6 +4617,27 @@ async function findOwnedMarketplaceListing(id, userId) {
   if (error) throw error
   return data
 }
+// Reports per listing, for the owner's "hidden after reports" notice and the
+// admin review list. marketplace_reports has no id column and PostgREST cannot
+// group, so the rows come back and are counted here; the caller only ever asks
+// about listings it is already showing.
+async function countMarketplaceReports(listingIds) {
+  const counts = new Map()
+  if (!listingIds.length) return counts
+  const { data, error } = await supabase
+    .from('marketplace_reports')
+    .select('listing_id, reason')
+    .in('listing_id', listingIds)
+  if (error) throw error
+  for (const row of data || []) {
+    const entry = counts.get(row.listing_id) || { count: 0, reasons: [] }
+    entry.count += 1
+    if (row.reason) entry.reasons.push(row.reason)
+    counts.set(row.listing_id, entry)
+  }
+  return counts
+}
+
 app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
   photoAuthorizationHandler({ photos: marketplacePhotos, findOwnedListing: findOwnedMarketplaceListing }))
 
@@ -4670,7 +4693,13 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
     if (error) throw error
-    res.json({ listings: (data || []).map((r) => mapListingRow(r, userId)) })
+    const listings = data || []
+    // Only hidden rows carry a count: it explains why the listing went dark.
+    // A live listing's running total is moderation data and stays server-side.
+    const reports = await countMarketplaceReports(listings.filter((r) => r.hidden).map((r) => r.id))
+    res.json({
+      listings: listings.map((r) => mapListingRow(r, userId, null, { reportCount: reports.get(r.id)?.count })),
+    })
   } catch (e) {
     return respondMarketplaceDbError(res, e)
   }
@@ -4779,22 +4808,43 @@ app.delete('/api/marketplace/:id', userWriteRateLimit, requireIdParam('id'), req
   }
 })
 
-// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters.
+// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters. The
+// listing is looked up before the insert (issue #204): until then a report
+// against a soft-deleted or unknown id reached the foreign key and came back
+// as a 500, and nothing stopped a seller reporting their own listing.
 app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const listingId = req.params.id
-  const reason = String(req.body?.reason || '').trim().slice(0, 500)
+  const parsed = parseReportInput(req.body || {})
+  if (!parsed.ok) return badRequest(res, parsed.message)
   try {
+    const { data: listing, error: lookupErr } = await supabase
+      .from('marketplace_listings')
+      .select('id, user_id, hidden')
+      .eq('id', listingId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (lookupErr) throw lookupErr
+    const verdict = evaluateReportTarget({ listing, reporterId: userId })
+    if (verdict.status === 404) {
+      return res.status(404).json({ error: { message: verdict.message, status: 404 } })
+    }
+    if (verdict.status !== 200) return badRequest(res, verdict.message)
+
     const { error: insErr } = await supabase
       .from('marketplace_reports')
-      .insert({ listing_id: listingId, reporter_id: userId, reason, created_at: nowIso() })
-    if (insErr && insErr.code !== '23505') throw insErr // ignore duplicate report
+      .insert({ listing_id: listingId, reporter_id: userId, reason: parsed.reason, created_at: nowIso() })
+    // The primary key (listing_id, reporter_id) caps a reporter at one report
+    // per listing, so a second one cannot move the count. Answering here says
+    // so plainly and saves the recount round trip.
+    if (insErr?.code === '23505') return res.json({ ok: true, duplicate: true })
+    if (insErr) throw insErr
 
     const { count } = await supabase
       .from('marketplace_reports')
       .select('reporter_id', { count: 'exact', head: true })
       .eq('listing_id', listingId)
-    if ((count || 0) >= REPORTS_TO_HIDE) {
+    if (shouldAutoHide(count)) {
       await supabase.from('marketplace_listings').update({ hidden: true }).eq('id', listingId)
     }
     res.json({ ok: true })
@@ -5793,6 +5843,78 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireIdParam('
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.status(204).end()
+})
+
+// Hidden-listing moderation (admin, issue #204). REPORTS_TO_HIDE distinct
+// reports hide a marketplace listing on their own, and nothing could clear the
+// flag again: the owner never saw it and no admin route touched `hidden`, so
+// three accounts could bury any listing permanently. Admins work the queue
+// here. Marketplace is the only surface with an auto-hide, so these routes name
+// it rather than taking a :type; #192 generalises reports later.
+app.get('/api/admin/hidden/marketplace', requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .select('*')
+      .eq('hidden', true)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) throw error
+    const listings = data || []
+    const reports = await countMarketplaceReports(listings.map((r) => r.id))
+    res.json({
+      items: listings.map((row) => ({
+        ...row,
+        reportCount: reports.get(row.id)?.count || 0,
+        reasons: reports.get(row.id)?.reasons || [],
+      })),
+      label: 'Marketplace listing',
+    })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+app.post('/api/admin/hidden/marketplace/:id/unhide', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .update({ hidden: false })
+      .eq('id', req.params.id)
+      .eq('hidden', true)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
+    // The reports go with it. Left in place the listing sits on the threshold
+    // and the next single report hides it again, which undoes the decision
+    // without any new account having to agree with the first three.
+    const { error: clearErr } = await supabase.from('marketplace_reports').delete().eq('listing_id', req.params.id)
+    if (clearErr) throw clearErr
+    res.json({ ok: true })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Soft delete, so the listing lands in the deleted list above and an admin can
+// still restore it. Any live listing is fair game, not just a hidden one: the
+// button is in the hidden queue, but refusing a listing another admin un-hid a
+// second earlier would be a worse answer than doing the obvious thing.
+app.post('/api/admin/hidden/marketplace/:id/takedown', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .update({ deleted_at: nowIso() })
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
+    res.json({ ok: true })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
 })
 
 // Sentry smoke test (issue #50). Proves the backend error path end to end

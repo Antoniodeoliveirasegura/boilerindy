@@ -99,3 +99,23 @@ export function takeDownContent(type: DeletedContentType, id: string): Promise<u
     method: 'DELETE',
   })
 }
+
+// Auto-hidden marketplace listings (issue #204). Three distinct reports hide a
+// listing on their own; these routes are the only way back out. Un-hiding also
+// clears that listing's reports, so the same three cannot re-hide it, and a
+// takedown soft-deletes it into the deleted list above.
+export function listHiddenMarketplace(): Promise<unknown> {
+  return authRequest('/api/admin/hidden/marketplace')
+}
+
+export function unhideMarketplaceListing(id: string): Promise<unknown> {
+  return authRequest(`/api/admin/hidden/marketplace/${encodeURIComponent(id)}/unhide`, {
+    method: 'POST',
+  })
+}
+
+export function takeDownHiddenListing(id: string): Promise<unknown> {
+  return authRequest(`/api/admin/hidden/marketplace/${encodeURIComponent(id)}/takedown`, {
+    method: 'POST',
+  })
+}
