@@ -28,6 +28,12 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL,
+    // Every browser context runs on campus time (issue #225). Specs that seed
+    // instants and assert a weekday or a due date used to depend on the
+    // runner's timezone (UTC on CI, whatever the laptop has locally); one
+    // ended up pinned to Asia/Seoul as a regression case (tasks.spec.js) and
+    // keeps its own override.
+    timezoneId: 'America/Indiana/Indianapolis',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

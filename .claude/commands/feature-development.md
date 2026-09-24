@@ -14,7 +14,10 @@ Standard feature implementation workflow
 
 ## Common Files
 
-- `boilerindy-react/src/components/*`
+- `src/*.mjs` with `test/*.test.mjs` (the logic and its test)
+- `server.mjs` or `src/routes/*.mjs` (the thin route)
+- `boilerindy-react/src/pages/*`, `boilerindy-react/src/components/*`, `boilerindy-react/src/lib/*` with colocated tests
+- `docs/*.md`, `docs/README.md`, `.env.example` when an operator has to know
 
 ## Suggested Sequence
 

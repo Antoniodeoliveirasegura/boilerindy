@@ -58,8 +58,9 @@ import {
   boardTextFailsPolicy,
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
-import { createRateLimiter } from './src/rateLimiter.mjs'
+import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
+import { toggleUpvote } from './src/upvoteToggle.mjs'
 import {
   DINING_FAVORITES_CAP_MESSAGE,
   DRAFT_CAMPAIGNS_CAP_MESSAGE,
@@ -2834,24 +2835,31 @@ if (!GROQ_API_KEY && process.env.XAI_API_KEY) {
 }
 const TZ = 'America/Indiana/Indianapolis'
 
-// In-memory rate limiter for the AI routes: keyed by user ID (authed) or IP (anon)
-const _aiWindows = new Map()
-setInterval(() => {
-  const now = Date.now()
-  for (const [k, v] of _aiWindows) if (now >= v.resetAt) _aiWindows.delete(k)
-}, 60 * 60 * 1000)
-
-function aiAllowed(key, max) {
-  const now = Date.now()
-  const win = _aiWindows.get(key)
-  if (!win || now >= win.resetAt) {
-    _aiWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
-    return true
-  }
-  if (win.count >= max) return false
-  win.count++
-  return true
-}
+// AI inference metering (issue #191): the assistant and the board helpers used
+// a hand-rolled hourly window; they are now buckets of the shared limiter, with
+// the same RATE_LIMIT_* overrides and headers as everything else. Separate
+// buckets, so a long conversation cannot use up a student's compose
+// suggestions and vice versa. The assistant keeps its pre-envelope 429 body (a
+// string `error`), which is what CampusAssistant.tsx renders.
+const assistantRateLimit = createRateLimiter({
+  name: 'ai-assistant',
+  windowMs: 60 * 60 * 1000,
+  max: 40,
+  onLimit: (_req, res) =>
+    res.status(429).json({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }),
+})
+// Only real inference is metered: without a Groq key the route answers from
+// the offline router, which costs nothing.
+const meterAssistant = (req, res, next) => (GROQ_API_KEY ? assistantRateLimit(req, res, next) : next())
+const boardAiRateLimit = createRateLimiter({
+  name: 'ai-board',
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: 'Rate limit reached. Try again in an hour.',
+})
+// The auto-tagger runs inside POST /api/board/posts rather than as a route of
+// its own, so it meters its inference calls through a window, not a middleware.
+const boardTagWindow = createRateWindow({ name: 'ai-board-tags', windowMs: 60 * 60 * 1000, max: 30 })
 
 const CAMPUS_SYSTEM_PROMPT = `You are BoilerIndy - a helpful campus assistant for Purdue University Indianapolis (Purdue Indy / IUPUI).
 You have access to real-time data about the student's schedule, dining, and campus events - all provided in the context block below.
@@ -3061,7 +3069,6 @@ function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = f
 // Model calls per user per hour. The intent router used to absorb the most
 // common asks for free; now every question reaches the model, so the ceiling has
 // to be high enough for a real conversation.
-const ASSISTANT_HOURLY_LIMIT = 40
 
 /** Tells the model which screen the student is looking at, when the client says. */
 function describeAssistantPage(page) {
@@ -3193,7 +3200,7 @@ async function gatherAssistantContext(userId, now) {
   return { dining, calendarRows, ...taskMeta }
 }
 
-app.post('/api/assistant', requireAuth, async (req, res) => {
+app.post('/api/assistant', requireAuth, meterAssistant, async (req, res) => {
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })
@@ -3220,13 +3227,6 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
       /* fall through to the generic offline notice */
     }
     return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
-  }
-
-  // Separate bucket from the board helpers, so a long conversation cannot use up
-  // a student's compose suggestions and vice versa.
-  const rlKey = `assistant:${req.session?.userId || req.ip || 'anon'}`
-  if (!aiAllowed(rlKey, ASSISTANT_HOURLY_LIMIT)) {
-    return res.status(429).json({ error: 'You have hit the hourly assistant limit. Try again in a little while.' })
   }
 
   const now = new Date()
@@ -4092,18 +4092,13 @@ const BOARD_TAG_CANDIDATES = [
   'study-spots', 'events', 'classes', 'safety',
 ]
 
-app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
+app.post('/api/board/ai-suggestions', requireAuth, boardAiRateLimit, async (req, res) => {
   if (!GROQ_API_KEY) {
     return res.status(503).json({
       error: { message: 'AI suggestions are not configured.', status: 503 },
     })
   }
 
-  if (!aiAllowed(`board:${req.session.userId}`, 30)) {
-    return res.status(429).json({
-      error: { message: 'Rate limit reached. Try again in an hour.', status: 429 },
-    })
-  }
   const context = req.body.context === 'reply' ? 'reply' : 'compose'
   const title = String(req.body.title || '').trim().slice(0, 300)
   const body = String(req.body.body || '').trim().slice(0, 1200)
@@ -4184,7 +4179,7 @@ async function autoTagBoardPost(postId, title, body, userId) {
   // Fire-and-forget calls used to skip the quota entirely, so a posting loop
   // could run up the inference bill unmetered. Tagging is a nicety; dropping it
   // over the limit costs the student nothing.
-  if (userId && !aiAllowed(`board-tag:${userId}`, 30)) return []
+  if (userId && !boardTagWindow.hit(userId).allowed) return []
   const combined = `${title}\n${body}`.slice(0, 400)
   try {
     // 200 rather than 60 completion tokens: the tag array is tiny, but gpt-oss
@@ -4323,34 +4318,29 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id')
 app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
-
-  const { data: post, error: postError } = await supabase
-    .from('board_posts')
-    .select('id')
-    .eq('id', postId)
-    .is('deleted_at', null)
-    .maybeSingle()
-  if (postError) return respondBoardDbError(res, postError)
-  if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
-
-  const { error: insertError } = await supabase
-    .from('board_upvotes')
-    .insert({ post_id: postId, user_id: userId, created_at: nowIso() })
-
-  let upvotedByMe
-  if (insertError && insertError.code === '23505') {
-    await supabase.from('board_upvotes').delete().eq('post_id', postId).eq('user_id', userId)
-    upvotedByMe = false
-  } else if (insertError) {
-    return respondBoardDbError(res, insertError)
-  } else {
-    upvotedByMe = true
+  try {
+    const { data: post, error: postError } = await supabase
+      .from('board_posts')
+      .select('id')
+      .eq('id', postId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (postError) throw postError
+    if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+    res.json(
+      await toggleUpvote({
+        supabase,
+        table: 'board_upvotes',
+        refColumn: 'post_id',
+        refId: postId,
+        userId,
+        now: nowIso(),
+        syncCount: () => communityCounters.syncBoardPostUpvotes(postId),
+      }),
+    )
+  } catch (error) {
+    return respondBoardDbError(res, error)
   }
-
-  // Derive the new total from the upvote rows atomically (was read-modify-write).
-  const { count, error: countError } = await communityCounters.syncBoardPostUpvotes(postId)
-  if (countError) return respondBoardDbError(res, countError)
-  res.json({ upvotes: count, upvotedByMe })
 })
 
 // Owner-only edit of a post's title/body (issue #7)
@@ -4503,34 +4493,23 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireIdParam('id'), req
       .maybeSingle()
     if (recErr) throw recErr
     if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
-
-    const { error: insErr } = await supabase
-      .from('guide_upvotes')
-      .insert({ rec_id: recId, user_id: userId, created_at: nowIso() })
-
-    let upvotedByMe
-    if (insErr && insErr.code === '23505') {
-      await supabase.from('guide_upvotes').delete().eq('rec_id', recId).eq('user_id', userId)
-      upvotedByMe = false
-    } else if (insErr) {
-      throw insErr
-    } else {
-      upvotedByMe = true
-    }
-
-    // Derive the new total from the upvote rows atomically (was read-modify-write).
-    const { count, error: countError } = await communityCounters.syncGuideRecUpvotes(recId)
-    if (countError) throw countError
-    res.json({ upvotes: count, upvotedByMe })
+    res.json(
+      await toggleUpvote({
+        supabase,
+        table: 'guide_upvotes',
+        refColumn: 'rec_id',
+        refId: recId,
+        userId,
+        now: nowIso(),
+        syncCount: () => communityCounters.syncGuideRecUpvotes(recId),
+      }),
+    )
   } catch (e) {
     return respondGuideDbError(res, e)
   }
 })
 
-app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  if (!isUserAdmin(req.currentUser)) {
-    return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
-  }
+app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const pinned = req.body?.pinned === true || req.body?.pinned === 'true'
   try {
     const { data, error } = await supabase
@@ -4832,16 +4811,7 @@ app.get('/api/deals', requireAuth, async (req, res) => {
   }
 })
 
-function requireAdminJson(req, res) {
-  if (!isUserAdmin(req.currentUser)) {
-    res.status(403).json({ error: { message: 'Admin access required.', status: 403 } })
-    return false
-  }
-  return true
-}
-
-app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
+app.post('/api/deals', userWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
   try {
@@ -4857,8 +4827,7 @@ app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
+app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
   if (Object.keys(value).length === 0) {
@@ -4874,8 +4843,7 @@ app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAut
   }
 })
 
-app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
+app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
     if (error) throw error
