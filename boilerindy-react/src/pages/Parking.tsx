@@ -1,22 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Icon from '../components/Icons'
 import {
   availabilityLabel,
   directionsUrl,
-  fetchParkingSnapshot,
   formatUpdated,
   STATUS_LABEL,
   statusTone,
   type Garage,
-  type ParkingSnapshot,
   type StatusTone,
 } from '../lib/parking'
+import { errorMessage, useParking } from '../lib/queries/publicData'
 
 // Live garage availability for the six ST-permit garages (issue #14). Data is
 // IU Parking's public lot-count page, parsed and cached by /api/parking/garages.
-
-const REFRESH_MS = 60_000
 
 const TONE: Record<StatusTone, { pill: string; bar: string; dot: string }> = {
   ok: {
@@ -108,34 +105,22 @@ function GarageCard({ garage, now }: { garage: Garage; now: Date }) {
 }
 
 export default function Parking() {
-  const [snapshot, setSnapshot] = useState<ParkingSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [requestError, setRequestError] = useState<string | null>(null)
+  // Through the shared query cache (issue #251): the last snapshot paints at
+  // once, the minute refresh pauses while the tab is hidden, and the campus
+  // map's garage layer reads the same entry. A failed refresh keeps the last
+  // snapshot on screen and shows the message beside it.
+  const parkingQuery = useParking()
+  const snapshot = parkingQuery.data ?? null
+  const loading = parkingQuery.isPending
+  const requestError = parkingQuery.isError ? errorMessage(parkingQuery.error, 'Could not load parking status.') : null
+  // The clock the "Updated n min ago" labels are measured against. It ticks
+  // while the page is open, so a snapshot restored from storage the next
+  // morning reads "Updated 14 h ago" rather than "just now".
   const [now, setNow] = useState(() => new Date())
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const snap = await fetchParkingSnapshot(signal)
-      setSnapshot(snap)
-      setRequestError(null)
-      setNow(new Date())
-    } catch (error) {
-      if ((error as Error)?.name === 'AbortError') return
-      setRequestError((error as Error)?.message || 'Could not load parking status.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    const timer = setInterval(() => void load(), REFRESH_MS)
-    return () => {
-      controller.abort()
-      clearInterval(timer)
-    }
-  }, [load])
+    const timer = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const garages = snapshot?.garages ?? []
   const permits = snapshot?.permits
@@ -158,7 +143,7 @@ export default function Parking() {
               {knownCount > 0 ? `${openSpaces.toLocaleString()} spaces open across ${knownCount} garage${knownCount === 1 ? '' : 's'}` : 'No live counts right now'}
             </span>
           ) : null}
-          <button type="button" onClick={() => void load()} className="btn btn-secondary text-[12px] px-3 py-1.5 inline-flex items-center gap-1.5">
+          <button type="button" onClick={() => void parkingQuery.refetch()} className="btn btn-secondary text-[12px] px-3 py-1.5 inline-flex items-center gap-1.5">
             <Icon name="refresh" size={12} /> Refresh
           </button>
         </div>

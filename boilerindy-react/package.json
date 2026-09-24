@@ -21,6 +21,9 @@
   "dependencies": {
     "@sentry/react": "^10.75.0",
     "@supabase/supabase-js": "^2.116.0",
+    "@tanstack/query-sync-storage-persister": "^5.103.2",
+    "@tanstack/react-query": "^5.103.2",
+    "@tanstack/react-query-persist-client": "^5.103.2",
     "@vercel/speed-insights": "^2.0.0",
     "leaflet": "^1.9.4",
     "react": "^19.3.0",

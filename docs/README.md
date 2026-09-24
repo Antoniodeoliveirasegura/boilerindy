@@ -11,6 +11,7 @@ coding conventions live in the root [README.md](../README.md).
 - [api-routes.md](api-routes.md) - every route the backend serves, generated from `server.mjs` and `src/routes/` by `pnpm run docs:routes` and kept in step by a test (issue #191).
 - [api-error-codes.md](api-error-codes.md) - the standard JSON error envelope, used by new code and by every code in the table it lists (issue #218).
 - [brand.md](brand.md) - the nominative fair use posture that names Purdue only to describe who the app is for and uses none of the university's identity assets (issue #112).
+- [client-cache.md](client-cache.md) - the TanStack Query layer in the React app: the public reads persisted to localStorage so the dashboard paints from the last visit, with their keys, stale times, polling and retry rules (issue #251).
 - [clubs.md](clubs.md) - the searchable directory of Purdue student organizations behind the `/clubs` page and `GET /api/clubs` (issue #16).
 - [dining.md](dining.md) - menus, hours and open/closed status for the two shared dining halls, behind `GET /api/dining` and the `/dining` page (issue #119).
 - [error-tracking.md](error-tracking.md) - Sentry reporting from the Express API and the React app, fully off when no DSN is configured (issue #50).

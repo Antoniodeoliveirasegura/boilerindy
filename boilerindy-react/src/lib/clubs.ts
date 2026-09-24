@@ -104,8 +104,5 @@ export function formatFetched(iso: string, now: Date = new Date()): string | nul
   return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ` at ${time}`
 }
 
-export async function fetchClubs(params: ClubSearchParams, signal?: AbortSignal): Promise<ClubSearchResult> {
-  const response = await fetch(`/api/clubs${buildClubsQuery(params)}`, { signal })
-  if (!response.ok) throw new Error(`Club directory request failed (${response.status})`)
-  return (await response.json()) as ClubSearchResult
-}
+// The directory is read through the query cache: see useClubPages and
+// clubsQuery in queries/publicData.ts (issue #251).
