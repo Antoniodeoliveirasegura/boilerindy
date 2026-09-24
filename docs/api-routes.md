@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 1 file: `server.mjs`.
+141 routes in 2 files: `server.mjs`, `src/routes/layouts.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -88,8 +88,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/me/calendar/categories` | `server.mjs` |
 | GET | `/api/me/classes` | `server.mjs` |
 | GET | `/api/me/connections` | `server.mjs` |
-| GET | `/api/me/dashboard` | `server.mjs` |
-| PUT | `/api/me/dashboard` | `server.mjs` |
+| GET | `/api/me/dashboard` | `src/routes/layouts.mjs` |
+| PUT | `/api/me/dashboard` | `src/routes/layouts.mjs` |
 | GET | `/api/me/degree` | `server.mjs` |
 | PUT | `/api/me/degree` | `server.mjs` |
 | POST | `/api/me/delete-account` | `server.mjs` |
@@ -108,8 +108,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PUT | `/api/me/profile-card` | `server.mjs` |
 | GET | `/api/me/schedule-overrides` | `server.mjs` |
 | PUT | `/api/me/schedule-overrides` | `server.mjs` |
-| GET | `/api/me/services` | `server.mjs` |
-| PUT | `/api/me/services` | `server.mjs` |
+| GET | `/api/me/services` | `src/routes/layouts.mjs` |
+| PUT | `/api/me/services` | `src/routes/layouts.mjs` |
 | GET | `/api/me/sources` | `server.mjs` |
 | GET | `/api/me/study-groups` | `server.mjs` |
 | GET | `/api/me/study-groups/courses` | `server.mjs` |
