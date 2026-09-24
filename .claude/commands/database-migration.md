@@ -14,7 +14,9 @@ Database schema changes with migration files
 
 ## Common Files
 
-- `**/schema.*`
+- `db/*.sql` (a new file per change, applied in README "Database setup" order)
+- `README.md` (the order list) and `test/dbApplyOrder.test.mjs`, which pins it
+- `src/dbErrors.mjs` (`DB_FEATURES`) and `docs/api-error-codes.md` for a new feature's schema-missing code
 
 ## Suggested Sequence
 

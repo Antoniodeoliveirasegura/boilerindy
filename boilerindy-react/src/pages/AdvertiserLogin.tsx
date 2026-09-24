@@ -9,6 +9,7 @@ import {
   requestAdvertiserAccess,
   requestAdvertiserPasswordReset,
 } from '../lib/advertiserApi'
+import SkipLink from '../components/SkipLink'
 
 // Advertiser portal sign-in - a SEPARATE login from the student /login flow, for
 // businesses and marketers who want to run ads on BoilerIndy. Wired to the
@@ -123,6 +124,7 @@ export default function AdvertiserLogin() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.05fr_0.95fr] bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+      <SkipLink />
       {/* ── Brand / value panel ─────────────────────────────────────────── */}
       <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-gradient-to-br from-[var(--color-gold-dark)] via-[#4a3209] to-[#1e1606] dark:from-[#1a1206] dark:via-[#241a08] dark:to-[#100b04]">
         <div className="hero-bg" aria-hidden="true">
@@ -176,7 +178,7 @@ export default function AdvertiserLogin() {
       </aside>
 
       {/* ── Sign-in panel ───────────────────────────────────────────────── */}
-      <main className="relative flex flex-col px-6 sm:px-10 py-8">
+      <main id="main" tabIndex={-1} className="relative flex flex-col px-6 sm:px-10 py-8 focus:outline-none">
         <div className="flex items-center justify-between">
           <Link to="/" className="inline-flex items-center gap-1.5 text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] no-underline">
             <Icon name="arrowUpRight" size={14} className="rotate-[225deg]" />

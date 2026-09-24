@@ -99,6 +99,22 @@ test.describe('Dashboard customization', () => {
   })
 })
 
+// Issue #221 - a keyboard user's first Tab reaches "Skip to main content", and
+// following it moves focus into <main id="main">, past the navbar and rails.
+test.describe('Skip link', () => {
+  test('the first Tab on the dashboard reaches the skip link and Enter lands in main', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/dashboard')
+    await expect(page.getByRole('button', { name: 'Customize' })).toBeVisible()
+
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused()
+
+    await page.keyboard.press('Enter')
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('main')
+  })
+})
+
 // Issue #251 - the client data cache. The dashboard paints from the last
 // persisted snapshot before the network answers, and Home and Transit share
 // one cache entry per dataset instead of each fetching their own.

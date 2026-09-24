@@ -21,12 +21,17 @@ export const routes: TransitRoute[] = [
   { id: 34, num: '7', name: 'Route 7 - Orange', shortName: 'Orange', color: '#e68217', schedule: { days: [0, 6], start: '09:00', end: '20:00', label: 'Sat-Sun 9:00a-8:00p' } },
 ]
 
-/** Returns true if the given route is scheduled to run right now (Eastern time). */
-export function isRouteActiveNow(route: { schedule?: RouteSchedule } | null | undefined): boolean {
+/**
+ * Returns true if the given route is scheduled to run at `now` (Eastern time).
+ * `now` defaults to the current instant; tests pass a fixed one.
+ */
+export function isRouteActiveNow(
+  route: { schedule?: RouteSchedule } | null | undefined,
+  now: Date = new Date(),
+): boolean {
   if (!route?.schedule) return true
   const { days, start, end } = route.schedule
 
-  const now = new Date()
   const eastern = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Indiana/Indianapolis',
     weekday: 'short',
