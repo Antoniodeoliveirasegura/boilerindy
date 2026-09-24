@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, shouldSkipSetup } from '../lib/authApi'
-import { cleanAiText } from '../lib/linkifyText'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import SourceErrorNotice from '../components/SourceErrorNotice'
 import FeaturedDeal from '../components/FeaturedDeal'
@@ -26,8 +26,8 @@ import {
 } from '../lib/scheduleFilters'
 import {
   applyScheduleOverridesToItems,
-  loadScheduleOverrides,
   manualClassesAsItems,
+  useScheduleOverrides,
 } from '../lib/scheduleOverrideStore'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
 import { allowedSizesFor } from '../lib/dashboardLayoutStore'
@@ -40,6 +40,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -69,12 +71,11 @@ const HOME_CALENDAR_CATEGORIES =
 const WEEK_AHEAD_PROMPT = `Write a concise "Week Ahead" summary for my dashboard using ONLY the class schedule, assignments, deadlines, and events in your context. Do not invent courses, due dates, or events.
 
 Requirements:
-- Plain text only. No markdown, no bullets, no numbered lists, no emoji.
-- Use 2-4 short paragraphs separated by a blank line between each.
-- First paragraph: my weekly class rhythm - each course and which days it meets.
-- Next: assignments, exams, or deadlines due this calendar week, or clearly say nothing major is due.
-- Last: notable campus or career events this week, or say none scheduled.
-- Stay under 160 words. Write in second person ("you"). Be warm and skimmable.`
+- One short opening sentence on the shape of the week, then three "-" bullets.
+- Bullet 1: my class rhythm - each course and which days it meets, course codes in bold.
+- Bullet 2: assignments, exams or deadlines due this calendar week with the due day in bold, or clearly say nothing major is due. Skip anything marked DONE.
+- Bullet 3: notable campus or career events this week, or say none are scheduled.
+- No headings, no emoji. Stay under 150 words. Write in second person ("you"). Be warm and skimmable.`
 
 const homeEventCategory: Record<string, { label: string; badge: string; dot: string }> = {
   campus_event: {
@@ -455,14 +456,18 @@ function buildSuggestions({
     })
   }
 
-  // Pad with fallbacks if under 3
-  const fallbacks = [
-    { icon: 'coffee', text: 'Grab coffee at the Union', time: '5 min walk', variant: 'default' },
-    { icon: 'book', text: 'Study at Cavanaugh Hall', time: 'Quiet floor', variant: 'default' },
-    { icon: 'mapPin', text: 'Explore the Campus Center', time: 'Nearby', variant: 'default' },
-  ]
-  let i = 0
-  while (list.length < 3 && i < fallbacks.length) list.push(fallbacks[i++])
+  // Generic campus ideas, only worth showing when the student actually has a
+  // window to fill. Padding these in unconditionally is what made the widget
+  // look like it was making things up on a fully booked day.
+  if (freeMinutes >= 30) {
+    const fillers = [
+      { icon: 'coffee', text: 'Grab coffee at the Union', time: '5 min walk', variant: 'default' },
+      { icon: 'book', text: 'Study at Cavanaugh Hall', time: 'Quiet floor', variant: 'default' },
+      { icon: 'mapPin', text: 'Explore the Campus Center', time: 'Nearby', variant: 'default' },
+    ]
+    let i = 0
+    while (list.length < 3 && i < fillers.length) list.push(fillers[i++])
+  }
 
   return list.slice(0, 3)
 }
@@ -472,29 +477,71 @@ export default function Home() {
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const userId = user?.id as string | undefined
+  const overrides = useScheduleOverrides(userId)
   const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError } = useDashboardLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const { summary: gpaSummary } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
-  const [classes, setClasses] = useState<any[]>([])
-  const [classLoadError, setClassLoadError] = useState('')
-  const [calendarItems, setCalendarItems] = useState<any[]>([])
-  const [calendarLoadError, setCalendarLoadError] = useState('')
-  const [calendarLoading, setCalendarLoading] = useState(true)
+  // Classes and the calendar window through the per-user query cache (issue
+  // #327): keyed by the user, shared with Schedule, Assignments and Events, and
+  // never written to storage. A failed refetch keeps the last answer on screen.
+  const classesQuery = useMyClasses<any>({ limit: 200, mode: 'display' })
+  const calendarQuery = useMyCalendar<any>({ categories: HOME_CALENDAR_CATEGORIES, limit: 200 })
+  const classes = useMemo<any[]>(() => classesQuery.data?.items ?? [], [classesQuery.data])
+  const calendarItems = useMemo<any[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
+  const calendarLoading = classesQuery.isPending || calendarQuery.isPending
+  const classLoadError = classesQuery.isError ? errorMessage(classesQuery.error, 'Could not load classes.') : ''
+  const calendarLoadError = calendarQuery.isError ? errorMessage(calendarQuery.error, 'Could not load events.') : ''
 
-  const [transitVehicles, setTransitVehicles] = useState<any[]>([])
-  const [transitStops, setTransitStops] = useState<any[]>([])
-  const [transitRouteMap, setTransitRouteMap] = useState<Record<number, number>>(() => ({ ...TRANLOC_ROUTE_ALIASES }))
-  const [transitLoading, setTransitLoading] = useState(true)
-  const [transitError, setTransitError] = useState('')
-  const [transitUpdated, setTransitUpdated] = useState<Date | null>(null)
+  // Live transit through the shared query cache (issue #251): Home and Transit
+  // read the same entries, the vehicle poll pauses while the tab is hidden,
+  // and the last snapshot paints from storage before the network answers.
+  const stopsQuery = useTransitStops()
+  const routesQuery = useTransitRoutes()
+  const vehiclesQuery = useTransitVehicles()
+  const transitVehicles = useMemo<any[]>(
+    () => (Array.isArray(vehiclesQuery.data) ? vehiclesQuery.data : []),
+    [vehiclesQuery.data],
+  )
+  const transitStops = useMemo<any[]>(() => (Array.isArray(stopsQuery.data) ? stopsQuery.data : []), [stopsQuery.data])
+  const transitRouteMap = useMemo<Record<number, number>>(
+    () => (Array.isArray(routesQuery.data) ? buildTranslocRouteIdMap(routesQuery.data) : { ...TRANLOC_ROUTE_ALIASES }),
+    [routesQuery.data],
+  )
+  const transitLoading = vehiclesQuery.isPending || stopsQuery.isPending || routesQuery.isPending
+  // A failed refetch keeps the last vehicles on screen; the widget only shows
+  // the message when it has nothing else to show.
+  const transitError = vehiclesQuery.isError ? errorMessage(vehiclesQuery.error, 'Could not load live buses.') : ''
+  const transitUpdated = useMemo(
+    () => (vehiclesQuery.dataUpdatedAt ? new Date(vehiclesQuery.dataUpdatedAt) : null),
+    [vehiclesQuery.dataUpdatedAt],
+  )
   // Cached, prompt-frugal location: paints the last known position instantly and
   // asks for permission at most once (see useUserLocation) instead of nagging on
   // every login. { lat, lon }
   const userLocation = useUserLocation({ autoPrompt: true })
 
-  const [diningPreview, setDiningPreview] = useState<{ items: string[] } | null>(null)
-  const [diningStatus, setDiningStatus] = useState<any>(null) // { name, is_open, hours, weekly_hours }
+  // Dining snapshot from the shared entry the Dining page uses too (#251).
+  const diningQuery = useDining()
+  const { diningStatus, diningPreview } = useMemo(() => {
+    const none = { diningStatus: null as any, diningPreview: null as { items: string[] } | null }
+    const data = diningQuery.data as any
+    if (!data?.ok || !Array.isArray(data.locations)) return none
+    const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
+    if (!tower) return none
+    // The snapshot names the Indianapolis calendar day it was built for; the
+    // browser's own weekday is only a fallback (a student can be on another date).
+    const todayName = (typeof data.weekday === 'string' && data.weekday) || new Date().toLocaleDateString('en-US', { weekday: 'long' })
+    const todayHrs = tower.weekly_hours?.[todayName]
+    const status = {
+      name: tower.name,
+      is_open: tower.is_open,
+      hours: todayHrs || tower.hours,
+      weekly_hours: tower.weekly_hours || null,
+    }
+    const names = (tower.stations || []).flatMap((s: any) => s.items || []).map((i: any) => i.name).filter(Boolean)
+    return { diningStatus: status as any, diningPreview: names.length > 0 ? { items: names.slice(0, 8) as string[] } : null }
+  }, [diningQuery.data])
 
   const [boardPreview, setBoardPreview] = useState<any[]>([])
   const [boardLoading, setBoardLoading] = useState(true)
@@ -508,7 +555,8 @@ export default function Home() {
   }
 
   function readCachedWeekDigest(): string | null {
-    return readAiCache(getWeekDigestStorageKey())
+    const cached = readAiCache(getWeekDigestStorageKey())
+    return cached?.text.trim() ? cached.text : null
   }
 
   const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
@@ -542,9 +590,8 @@ export default function Home() {
       .then((r) => r.json())
       .then((d) => {
         if (d.reply && mountedRef.current) {
-          const clean = cleanAiText(d.reply)
-          setWeekAheadText(clean)
-          writeAiCache(getWeekDigestStorageKey(), clean)
+          setWeekAheadText(d.reply)
+          writeAiCache(getWeekDigestStorageKey(), d.reply)
         }
       })
       .catch(() => {})
@@ -559,36 +606,6 @@ export default function Home() {
   useEffect(() => {
     if (!weekAheadText) fetchWeekAheadSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/dining')
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled || !data?.ok || !Array.isArray(data.locations)) return
-        const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
-        if (!tower) return
-        // The snapshot names the Indianapolis calendar day it was built for; the
-        // browser's own weekday is only a fallback (a student can be on another date).
-        const todayName = (typeof data.weekday === 'string' && data.weekday) || new Date().toLocaleDateString('en-US', { weekday: 'long' })
-        const todayHrs = tower.weekly_hours?.[todayName]
-        setDiningStatus({
-          name: tower.name,
-          is_open: tower.is_open,
-          hours: todayHrs || tower.hours,
-          weekly_hours: tower.weekly_hours || null,
-        })
-        const allItems = (tower.stations || []).flatMap((s: any) => s.items || [])
-        const names = allItems.map((i: any) => i.name).filter(Boolean)
-        if (names.length > 0) {
-          setDiningPreview({ items: names.slice(0, 8) })
-        }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   useEffect(() => {
@@ -621,101 +638,16 @@ export default function Home() {
     return () => window.clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setCalendarLoading(true)
-      const [classesResult, calResult] = await Promise.allSettled([
-        authRequest('/api/me/classes?limit=200&mode=display'),
-        authRequest(`/api/me/calendar?categories=${HOME_CALENDAR_CATEGORIES}&limit=200`),
-      ])
-      if (cancelled) return
-      if (classesResult.status === 'fulfilled') {
-        setClasses((classesResult.value as { items?: any[] }).items || [])
-        setClassLoadError('')
-      } else {
-        setClasses([])
-        setClassLoadError(classesResult.reason?.message || 'Could not load classes.')
-      }
-      if (calResult.status === 'fulfilled') {
-        setCalendarItems((calResult.value as { items?: any[] }).items || [])
-        setCalendarLoadError('')
-      } else {
-        setCalendarItems([])
-        setCalendarLoadError(calResult.reason?.message || 'Could not load events.')
-      }
-      setCalendarLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadStopsAndRoutes() {
-      try {
-        const [sRes, rRes] = await Promise.all([fetch('/api/transit/stops'), fetch('/api/transit/routes')])
-        const stopsData = sRes.ok ? await sRes.json() : []
-        const routesData = rRes.ok ? await rRes.json() : null
-        if (cancelled) return
-        setTransitStops(Array.isArray(stopsData) ? stopsData : [])
-        if (Array.isArray(routesData)) {
-          setTransitRouteMap(buildTranslocRouteIdMap(routesData))
-        }
-      } catch {
-        if (!cancelled) setTransitStops([])
-      }
-    }
-
-    async function loadVehicles() {
-      try {
-        const res = await fetch('/api/transit/vehicles')
-        const data = await res.json()
-        if (cancelled) return
-        if (!res.ok || (data && typeof data === 'object' && !Array.isArray(data) && data.error)) {
-          setTransitError(typeof data?.error === 'string' ? data.error : 'Could not load live buses.')
-          setTransitVehicles([])
-        } else {
-          setTransitError('')
-          setTransitVehicles(Array.isArray(data) ? data : [])
-        }
-        setTransitUpdated(new Date())
-      } catch (e) {
-        if (!cancelled) {
-          setTransitError(e instanceof Error ? e.message : 'Could not load live buses.')
-          setTransitVehicles([])
-        }
-      }
-    }
-
-    ;(async () => {
-      setTransitLoading(true)
-      setTransitError('')
-      await loadStopsAndRoutes()
-      await loadVehicles()
-      if (!cancelled) setTransitLoading(false)
-    })()
-
-    const id = window.setInterval(loadVehicles, 10000)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [])
-
   const cleanCalendarItems = useMemo(
     () => calendarItems.filter((i) => i && !isOnlineMeetingNoise(i)),
     [calendarItems],
   )
   const homeClasses = useMemo(() => {
-    // Re-read overrides whenever Home recalculates so deletes/edits from
-    // Schedule apply to today's class strip and free-time suggestions.
-    const overrides = loadScheduleOverrides(userId)
+    // Deletes/edits made on Schedule apply to today's class strip and the
+    // free-time math; the hook also refreshes these after the server pull.
     const filtered = applyScheduleOverridesToItems(getHomeClassItems(classes), overrides)
     return [...filtered, ...manualClassesAsItems(overrides.manual, now)]
-  }, [classes, userId, now])
+  }, [classes, overrides, now])
   const scheduleState = useMemo(() => deriveScheduleState(homeClasses, now), [homeClasses, now])
   const suggestions = useMemo(() => buildSuggestions({
     freeMinutes: scheduleState.freeMinutes,
@@ -901,9 +833,9 @@ export default function Home() {
               <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
             </div>
             <div>
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
                 {now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}
-              </span>
+              </h2>
               <p className="text-[11px] text-[var(--color-txt-3)] mt-0.5">
                 AI · from your linked schedule & calendar
               </p>
@@ -925,13 +857,7 @@ export default function Home() {
               Generating your week summary…
             </div>
           ) : typeof weekAheadText === 'string' && weekAheadText ? (
-            <div className="text-[13px] text-[var(--color-txt-1)] leading-relaxed space-y-3 whitespace-pre-line">
-              {weekAheadText.split(/\n\n+/).map((para, i) => (
-                <p key={i} className="m-0">
-                  {para.trim()}
-                </p>
-              ))}
-            </div>
+            <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{weekAheadText}</AiMarkdown>
           ) : null}
         </div>
       </div>
@@ -944,7 +870,7 @@ export default function Home() {
         <div className="card p-4 border-[var(--color-border)] transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center gap-2 mb-3">
             <Icon name="alert" size={14} className="text-[var(--color-txt-2)]" />
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Heads Up</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Heads Up</h2>
           </div>
           <div className="space-y-2">
             {smartAlerts.map((alert, i) => (
@@ -1005,9 +931,9 @@ export default function Home() {
         return (
           <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
                 Cumulative GPA
-              </span>
+              </h2>
               <Link
                 to="/grade-tracker"
                 className="text-[11px] text-[var(--color-accent)] hover:underline"
@@ -1037,9 +963,9 @@ export default function Home() {
       render: () => (
         <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               {scheduleState.cardLabel}
-            </span>
+            </h2>
             <span className="text-[11px] text-[var(--color-txt-2)] flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
               {scheduleState.statusLabel}
@@ -1095,12 +1021,15 @@ export default function Home() {
       render: () => (
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               Free Time
-            </span>
-            <span className="badge bg-[var(--color-gold)]/10 text-[var(--color-gold-muted)]">
-              <Icon name="sparkles" size={10} />
-              Live Suggestions
+            </h2>
+            {/* Not AI: buildSuggestions() is deterministic logic over the
+                schedule. The sparkle badge made it read as a model answer and
+                undercut the real assistant sitting right below it. */}
+            <span className="badge bg-[var(--color-stat)] text-[var(--color-txt-2)]">
+              <Icon name="clock" size={10} />
+              From your schedule
             </span>
           </div>
 
@@ -1205,7 +1134,7 @@ export default function Home() {
       render: () => (
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Today's Events</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Today's Events</h2>
             <Link to="/events" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
           </div>
           {hasNoCalendarSources && (
@@ -1278,7 +1207,7 @@ export default function Home() {
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4 gap-2">
             <div>
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Live shuttles</span>
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Live shuttles</h2>
               <div className="flex items-center gap-2 mt-0.5">
                 {transitUpdated && !transitLoading && (
                   <span className="text-[10px] text-[var(--color-txt-3)]">
@@ -1359,7 +1288,7 @@ export default function Home() {
       render: () => (
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Dining Snapshot</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Dining Snapshot</h2>
             <Link to="/dining" className="text-[12px] text-[var(--color-accent)] hover:underline">Open dining</Link>
           </div>
 
@@ -1394,7 +1323,7 @@ export default function Home() {
                 <Icon name="messageCircle" size={20} className="text-[var(--color-accent)]" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider block">Student Board</span>
+                <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider block">Student Board</h2>
                 <p className="text-[12px] text-[var(--color-txt-2)] mt-0.5 truncate">Community Q&amp;A from campus</p>
               </div>
             </div>
@@ -1498,7 +1427,7 @@ export default function Home() {
       render: () => (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Tasks Due</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Tasks Due</h2>
             <Link to="/assignments" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
           </div>
           {calendarLoading ? (
@@ -1541,7 +1470,7 @@ export default function Home() {
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-2">
             <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Calendar Feed</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Calendar Feed</h2>
           </div>
           <p className="text-[13px] text-[var(--color-txt-2)] mb-3">
             Subscribe to your BoilerIndy schedule and events in Google Calendar, Apple Calendar, or Outlook.
@@ -1592,9 +1521,9 @@ export default function Home() {
         <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 transition-all duration-700 delay-75 opacity-100 translate-y-0">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
                 Finish Setup
-              </div>
+              </h2>
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
                 {needsPurdueConnection
                   ? 'Link your Purdue account next'

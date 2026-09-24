@@ -34,12 +34,36 @@ export default function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  // Focus moves into the dialog while it is open and goes back afterwards
+  // (issue #221): the element that had focus when the dialog opened, usually
+  // the button that asked for confirmation, gets it again on close instead of
+  // focus dropping to <body>. Keyed on `open` alone so a parent re-render
+  // while the dialog is up does not re-run it.
+  useEffect(() => {
+    if (!open) return undefined
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    confirmRef.current?.focus()
+    return () => {
+      previous?.focus()
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return undefined
-    confirmRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Escape') {
+        onCancel()
+        return
+      }
+      // Two-button focus trap: Tab and Shift+Tab move between Cancel and
+      // Confirm and never leave the dialog for the page underneath.
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const next = document.activeElement === confirmRef.current ? cancelRef.current : confirmRef.current
+        next?.focus()
+      }
     }
     window.addEventListener('keydown', onKey)
     // Lock background scroll while the dialog is open.
@@ -90,7 +114,7 @@ export default function ConfirmDialog({
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
-          <button type="button" onClick={onCancel} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-secondary text-[13px] px-4 py-2">
             {cancelLabel}
           </button>
           <button

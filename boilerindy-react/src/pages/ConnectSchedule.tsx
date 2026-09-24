@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
 import { PROVIDER_LINKS, checkScheduleSourceUrl, type ScheduleSourceKind } from '../lib/scheduleSourceUrl'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
+import StatusBanner from '../components/StatusBanner'
+import { invalidateUserQueries } from '../lib/queries/userData'
 
 type SourceConfig = {
   label: string
@@ -64,6 +67,9 @@ export default function ConnectSchedule() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { onboarding, refreshSession, user, authConfig, startPurdueLink: startPurdueFromAuth } = useAuth()
+  // Linking, syncing and deleting a source change the classes and calendar the
+  // other pages hold in the query cache (issue #327); each success marks them stale.
+  const queryClient = useQueryClient()
   const usesCasPurdue = authConfig?.purdueAuthMode === 'cas'
 
   const [purdueEmail, setPurdueEmail] = useState('')
@@ -156,6 +162,7 @@ export default function ConnectSchedule() {
         method: 'POST',
         body: JSON.stringify({ icsUrl: nextUrl, label: config.label }),
       })) as SyncResponse
+      void invalidateUserQueries(queryClient)
       setIcsUrl('')
       track('source_synced', { kind: 'connect', sourceType })
       await refreshSession()
@@ -182,7 +189,7 @@ export default function ConnectSchedule() {
     } finally {
       setSaving(false)
     }
-  }, [config.label, icsUrl, loadData, refreshSession, sourceType])
+  }, [config.label, icsUrl, loadData, queryClient, refreshSession, sourceType])
 
   async function handleConnect(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -203,6 +210,7 @@ export default function ConnectSchedule() {
     setBanner('Syncing...')
     try {
       const response = (await authRequest(`/api/sync/${sourceId}`, { method: 'POST' })) as SyncResponse
+      void invalidateUserQueries(queryClient)
       track('source_synced', { kind: 'manual' })
       await refreshSession()
       await loadData()
@@ -239,6 +247,7 @@ export default function ConnectSchedule() {
       setBanner(`Syncing ${i + 1} of ${sources.length}: ${source.label}…`)
       try {
         const response = (await authRequest(`/api/sync/${source.id}`, { method: 'POST' })) as SyncResponse
+        void invalidateUserQueries(queryClient)
         totalItems += response?.sync?.itemCount ?? 0
       } catch (error) {
         failures.push(`${source.label}: ${errorText(error, 'sync failed')}`)
@@ -270,7 +279,8 @@ export default function ConnectSchedule() {
     if (!confirm('Delete this source and all its imported items?')) return
     setBanner('')
     try {
-      await authRequest(`/api/me/sources/${encodeURIComponent(sourceId)}/remove`, { method: 'POST' })
+      await authRequest(`/api/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' })
+      void invalidateUserQueries(queryClient)
       await refreshSession()
       await loadData()
       setBannerType('success')
@@ -303,14 +313,9 @@ export default function ConnectSchedule() {
   // ── Render ──
 
   const bannerEl = banner && (
-    <div className={`mb-6 card p-4 text-[13px] flex items-start gap-3 ${
-      bannerType === 'success' ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/20' :
-      bannerType === 'error' ? 'bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/20' :
-      'text-[var(--color-txt-1)]'
-    }`}>
-      <Icon name={bannerType === 'success' ? 'check' : bannerType === 'error' ? 'close' : 'info'} size={16} className="shrink-0 mt-0.5" />
+    <StatusBanner tone={bannerType === 'success' || bannerType === 'error' ? bannerType : 'info'} className="mb-6">
       {banner}
-    </div>
+    </StatusBanner>
   )
 
   // ────────────────────────────────────────

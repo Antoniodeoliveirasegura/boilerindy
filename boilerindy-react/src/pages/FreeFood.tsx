@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { authRequest } from '../lib/authApi'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 
 // Dedicated Free Food feed (issue #46): campus events flagged by the server's
 // keyword matcher (item.freeFood). Reuses the same /api/me/calendar source as
@@ -41,29 +41,10 @@ function isPast(dateString: string) {
 
 export default function FreeFood() {
   const { onboarding } = useAuth()
-  const [items, setItems] = useState<CalendarItem[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true)
-      try {
-        const res = (await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')) as { items?: CalendarItem[] }
-        if (!cancelled) setItems(res.items || [])
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to load free-food events:', error)
-          setItems([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // The same calendar window the Events page reads, one cache entry for both (#327).
+  const calendarQuery = useMyCalendar<CalendarItem>(CAMPUS_EVENTS_CALENDAR)
+  const items = useMemo<CalendarItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
+  const loading = calendarQuery.isPending
 
   const freeFoodItems = useMemo(
     () =>

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Dining from './Dining'
 import { authRequest } from '../lib/authApi'
 
@@ -65,6 +66,17 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// The page reads the menu through the query cache (issue #251); each test
+// gets its own client so nothing leaks between cases.
+function renderDining() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <Dining />
+    </QueryClientProvider>,
+  )
+}
+
 async function star() {
   return screen.findByRole('button', { name: /Veggie Burger/ })
 }
@@ -73,7 +85,7 @@ it.each([
   [409, CAPPED],
   [429, LIMITED],
 ])('a %i on starring a dish rolls the star back and shows the message', async (status, message) => {
-  render(<Dining />)
+  renderDining()
   nextWrite = httpError(status, message)
 
   fireEvent.click(await star())
@@ -87,7 +99,7 @@ it.each([
 })
 
 it('a network error on starring a dish rolls it back with a generic message', async () => {
-  render(<Dining />)
+  renderDining()
   nextWrite = new TypeError('Failed to fetch')
 
   fireEvent.click(await star())

@@ -10,6 +10,21 @@ test.describe('Authentication', () => {
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
   })
 
+  // Issue #246 - the sponsor rails mount outside RequireAuth, so a signed-out
+  // visit to an app route used to request /api/spotlight/active twice (a 401
+  // each time) before the redirect. The rails now wait for the session.
+  test('a signed-out visit to an app route requests no sponsor content', async ({ page, mockApi }) => {
+    mockApi.logout()
+    const spotlightRequests = []
+    page.on('request', (request) => {
+      if (request.url().includes('/api/spotlight/')) spotlightRequests.push(request.url())
+    })
+    await page.goto('/dashboard')
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    expect(spotlightRequests).toEqual([])
+  })
+
   test('shows an error message when credentials are invalid', async ({ page, mockApi }) => {
     mockApi.logout()
     await page.goto('/login')
@@ -104,5 +119,21 @@ test.describe('Authentication', () => {
 
     await expect(page).toHaveURL(/\/dashboard/)
     await expect(page).not.toHaveURL(/\/login/)
+  })
+})
+
+// Issue #221 - the sign-in page has no navbar, but its brand panel comes first
+// in the DOM, so the skip link still saves a keyboard user a stop.
+test.describe('Skip link', () => {
+  test('the first Tab on the sign-in page reaches the skip link and Enter lands in main', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/login')
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused()
+
+    await page.keyboard.press('Enter')
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('main')
   })
 })

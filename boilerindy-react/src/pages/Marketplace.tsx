@@ -32,6 +32,7 @@ import {
   type PhotoStep,
   type ReadyPhoto,
 } from '../lib/marketplacePhotos'
+import { MAX_REPORT_REASON, REPORT_DETAILS_SEPARATOR, REPORT_REASONS } from '../../../src/marketplace.mjs'
 
 // Student Marketplace (issue #32, Phase 1). No payments / no messaging - contact
 // is the seller's name + Purdue email, shown on the detail panel. Listing photos
@@ -65,19 +66,23 @@ const STEP_TEXT: Record<PhotoStep, string> = {
   uploading: 'Uploading',
 }
 
-// Report reasons (#224). The server stores the reason as text capped at 500
-// characters, so "other" sends its details after the prefix and the details
-// field leaves room for it.
-const REPORT_REASONS = [
-  { value: 'spam', label: 'Spam' },
-  { value: 'scam', label: 'Scam or fraud' },
-  { value: 'prohibited', label: 'Prohibited item' },
-  { value: 'other', label: 'Something else' },
-] as const
-type ReportReason = (typeof REPORT_REASONS)[number]['value']
-const REPORT_REASON_MAX = 500
-const REPORT_OTHER_PREFIX = 'other: '
-const REPORT_DETAILS_MAX = REPORT_REASON_MAX - REPORT_OTHER_PREFIX.length
+// Report reasons (#224). The values come from src/marketplace.mjs (#204), which
+// is what the API validates against, so the form cannot offer a reason the
+// server rejects; the labels are UI copy and stay here. The server stores the
+// reason as text capped at MAX_REPORT_REASON, so "other" sends its details
+// after the prefix and the details field leaves room for it.
+const REPORT_REASON_LABELS: Record<string, string> = {
+  spam: 'Spam',
+  scam: 'Scam or fraud',
+  prohibited: 'Prohibited item',
+  other: 'Something else',
+}
+const REPORT_OPTIONS: { value: string; label: string }[] = REPORT_REASONS.map((value: string) => ({
+  value,
+  label: REPORT_REASON_LABELS[value] ?? value,
+}))
+const REPORT_OTHER_PREFIX = `other${REPORT_DETAILS_SEPARATOR}`
+const REPORT_DETAILS_MAX = MAX_REPORT_REASON - REPORT_OTHER_PREFIX.length
 const NOTICE_MS = 4000
 
 function errorText(e: unknown, fallback: string): string {
@@ -269,7 +274,7 @@ export default function Marketplace() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [reportOpen, setReportOpen] = useState(false)
-  const [reportReason, setReportReason] = useState<ReportReason | ''>('')
+  const [reportReason, setReportReason] = useState('')
   const [reportDetails, setReportDetails] = useState('')
   const [reporting, setReporting] = useState(false)
   const [notice, setNotice] = useState('')
@@ -581,11 +586,17 @@ export default function Marketplace() {
     setReportDetails('')
   }
 
-  /** Close the open report form; focus that was inside it goes back to the Report button, not the top of the page. */
+  /**
+   * Close the open report form; focus that was inside it goes back to the Report
+   * button, not the top of the page. Focus resting on the <main> landmark counts
+   * as nowhere, like body: main is click-focusable (tabIndex -1) since #221, and
+   * Safari leaves it there after a click on any button.
+   */
   function closeReport() {
     const form = reportFormRef.current
     const active = document.activeElement
-    const refocus = !!form && (!active || active === document.body || form.contains(active))
+    const refocus =
+      !!form && (!active || active === document.body || active === document.getElementById('main') || form.contains(active))
     resetReport()
     if (refocus) reportButtonRef.current?.focus()
   }
@@ -633,6 +644,18 @@ export default function Marketplace() {
             <div className="text-[11px] text-[var(--color-txt-3)] mt-1">{labelForCategory(listing.category)}</div>
           </div>
         </button>
+        {context === 'mine' && listing.hidden ? (
+          <div
+            className="px-3 pb-2 text-[11px] text-[var(--color-error)] flex items-start gap-1.5"
+            data-listing-hidden="true"
+          >
+            <Icon name="eyeOff" size={12} />
+            <span>
+              Hidden after {listing.reportCount ?? 0} report{listing.reportCount === 1 ? '' : 's'}. Only you can see it
+              while an admin reviews it.
+            </span>
+          </div>
+        ) : null}
         {context === 'mine' ? (
           <div className="flex flex-wrap gap-3 px-3 pb-3 pt-2 mt-auto border-t border-[var(--color-border)]">
             <button type="button" onClick={() => openEdit(listing)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)] inline-flex items-center gap-1">
@@ -838,7 +861,7 @@ export default function Marketplace() {
               <fieldset disabled={reporting} className="m-0 p-0 border-0 min-w-0">
                 <legend className="text-[12px] font-semibold text-[var(--color-txt-1)] mb-2">Why are you reporting this listing?</legend>
                 <div className="flex flex-col gap-2">
-                  {REPORT_REASONS.map((r) => (
+                  {REPORT_OPTIONS.map((r) => (
                     <label key={r.value} className="flex items-center gap-2 text-[13px] text-[var(--color-txt-1)] cursor-pointer select-none">
                       <input
                         type="radio"

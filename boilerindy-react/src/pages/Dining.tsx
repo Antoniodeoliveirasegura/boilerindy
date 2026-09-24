@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { track } from '../lib/usageStats'
 import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
 import { writeFailureMessage } from '../lib/writeFailure'
+import { useQueryClient } from '@tanstack/react-query'
+import { ApiError, refreshDining, useDining } from '../lib/queries/publicData'
 import {
   SHORT_DAY,
   WEEKDAY_ORDER,
@@ -21,6 +24,13 @@ import {
 // nothing else. Every hour shown comes from the feed; when the feed is down
 // the page says so instead of inventing hours, and a retail food court is
 // presented as one rather than as a hall with a missing menu.
+
+const UNAVAILABLE_MESSAGE = 'Live menus are temporarily unavailable.'
+
+// The server answered (a 5xx with ok: false, say) versus nothing answered at all.
+function diningErrorMessage(error: unknown): string {
+  return error instanceof ApiError ? UNAVAILABLE_MESSAGE : 'Could not reach the dining server.'
+}
 
 const STATION_ICONS = ['dining', 'grid', 'star', 'coffee', 'moon', 'book', 'building', 'users', 'navigation', 'bus']
 const STATION_CAP = 10
@@ -109,10 +119,25 @@ export default function Dining() {
     track('dining_viewed')
   }, [])
 
-  const [live, setLive] = useState<DiningSnapshot | null>(null)
-  const [loadError, setLoadError] = useState('')
-  const [loading, setLoading] = useState(true)
+  // The snapshot comes through the shared query cache (issue #251): a return
+  // visit paints the last menus at once, and Home's dining widget reads the
+  // same entry. Refresh bypasses every cache with ?refresh=1 and writes the
+  // answer back into it.
+  const queryClient = useQueryClient()
+  const diningQuery = useDining()
   const [refreshing, setRefreshing] = useState(false)
+  // Why the last Refresh click failed, shown until a later fetch (a refetch on
+  // focus, the next Refresh) lands newer data than the failure.
+  const [refreshFailure, setRefreshFailure] = useState<{ message: string; at: number } | null>(null)
+  const refreshError = refreshFailure && diningQuery.dataUpdatedAt <= refreshFailure.at ? refreshFailure.message : ''
+  const live = useMemo<DiningSnapshot | null>(() => {
+    const d = diningQuery.data
+    return d?.ok && Array.isArray(d.locations) ? d : null
+  }, [diningQuery.data])
+  const loading = diningQuery.isPending
+  const loadError =
+    refreshError ||
+    (diningQuery.isError ? diningErrorMessage(diningQuery.error) : diningQuery.data && !live ? UNAVAILABLE_MESSAGE : '')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
@@ -185,13 +210,10 @@ export default function Dining() {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [
-          {
-            role: 'user',
-            content:
-              "Based on what's currently being served at open dining locations on campus, give me a quick meal recommendation. Mention the specific location, a dish or two, and a short reason. Keep it to 2-3 sentences. No markdown.",
-          },
-        ],
+        messages: [{
+          role: 'user',
+          content: "Based on what's currently being served at open dining locations on campus, give me a quick meal recommendation. Name the specific location in bold and the actual dishes being served there today, plus a short reason. 2-3 sentences, no bullets, no headings.",
+        }],
       }),
     })
       .then((r) => r.json())
@@ -202,51 +224,17 @@ export default function Dining() {
       .finally(() => setAiLoading(false))
   }
 
-  const applySnapshot = useCallback((data: unknown) => {
-    const d = data as DiningSnapshot
-    if (d?.ok && Array.isArray(d.locations)) {
-      setLive(d)
-      setLoadError('')
-    } else {
-      setLoadError('Live menus are temporarily unavailable.')
+  async function refreshMenu() {
+    setRefreshing(true)
+    setRefreshFailure(null)
+    try {
+      await refreshDining(queryClient)
+    } catch (error) {
+      setRefreshFailure({ message: diningErrorMessage(error), at: Date.now() })
+    } finally {
+      setRefreshing(false)
     }
-  }, [])
-
-  function loadMenu(force = false) {
-    if (force) setRefreshing(true)
-    else setLoading(true)
-    setLoadError('')
-    fetch(`/api/dining${force ? '?refresh=1' : ''}`)
-      .then((r) => r.json())
-      .then(applySnapshot)
-      .catch(() => setLoadError('Could not reach the dining server.'))
-      .finally(() => {
-        setLoading(false)
-        setRefreshing(false)
-      })
   }
-
-  useEffect(() => {
-    // Initial load: `loading` starts true, so only async callbacks set state.
-    let cancelled = false
-    fetch('/api/dining')
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) applySnapshot(data)
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError('Could not reach the dining server.')
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-          setRefreshing(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [applySnapshot])
 
   const locations = useMemo<DiningLocation[]>(() => (loading ? [] : live?.locations || []), [live, loading])
   const weekday = snapshotWeekday(live)
@@ -304,7 +292,7 @@ export default function Dining() {
           </button>
           <button
             type="button"
-            onClick={() => loadMenu(true)}
+            onClick={() => void refreshMenu()}
             disabled={refreshing || loading}
             title="Force-refresh menu"
             aria-label="Refresh menus"
@@ -360,7 +348,7 @@ export default function Dining() {
               <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{aiSuggestion}</p>
+              <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{aiSuggestion}</AiMarkdown>
             </div>
             <button onClick={() => setAiSuggestion(null)} className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] shrink-0" aria-label="Dismiss suggestion">
               <Icon name="close" size={14} />

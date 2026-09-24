@@ -1,133 +1,66 @@
-```markdown
-# boilerindy Development Patterns
+---
+name: boilerindy
+description: Repo-specific patterns for boilerindy: where backend and frontend code goes, naming and export conventions, the test layers, the develop-based one-PR-per-issue workflow and the conventions CI enforces. Use when changing anything in this repository.
+---
 
-> Auto-generated skill from repository analysis
+# boilerindy development patterns
 
-## Overview
-This skill teaches you how to effectively contribute to the `boilerindy` codebase, a JavaScript project built on the Express framework. You'll learn the repository's coding conventions, commit patterns, and structured workflows for rebranding, feature development, documentation, and UI updates. The guide also covers testing patterns and provides convenient commands for common tasks.
+The full map and the workflow live in `CLAUDE.md` at the repository root and
+in the README's "Conventions" section; read those first. This skill keeps the
+patterns an agent applies most, so it can be loaded on its own.
 
-## Coding Conventions
+## Architecture in one paragraph
 
-### File Naming
-- Use **PascalCase** for file names.
-  - Example: `RateLimiter.mjs`, `BoardEditor.jsx`
+An Express backend (`server.mjs`, with feature routers moving to
+`src/routes/` under issue #191; `layouts.mjs` is the first) whose logic lives
+in `src/*.mjs` modules, each with a `test/<name>.test.mjs`, and whose seven
+session-free public reads sit ahead of the session middleware so the edge can
+cache them; a React 19 + Vite + TypeScript frontend in
+`boilerindy-react/` (`pages/`, `components/`, `context/`, `hooks/`, `lib/`,
+with the TanStack Query layer in `lib/queries/`); Supabase migrations in
+`db/*.sql` applied in README order; Playwright specs in `e2e/` against a mocked
+backend. Some `src/*.mjs` modules are imported by both sides so the browser and
+the API share one set of limits, layouts and programs.
 
-### Import Style
-- Use **absolute imports** throughout the codebase.
-  - Example:
-    ```js
-    import { BoardEditor } from 'boilerindy-react/src/components/BoardEditor.jsx';
-    ```
+## Naming and exports
 
-### Export Style
-- Use **named exports** for modules and components.
-  - Example:
-    ```js
-    // BoardEditor.jsx
-    export function BoardEditor(props) { ... }
-    ```
+- Backend modules: camelCase `.mjs`, named exports, one concern per file.
+- Frontend pages and components: PascalCase `.tsx`, default exports.
+- Frontend `lib/` and `hooks/`: camelCase `.ts`/`.tsx`, named exports.
+- Imports are relative (`../lib/authApi`); the shared root modules are reached
+  as `../../../src/<name>.mjs`.
+- Every file under `boilerindy-react/src/` is TypeScript; `allowJs` stays on
+  only for those shared `.mjs` imports.
 
-### Commit Patterns
-- **Conventional commits** are used.
-  - Prefixes: `fix`, `feat`, `rebrand`, `docs`
-  - Example:
-    ```
-    feat: add rate limiting to API endpoints
-    rebrand: update all references from HackIndy to BoilerIndy
-    ```
+## Tests, by layer
 
-## Workflows
+| Layer | Tool | Where | Run |
+|---|---|---|---|
+| Backend module | node:test | `test/<name>.test.mjs` | `pnpm test:backend` |
+| Frontend unit | Vitest + Testing Library | colocated `*.test.ts(x)` | `pnpm -C boilerindy-react test` |
+| End to end | Playwright | `e2e/*.spec.js` with `e2e/fixtures/mock-backend.js` | `pnpm exec playwright test` |
+| Docs guards | node:test | `test/rateLimitDocs.test.mjs`, `test/apiRoutesDoc.test.mjs`, `test/envExample.test.mjs`, `test/dbApplyOrder.test.mjs` | in `pnpm test:backend` |
 
-### Rebranding Across Codebase
-**Trigger:** When renaming the application or updating branding (e.g., HackIndy → BoilerIndy)  
-**Command:** `/rebrand`
+`server.mjs` starts listening on import, so route handlers are not unit
+tested: put the logic in a module and keep the handler thin. Frontend tests
+mock `../lib/authApi` and `../context/AuthContext` with `vi.mock`; pages that
+read through the query layer render under a `QueryClientProvider` (see
+`src/pages/Dining.test.tsx`).
 
-1. Rename relevant directories and files (e.g., `hackindy-react/` → `boilerindy-react/`).
-2. Update `package.json` and `package-lock.json` with the new names.
-3. Replace all brand references in code files, environment templates, and documentation.
-4. Update assets such as `favicon.svg` and `icons.svg`.
-5. Change user-facing strings in UI components and pages.
-6. Update configuration files and deployment settings (e.g., `vercel.json`, `server.mjs`).
+## Commits and pull requests
 
-**Example:**  
-```js
-// Before
-export const APP_NAME = "HackIndy";
+Conventional-commit style with the issue number: `feat(scope): what changed
+(#123)`. Branch from `develop`, one branch and one PR per issue, base
+`develop`. No em or en dashes anywhere, no AI co-author trailers or "Generated
+with" footers: the committed hooks and CI reject both. pnpm only. Finish with
+the CI mirror green and a status comment on the issue.
 
-// After
-export const APP_NAME = "BoilerIndy";
-```
+## Workflow commands
 
-### Feature Implementation with UI and Backend
-**Trigger:** When adding or enhancing a feature that spans backend and frontend  
-**Command:** `/feature`
+The scaffolds in `.claude/commands/` are starting points, not scripts:
 
-1. Implement backend logic or endpoints (e.g., update `server.mjs`, add `rateLimiter.mjs`).
-2. Update or create documentation for the new feature.
-3. Update `.env.example` and other configuration as needed.
-4. Update or add frontend components and context/state files.
-5. Modify or create new UI elements and pages to expose the feature.
-6. Persist new settings or data locally (e.g., using `localStorage`).
-
-**Example:**  
-```js
-// server.mjs
-export function rateLimiter(req, res, next) { ... }
-
-// boilerindy-react/src/components/RateLimitBadge.jsx
-export function RateLimitBadge({ limit }) { ... }
-```
-
-### Documentation and Env Template Update
-**Trigger:** When adding features, changing configuration, or improving onboarding  
-**Command:** `/docs-update`
-
-1. Edit or add sections to `README.md` and other documentation files.
-2. Update `.env.example` files with new variables or clearer instructions.
-3. Add or update feature-specific documentation (e.g., `docs/RATE_LIMITS.md`).
-
-**Example:**  
-```md
-# .env.example
-SUPABASE_URL=your-supabase-url
-SUPABASE_KEY=your-supabase-key
-RATE_LIMIT=100
-```
-
-### UI String and Badge Update
-**Trigger:** When changing displayed names, badges, or clarifying UI text  
-**Command:** `/ui-string-update`
-
-1. Edit relevant UI components and pages to update strings or badges.
-2. Replace or update visual badge assets if necessary.
-3. Test changes in the UI to ensure consistency.
-
-**Example:**  
-```jsx
-// Before
-<span className="badge">HackIndy</span>
-
-// After
-<span className="badge">BoilerIndy</span>
-```
-
-## Testing Patterns
-
-- Test files follow the pattern: `*.test.*`
-- Testing framework is **unknown** (not specified in the repository).
-- Place test files alongside the modules they test or in dedicated test directories.
-- Example:
-  ```
-  BoardEditor.test.jsx
-  server.test.mjs
-  ```
-
-## Commands
-
-| Command           | Purpose                                                    |
-|-------------------|------------------------------------------------------------|
-| /rebrand          | Systematically update all branding references               |
-| /feature          | Add or enhance a feature across backend and frontend        |
-| /docs-update      | Update documentation and environment variable templates     |
-| /ui-string-update | Update user-facing strings and badges in the UI             |
-```
+| Command | Use |
+|---|---|
+| `/feature-development` | a change that spans a `src/*.mjs` module, its test, a route and a page |
+| `/database-migration` | a new `db/*.sql` file, its README order entry and the code that depends on it |
+| `/rebranding-across-codebase` | renaming a product or brand across code, assets and docs |

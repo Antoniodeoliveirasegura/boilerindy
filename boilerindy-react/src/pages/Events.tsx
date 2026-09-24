@@ -1,11 +1,12 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { authRequest } from '../lib/authApi'
-import { linkifyText, stripHtml, cleanAiText } from '../lib/linkifyText'
+import { linkifyText, stripHtml } from '../lib/linkifyText'
+import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 
 type EventItem = {
   id: string
@@ -92,14 +93,18 @@ function getRecsCacheKey(userId: string | undefined) {
 export default function Events() {
   const { user, onboarding } = useAuth()
   const userId = user?.id as string | undefined
-  const [items, setItems] = useState<EventItem[]>([])
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
+  // The same calendar window Free Food reads, one cache entry for both (#327).
+  const calendarQuery = useMyCalendar<EventItem>(CAMPUS_EVENTS_CALENDAR)
+  const items = useMemo<EventItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
+  const loading = calendarQuery.isPending
   const [showPast, setShowPast] = useState(false)
   const [freeFoodOnly, setFreeFoodOnly] = useState(false)
   const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
 
-  const [eventRecs, setEventRecs] = useState<string | null>(() => readAiCache(getRecsCacheKey(userId)))
+  const [eventRecs, setEventRecs] = useState<string | null>(() => {
+    return readAiCache(getRecsCacheKey(userId))?.text ?? null
+  })
   const [recsLoading, setRecsLoading] = useState(false)
   // Recommendations that land after sign-out unmounted the page must not write
   // the cache back once sign-out has cleared it (issue #219).
@@ -120,36 +125,19 @@ export default function Events() {
       body: JSON.stringify({
         messages: [{
           role: 'user',
-          content: 'Pick 2-3 upcoming campus events I should attend based on my free time this week. For each, write one sentence: the event name, the day/time, and why I should go. Plain text only, no markdown, no asterisks, no bold, no bullet points. Complete every sentence.',
+          content: 'Pick 2-3 upcoming campus events I should attend based on my free time this week. One "-" bullet each: the event name in bold, then the day and time, then one sentence on why it fits my schedule. No intro line, no closing line.',
         }],
       }),
     })
       .then((r) => r.json())
       .then((d) => {
         if (d.reply && mountedRef.current) {
-          const clean = cleanAiText(d.reply)
-          setEventRecs(clean)
-          writeAiCache(getRecsCacheKey(userId), clean)
+          setEventRecs(d.reply)
+          writeAiCache(getRecsCacheKey(userId), d.reply)
         }
       })
       .catch(() => {})
       .finally(() => setRecsLoading(false))
-  }
-
-  useEffect(() => {
-    loadData()
-  }, [])
-
-  async function loadData() {
-    setLoading(true)
-    try {
-      const res = (await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')) as { items?: EventItem[] }
-      setItems(res.items || [])
-    } catch (error) {
-      console.error('Failed to load events:', error)
-    } finally {
-      setLoading(false)
-    }
   }
 
   const filteredItems = useMemo(() => {
@@ -232,7 +220,7 @@ export default function Events() {
             />
             Show past events
           </label>
-          <button onClick={loadData} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button onClick={() => void calendarQuery.refetch()} className="btn btn-secondary text-[13px] px-4 py-2">
             <Icon name="refresh" size={14} />
             Refresh
           </button>
@@ -305,7 +293,7 @@ export default function Events() {
               Finding events that fit your schedule…
             </div>
           ) : eventRecs ? (
-            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed whitespace-pre-line">{eventRecs}</p>
+            <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{eventRecs}</AiMarkdown>
           ) : (
             <p className="text-[12px] text-[var(--color-txt-3)]">
               AI picks campus events that fit your free time. Tap &ldquo;Get Picks&rdquo; to try it.

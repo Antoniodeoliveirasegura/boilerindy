@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './AuthContext'
 
 // Issue #111 - /api/auth/supabase-sync fired twice per login: once from the
@@ -66,7 +67,14 @@ let emitAuthEvent: (event: string, session: unknown) => Promise<void>
 const syncCount = () => mocks.authRequest.mock.calls.filter(([path]) => path === SYNC).length
 const calledWith = (path: string) => mocks.authRequest.mock.calls.some(([p]) => p === path)
 
-const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>
+// AuthProvider clears the query cache on sign-out (issue #327), so it renders
+// under a query client here, as it does under the provider in main.tsx.
+const queryClient = new QueryClient()
+const wrapper = ({ children }: { children: ReactNode }) => (
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>{children}</AuthProvider>
+  </QueryClientProvider>
+)
 
 beforeEach(() => {
   vi.clearAllMocks()

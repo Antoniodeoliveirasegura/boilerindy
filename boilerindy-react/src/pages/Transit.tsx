@@ -15,6 +15,7 @@ import {
   isRouteActiveNow,
   type TransitRoute,
 } from '../lib/transitShared'
+import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -510,19 +511,35 @@ export default function Transit() {
     track('transit_viewed')
   }, [])
 
-  const [rawVehicles, setRawVehicles] = useState<Vehicle[]>([])
-  const [stops, setStops] = useState<Stop[]>([])
+  // Vehicles, stops and the route map come through the shared query cache
+  // (issue #251): the dashboard's transit card reads the same entries, the
+  // 10 s vehicle poll pauses while the tab is hidden, and a return visit
+  // paints the last positions before the network answers.
+  const vehiclesQuery = useTransitVehicles()
+  const stopsQuery = useTransitStops()
+  const routesQuery = useTransitRoutes()
+  const rawVehicles = useMemo<Vehicle[]>(
+    () => (Array.isArray(vehiclesQuery.data) ? (vehiclesQuery.data as Vehicle[]) : []),
+    [vehiclesQuery.data],
+  )
+  const stops = useMemo<Stop[]>(() => (Array.isArray(stopsQuery.data) ? (stopsQuery.data as Stop[]) : []), [stopsQuery.data])
   const [selectedRoute, setSelectedRoute] = useState<TransitRoute | null>(null)
   const [selectedBus, setSelectedBus] = useState<Vehicle | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const loading = vehiclesQuery.isPending || stopsQuery.isPending || routesQuery.isPending
+  const lastUpdate = useMemo(
+    () => (vehiclesQuery.dataUpdatedAt ? new Date(vehiclesQuery.dataUpdatedAt) : null),
+    [vehiclesQuery.dataUpdatedAt],
+  )
   const [visitedStopIds, setVisitedStopIds] = useState<Set<string>>(() => new Set())
   // Last bus position folded into visitedStopIds - see the accumulation block below.
   const [lastBusPos, setLastBusPos] = useState<string | null>(null)
   /** One “my stop” per route - chime fires when bus reaches the stop before this one */
   const [myStopId, setMyStopId] = useState<string | null>(null)
   const chimePlayedRef = useRef(false)
-  const [routeIdToCanonical, setRouteIdToCanonical] = useState<Record<number, number>>(() => ({ ...TRANLOC_ROUTE_ALIASES }))
+  const routeIdToCanonical = useMemo<Record<number, number>>(
+    () => (Array.isArray(routesQuery.data) ? buildTranslocRouteIdMap(routesQuery.data) : { ...TRANLOC_ROUTE_ALIASES }),
+    [routesQuery.data],
+  )
 
   // Reset per-route tracking state when the selected route changes. Done during
   // render (React's "adjust state on prop change" pattern) rather than in an
@@ -563,49 +580,6 @@ export default function Transit() {
       return v
     })
   }, [rawVehicles, routeIdToCanonical])
-
-  const fetchVehicles = useCallback(async () => {
-    try {
-      const response = await fetch('/api/transit/vehicles')
-      const data = await response.json()
-      setRawVehicles(data || [])
-      setLastUpdate(new Date())
-    } catch (error) {
-      console.error('Failed to fetch vehicles:', error)
-    }
-  }, [])
-
-  const fetchStops = useCallback(async () => {
-    try {
-      const response = await fetch('/api/transit/stops')
-      const data = await response.json()
-      setStops(data || [])
-    } catch (error) {
-      console.error('Failed to fetch stops:', error)
-    }
-  }, [])
-
-  const fetchTransitRouteMap = useCallback(async () => {
-    try {
-      const response = await fetch('/api/transit/routes')
-      const data = await response.json()
-      setRouteIdToCanonical(buildTranslocRouteIdMap(data))
-    } catch {
-      /* keep static TRANLOC_ROUTE_ALIASES */
-    }
-  }, [])
-
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true)
-      await Promise.all([fetchVehicles(), fetchStops(), fetchTransitRouteMap()])
-      setLoading(false)
-    }
-    init()
-
-    const interval = setInterval(fetchVehicles, 10000)
-    return () => clearInterval(interval)
-  }, [fetchVehicles, fetchStops, fetchTransitRouteMap])
 
   const orderedStops = useMemo(() => {
     if (!selectedRoute) return []
@@ -732,7 +706,7 @@ export default function Transit() {
           </p>
         </div>
         <button
-          onClick={fetchVehicles}
+          onClick={() => void vehiclesQuery.refetch()}
           className="text-[13px] text-[var(--color-accent)] flex items-center gap-1.5 hover:gap-2 transition-all font-medium self-start sm:self-auto py-2 px-3 -mx-3 sm:mx-0 sm:p-0 rounded-lg active:bg-[var(--color-accent)]/10"
         >
           <Icon name="refresh" size={14} />

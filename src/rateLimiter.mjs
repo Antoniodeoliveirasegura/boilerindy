@@ -58,6 +58,39 @@ function formatRetry(seconds) {
 }
 
 /**
+ * A named fixed-window counter without the HTTP layer: the same
+ * RATE_LIMIT_<NAME>_MAX and _WINDOW_MS overrides, the same cleanup, for code
+ * that meters something other than a request, such as the board auto-tagger's
+ * inference calls inside POST /api/board/posts (issue #191). createRateLimiter
+ * is this plus the headers and the 429.
+ *
+ * @param {{ name: string, windowMs: number, max: number }} options
+ * @returns {{ name: string, limit: number, windowMs: number,
+ *   hit: (key: string, now?: number) => { allowed: boolean, count: number, limit: number, resetAt: number, entry: object } }}
+ *   `hit` counts one event for `key`; `allowed` is false once the window's
+ *   budget is spent, and always true while RATE_LIMIT_ENABLED=false.
+ */
+export function createRateWindow({ name, windowMs, max }) {
+  const envKey = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
+  const limit = envNumber(`RATE_LIMIT_${envKey}_MAX`, max)
+  const window = envNumber(`RATE_LIMIT_${envKey}_WINDOW_MS`, windowMs)
+  const windows = new Map()
+  allWindowStores.push(windows)
+
+  function hit(key, now = Date.now()) {
+    let entry = windows.get(key)
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 0, resetAt: now + window, logged: false }
+      windows.set(key, entry)
+    }
+    entry.count += 1
+    return { allowed: !globalEnabled || entry.count <= limit, count: entry.count, limit, resetAt: entry.resetAt, entry }
+  }
+
+  return { name, limit, windowMs: window, hit }
+}
+
+/**
  * Build an Express middleware enforcing `max` requests per `windowMs`.
  *
  * @param {object} options
@@ -73,39 +106,35 @@ function formatRetry(seconds) {
  *   Answers a blocked request instead of the JSON 429, for routes whose caller
  *   is a browser redirect rather than a fetch (issue #293). The RateLimit
  *   headers, Retry-After and the log line are the same either way.
+ * @param {(req: object) => boolean} [options.skip]
+ *   When it returns true the request passes without touching a bucket or
+ *   setting headers, so a limiter can stay on its route line (where the
+ *   RATE_LIMITS doc guard reads it) while metering only some requests.
  */
-export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message, onLimit }) {
-  const envKey = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
-  const limit = envNumber(`RATE_LIMIT_${envKey}_MAX`, max)
-  const window = envNumber(`RATE_LIMIT_${envKey}_WINDOW_MS`, windowMs)
-  const windows = new Map()
-  allWindowStores.push(windows)
+export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message, onLimit, skip }) {
+  const bucket = createRateWindow({ name, windowMs, max })
+  const { limit, windowMs: window } = bucket
 
   return function rateLimit(req, res, next) {
     if (!globalEnabled) return next()
+    if (typeof skip === 'function' && skip(req)) return next()
 
     const key = bucketKey(req, keyBy)
     const now = Date.now()
-
-    let win = windows.get(key)
-    if (!win || now >= win.resetAt) {
-      win = { count: 0, resetAt: now + window, logged: false }
-      windows.set(key, win)
-    }
-    win.count += 1
+    const { count, resetAt, entry } = bucket.hit(key, now)
 
     res.setHeader('RateLimit-Limit', String(limit))
-    res.setHeader('RateLimit-Remaining', String(Math.max(0, limit - win.count)))
-    res.setHeader('RateLimit-Reset', String(Math.ceil((win.resetAt - now) / 1000)))
+    res.setHeader('RateLimit-Remaining', String(Math.max(0, limit - count)))
+    res.setHeader('RateLimit-Reset', String(Math.ceil((resetAt - now) / 1000)))
 
-    if (win.count <= limit) return next()
+    if (count <= limit) return next()
 
-    const retryAfterSeconds = Math.max(1, Math.ceil((win.resetAt - now) / 1000))
-    if (!win.logged) {
-      win.logged = true
+    const retryAfterSeconds = Math.max(1, Math.ceil((resetAt - now) / 1000))
+    if (!entry.logged) {
+      entry.logged = true
       console.warn(
         `[rate-limit] ${name}: blocked ${key} on ${req.method} ${req.path} ` +
-          `(${win.count} requests, limit ${limit}/${Math.round(window / 1000)}s)`,
+          `(${count} requests, limit ${limit}/${Math.round(window / 1000)}s)`,
       )
     }
     res.setHeader('Retry-After', String(retryAfterSeconds))

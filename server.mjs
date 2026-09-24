@@ -58,7 +58,9 @@ import {
   boardTextFailsPolicy,
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
-import { createRateLimiter } from './src/rateLimiter.mjs'
+import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
+import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
+import { toggleUpvote } from './src/upvoteToggle.mjs'
 import {
   DINING_FAVORITES_CAP_MESSAGE,
   DRAFT_CAMPAIGNS_CAP_MESSAGE,
@@ -83,11 +85,7 @@ import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
 import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
-import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
-import {
-  normalizeLayout as normalizeServicesLayout,
-  defaultLayout as defaultServicesLayout,
-} from './src/servicesLayout.mjs'
+import { createLayoutsRouter } from './src/routes/layouts.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -122,10 +120,12 @@ import {
 } from './src/dbErrors.mjs'
 import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import {
+  evaluateReportTarget,
   isMissingGalleryPricingColumn,
   mapListingRow,
   MARKETPLACE_GALLERY_PRICING_SQL_FILE,
-  REPORTS_TO_HIDE,
+  parseReportInput,
+  shouldAutoHide,
   validateListingInput,
 } from './src/marketplace.mjs'
 import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
@@ -139,8 +139,14 @@ import {
   formatClassesToday,
   formatDiningOpen,
   formatAssignments,
+  intentFocusHint,
   ASSISTANT_OFFLINE_MESSAGE,
 } from './src/assistantRouter.mjs'
+import {
+  normalizeScheduleOverrides,
+  applyScheduleOverridesToRows,
+  manualClassesAsRows,
+} from './src/scheduleOverrides.mjs'
 import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
@@ -313,25 +319,6 @@ const sessionStore = await createSessionStore(supabase)
 // mutation choke points below.
 const onboardingSummaryCache = createOnboardingSummaryCache()
 
-app.use(
-  session({
-    name: 'pih.sid',
-    secret: sessionSecret || 'dev-session-secret',
-    ...(sessionStore ? { store: sessionStore } : {}),
-    resave: false,
-    saveUninitialized: false,
-    // Refresh the cookie on every response so active users are never logged
-    // out mid-task; the client warns shortly before idle expiry (issue #23)
-    rolling: true,
-    cookie: {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isProduction,
-      maxAge: 1000 * 60 * 60 * 24 * 14,
-    },
-  }),
-)
-
 // ── Abuse protection (issue #22) ────────────────────────────────────────────
 // Per-user buckets when signed in, per-IP otherwise. Tunable via
 // RATE_LIMIT_* env vars; full endpoint coverage in docs/RATE_LIMITS.md.
@@ -429,22 +416,43 @@ const adEventRateLimit = createRateLimiter({
 // First-party analytics ingestion (issue #51). The client flushes a batch at
 // most every 10s, so 60 requests per 5 minutes leaves ample headroom while
 // capping abuse.
-// Session-free upstream proxies (dining, parking, stops, routes). Keyed by the
-// signed-in user when there is one, so app users behind one campus NAT do not
-// exhaust a shared budget (#215); anonymous callers still share their IP.
+// Session-free upstream proxies (dining, parking, stops, routes, push config).
+// These routes are registered before the session middleware (issue #250, see
+// the public reads block below), so req.session is never set on them. To keep
+// #215's fairness for app users behind one campus NAT, the bucket key is a
+// hash of the session cookie when the request carries one and the IP
+// otherwise; the *-ip limiters cap what one address can spend across every
+// cookie value it presents, the way session-sync-ip bounds session-sync.
 const publicReadRateLimit = createRateLimiter({
   name: 'public-read',
   windowMs: 15 * 60 * 1000,
   max: 120,
+  keyBy: publicReadBucketKey,
+  message: 'Too many requests. Please try again shortly.',
+})
+const publicReadIpRateLimit = createRateLimiter({
+  name: 'public-read-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 1200,
+  keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
 })
 // Live vehicle positions poll every 10 to 20 s per open Transit screen and are
 // cached 5 s server-side, so they get their own bucket sized for polling
-// instead of eating the shared public-read budget (#215).
+// instead of eating the shared public-read budget (#215). Same keying and the
+// same kind of outer per-address cap as public-read.
 const transitVehiclesRateLimit = createRateLimiter({
   name: 'transit-vehicles',
   windowMs: 15 * 60 * 1000,
   max: 240,
+  keyBy: publicReadBucketKey,
+  message: 'Too many transit requests. Please slow down.',
+})
+const transitVehiclesIpRateLimit = createRateLimiter({
+  name: 'transit-vehicles-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 2400,
+  keyBy: 'ip',
   message: 'Too many transit requests. Please slow down.',
 })
 const pushWriteRateLimit = createRateLimiter({
@@ -514,6 +522,43 @@ const advertiserWriteRateLimit = createRateLimiter({
   keyBy: advertiserWriteBucketKey,
   message: 'Too many campaign changes. Please wait a few minutes and try again.',
 })
+
+// ── Public reads (issue #250) ────────────────────────────────────────────────
+// The session-free upstream proxies are registered here, before the session
+// middleware, so their responses never carry Set-Cookie: with `rolling: true`
+// express-session refreshes the cookie on every response that has a session,
+// and Vercel will not store a response that sets a cookie, which kept the edge
+// cache empty for every signed-in poll. Same precedent as /api/health. The
+// handlers are function declarations further down, next to the caches and
+// constants they use; everything they touch is read at request time, after
+// startup, so the hoisting is safe.
+app.get('/api/transit/vehicles', transitVehiclesIpRateLimit, transitVehiclesRateLimit, handleTransitVehicles)
+app.get('/api/transit/stops', publicReadIpRateLimit, publicReadRateLimit, handleTransitStops)
+app.get('/api/transit/routes', publicReadIpRateLimit, publicReadRateLimit, handleTransitRoutes)
+app.get('/api/parking/garages', publicReadIpRateLimit, publicReadRateLimit, handleParkingGarages)
+app.get('/api/clubs', clubsReadRateLimit, handleClubs)
+app.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
+app.get('/api/dining', publicReadIpRateLimit, publicReadRateLimit, handleDining)
+
+// Everything below runs behind the cookie session.
+app.use(
+  session({
+    name: SESSION_COOKIE_NAME,
+    secret: sessionSecret || 'dev-session-secret',
+    ...(sessionStore ? { store: sessionStore } : {}),
+    resave: false,
+    saveUninitialized: false,
+    // Refresh the cookie on every response so active users are never logged
+    // out mid-task; the client warns shortly before idle expiry (issue #23)
+    rolling: true,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProduction,
+      maxAge: 1000 * 60 * 60 * 24 * 14,
+    },
+  }),
+)
 
 function nowIso() {
   return new Date().toISOString()
@@ -1471,7 +1516,7 @@ app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
 
 app.post('/api/sign-out', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('pih.sid')
+    res.clearCookie(SESSION_COOKIE_NAME)
     res.json({ ok: true })
   })
 })
@@ -1802,7 +1847,7 @@ app.post('/api/me/delete-account', signInRateLimit, requireAuth, async (req, res
       confirmation: req.body?.confirmation,
     })
     req.session.destroy(() => {
-      res.clearCookie('pih.sid')
+      res.clearCookie(SESSION_COOKIE_NAME)
       res.json({ ok: true })
     })
   } catch (error) {
@@ -2382,6 +2427,54 @@ app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
   res.json({ major })
 })
 
+// ---- Schedule overrides --------------------------------------------------
+// Hidden / edited / manually added class meetings. Previously localStorage only,
+// so they were lost on a new device and invisible to the campus assistant.
+// Stored as one JSONB document because the client always reads and writes the
+// whole state at once.
+async function readScheduleOverrides(userId) {
+  const { data, error } = await supabase
+    .from('user_schedule_overrides')
+    .select('series, manual')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error || !data) return { series: {}, manual: [] }
+  return normalizeScheduleOverrides(data)
+}
+
+app.get('/api/me/schedule-overrides', requireAuth, async (req, res) => {
+  try {
+    res.json({ overrides: await readScheduleOverrides(req.currentUser.id) })
+  } catch (e) {
+    console.error('GET /api/me/schedule-overrides:', e?.message || e)
+    // The client keeps a local copy, so an unavailable table degrades to
+    // "no server state yet" rather than wiping the student's edits.
+    res.json({ overrides: { series: {}, manual: [] }, unavailable: true })
+  }
+})
+
+app.put('/api/me/schedule-overrides', userWriteRateLimit, requireAuth, async (req, res) => {
+  const overrides = normalizeScheduleOverrides(req.body?.overrides)
+  try {
+    const { error } = await supabase
+      .from('user_schedule_overrides')
+      .upsert(
+        {
+          user_id: req.currentUser.id,
+          series: overrides.series,
+          manual: overrides.manual,
+          updated_at: nowIso(),
+        },
+        { onConflict: 'user_id' },
+      )
+    if (error) throw error
+    res.json({ overrides })
+  } catch (e) {
+    console.error('PUT /api/me/schedule-overrides:', e?.message || e)
+    res.status(500).json({ error: { message: 'Could not save schedule changes.' } })
+  }
+})
+
 app.get('/api/me/classes', requireAuth, async (req, res) => {
   const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
   const term = typeof req.query.term === 'string' ? req.query.term : 'auto'
@@ -2662,56 +2755,12 @@ app.delete('/api/lost-found/:id', userWriteRateLimit, requireIdParam('id'), requ
   res.json({ ok: true })
 })
 
-// ── Customizable home dashboard layout (issue #52) ───────────────────────────
-// Per-user widget order/size/visibility, stored as JSONB on users. NULL means
-// the user has never customized, so the client applies the default layout.
-
-app.get('/api/me/dashboard', requireAuth, async (req, res) => {
-  const stored = req.currentUser.dashboard_layout
-  // Never customized → return the default so the client always has a layout.
-  const layout = stored == null ? defaultLayout() : normalizeLayout(stored)
-  res.json({ layout })
-})
-
-app.put('/api/me/dashboard', userWriteRateLimit, requireAuth, async (req, res) => {
-  // Sanitize untrusted client input against the widget allowlist before storing.
-  const layout = normalizeLayout(req.body?.layout)
-  const { error } = await supabase
-    .from('users')
-    .update({ dashboard_layout: layout })
-    .eq('id', req.currentUser.id)
-  if (error) {
-    console.error('PUT /api/me/dashboard:', error.message)
-    return res.status(500).json({ error: { message: 'Could not save your dashboard layout.', status: 500 } })
-  }
-  res.json({ layout })
-})
-
-// ── Customizable Student Services board layout ───────────────────────────────
-// Per-user widget order/size/visibility for the /services page, stored as JSONB
-// on users. NULL means the user has never customized, so the client applies the
-// default layout. Mirrors /api/me/dashboard.
-
-app.get('/api/me/services', requireAuth, async (req, res) => {
-  const stored = req.currentUser.services_layout
-  // Never customized → return the default so the client always has a layout.
-  const layout = stored == null ? defaultServicesLayout() : normalizeServicesLayout(stored)
-  res.json({ layout })
-})
-
-app.put('/api/me/services', userWriteRateLimit, requireAuth, async (req, res) => {
-  // Sanitize untrusted client input against the widget allowlist before storing.
-  const layout = normalizeServicesLayout(req.body?.layout)
-  const { error } = await supabase
-    .from('users')
-    .update({ services_layout: layout })
-    .eq('id', req.currentUser.id)
-  if (error) {
-    console.error('PUT /api/me/services:', error.message)
-    return res.status(500).json({ error: { message: 'Could not save your services layout.', status: 500 } })
-  }
-  res.json({ layout })
-})
+// ── Customizable board layouts (issue #52) ───────────────────────────────────
+// The home dashboard and Student Services board layouts live in
+// src/routes/layouts.mjs, the first feature router out of this file (issue
+// #191). Mounted where the routes were, so ordering-sensitive middleware (the
+// session above, apiNotFound and the error handler below) is unaffected.
+app.use(createLayoutsRouter({ supabase, requireAuth, userWriteRateLimit }))
 
 app.get('/', (_req, res) => {
   res.redirect(clientAppUrl)
@@ -2738,24 +2787,32 @@ if (!GROQ_API_KEY && process.env.XAI_API_KEY) {
 }
 const TZ = 'America/Indiana/Indianapolis'
 
-// In-memory rate limiter for the AI routes: keyed by user ID (authed) or IP (anon)
-const _aiWindows = new Map()
-setInterval(() => {
-  const now = Date.now()
-  for (const [k, v] of _aiWindows) if (now >= v.resetAt) _aiWindows.delete(k)
-}, 60 * 60 * 1000)
-
-function aiAllowed(key, max) {
-  const now = Date.now()
-  const win = _aiWindows.get(key)
-  if (!win || now >= win.resetAt) {
-    _aiWindows.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
-    return true
-  }
-  if (win.count >= max) return false
-  win.count++
-  return true
-}
+// AI inference metering (issue #191): the assistant and the board helpers used
+// a hand-rolled hourly window; they are now buckets of the shared limiter, with
+// the same RATE_LIMIT_* overrides and headers as everything else. Separate
+// buckets, so a long conversation cannot use up a student's compose
+// suggestions and vice versa. The assistant keeps its pre-envelope 429 body (a
+// string `error`), which is what CampusAssistant.tsx renders.
+const assistantRateLimit = createRateLimiter({
+  name: 'ai-assistant',
+  windowMs: 60 * 60 * 1000,
+  max: 40,
+  onLimit: (_req, res) =>
+    res.status(429).json({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }),
+  // Only real inference is metered: without a Groq key the route answers from
+  // the offline router, which costs nothing. A skip rather than a wrapper, so
+  // the limiter sits on the route line where the RATE_LIMITS doc guard reads it.
+  skip: () => !GROQ_API_KEY,
+})
+const boardAiRateLimit = createRateLimiter({
+  name: 'ai-board',
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: 'Rate limit reached. Try again in an hour.',
+})
+// The auto-tagger runs inside POST /api/board/posts rather than as a route of
+// its own, so it meters its inference calls through a window, not a middleware.
+const boardTagWindow = createRateWindow({ name: 'ai-board-tags', windowMs: 60 * 60 * 1000, max: 30 })
 
 const CAMPUS_SYSTEM_PROMPT = `You are BoilerIndy - a helpful campus assistant for Purdue University Indianapolis (Purdue Indy / IUPUI).
 You have access to real-time data about the student's schedule, dining, and campus events - all provided in the context block below.
@@ -2771,9 +2828,24 @@ You help students with:
 - Student services: ASC tutoring (Campus Center 2nd floor), printing (library 25 free pages/day), Health & Wellness Center, Financial Aid (Cavanaugh Hall), Registrar (Cavanaugh Hall)
 - General student life at Purdue Indy
 
+How to read the context block:
+- COURSES, TODAY and HAPPENING NOW already reflect the student's own edits: classes they deleted are gone, times and rooms they corrected are applied, and classes they added by hand are included and marked [added by you]. Treat it as the truth. Never mention a class that is not listed.
+- Anything marked [DONE] is already finished. Never tell the student to do it, and never count it as pending work.
+- YOUR TASK LIST is the to-dos the student typed in themselves. It is just as real as synced coursework - weave both together rather than treating the synced list as the only one.
+- Items marked [OVERDUE] are late. Call those out first when the student asks what to work on.
+
+Formatting (the app renders your reply as markdown):
+- Use "-" bullets for lists of classes, deadlines, menu items or steps. Never write a numbered plan as one long paragraph.
+- Bold the thing that matters most in a line - a course code, a time, a deadline - with **double asterisks**. Do not bold whole sentences.
+- No headings for short answers. Only use "###" when the reply genuinely has two or more distinct sections.
+- Write times the way a person says them: "2:30pm", not "14:30" or "2:30 PM Eastern".
+- Never output raw JSON, tables, code fences or a dump of the context block.
+
 Rules:
-- Be concise and friendly. Short replies only; the reply format rules at the end are strict.
+- Be concise and friendly. For simple questions: 2-4 sentences, no bullets. For "what should I do now?", "plan my afternoon", or similar planning questions: a short prioritized list of 3-5 bullets, each one concrete and tied to a real time.
+- Open with the answer. No "Sure!", no "Great question", no restating what they asked.
 - Answer directly from the context data when available - do not hedge or defer.
+- Refer to the student's own data specifically. "You have CS 30200 at 2:30pm in ET 202" beats "you have a class this afternoon".
 - When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
 - For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section when it is present (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
@@ -2841,11 +2913,18 @@ function isSameZonedCalendarDay(isoStr, refDate, timeZone) {
  * events, and the study hints when `includeStudyHelp` (issue #253: questions
  * about studying, see wantsStudyHelp) or when homework or an exam falls in the
  * next 48 hours, since the prompt has the model plan study time around those.
+ *
+ * `completedIds` marks finished work instead of hiding it: the student may ask
+ * "did I finish X?", but the model must stop recommending what is already done.
  */
-function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = false } = {}) {
+function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = false, completedIds = new Set() } = {}) {
   if (!calendarData?.length) {
     return '=== CALENDAR ===\nNo calendar items in the fetched window.'
   }
+  // Completed work still has to appear (the student may ask "did I finish X?"),
+  // but it is labelled so the model stops recommending things already done.
+  const doneMark = (row) => (completedIds.has(row.id) ? ' [DONE]' : '')
+  const addedMark = (row) => (row.manual ? ' [added by you]' : '')
 
   const examTitleRe = /\b(midterm|final|exam|quiz|test)\b/i
   const nowMs = now.getTime()
@@ -2874,7 +2953,7 @@ function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = f
     parts.push('=== HAPPENING NOW (in session) ===')
     parts.push(
       ongoing
-        .map((i) => `- Until ${fmtTime(i.end_time)}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}`)
+        .map((i) => `- Until ${fmtTime(i.end_time)}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}${addedMark(i)}`)
         .join('\n'),
     )
   }
@@ -2893,17 +2972,17 @@ function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = f
           const range = i.end_time
             ? `${fmtTime(i.start_time)}-${fmtTime(i.end_time)}`
             : fmtTime(i.start_time)
-          return `- ${range}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}`
+          return `- ${range}: ${i.title} [${i.category}]${i.location ? ` @ ${i.location}` : ''}${addedMark(i)}${doneMark(i)}`
         })
         .join('\n'),
     )
   }
 
   if (assignmentRows.length) {
-    parts.push('=== UPCOMING ASSIGNMENTS / HOMEWORK / DEADLINES ===')
+    parts.push('=== UPCOMING ASSIGNMENTS / HOMEWORK / DEADLINES (from synced courses) ===')
     parts.push(
       assignmentRows
-        .map((i) => `- Due ${fmtDate(i.start_time)} ${fmtTime(i.start_time)}: ${i.title}${i.location ? ` (${i.location})` : ''} [${i.category}]`)
+        .map((i) => `- Due ${fmtDate(i.start_time)} ${fmtTime(i.start_time)}: ${i.title}${i.location ? ` (${i.location})` : ''} [${i.category}]${doneMark(i)}`)
         .join('\n'),
     )
   } else {
@@ -2940,17 +3019,43 @@ function buildAssistantCalendarContext(calendarData, now, { includeStudyHelp = f
   return parts.join('\n\n')
 }
 
-// Intent router (issue #45): answer common questions straight from the DB so
-// they cost zero Groq tokens. Returns a reply string, or null to fall through.
-async function buildAssistantRouterReply(intent, req, now) {
-  const userId = req.currentUser.id
+// Model calls per user per hour. The intent router used to absorb the most
+// common asks for free; now every question reaches the model, so the ceiling has
+// to be high enough for a real conversation.
+
+/** Tells the model which screen the student is looking at, when the client says. */
+function describeAssistantPage(page) {
+  if (typeof page !== 'string') return ''
+  const label = ASSISTANT_PAGE_LABELS[page]
+  if (!label) return ''
+  return `=== WHERE THEY ARE ===\nThe student is on the ${label}. Prefer answers that are useful from this screen, and do not tell them to open the page they are already on.`
+}
+
+const ASSISTANT_PAGE_LABELS = {
+  '/dashboard': 'dashboard',
+  '/schedule': 'class schedule page',
+  '/assignments': 'assignments and tasks page',
+  '/dining': 'dining page',
+  '/events': 'campus events page',
+  '/board': 'campus board',
+  '/transit': 'transit page',
+  '/map': 'campus map',
+  '/more': 'more / tools page',
+  '/settings': 'settings page',
+}
+
+/**
+ * Last-resort answers for when GROQ_API_KEY is missing. This is the templated
+ * path that used to run for every matching question; it now only runs when
+ * there is no model available at all.
+ */
+async function buildOfflineAssistantReply(intent, userId, now) {
   if (intent === 'next_class' || intent === 'classes_today') {
     const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 50 })
     return intent === 'next_class' ? formatNextClass(items, now, TZ) : formatClassesToday(items, now, TZ)
   }
   if (intent === 'dining_open') {
-    const dining = await getDiningSnapshot({}).catch(() => null)
-    return formatDiningOpen(dining)
+    return formatDiningOpen(await getDiningSnapshot({}).catch(() => null))
   }
   if (intent === 'assignments') {
     const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
@@ -2965,7 +3070,90 @@ async function buildAssistantRouterReply(intent, req, now) {
   return null
 }
 
-app.post('/api/assistant', requireAuth, async (req, res) => {
+/**
+ * The student's own to-do list (user_manual_tasks). These never lived in
+ * calendar_items, which is why the assistant used to be blind to anything the
+ * student added by hand.
+ */
+function buildManualTaskContext(tasks, now) {
+  if (!tasks?.length) {
+    return '=== YOUR TASK LIST (to-dos the student added by hand) ===\nEmpty - the student has not added any of their own tasks.'
+  }
+  const lines = tasks.map((t) => {
+    const done = t.completed_at ? '[DONE] ' : ''
+    if (!t.due_at) return `- ${done}${t.title} (no due date)`
+    const overdue = !t.completed_at && new Date(t.due_at) < now ? ' [OVERDUE]' : ''
+    return `- ${done}Due ${fmtDate(t.due_at)} ${fmtTime(t.due_at)}: ${t.title}${overdue}`
+  })
+  return `=== YOUR TASK LIST (to-dos the student added by hand) ===\n${lines.join('\n')}`
+}
+
+/**
+ * Everything the assistant knows about this student, assembled in parallel.
+ *
+ * Deliberately mirrors what the student sees in the UI: schedule overrides are
+ * replayed and manually added classes injected, so the assistant cannot talk
+ * about a class the student deleted or miss one they created.
+ */
+async function gatherAssistantContext(userId, now) {
+  const nowISOStr = now.toISOString()
+  const lowerBound = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString()
+  const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const sel = 'id, title, description, start_time, end_time, location, category'
+
+  const [dining, calendar, taskMeta, overrides] = await Promise.all([
+    getDiningSnapshot({}).catch(() => null),
+    (async () => {
+      const [upcomingRes, ongoingRes] = await Promise.all([
+        supabase
+          .from('calendar_items')
+          .select(sel)
+          .eq('user_id', userId)
+          .gte('start_time', lowerBound)
+          .lte('start_time', horizon)
+          .order('start_time', { ascending: true })
+          .limit(60),
+        supabase
+          .from('calendar_items')
+          .select(sel)
+          .eq('user_id', userId)
+          .lt('start_time', nowISOStr)
+          .gt('end_time', nowISOStr)
+          .limit(25),
+      ])
+      const byId = new Map()
+      for (const r of ongoingRes.data || []) byId.set(r.id, r)
+      for (const r of upcomingRes.data || []) byId.set(r.id, r)
+      return [...byId.values()]
+    })().catch(() => []),
+    (async () => {
+      const [compRes, manualRes] = await Promise.all([
+        supabase.from('user_task_completions').select('calendar_item_id').eq('user_id', userId),
+        supabase
+          .from('user_manual_tasks')
+          .select('title, due_at, completed_at')
+          .eq('user_id', userId)
+          .order('due_at', { ascending: true })
+          .limit(60),
+      ])
+      return {
+        completedIds: new Set((compRes.data || []).map((r) => r.calendar_item_id)),
+        manualTasks: manualRes.data || [],
+      }
+    })().catch(() => ({ completedIds: new Set(), manualTasks: [] })),
+    readScheduleOverrides(userId).catch(() => ({ series: {}, manual: [] })),
+  ])
+
+  const corrected = applyScheduleOverridesToRows(calendar, overrides, TZ)
+  const manualClasses = manualClassesAsRows(overrides.manual, new Date(lowerBound), new Date(horizon), TZ)
+  const calendarRows = [...corrected, ...manualClasses].sort(
+    (a, b) => new Date(a.start_time) - new Date(b.start_time),
+  )
+
+  return { dining, calendarRows, ...taskMeta }
+}
+
+app.post('/api/assistant', requireAuth, assistantRateLimit, async (req, res) => {
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })
@@ -2979,98 +3167,64 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
   }
 
-  // Router runs above the API-key check so structured asks work even with no key.
   const lastUserMessage = [...messages].reverse().find((m) => m?.role === 'user')?.content || ''
-  const intent = matchIntent(lastUserMessage)
-  if (intent) {
-    try {
-      const routed = await buildAssistantRouterReply(intent, req, new Date())
-      if (routed) return res.json({ reply: routed, source: 'router' })
-    } catch {
-      /* fall through to the LLM path */
-    }
-  }
 
   if (!GROQ_API_KEY) {
-    // Friendly fallback instead of a bare 503 - the router still handles asks above.
+    // Without a key the formatters are the only thing that can answer, so this
+    // is the one path where their templated output is still shown verbatim.
+    const now = new Date()
+    try {
+      const routed = await buildOfflineAssistantReply(matchIntent(lastUserMessage), req.currentUser.id, now)
+      if (routed) return res.json({ reply: routed, source: 'offline-router' })
+    } catch {
+      /* fall through to the generic offline notice */
+    }
     return res.json({ reply: ASSISTANT_OFFLINE_MESSAGE, source: 'offline' })
   }
 
-  const rlKey = req.session?.userId || req.ip || 'anon'
-  if (!aiAllowed(rlKey, 10)) {
-    return res.status(429).json({ error: 'Rate limit reached. Try again in an hour.' })
-  }
-
   const now = new Date()
-  const nowISOStr = now.toISOString()
-  // Context trim (issue #45): 7 days instead of 4 weeks keeps the LLM prompt small.
-  const fourWeeksOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
   const nowLabel = now.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const timeLabel = now.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' })
 
-  // Fetch all context in parallel
-  const [diningData, calendarData] = await Promise.all([
-    getDiningSnapshot({}).catch(() => null),
-    (async () => {
-      try {
-        const user = await getCurrentUser(req)
-        if (!user) return null
-        const lowerBound = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString()
-        const sel = 'id, title, start_time, end_time, location, category'
-        const [upcomingRes, ongoingRes] = await Promise.all([
-          supabase
-            .from('calendar_items')
-            .select(sel)
-            .eq('user_id', user.id)
-            .gte('start_time', lowerBound)
-            .lte('start_time', fourWeeksOut)
-            .order('start_time', { ascending: true })
-            .limit(30),
-          supabase
-            .from('calendar_items')
-            .select(sel)
-            .eq('user_id', user.id)
-            .lt('start_time', nowISOStr)
-            .gt('end_time', nowISOStr)
-            .limit(25),
-        ])
-        const upcoming = upcomingRes.data || []
-        const ongoingRows = ongoingRes.data || []
-        const byId = new Map()
-        for (const r of ongoingRows) byId.set(r.id, r)
-        for (const r of upcoming) byId.set(r.id, r)
-        return [...byId.values()].sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-      } catch {
-        return null
-      }
-    })(),
-  ])
+  const { dining, calendarRows, completedIds, manualTasks } = await gatherAssistantContext(
+    req.currentUser.id,
+    now,
+  )
 
-  // Prompt trim (issue #253): the current meal's menu for open dining locations
-  // only (or the meal the question names), and the study and help hints only
-  // for study questions or a deadline in the next 48 hours.
-  const diningCtx = buildDiningContext(diningData, { now, question: lastUserMessage })
+  // Prompt trim (issue #253): the study and help hints only for study questions
+  // or a deadline in the next 48 hours. The dining trim is applied where the
+  // context block is assembled, so it sees the question too.
   const includeStudyHelp = wantsStudyHelp(lastUserMessage)
-  const calendarCtx = calendarData ? buildAssistantCalendarContext(calendarData, now, { includeStudyHelp }) : ''
+  // A matched intent no longer answers for the model, it just tells it which
+  // section to lead with.
+  const focusHint = intentFocusHint(matchIntent(lastUserMessage))
+  const pageHint = describeAssistantPage(req.body?.page)
 
   const contextBlock = [
     `=== CURRENT DATE & TIME ===\n${nowLabel} at ${timeLabel} (Eastern)`,
-    diningCtx,
-    calendarCtx,
+    pageHint,
+    buildDiningContext(dining, { now, question: lastUserMessage }),
+    calendarRows.length ? buildAssistantCalendarContext(calendarRows, now, { includeStudyHelp, completedIds }) : '',
+    buildManualTaskContext(manualTasks, now),
+    focusHint ? `=== WHAT THEY ARE ASKING ABOUT ===\n${focusHint}` : '',
   ].filter(Boolean).join('\n\n')
 
   const systemPrompt = CAMPUS_SYSTEM_PROMPT + '\n\n' + contextBlock
   const promptText = [systemPrompt, ...messages.map((m) => (typeof m?.content === 'string' ? m.content : ''))].join('\n')
   console.debug(`[assistant] prompt ~${estimateTokens(promptText)} tokens`)
 
+  const history = messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({ role: m.role, content: m.content }))
+
   try {
-    // The client keeps user/assistant turns only and puts the system prompt first.
-    // 600 completion tokens: the longest reply the format rules allow, plus
-    // the model's low-effort reasoning tokens, which count against the cap.
+    // 2800 completion tokens rather than the 600 the router-era prompt needed:
+    // the model now writes every reply, including the 3-5 bullet planning lists
+    // the format rules allow, and low-effort reasoning tokens count against it.
     const text = await ai.reply({
       system: systemPrompt,
-      messages,
-      maxOutputTokens: 600,
+      messages: history,
+      maxOutputTokens: 2800,
       temperature: 0.52,
     })
     // Plain text for the bubble whatever the model did (issue #252).
@@ -3087,6 +3241,72 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     }
     console.error('Assistant error:', err)
     res.status(500).json({ error: 'Assistant request failed' })
+  }
+})
+
+/**
+ * Opening state for the chat panel: what is actually going on right now, plus
+ * suggested questions that match it.
+ *
+ * Deliberately NOT a model call. The panel used to greet everyone with the same
+ * hardcoded sentence and the same five fixed chips, which is what made it read
+ * as a generic chat box. This is real data, rendered deterministically, so it is
+ * instant and free - the model still writes every actual answer.
+ */
+app.get('/api/assistant/briefing', requireAuth, async (req, res) => {
+  const now = new Date()
+  try {
+    const { dining, calendarRows, completedIds, manualTasks } = await gatherAssistantContext(
+      req.currentUser.id,
+      now,
+    )
+
+    const isDone = (row) => completedIds.has(row.id)
+    const classesLeftToday = calendarRows.filter(
+      (r) => r.category === 'class' && isSameZonedCalendarDay(r.start_time, now, TZ) && new Date(r.start_time) > now,
+    )
+    const inSession = calendarRows.find(
+      (r) => r.start_time && r.end_time && new Date(r.start_time) <= now && new Date(r.end_time) > now,
+    )
+
+    const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const dueThisWeek = calendarRows.filter(
+      (r) =>
+        ASSISTANT_ASSIGNMENT_CATEGORIES.has(r.category) &&
+        !isDone(r) &&
+        new Date(r.start_time) >= now &&
+        new Date(r.start_time) <= weekOut,
+    )
+    const openTasks = manualTasks.filter((t) => !t.completed_at)
+    const overdue = openTasks.filter((t) => t.due_at && new Date(t.due_at) < now)
+    const openDining = (dining?.locations || []).filter((l) => l.is_open)
+
+    const facts = []
+    if (inSession) facts.push(`${inSession.title} until ${fmtTime(inSession.end_time)}`)
+    else if (classesLeftToday.length) {
+      const next = classesLeftToday[0]
+      facts.push(`${next.title} at ${fmtTime(next.start_time)}`)
+    }
+    const pending = dueThisWeek.length + openTasks.length
+    if (pending) facts.push(`${pending} thing${pending === 1 ? '' : 's'} on your plate`)
+    if (overdue.length) facts.push(`${overdue.length} overdue`)
+
+    const chips = []
+    if (classesLeftToday.length || inSession) chips.push("What's my next class?")
+    if (overdue.length) chips.push("What am I behind on?")
+    if (dueThisWeek.length || openTasks.length) chips.push('What should I work on tonight?')
+    chips.push('What should I do right now?')
+    if (openDining.length) chips.push("What's good at dining right now?")
+    chips.push('Plan my week')
+
+    res.json({
+      headline: facts.length ? facts.join(' · ') : 'Nothing scheduled right now',
+      chips: chips.slice(0, 5),
+    })
+  } catch (e) {
+    console.error('GET /api/assistant/briefing:', e?.message || e)
+    // The panel falls back to a plain greeting; never block opening the chat.
+    res.json({ headline: '', chips: [] })
   }
 })
 
@@ -3129,7 +3349,7 @@ function translocReady(res) {
   return true
 }
 
-app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => {
+async function handleTransitVehicles(_req, res) {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, () =>
@@ -3139,36 +3359,42 @@ app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => 
     )
     // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
     // /api rewrite) absorb the 10 s polling so repeats never reach this process.
-    res.set('Cache-Control', 'public, max-age=10, s-maxage=10')
+    // stale-while-revalidate lets the edge answer a poll from the expired copy
+    // while it refreshes, so a Render cold start does not stall every open map.
+    res.set('Cache-Control', 'public, max-age=10, s-maxage=10, stale-while-revalidate=20')
     res.json(data)
   } catch (error) {
     respondTranslocError(res, 'vehicles', error)
   }
-})
+}
 
-app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
+async function handleTransitStops(_req, res) {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, () =>
       fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
     )
+    // Stops and routes change a few times a year: a minute in the browser, ten
+    // at the edge, and the edge may serve the expired copy while it refreshes.
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
     res.json(data)
   } catch (error) {
     respondTranslocError(res, 'stops', error)
   }
-})
+}
 
-app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
+async function handleTransitRoutes(_req, res) {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, () =>
       fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
     )
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
     res.json(data)
   } catch (error) {
     respondTranslocError(res, 'routes', error)
   }
-})
+}
 
 // Live garage availability (issue #14): IU Parking's public lot-count page,
 // parsed server-side (src/parkingStatus.mjs) and cached so the upstream sees
@@ -3177,16 +3403,19 @@ app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
 // static garage list and status 'unknown'. See docs/parking-status.md.
 const PARKING_CACHE_MS = Math.max(15_000, Number(process.env.PARKING_STATUS_CACHE_MS) || 60_000)
 
-app.get('/api/parking/garages', publicReadRateLimit, async (_req, res) => {
+async function handleParkingGarages(_req, res) {
   try {
     const data = await getCached('parking:garages', PARKING_CACHE_MS, () => fetchParkingStatus())
-    res.set('Cache-Control', 'no-store')
+    // The snapshot is already shared for PARKING_CACHE_MS in this process, so a
+    // short public lifetime costs nothing in freshness and lets the edge absorb
+    // a whole lot of phones refreshing the garage list at once (issue #250).
+    res.set('Cache-Control', 'public, max-age=15, s-maxage=30')
     res.json(data)
   } catch (error) {
     console.error('Parking status error:', error)
     res.status(500).json({ error: 'Failed to fetch parking status' })
   }
-})
+}
 
 // Club directory (issue #16): BoilerLink's public organizations API, about
 // 1,200 orgs and 1.9 MB upstream. The whole list is fetched in pages, held in
@@ -3199,7 +3428,7 @@ const clubDirectoryCache = createClubDirectoryCache({
   ttlMs: Number(process.env.BOILERLINK_CLUBS_CACHE_MS) || undefined,
 })
 
-app.get('/api/clubs', clubsReadRateLimit, async (req, res) => {
+async function handleClubs(req, res) {
   try {
     const params = parseClubSearchParams(req.query)
     const { directory, stale } = await clubDirectoryCache.get()
@@ -3209,7 +3438,7 @@ app.get('/api/clubs', clubsReadRateLimit, async (req, res) => {
     console.error('Club directory error:', error)
     res.status(500).json({ error: 'Failed to load the club directory' })
   }
-})
+}
 
 // ── Push notifications (issue #9): Web Push subscriptions, settings, reminders ──
 // See docs/push-notifications.md. Keys come from VAPID_PUBLIC_KEY /
@@ -3264,10 +3493,10 @@ function summarizePushSubscription(row) {
   }
 }
 
-app.get('/api/push/config', publicReadRateLimit, (_req, res) => {
+function handlePushConfig(_req, res) {
   res.set('Cache-Control', 'no-store')
   res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null })
-})
+}
 
 app.get('/api/push/settings', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
@@ -3560,7 +3789,7 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
   }
 })
 
-app.get('/api/dining', publicReadRateLimit, async (req, res) => {
+async function handleDining(req, res) {
   try {
     // `refresh` passes through as a hint (the module refetches a date at most
     // every ten minutes); `date` must be yesterday to today + 14 (issue #208).
@@ -3572,12 +3801,20 @@ app.get('/api/dining', publicReadRateLimit, async (req, res) => {
       date = checked.ymd
     }
     const data = await getDiningSnapshot({ forceRefresh, date })
+    // The module refetches a date at most every ten minutes, so two minutes in
+    // the browser and five at the edge never serve a menu the backend would
+    // not have served itself (issue #250). Two answers are never stored: the
+    // module's outage snapshot (a 200 with ok: false and no locations), which
+    // would otherwise pin the outage past its own retry, and a forced refresh,
+    // which has to reach the backend to mean anything.
+    if (data.ok && !forceRefresh) res.set('Cache-Control', 'public, max-age=120, s-maxage=300')
+    else res.set('Cache-Control', 'no-store')
     res.json(data)
   } catch (error) {
     console.error('Nutrislice dining error:', error)
     res.status(500).json({ ok: false, error: 'dining_internal', locations: [] })
   }
-})
+}
 
 // ---- Dining favorites (issue #49) ---------------------------------------
 // Per-user favorited menu-item names. The Dining page stars items and shows a
@@ -3812,18 +4049,13 @@ const BOARD_TAG_CANDIDATES = [
   'study-spots', 'events', 'classes', 'safety',
 ]
 
-app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
+app.post('/api/board/ai-suggestions', requireAuth, boardAiRateLimit, async (req, res) => {
   if (!GROQ_API_KEY) {
     return res.status(503).json({
       error: { message: 'AI suggestions are not configured.', status: 503 },
     })
   }
 
-  if (!aiAllowed(req.session.userId, 10)) {
-    return res.status(429).json({
-      error: { message: 'Rate limit reached. Try again in an hour.', status: 429 },
-    })
-  }
   const context = req.body.context === 'reply' ? 'reply' : 'compose'
   const title = String(req.body.title || '').trim().slice(0, 300)
   const body = String(req.body.body || '').trim().slice(0, 1200)
@@ -3851,6 +4083,8 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
       maxOutputTokens: 350,
       temperature: 0.35,
     })) ?? '{}'
+    // Models still wrap JSON in prose or fences now and then, so pull out the
+    // object rather than parsing the whole reply.
     const match = raw.match(/\{[\s\S]*\}/)
     if (!match) {
       return context === 'compose'
@@ -3897,17 +4131,24 @@ app.post('/api/board/ai-suggestions', requireAuth, async (req, res) => {
   }
 })
 
-async function autoTagBoardPost(postId, title, body) {
+async function autoTagBoardPost(postId, title, body, userId) {
   if (!GROQ_API_KEY) return []
+  // Fire-and-forget calls used to skip the quota entirely, so a posting loop
+  // could run up the inference bill unmetered. Tagging is a nicety; dropping it
+  // over the limit costs the student nothing.
+  if (userId && !boardTagWindow.hit(userId).allowed) return []
   const combined = `${title}\n${body}`.slice(0, 400)
   try {
+    // 200 rather than 60 completion tokens: the tag array is tiny, but gpt-oss
+    // spends reasoning tokens against the same ceiling and a truncated reply
+    // parses as no tags at all.
     const raw = (await ai.reply({
       system: `You are a campus board post auto-tagger. Given a student's post, pick 1-3 of the most relevant tags from this list: ${BOARD_TAG_CANDIDATES.join(', ')}. Return ONLY a JSON array of strings, e.g. ["dining","parking"]. If nothing fits, return [].`,
       messages: [{ role: 'user', content: combined }],
-      maxOutputTokens: 60,
+      maxOutputTokens: 200,
       temperature: 0.1,
     })) ?? '[]'
-    const match = raw.match(/\[.*\]/)
+    const match = raw.match(/\[.*\]/s)
     if (!match) return []
     const parsed = JSON.parse(match[0])
     const tags = parsed
@@ -3956,7 +4197,7 @@ app.post('/api/board/posts', boardWriteRateLimit, requireAuth, async (req, res) 
   if (error) return respondBoardDbError(res, error)
 
   // Fire-and-forget: AI assigns tags in the background
-  const tagsPromise = autoTagBoardPost(data.id, title, body)
+  const tagsPromise = autoTagBoardPost(data.id, title, body, req.session?.userId)
 
   // Respond immediately so the UI doesn't block on AI
   const postPayload = {
@@ -4034,34 +4275,29 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id')
 app.post('/api/board/posts/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const postId = req.params.id
   const userId = req.currentUser.id
-
-  const { data: post, error: postError } = await supabase
-    .from('board_posts')
-    .select('id')
-    .eq('id', postId)
-    .is('deleted_at', null)
-    .maybeSingle()
-  if (postError) return respondBoardDbError(res, postError)
-  if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
-
-  const { error: insertError } = await supabase
-    .from('board_upvotes')
-    .insert({ post_id: postId, user_id: userId, created_at: nowIso() })
-
-  let upvotedByMe
-  if (insertError && insertError.code === '23505') {
-    await supabase.from('board_upvotes').delete().eq('post_id', postId).eq('user_id', userId)
-    upvotedByMe = false
-  } else if (insertError) {
-    return respondBoardDbError(res, insertError)
-  } else {
-    upvotedByMe = true
+  try {
+    const { data: post, error: postError } = await supabase
+      .from('board_posts')
+      .select('id')
+      .eq('id', postId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (postError) throw postError
+    if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
+    res.json(
+      await toggleUpvote({
+        supabase,
+        table: 'board_upvotes',
+        refColumn: 'post_id',
+        refId: postId,
+        userId,
+        now: nowIso(),
+        syncCount: () => communityCounters.syncBoardPostUpvotes(postId),
+      }),
+    )
+  } catch (error) {
+    return respondBoardDbError(res, error)
   }
-
-  // Derive the new total from the upvote rows atomically (was read-modify-write).
-  const { count, error: countError } = await communityCounters.syncBoardPostUpvotes(postId)
-  if (countError) return respondBoardDbError(res, countError)
-  res.json({ upvotes: count, upvotedByMe })
 })
 
 // Owner-only edit of a post's title/body (issue #7)
@@ -4214,34 +4450,23 @@ app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireIdParam('id'), req
       .maybeSingle()
     if (recErr) throw recErr
     if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
-
-    const { error: insErr } = await supabase
-      .from('guide_upvotes')
-      .insert({ rec_id: recId, user_id: userId, created_at: nowIso() })
-
-    let upvotedByMe
-    if (insErr && insErr.code === '23505') {
-      await supabase.from('guide_upvotes').delete().eq('rec_id', recId).eq('user_id', userId)
-      upvotedByMe = false
-    } else if (insErr) {
-      throw insErr
-    } else {
-      upvotedByMe = true
-    }
-
-    // Derive the new total from the upvote rows atomically (was read-modify-write).
-    const { count, error: countError } = await communityCounters.syncGuideRecUpvotes(recId)
-    if (countError) throw countError
-    res.json({ upvotes: count, upvotedByMe })
+    res.json(
+      await toggleUpvote({
+        supabase,
+        table: 'guide_upvotes',
+        refColumn: 'rec_id',
+        refId: recId,
+        userId,
+        now: nowIso(),
+        syncCount: () => communityCounters.syncGuideRecUpvotes(recId),
+      }),
+    )
   } catch (e) {
     return respondGuideDbError(res, e)
   }
 })
 
-app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  if (!isUserAdmin(req.currentUser)) {
-    return res.status(403).json({ error: { message: 'Only admins can pin recommendations.', status: 403 } })
-  }
+app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const pinned = req.body?.pinned === true || req.body?.pinned === 'true'
   try {
     const { data, error } = await supabase
@@ -4543,16 +4768,7 @@ app.get('/api/deals', requireAuth, async (req, res) => {
   }
 })
 
-function requireAdminJson(req, res) {
-  if (!isUserAdmin(req.currentUser)) {
-    res.status(403).json({ error: { message: 'Admin access required.', status: 403 } })
-    return false
-  }
-  return true
-}
-
-app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
+app.post('/api/deals', userWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
   try {
@@ -4568,8 +4784,7 @@ app.post('/api/deals', userWriteRateLimit, requireAuth, async (req, res) => {
   }
 })
 
-app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
+app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
   if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
   if (Object.keys(value).length === 0) {
@@ -4585,8 +4800,7 @@ app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAut
   }
 })
 
-app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  if (!requireAdminJson(req, res)) return
+app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
     if (error) throw error
@@ -4615,6 +4829,27 @@ async function findOwnedMarketplaceListing(id, userId) {
   if (error) throw error
   return data
 }
+// Reports per listing, for the owner's "hidden after reports" notice and the
+// admin review list. marketplace_reports has no id column and PostgREST cannot
+// group, so the rows come back and are counted here; the caller only ever asks
+// about listings it is already showing.
+async function countMarketplaceReports(listingIds) {
+  const counts = new Map()
+  if (!listingIds.length) return counts
+  const { data, error } = await supabase
+    .from('marketplace_reports')
+    .select('listing_id, reason')
+    .in('listing_id', listingIds)
+  if (error) throw error
+  for (const row of data || []) {
+    const entry = counts.get(row.listing_id) || { count: 0, reasons: [] }
+    entry.count += 1
+    if (row.reason) entry.reasons.push(row.reason)
+    counts.set(row.listing_id, entry)
+  }
+  return counts
+}
+
 app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
   photoAuthorizationHandler({ photos: marketplacePhotos, findOwnedListing: findOwnedMarketplaceListing }))
 
@@ -4670,7 +4905,13 @@ app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
     if (error) throw error
-    res.json({ listings: (data || []).map((r) => mapListingRow(r, userId)) })
+    const listings = data || []
+    // Only hidden rows carry a count: it explains why the listing went dark.
+    // A live listing's running total is moderation data and stays server-side.
+    const reports = await countMarketplaceReports(listings.filter((r) => r.hidden).map((r) => r.id))
+    res.json({
+      listings: listings.map((r) => mapListingRow(r, userId, null, { reportCount: reports.get(r.id)?.count })),
+    })
   } catch (e) {
     return respondMarketplaceDbError(res, e)
   }
@@ -4779,22 +5020,43 @@ app.delete('/api/marketplace/:id', userWriteRateLimit, requireIdParam('id'), req
   }
 })
 
-// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters.
+// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters. The
+// listing is looked up before the insert (issue #204): until then a report
+// against a soft-deleted or unknown id reached the foreign key and came back
+// as a 500, and nothing stopped a seller reporting their own listing.
 app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
   const userId = req.currentUser.id
   const listingId = req.params.id
-  const reason = String(req.body?.reason || '').trim().slice(0, 500)
+  const parsed = parseReportInput(req.body || {})
+  if (!parsed.ok) return badRequest(res, parsed.message)
   try {
+    const { data: listing, error: lookupErr } = await supabase
+      .from('marketplace_listings')
+      .select('id, user_id, hidden')
+      .eq('id', listingId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (lookupErr) throw lookupErr
+    const verdict = evaluateReportTarget({ listing, reporterId: userId })
+    if (verdict.status === 404) {
+      return res.status(404).json({ error: { message: verdict.message, status: 404 } })
+    }
+    if (verdict.status !== 200) return badRequest(res, verdict.message)
+
     const { error: insErr } = await supabase
       .from('marketplace_reports')
-      .insert({ listing_id: listingId, reporter_id: userId, reason, created_at: nowIso() })
-    if (insErr && insErr.code !== '23505') throw insErr // ignore duplicate report
+      .insert({ listing_id: listingId, reporter_id: userId, reason: parsed.reason, created_at: nowIso() })
+    // The primary key (listing_id, reporter_id) caps a reporter at one report
+    // per listing, so a second one cannot move the count. Answering here says
+    // so plainly and saves the recount round trip.
+    if (insErr?.code === '23505') return res.json({ ok: true, duplicate: true })
+    if (insErr) throw insErr
 
     const { count } = await supabase
       .from('marketplace_reports')
       .select('reporter_id', { count: 'exact', head: true })
       .eq('listing_id', listingId)
-    if ((count || 0) >= REPORTS_TO_HIDE) {
+    if (shouldAutoHide(count)) {
       await supabase.from('marketplace_listings').update({ hidden: true }).eq('id', listingId)
     }
     res.json({ ok: true })
@@ -5107,7 +5369,7 @@ app.post('/api/advertiser/sign-in', signInRateLimit, async (req, res) => {
 
 app.post('/api/advertiser/sign-out', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('pih.sid')
+    res.clearCookie(SESSION_COOKIE_NAME)
     res.json({ ok: true })
   })
 })
@@ -5793,6 +6055,78 @@ app.delete('/api/admin/deleted/:type/:id', adminWriteRateLimit, requireIdParam('
   }
   if (!data?.length) return res.status(404).json({ error: { message: 'Item not found.', status: 404 } })
   res.status(204).end()
+})
+
+// Hidden-listing moderation (admin, issue #204). REPORTS_TO_HIDE distinct
+// reports hide a marketplace listing on their own, and nothing could clear the
+// flag again: the owner never saw it and no admin route touched `hidden`, so
+// three accounts could bury any listing permanently. Admins work the queue
+// here. Marketplace is the only surface with an auto-hide, so these routes name
+// it rather than taking a :type; #192 generalises reports later.
+app.get('/api/admin/hidden/marketplace', requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .select('*')
+      .eq('hidden', true)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) throw error
+    const listings = data || []
+    const reports = await countMarketplaceReports(listings.map((r) => r.id))
+    res.json({
+      items: listings.map((row) => ({
+        ...row,
+        reportCount: reports.get(row.id)?.count || 0,
+        reasons: reports.get(row.id)?.reasons || [],
+      })),
+      label: 'Marketplace listing',
+    })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+app.post('/api/admin/hidden/marketplace/:id/unhide', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .update({ hidden: false })
+      .eq('id', req.params.id)
+      .eq('hidden', true)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
+    // The reports go with it. Left in place the listing sits on the threshold
+    // and the next single report hides it again, which undoes the decision
+    // without any new account having to agree with the first three.
+    const { error: clearErr } = await supabase.from('marketplace_reports').delete().eq('listing_id', req.params.id)
+    if (clearErr) throw clearErr
+    res.json({ ok: true })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
+})
+
+// Soft delete, so the listing lands in the deleted list above and an admin can
+// still restore it. Any live listing is fair game, not just a hidden one: the
+// button is in the hidden queue, but refusing a listing another admin un-hid a
+// second earlier would be a worse answer than doing the obvious thing.
+app.post('/api/admin/hidden/marketplace/:id/takedown', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_listings')
+      .update({ deleted_at: nowIso() })
+      .eq('id', req.params.id)
+      .is('deleted_at', null)
+      .select('id')
+    if (error) throw error
+    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
+    res.json({ ok: true })
+  } catch (e) {
+    return respondMarketplaceDbError(res, e)
+  }
 })
 
 // Sentry smoke test (issue #50). Proves the backend error path end to end

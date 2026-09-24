@@ -1,7 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AdminDeleted from './AdminDeleted'
-import { getLiveContent, listDeletedItems, takeDownContent } from '../../lib/adminApi'
+import {
+  getLiveContent,
+  listDeletedItems,
+  listHiddenMarketplace,
+  takeDownContent,
+  takeDownHiddenListing,
+  unhideMarketplaceListing,
+} from '../../lib/adminApi'
 
 // Live-content takedown (#195): an admin pastes an id, previews the live row,
 // confirms, and the item is soft-deleted through its type's DELETE route, then
@@ -15,6 +22,9 @@ vi.mock('../../lib/adminApi', () => ({
   hardDeleteItem: vi.fn(),
   getLiveContent: vi.fn(),
   takeDownContent: vi.fn(),
+  listHiddenMarketplace: vi.fn(),
+  unhideMarketplaceListing: vi.fn(),
+  takeDownHiddenListing: vi.fn(),
 }))
 vi.mock('../../hooks/useConfirm', () => ({ useConfirm: () => ({ confirm, confirmDialog: null }) }))
 
@@ -26,6 +36,22 @@ const group = {
   creator_id: '11111111-1111-4111-8111-111111111111',
   created_at: '2026-09-10T15:00:00.000Z',
   deleted_at: null,
+}
+
+// Auto-hidden marketplace listings (#204): a separate queue from soft deletes.
+// Nobody deleted these, three reports hid them, and this tab is the only way to
+// put one back.
+const LISTING_ID = '55555555-5555-4555-8555-555555555555'
+const hiddenListing = {
+  id: LISTING_ID,
+  title: 'Mini fridge',
+  description: 'Barely used',
+  user_id: '22222222-2222-4222-8222-222222222222',
+  created_at: '2026-09-12T09:00:00.000Z',
+  deleted_at: null,
+  hidden: true,
+  reportCount: 3,
+  reasons: ['spam', 'scam: asked for a deposit', 'prohibited'],
 }
 
 let takenDown = false
@@ -45,6 +71,9 @@ beforeEach(() => {
       takenDown = true
       return ''
     })
+  vi.mocked(listHiddenMarketplace).mockReset().mockResolvedValue({ items: [hiddenListing], label: 'Marketplace listing' })
+  vi.mocked(unhideMarketplaceListing).mockReset().mockResolvedValue({ ok: true })
+  vi.mocked(takeDownHiddenListing).mockReset().mockResolvedValue({ ok: true })
 })
 
 async function findGroup() {
@@ -110,3 +139,56 @@ it('shows the lookup error and offers no takedown when the id matches no live it
   expect(screen.queryByRole('button', { name: 'Take down' })).not.toBeInTheDocument()
   expect(takeDownContent).not.toHaveBeenCalled()
 })
+
+async function openHiddenTab() {
+  render(<AdminDeleted />)
+  await waitFor(() => expect(listDeletedItems).toHaveBeenCalledWith('board'))
+  fireEvent.click(screen.getByRole('button', { name: 'Hidden listings' }))
+  await waitFor(() => expect(listHiddenMarketplace).toHaveBeenCalled())
+}
+
+it('lists auto-hidden listings with their report count and reasons', async () => {
+  await openHiddenTab()
+  expect(await screen.findByText('Mini fridge')).toBeInTheDocument()
+  expect(screen.getByText('Hidden after 3 reports')).toBeInTheDocument()
+  expect(screen.getByText(/Reported for: spam; scam: asked for a deposit; prohibited/)).toBeInTheDocument()
+  // This queue is not a soft-delete list, so it never offers Restore or Delete.
+  expect(screen.queryByRole('button', { name: /Restore/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^Delete$/ })).not.toBeInTheDocument()
+})
+
+it('un-hides a listing and says the reports went with it', async () => {
+  await openHiddenTab()
+  await screen.findByText('Mini fridge')
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Un-hide/ }))
+  })
+  expect(unhideMarketplaceListing).toHaveBeenCalledWith(LISTING_ID)
+  await waitFor(() => expect(screen.queryByText('Mini fridge')).not.toBeInTheDocument())
+  expect(screen.getByText(/reports were cleared/)).toBeInTheDocument()
+})
+
+it('takes a hidden listing down only after the admin confirms', async () => {
+  confirm.mockResolvedValueOnce(false)
+  await openHiddenTab()
+  await screen.findByText('Mini fridge')
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Take down/ }))
+  })
+  expect(takeDownHiddenListing).not.toHaveBeenCalled()
+  expect(screen.getByText('Mini fridge')).toBeInTheDocument()
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Take down/ }))
+  })
+  expect(takeDownHiddenListing).toHaveBeenCalledWith(LISTING_ID)
+  await waitFor(() => expect(screen.queryByText('Mini fridge')).not.toBeInTheDocument())
+  expect(screen.getByText(/now appears in the Marketplace tab/)).toBeInTheDocument()
+})
+
+it('surfaces a failure to load the hidden queue', async () => {
+  vi.mocked(listHiddenMarketplace).mockRejectedValueOnce(new Error('nope'))
+  await openHiddenTab()
+  expect(await screen.findByText('nope')).toBeInTheDocument()
+})
+

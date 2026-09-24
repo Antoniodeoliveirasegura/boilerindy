@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // docs/RATE_LIMITS.md is the operator's map of what is throttled: anyone tuning
@@ -10,7 +10,20 @@ import { fileURLToPath } from 'node:url'
 // server.mjs starts listening on import and cannot be required from a test.
 
 const root = new URL('../', import.meta.url)
-const server = readFileSync(fileURLToPath(new URL('server.mjs', root)), 'utf8')
+// server.mjs plus every feature router under src/routes/ (issue #191): a
+// limiter is defined in server.mjs and handed to a router, whose routes are
+// registered as router.<verb>('/api/...') with the same absolute paths.
+function routeSources() {
+  const files = ['server.mjs']
+  const routesDir = fileURLToPath(new URL('src/routes/', root))
+  if (existsSync(routesDir)) {
+    for (const name of readdirSync(routesDir).sort()) {
+      if (name.endsWith('.mjs')) files.push(`src/routes/${name}`)
+    }
+  }
+  return files.map((file) => readFileSync(fileURLToPath(new URL(file, root)), 'utf8')).join('\n')
+}
+const server = routeSources()
 const doc = readFileSync(fileURLToPath(new URL('docs/RATE_LIMITS.md', root)), 'utf8')
 
 // Route params are free to be renamed without touching the doc, so compare
@@ -34,7 +47,7 @@ function limiterDefinitions() {
 function routesByLimiter() {
   const defs = limiterDefinitions()
   const byName = new Map([...defs.values()].map((n) => [n, []]))
-  const re = /^app\.(get|post|patch|put|delete)\('([^']+)',([^\n]*)$/gm
+  const re = /^\s*(?:app|router)\.(get|post|patch|put|delete)\('([^']+)',([^\n]*)$/gm
   let m
   while ((m = re.exec(server))) {
     const [, verb, path, rest] = m
@@ -74,7 +87,7 @@ test('every route a limiter guards is listed in that limiter row', () => {
 
 test('every route the doc names is a route the server serves', () => {
   const served = new Set(
-    [...server.matchAll(/^app\.(get|post|patch|put|delete)\('([^']+)'/gm)].map((m) =>
+    [...server.matchAll(/^\s*(?:app|router)\.(get|post|patch|put|delete)\('([^']+)'/gm)].map((m) =>
       normalize(`${m[1].toUpperCase()} ${m[2]}`),
     ),
   )

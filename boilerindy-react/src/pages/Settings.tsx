@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
 import { useConfirm } from '../hooks/useConfirm'
+import StatusBanner from '../components/StatusBanner'
 
 export default function Settings() {
   const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
@@ -227,15 +228,15 @@ export default function Settings() {
       </div>
 
       {banner && (
-        <div className="mb-4 card p-4 text-[13px] text-[var(--color-error)]">
+        <StatusBanner tone="error" className="mb-4">
           {banner}
-        </div>
+        </StatusBanner>
       )}
 
       {status && (
-        <div className="mb-4 card p-4 text-[13px] text-[var(--color-success)]">
+        <StatusBanner tone="success" className="mb-4">
           {status}
-        </div>
+        </StatusBanner>
       )}
 
       <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-4 mb-6">

@@ -1,10 +1,12 @@
 // Authenticated fetch wrapper + small user/display helpers shared across the app.
 // Migrated to TypeScript (issue #20).
 
+import { retryAfterMsFromHeader } from './queries/publicData'
+
 type UserLike = { name?: string | null; email?: string | null } | null | undefined
 
 /** What authRequest throws for a non-2xx answer. `code` is the API's error.code when it sent one. */
-export type ApiRequestError = Error & { status?: number; payload?: unknown; code?: string }
+export type ApiRequestError = Error & { status?: number; payload?: unknown; code?: string; retryAfterMs?: number }
 
 export async function registerSupabaseUser(
   email: string,
@@ -53,6 +55,8 @@ export async function authRequest(url: string, options: RequestInit = {}): Promi
     const error = new Error(message) as ApiRequestError
     error.status = response.status
     error.payload = payload
+    // The limiter's Retry-After, so a query's retry delay can honour it (issue #327).
+    if (response.status === 429) error.retryAfterMs = retryAfterMsFromHeader(response.headers.get('Retry-After'))
     // Machine-readable reason, e.g. marketplace_schema_missing (docs/api-error-codes.md).
     const code = typeof p === 'object' ? p?.error?.code : undefined
     if (typeof code === 'string') error.code = code

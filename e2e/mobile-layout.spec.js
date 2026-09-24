@@ -57,11 +57,32 @@ const scrollsHorizontally = (locator) => locator.evaluate((el) => el.scrollWidth
 const boxesIntersect = (a, b) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
-// Let in-flight fetches settle, then give React one more frame to commit
-// before measuring.
-async function settle(page) {
-  await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(250)
+// A locator's bounding box once its CSS transitions and animations have
+// finished and the box has held still for a polling interval. Replaces the
+// fixed waits (issue #225), which padded a fast run and could still fail a
+// slow one.
+const settledBox = async (locator) => {
+  // Finite transitions and animations only: the pulsing status dot inside the
+  // assistant button runs forever and must not hold the measurement up.
+  await locator.evaluate((el) =>
+    Promise.all(
+      el
+        .getAnimations({ subtree: true })
+        .filter((a) => Number.isFinite(a.effect?.getTiming().iterations ?? 1))
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  )
+  let previous = await locator.boundingBox()
+  await expect
+    .poll(async () => {
+      const next = await locator.boundingBox()
+      const same = JSON.stringify(next) === JSON.stringify(previous)
+      previous = next
+      return same
+    })
+    .toBe(true)
+  expect(previous).not.toBeNull()
+  return previous
 }
 
 test.describe('Mobile layout (390px)', () => {
@@ -87,8 +108,10 @@ test.describe('Mobile layout (390px)', () => {
     const strip = dayButtons[0].locator('..')
     expect(await scrollsHorizontally(strip)).toBe(true)
 
-    await settle(page)
-    expect(await pageFitsViewport(page)).toBe(true)
+    // Once the fetches are done the measurement is polled, not taken after a
+    // fixed wait, so a slow commit cannot fail it and a fast one is not padded.
+    await page.waitForLoadState('networkidle')
+    await expect.poll(() => pageFitsViewport(page)).toBe(true)
   })
 
   test('the transit route chips scroll inside their row instead of widening the page', async ({
@@ -115,8 +138,8 @@ test.describe('Mobile layout (390px)', () => {
     const strip = allRoutes.locator('..')
     expect(await scrollsHorizontally(strip)).toBe(true)
 
-    await settle(page)
-    expect(await pageFitsViewport(page)).toBe(true)
+    await page.waitForLoadState('networkidle')
+    await expect.poll(() => pageFitsViewport(page)).toBe(true)
   })
 
   test('quick-action captions stay readable in the 2x2 dashboard grid', async ({ page, mockApi }) => {
@@ -133,8 +156,8 @@ test.describe('Mobile layout (390px)', () => {
       await caption.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight),
     ).toBe(true)
 
-    await settle(page)
-    expect(await pageFitsViewport(page)).toBe(true)
+    await page.waitForLoadState('networkidle')
+    await expect.poll(() => pageFitsViewport(page)).toBe(true)
   })
 
   // Issue #249: the floating assistant button sat on top of the bottom nav's
@@ -153,11 +176,9 @@ test.describe('Mobile layout (390px)', () => {
     await expect(more).toBeVisible()
     await expect(assistant).toBeVisible()
 
-    await settle(page)
-    const moreBox = await more.boundingBox()
-    const assistantBox = await assistant.boundingBox()
-    expect(moreBox).not.toBeNull()
-    expect(assistantBox).not.toBeNull()
+    await page.waitForLoadState('networkidle')
+    const moreBox = await settledBox(more)
+    const assistantBox = await settledBox(assistant)
     expect(boxesIntersect(moreBox, assistantBox)).toBe(false)
 
     // A real click, so Playwright's hit test fails if anything still sits on the tab.
@@ -185,19 +206,19 @@ test.describe('Mobile layout (390px)', () => {
     const panel = page.getByTestId('assistant-panel')
     const input = page.getByPlaceholder('Ask about campus...')
     await expect(assistant).toBeVisible()
-    await settle(page)
+    await page.waitForLoadState('networkidle')
     await assistant.click()
-    await expect(page.getByRole('button', { name: 'Is Tower Dining open now?' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'What should I work on first?' })).toBeVisible()
 
     const expectPanelFits = async () => {
-      // Wait out the open transition (translate and scale) before measuring.
-      await page.waitForTimeout(600)
-      const topBarBox = await topBar.boundingBox()
-      const panelBox = await panel.boundingBox()
-      const assistantBox = await assistant.boundingBox()
+      // The open transition (translate and scale) has to finish before the
+      // panel is measured: a half-scaled panel fits trivially.
+      const topBarBox = await settledBox(topBar)
+      const panelBox = await settledBox(panel)
+      const assistantBox = await settledBox(assistant)
       expect(panelBox.y).toBeGreaterThanOrEqual(topBarBox.y + topBarBox.height)
       expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(assistantBox.y)
-      expect(await pageFitsViewport(page)).toBe(true)
+      await expect.poll(() => pageFitsViewport(page)).toBe(true)
     }
 
     await expectPanelFits()

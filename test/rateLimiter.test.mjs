@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { bucketKey, createRateLimiter } from '../src/rateLimiter.mjs'
+import { bucketKey, createRateLimiter, createRateWindow } from '../src/rateLimiter.mjs'
 
 // Minimal Express req/res doubles so we can exercise the middleware directly.
 function mockReqRes({ ip = '1.2.3.4', userId } = {}) {
@@ -173,4 +173,46 @@ test('onLimit answers a blocked request in place of the JSON 429', () => {
   assert.equal(ctx.res.body, undefined, 'no JSON body was written')
   assert.ok(ctx.res.headers['Retry-After'], 'headers are set before the hook runs')
   assert.equal(ctx.res.headers['RateLimit-Remaining'], '0')
+})
+
+// Issue #191 - the window without the HTTP layer, for the board auto-tagger.
+test('createRateWindow counts hits per key and resets after the window', () => {
+  const window = createRateWindow({ name: 'test-window', windowMs: 1000, max: 2 })
+  assert.equal(window.limit, 2)
+  assert.equal(window.windowMs, 1000)
+  const t0 = 1_000_000
+  assert.equal(window.hit('a', t0).allowed, true)
+  assert.equal(window.hit('a', t0 + 10).allowed, true)
+  const third = window.hit('a', t0 + 20)
+  assert.equal(third.allowed, false)
+  assert.equal(third.count, 3)
+  assert.equal(third.resetAt, t0 + 1000)
+  // Another key has its own budget; the first key is fresh again after the window.
+  assert.equal(window.hit('b', t0 + 20).allowed, true)
+  assert.equal(window.hit('a', t0 + 1000).allowed, true)
+})
+
+test('createRateWindow honours the RATE_LIMIT_<NAME>_MAX override', () => {
+  process.env.RATE_LIMIT_TEST_WINDOW_ENV_MAX = '1'
+  try {
+    const window = createRateWindow({ name: 'test-window-env', windowMs: 1000, max: 5 })
+    assert.equal(window.limit, 1)
+    assert.equal(window.hit('a').allowed, true)
+    assert.equal(window.hit('a').allowed, false)
+  } finally {
+    delete process.env.RATE_LIMIT_TEST_WINDOW_ENV_MAX
+  }
+})
+
+test('a skip predicate lets a request through without touching a bucket or setting headers', () => {
+  let metered = false
+  const limiter = createRateLimiter({ name: 'skip-test', windowMs: 60_000, max: 1, skip: () => !metered })
+  const ctx = mockReqRes()
+  assert.equal(pass(limiter, ctx), true)
+  assert.equal(pass(limiter, ctx), true)
+  assert.equal(ctx.res.headers['RateLimit-Limit'], undefined, 'a skipped request gets no RateLimit headers')
+  metered = true
+  assert.equal(pass(limiter, ctx), true, 'the skipped requests did not count')
+  assert.equal(pass(limiter, ctx), false)
+  assert.equal(ctx.res.statusCode, 429)
 })

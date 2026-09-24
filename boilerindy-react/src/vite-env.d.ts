@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+// Build id minted by vite.config.js (`define`); the query cache persister's
+// buster (issue #251). src/lib/queryClient.ts guards for its absence.
+declare const __BUILD_ID__: string
+
 // Web Speech API (issue #19). Still non-standard, so it is absent from
 // lib.dom.d.ts - declare the minimal surface consumed by useSpeechRecognition.
 interface SpeechRecognitionResultLike {

@@ -503,7 +503,8 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
         </div>
       </header>
 
-      <main className="max-w-[920px] mx-auto px-5 sm:px-8 py-8">
+      {/* PublicLayout renders the page's <main> (issue #221); this is the content column. */}
+      <div className="max-w-[920px] mx-auto px-5 sm:px-8 py-8">
         <div className="flex items-end justify-between gap-4 mb-6">
           <div>
             <h1 className="text-[1.7rem] font-bold tracking-tight">Campaigns</h1>
@@ -587,7 +588,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
             ))}
           </div>
         )}
-      </main>
+      </div>
     </div>
   )
 }

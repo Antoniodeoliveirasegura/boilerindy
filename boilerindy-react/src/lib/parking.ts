@@ -84,8 +84,5 @@ export function directionsUrl(garage: Pick<Garage, 'lat' | 'lng' | 'address' | '
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`
 }
 
-export async function fetchParkingSnapshot(signal?: AbortSignal): Promise<ParkingSnapshot> {
-  const response = await fetch('/api/parking/garages', { signal })
-  if (!response.ok) throw new Error(`Parking request failed (${response.status})`)
-  return (await response.json()) as ParkingSnapshot
-}
+// The snapshot is read through the query cache: see useParking and
+// parkingQuery in queries/publicData.ts (issue #251).

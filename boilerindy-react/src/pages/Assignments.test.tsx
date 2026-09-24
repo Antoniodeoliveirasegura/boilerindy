@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Assignments from './Assignments'
 import { authRequest } from '../lib/authApi'
 
@@ -87,11 +88,16 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// The page reads its calendar, categories and task metadata through the query
+// cache (issue #327); a client per test keeps nothing between cases.
 async function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
-    <MemoryRouter>
-      <Assignments />
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <Assignments />
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
   await screen.findByText('Read chapter four')
 }

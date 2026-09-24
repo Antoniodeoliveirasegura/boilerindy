@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { authRequest } from '../lib/authApi'
 import { extractBuildingCode } from '../lib/buildingCode'
+import { errorMessage } from '../lib/queries/publicData'
+import { useMyClasses } from '../lib/queries/userData'
 import Icon from '../components/Icons'
 import { filterClassItemsForSchedulePage } from '../lib/scheduleFilters'
 import {
@@ -14,6 +15,7 @@ import {
   loadScheduleOverrides,
   removeManualClass,
   saveSeriesOverride,
+  SCHEDULE_OVERRIDES_EVENT,
   updateManualClass,
   type ScheduleOverrideState,
   type ScheduleSeriesOverride,
@@ -269,11 +271,15 @@ export default function Schedule() {
     return DAYS.includes(today) ? today : 'Monday'
   })
   const [selectedClass, setSelectedClass] = useState<ClassEntry | null>(null)
-  const [loading, setLoading] = useState(true)
   const [banner, setBanner] = useState('')
-  const [termLabel, setTermLabel] = useState('')
-  const [classesMeta, setClassesMeta] = useState<{ totalInTerm?: number }>({ totalInTerm: 0 })
-  const [classItems, setClassItems] = useState<ClassItem[]>([])
+  // The chronological class list through the per-user query cache (#327);
+  // Home reads the display-mode entry of the same route.
+  const classesQuery = useMyClasses<ClassItem>({ limit: 500, mode: 'chronological' })
+  const loading = classesQuery.isPending
+  const classItems = useMemo<ClassItem[]>(() => classesQuery.data?.items ?? [], [classesQuery.data])
+  const classesMeta = useMemo<{ totalInTerm?: number }>(() => classesQuery.data?.meta ?? { totalInTerm: 0 }, [classesQuery.data])
+  const termLabel = classesQuery.data?.meta?.selectedTermLabel || ''
+  const loadBanner = classesQuery.isError ? errorMessage(classesQuery.error, 'Could not load your class schedule.') : ''
   const [overrides, setOverrides] = useState<ScheduleOverrideState>(() => loadScheduleOverrides(userId))
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -296,37 +302,14 @@ export default function Schedule() {
     }
   }
 
+  // Re-read on user change and whenever the server pull (or another tab) lands,
+  // so edits made elsewhere show up without a reload.
   useEffect(() => {
-    setOverrides(loadScheduleOverrides(userId))
+    const refresh = () => setOverrides(loadScheduleOverrides(userId))
+    refresh()
+    window.addEventListener(SCHEDULE_OVERRIDES_EVENT, refresh)
+    return () => window.removeEventListener(SCHEDULE_OVERRIDES_EVENT, refresh)
   }, [userId])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setBanner('')
-      try {
-        const response = (await authRequest('/api/me/classes?limit=500&mode=chronological')) as {
-          items?: ClassItem[]
-          meta?: { totalInTerm?: number; selectedTermLabel?: string }
-        }
-        if (cancelled) return
-        setClassItems(response.items || [])
-        setClassesMeta(response.meta || { totalInTerm: 0 })
-        setTermLabel(response.meta?.selectedTermLabel || '')
-      } catch (error) {
-        if (!cancelled) {
-          setBanner(error instanceof Error ? error.message : 'Could not load your class schedule.')
-          setClassItems([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const scheduleClassItems = useMemo(
     () => filterClassItemsForSchedulePage(classItems),
@@ -552,9 +535,9 @@ export default function Schedule() {
         </div>
       </div>
 
-      {banner && (
+      {(banner || loadBanner) && (
         <div className="card p-4 mb-6 text-[13px] text-[var(--color-txt-1)] border-[var(--color-border)]">
-          {banner}
+          {banner || loadBanner}
         </div>
       )}
 
