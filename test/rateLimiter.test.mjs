@@ -203,3 +203,16 @@ test('createRateWindow honours the RATE_LIMIT_<NAME>_MAX override', () => {
     delete process.env.RATE_LIMIT_TEST_WINDOW_ENV_MAX
   }
 })
+
+test('a skip predicate lets a request through without touching a bucket or setting headers', () => {
+  let metered = false
+  const limiter = createRateLimiter({ name: 'skip-test', windowMs: 60_000, max: 1, skip: () => !metered })
+  const ctx = mockReqRes()
+  assert.equal(pass(limiter, ctx), true)
+  assert.equal(pass(limiter, ctx), true)
+  assert.equal(ctx.res.headers['RateLimit-Limit'], undefined, 'a skipped request gets no RateLimit headers')
+  metered = true
+  assert.equal(pass(limiter, ctx), true, 'the skipped requests did not count')
+  assert.equal(pass(limiter, ctx), false)
+  assert.equal(ctx.res.statusCode, 429)
+})

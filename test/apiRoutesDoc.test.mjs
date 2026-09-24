@@ -20,7 +20,6 @@ test('the inventory sees every app-level route in server.mjs', () => {
   const server = readFileSync(fileURLToPath(new URL('server.mjs', root)), 'utf8')
   const appRoutes = [...server.matchAll(/^app\.(get|post|patch|put|delete)\('([^']+)'/gm)].length
   const rows = collectRoutes()
-  assert.ok(appRoutes > 100, `expected the monolith to still hold most routes, found ${appRoutes}`)
   assert.equal(rows.filter((r) => r.file === 'server.mjs').length, appRoutes)
   // Sorted by path, then method, so a regenerated file diffs cleanly.
   const sorted = [...rows].sort((a, b) => a.path.localeCompare(b.path))

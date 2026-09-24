@@ -85,11 +85,7 @@ import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
 import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
-import { normalizeLayout, defaultLayout } from './src/dashboardLayout.mjs'
-import {
-  normalizeLayout as normalizeServicesLayout,
-  defaultLayout as defaultServicesLayout,
-} from './src/servicesLayout.mjs'
+import { createLayoutsRouter } from './src/routes/layouts.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -2759,56 +2755,12 @@ app.delete('/api/lost-found/:id', userWriteRateLimit, requireIdParam('id'), requ
   res.json({ ok: true })
 })
 
-// ── Customizable home dashboard layout (issue #52) ───────────────────────────
-// Per-user widget order/size/visibility, stored as JSONB on users. NULL means
-// the user has never customized, so the client applies the default layout.
-
-app.get('/api/me/dashboard', requireAuth, async (req, res) => {
-  const stored = req.currentUser.dashboard_layout
-  // Never customized → return the default so the client always has a layout.
-  const layout = stored == null ? defaultLayout() : normalizeLayout(stored)
-  res.json({ layout })
-})
-
-app.put('/api/me/dashboard', userWriteRateLimit, requireAuth, async (req, res) => {
-  // Sanitize untrusted client input against the widget allowlist before storing.
-  const layout = normalizeLayout(req.body?.layout)
-  const { error } = await supabase
-    .from('users')
-    .update({ dashboard_layout: layout })
-    .eq('id', req.currentUser.id)
-  if (error) {
-    console.error('PUT /api/me/dashboard:', error.message)
-    return res.status(500).json({ error: { message: 'Could not save your dashboard layout.', status: 500 } })
-  }
-  res.json({ layout })
-})
-
-// ── Customizable Student Services board layout ───────────────────────────────
-// Per-user widget order/size/visibility for the /services page, stored as JSONB
-// on users. NULL means the user has never customized, so the client applies the
-// default layout. Mirrors /api/me/dashboard.
-
-app.get('/api/me/services', requireAuth, async (req, res) => {
-  const stored = req.currentUser.services_layout
-  // Never customized → return the default so the client always has a layout.
-  const layout = stored == null ? defaultServicesLayout() : normalizeServicesLayout(stored)
-  res.json({ layout })
-})
-
-app.put('/api/me/services', userWriteRateLimit, requireAuth, async (req, res) => {
-  // Sanitize untrusted client input against the widget allowlist before storing.
-  const layout = normalizeServicesLayout(req.body?.layout)
-  const { error } = await supabase
-    .from('users')
-    .update({ services_layout: layout })
-    .eq('id', req.currentUser.id)
-  if (error) {
-    console.error('PUT /api/me/services:', error.message)
-    return res.status(500).json({ error: { message: 'Could not save your services layout.', status: 500 } })
-  }
-  res.json({ layout })
-})
+// ── Customizable board layouts (issue #52) ───────────────────────────────────
+// The home dashboard and Student Services board layouts live in
+// src/routes/layouts.mjs, the first feature router out of this file (issue
+// #191). Mounted where the routes were, so ordering-sensitive middleware (the
+// session above, apiNotFound and the error handler below) is unaffected.
+app.use(createLayoutsRouter({ supabase, requireAuth, userWriteRateLimit }))
 
 app.get('/', (_req, res) => {
   res.redirect(clientAppUrl)
@@ -2847,10 +2799,11 @@ const assistantRateLimit = createRateLimiter({
   max: 40,
   onLimit: (_req, res) =>
     res.status(429).json({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }),
+  // Only real inference is metered: without a Groq key the route answers from
+  // the offline router, which costs nothing. A skip rather than a wrapper, so
+  // the limiter sits on the route line where the RATE_LIMITS doc guard reads it.
+  skip: () => !GROQ_API_KEY,
 })
-// Only real inference is metered: without a Groq key the route answers from
-// the offline router, which costs nothing.
-const meterAssistant = (req, res, next) => (GROQ_API_KEY ? assistantRateLimit(req, res, next) : next())
 const boardAiRateLimit = createRateLimiter({
   name: 'ai-board',
   windowMs: 60 * 60 * 1000,
@@ -3200,7 +3153,7 @@ async function gatherAssistantContext(userId, now) {
   return { dining, calendarRows, ...taskMeta }
 }
 
-app.post('/api/assistant', requireAuth, meterAssistant, async (req, res) => {
+app.post('/api/assistant', requireAuth, assistantRateLimit, async (req, res) => {
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })
