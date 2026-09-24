@@ -2799,10 +2799,11 @@ const assistantRateLimit = createRateLimiter({
   max: 40,
   onLimit: (_req, res) =>
     res.status(429).json({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }),
+  // Only real inference is metered: without a Groq key the route answers from
+  // the offline router, which costs nothing. A skip rather than a wrapper, so
+  // the limiter sits on the route line where the RATE_LIMITS doc guard reads it.
+  skip: () => !GROQ_API_KEY,
 })
-// Only real inference is metered: without a Groq key the route answers from
-// the offline router, which costs nothing.
-const meterAssistant = (req, res, next) => (GROQ_API_KEY ? assistantRateLimit(req, res, next) : next())
 const boardAiRateLimit = createRateLimiter({
   name: 'ai-board',
   windowMs: 60 * 60 * 1000,
@@ -3152,7 +3153,7 @@ async function gatherAssistantContext(userId, now) {
   return { dining, calendarRows, ...taskMeta }
 }
 
-app.post('/api/assistant', requireAuth, meterAssistant, async (req, res) => {
+app.post('/api/assistant', requireAuth, assistantRateLimit, async (req, res) => {
   const { messages } = req.body
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' })

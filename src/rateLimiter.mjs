@@ -106,13 +106,18 @@ export function createRateWindow({ name, windowMs, max }) {
  *   Answers a blocked request instead of the JSON 429, for routes whose caller
  *   is a browser redirect rather than a fetch (issue #293). The RateLimit
  *   headers, Retry-After and the log line are the same either way.
+ * @param {(req: object) => boolean} [options.skip]
+ *   When it returns true the request passes without touching a bucket or
+ *   setting headers, so a limiter can stay on its route line (where the
+ *   RATE_LIMITS doc guard reads it) while metering only some requests.
  */
-export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message, onLimit }) {
+export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', message, onLimit, skip }) {
   const bucket = createRateWindow({ name, windowMs, max })
   const { limit, windowMs: window } = bucket
 
   return function rateLimit(req, res, next) {
     if (!globalEnabled) return next()
+    if (typeof skip === 'function' && skip(req)) return next()
 
     const key = bucketKey(req, keyBy)
     const now = Date.now()
