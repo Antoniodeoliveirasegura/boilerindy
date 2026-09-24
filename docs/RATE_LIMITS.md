@@ -31,8 +31,10 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `user-write` | `POST /api/purdue/mock-link`, `DELETE /api/sources/:sourceId`, `POST /api/me/tasks/calendar/complete`, `POST /api/me/tasks/manual`, `PATCH /api/me/tasks/manual/:id`, `DELETE /api/me/tasks/manual/:id`, `POST /api/me/grades`, `PATCH /api/me/grades/:id`, `DELETE /api/me/grades/:id`, `PUT /api/me/degree`, `PUT /api/me/schedule-overrides`, `POST /api/me/calendar-feed/token`, `DELETE /api/lost-found/:id`, `PUT /api/me/dashboard`, `PUT /api/me/services`, `POST /api/me/dining/favorites`, `DELETE /api/me/dining/favorites`, `DELETE /api/board/posts/:id`, `PATCH /api/guide/:id/pin`, `DELETE /api/guide/:id`, `PATCH /api/me/study-groups/opt-in`, `DELETE /api/study-groups/:id`, `POST /api/deals`, `PATCH /api/deals/:id`, `DELETE /api/deals/:id`, `DELETE /api/marketplace/:id`, `PATCH /api/connections/:requesterId` | 120 | 15 min | user, falls back to IP |
 | `advertiser-write` | `POST /api/advertiser/campaigns`, `PATCH /api/advertiser/campaigns/:id` | 60 | 15 min | advertiser portal session (`req.session.advertiserId`), falls back to IP |
 | `source-sync` | `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule`, `POST /api/sync/:sourceId` | 30 | 15 min | user, falls back to IP |
-| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining` (session-free upstream proxies, #215) | 120 | 15 min | user, falls back to IP |
-| `transit-vehicles` | `GET /api/transit/vehicles` (polled every 10 to 20 s per open Transit screen; also served with `Cache-Control: public, max-age=10, s-maxage=10` so browsers and the Vercel edge absorb repeats) | 240 | 15 min | user, falls back to IP |
+| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining` (session-free upstream proxies, #215; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
+| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
+| `transit-vehicles` | `GET /api/transit/vehicles` (polled every 10 to 20 s per open Transit screen; also served with `Cache-Control: public, max-age=10, s-maxage=10, stale-while-revalidate=20` so browsers and the Vercel edge absorb repeats) | 240 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
+| `transit-vehicles-ip` | `GET /api/transit/vehicles` (outer cap so one address cannot mint unlimited cookie buckets) | 2400 | 15 min | IP |
 | `clubs-read` | `GET /api/clubs` (served from an hours-long cache, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals the seller's email, so enumeration-sensitive, #114) | 100 | 15 min | user, falls back to IP |
 | `marketplace-photo` | `POST /api/marketplace/photos/authorize` (see [photo setup and lifecycle](marketplace-photos.md)) | 20 | 1 hour | user, falls back to IP |
@@ -119,3 +121,8 @@ RATE_LIMIT_<NAME>_WINDOW_MS=<ms>      # window length in milliseconds
 - When deploying behind a reverse proxy or CDN, configure Express
   `trust proxy` so `req.ip` reflects the real client address; otherwise all
   anonymous traffic shares one bucket.
+- The public reads (`public-read`, `public-read-ip`, `transit-vehicles`,
+  `transit-vehicles-ip`) answer with `Cache-Control: public` and run before the
+  session middleware, so the Vercel edge can serve signed-in polls too. An
+  edge hit never reaches this process and does not count against any bucket
+  (#250).

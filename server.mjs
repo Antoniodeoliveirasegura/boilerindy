@@ -59,6 +59,7 @@ import {
   BOARD_PROFANITY_USER_MESSAGE,
 } from './src/boardProfanity.mjs'
 import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
+import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
 import { toggleUpvote } from './src/upvoteToggle.mjs'
 import {
   DINING_FAVORITES_CAP_MESSAGE,
@@ -322,25 +323,6 @@ const sessionStore = await createSessionStore(supabase)
 // mutation choke points below.
 const onboardingSummaryCache = createOnboardingSummaryCache()
 
-app.use(
-  session({
-    name: 'pih.sid',
-    secret: sessionSecret || 'dev-session-secret',
-    ...(sessionStore ? { store: sessionStore } : {}),
-    resave: false,
-    saveUninitialized: false,
-    // Refresh the cookie on every response so active users are never logged
-    // out mid-task; the client warns shortly before idle expiry (issue #23)
-    rolling: true,
-    cookie: {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isProduction,
-      maxAge: 1000 * 60 * 60 * 24 * 14,
-    },
-  }),
-)
-
 // ── Abuse protection (issue #22) ────────────────────────────────────────────
 // Per-user buckets when signed in, per-IP otherwise. Tunable via
 // RATE_LIMIT_* env vars; full endpoint coverage in docs/RATE_LIMITS.md.
@@ -438,22 +420,43 @@ const adEventRateLimit = createRateLimiter({
 // First-party analytics ingestion (issue #51). The client flushes a batch at
 // most every 10s, so 60 requests per 5 minutes leaves ample headroom while
 // capping abuse.
-// Session-free upstream proxies (dining, parking, stops, routes). Keyed by the
-// signed-in user when there is one, so app users behind one campus NAT do not
-// exhaust a shared budget (#215); anonymous callers still share their IP.
+// Session-free upstream proxies (dining, parking, stops, routes, push config).
+// These routes are registered before the session middleware (issue #250, see
+// the public reads block below), so req.session is never set on them. To keep
+// #215's fairness for app users behind one campus NAT, the bucket key is a
+// hash of the session cookie when the request carries one and the IP
+// otherwise; the *-ip limiters cap what one address can spend across every
+// cookie value it presents, the way session-sync-ip bounds session-sync.
 const publicReadRateLimit = createRateLimiter({
   name: 'public-read',
   windowMs: 15 * 60 * 1000,
   max: 120,
+  keyBy: publicReadBucketKey,
+  message: 'Too many requests. Please try again shortly.',
+})
+const publicReadIpRateLimit = createRateLimiter({
+  name: 'public-read-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 1200,
+  keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
 })
 // Live vehicle positions poll every 10 to 20 s per open Transit screen and are
 // cached 5 s server-side, so they get their own bucket sized for polling
-// instead of eating the shared public-read budget (#215).
+// instead of eating the shared public-read budget (#215). Same keying and the
+// same kind of outer per-address cap as public-read.
 const transitVehiclesRateLimit = createRateLimiter({
   name: 'transit-vehicles',
   windowMs: 15 * 60 * 1000,
   max: 240,
+  keyBy: publicReadBucketKey,
+  message: 'Too many transit requests. Please slow down.',
+})
+const transitVehiclesIpRateLimit = createRateLimiter({
+  name: 'transit-vehicles-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 2400,
+  keyBy: 'ip',
   message: 'Too many transit requests. Please slow down.',
 })
 const pushWriteRateLimit = createRateLimiter({
@@ -523,6 +526,43 @@ const advertiserWriteRateLimit = createRateLimiter({
   keyBy: advertiserWriteBucketKey,
   message: 'Too many campaign changes. Please wait a few minutes and try again.',
 })
+
+// ── Public reads (issue #250) ────────────────────────────────────────────────
+// The session-free upstream proxies are registered here, before the session
+// middleware, so their responses never carry Set-Cookie: with `rolling: true`
+// express-session refreshes the cookie on every response that has a session,
+// and Vercel will not store a response that sets a cookie, which kept the edge
+// cache empty for every signed-in poll. Same precedent as /api/health. The
+// handlers are function declarations further down, next to the caches and
+// constants they use; everything they touch is read at request time, after
+// startup, so the hoisting is safe.
+app.get('/api/transit/vehicles', transitVehiclesIpRateLimit, transitVehiclesRateLimit, handleTransitVehicles)
+app.get('/api/transit/stops', publicReadIpRateLimit, publicReadRateLimit, handleTransitStops)
+app.get('/api/transit/routes', publicReadIpRateLimit, publicReadRateLimit, handleTransitRoutes)
+app.get('/api/parking/garages', publicReadIpRateLimit, publicReadRateLimit, handleParkingGarages)
+app.get('/api/clubs', clubsReadRateLimit, handleClubs)
+app.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
+app.get('/api/dining', publicReadIpRateLimit, publicReadRateLimit, handleDining)
+
+// Everything below runs behind the cookie session.
+app.use(
+  session({
+    name: SESSION_COOKIE_NAME,
+    secret: sessionSecret || 'dev-session-secret',
+    ...(sessionStore ? { store: sessionStore } : {}),
+    resave: false,
+    saveUninitialized: false,
+    // Refresh the cookie on every response so active users are never logged
+    // out mid-task; the client warns shortly before idle expiry (issue #23)
+    rolling: true,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProduction,
+      maxAge: 1000 * 60 * 60 * 24 * 14,
+    },
+  }),
+)
 
 function nowIso() {
   return new Date().toISOString()
@@ -1480,7 +1520,7 @@ app.post('/api/auth/sign-in', signInRateLimit, async (req, res) => {
 
 app.post('/api/sign-out', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('pih.sid')
+    res.clearCookie(SESSION_COOKIE_NAME)
     res.json({ ok: true })
   })
 })
@@ -1811,7 +1851,7 @@ app.post('/api/me/delete-account', signInRateLimit, requireAuth, async (req, res
       confirmation: req.body?.confirmation,
     })
     req.session.destroy(() => {
-      res.clearCookie('pih.sid')
+      res.clearCookie(SESSION_COOKIE_NAME)
       res.json({ ok: true })
     })
   } catch (error) {
@@ -3356,7 +3396,7 @@ function translocReady(res) {
   return true
 }
 
-app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => {
+async function handleTransitVehicles(_req, res) {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, () =>
@@ -3366,36 +3406,42 @@ app.get('/api/transit/vehicles', transitVehiclesRateLimit, async (_req, res) => 
     )
     // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
     // /api rewrite) absorb the 10 s polling so repeats never reach this process.
-    res.set('Cache-Control', 'public, max-age=10, s-maxage=10')
+    // stale-while-revalidate lets the edge answer a poll from the expired copy
+    // while it refreshes, so a Render cold start does not stall every open map.
+    res.set('Cache-Control', 'public, max-age=10, s-maxage=10, stale-while-revalidate=20')
     res.json(data)
   } catch (error) {
     respondTranslocError(res, 'vehicles', error)
   }
-})
+}
 
-app.get('/api/transit/stops', publicReadRateLimit, async (_req, res) => {
+async function handleTransitStops(_req, res) {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, () =>
       fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
     )
+    // Stops and routes change a few times a year: a minute in the browser, ten
+    // at the edge, and the edge may serve the expired copy while it refreshes.
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
     res.json(data)
   } catch (error) {
     respondTranslocError(res, 'stops', error)
   }
-})
+}
 
-app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
+async function handleTransitRoutes(_req, res) {
   if (!translocReady(res)) return
   try {
     const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, () =>
       fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
     )
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
     res.json(data)
   } catch (error) {
     respondTranslocError(res, 'routes', error)
   }
-})
+}
 
 // Live garage availability (issue #14): IU Parking's public lot-count page,
 // parsed server-side (src/parkingStatus.mjs) and cached so the upstream sees
@@ -3404,16 +3450,19 @@ app.get('/api/transit/routes', publicReadRateLimit, async (_req, res) => {
 // static garage list and status 'unknown'. See docs/parking-status.md.
 const PARKING_CACHE_MS = Math.max(15_000, Number(process.env.PARKING_STATUS_CACHE_MS) || 60_000)
 
-app.get('/api/parking/garages', publicReadRateLimit, async (_req, res) => {
+async function handleParkingGarages(_req, res) {
   try {
     const data = await getCached('parking:garages', PARKING_CACHE_MS, () => fetchParkingStatus())
-    res.set('Cache-Control', 'no-store')
+    // The snapshot is already shared for PARKING_CACHE_MS in this process, so a
+    // short public lifetime costs nothing in freshness and lets the edge absorb
+    // a whole lot of phones refreshing the garage list at once (issue #250).
+    res.set('Cache-Control', 'public, max-age=15, s-maxage=30')
     res.json(data)
   } catch (error) {
     console.error('Parking status error:', error)
     res.status(500).json({ error: 'Failed to fetch parking status' })
   }
-})
+}
 
 // Club directory (issue #16): BoilerLink's public organizations API, about
 // 1,200 orgs and 1.9 MB upstream. The whole list is fetched in pages, held in
@@ -3426,7 +3475,7 @@ const clubDirectoryCache = createClubDirectoryCache({
   ttlMs: Number(process.env.BOILERLINK_CLUBS_CACHE_MS) || undefined,
 })
 
-app.get('/api/clubs', clubsReadRateLimit, async (req, res) => {
+async function handleClubs(req, res) {
   try {
     const params = parseClubSearchParams(req.query)
     const { directory, stale } = await clubDirectoryCache.get()
@@ -3436,7 +3485,7 @@ app.get('/api/clubs', clubsReadRateLimit, async (req, res) => {
     console.error('Club directory error:', error)
     res.status(500).json({ error: 'Failed to load the club directory' })
   }
-})
+}
 
 // ── Push notifications (issue #9): Web Push subscriptions, settings, reminders ──
 // See docs/push-notifications.md. Keys come from VAPID_PUBLIC_KEY /
@@ -3491,10 +3540,10 @@ function summarizePushSubscription(row) {
   }
 }
 
-app.get('/api/push/config', publicReadRateLimit, (_req, res) => {
+function handlePushConfig(_req, res) {
   res.set('Cache-Control', 'no-store')
   res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null })
-})
+}
 
 app.get('/api/push/settings', requireAuth, async (req, res) => {
   const userId = req.currentUser.id
@@ -3787,7 +3836,7 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
   }
 })
 
-app.get('/api/dining', publicReadRateLimit, async (req, res) => {
+async function handleDining(req, res) {
   try {
     // `refresh` passes through as a hint (the module refetches a date at most
     // every ten minutes); `date` must be yesterday to today + 14 (issue #208).
@@ -3799,12 +3848,20 @@ app.get('/api/dining', publicReadRateLimit, async (req, res) => {
       date = checked.ymd
     }
     const data = await getDiningSnapshot({ forceRefresh, date })
+    // The module refetches a date at most every ten minutes, so two minutes in
+    // the browser and five at the edge never serve a menu the backend would
+    // not have served itself (issue #250). Two answers are never stored: the
+    // module's outage snapshot (a 200 with ok: false and no locations), which
+    // would otherwise pin the outage past its own retry, and a forced refresh,
+    // which has to reach the backend to mean anything.
+    if (data.ok && !forceRefresh) res.set('Cache-Control', 'public, max-age=120, s-maxage=300')
+    else res.set('Cache-Control', 'no-store')
     res.json(data)
   } catch (error) {
     console.error('Nutrislice dining error:', error)
     res.status(500).json({ ok: false, error: 'dining_internal', locations: [] })
   }
-})
+}
 
 // ---- Dining favorites (issue #49) ---------------------------------------
 // Per-user favorited menu-item names. The Dining page stars items and shows a
@@ -5359,7 +5416,7 @@ app.post('/api/advertiser/sign-in', signInRateLimit, async (req, res) => {
 
 app.post('/api/advertiser/sign-out', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('pih.sid')
+    res.clearCookie(SESSION_COOKIE_NAME)
     res.json({ ok: true })
   })
 })
