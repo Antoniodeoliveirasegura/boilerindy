@@ -6,6 +6,8 @@ import { test, expect } from './fixtures/mock-backend.js'
 test.describe('Class schedule', () => {
   test('renders the schedule page for an authenticated user', async ({ page, mockApi }) => {
     mockApi.login()
+    // 15:30Z is Monday 10:30 in Indianapolis, the default timezoneId in
+    // playwright.config.js; in Seoul it would already be Tuesday 00:30.
     mockApi.seedClasses(
       [
         {
