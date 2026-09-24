@@ -88,3 +88,14 @@ test('every public read answers with the cache header the edge needs', () => {
     assert.ok(body.includes(`res.set('Cache-Control', ${header})`), `${handler} does not set Cache-Control ${header}`)
   }
 })
+
+test('a dining outage answer and a forced refresh are never stored', () => {
+  const start = server.indexOf('function handleDining(')
+  assert.ok(start > 0, 'handleDining not found')
+  const body = server.slice(start, server.indexOf('\n}\n', start))
+  assert.ok(
+    body.includes("if (data.ok && !forceRefresh) res.set('Cache-Control', 'public, max-age=120, s-maxage=300')"),
+    'the public header is not limited to a good, unforced snapshot',
+  )
+  assert.ok(body.includes("else res.set('Cache-Control', 'no-store')"), 'the outage and forced-refresh answers are not marked no-store')
+})

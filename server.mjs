@@ -3850,8 +3850,12 @@ async function handleDining(req, res) {
     const data = await getDiningSnapshot({ forceRefresh, date })
     // The module refetches a date at most every ten minutes, so two minutes in
     // the browser and five at the edge never serve a menu the backend would
-    // not have served itself (issue #250).
-    res.set('Cache-Control', 'public, max-age=120, s-maxage=300')
+    // not have served itself (issue #250). Two answers are never stored: the
+    // module's outage snapshot (a 200 with ok: false and no locations), which
+    // would otherwise pin the outage past its own retry, and a forced refresh,
+    // which has to reach the backend to mean anything.
+    if (data.ok && !forceRefresh) res.set('Cache-Control', 'public, max-age=120, s-maxage=300')
+    else res.set('Cache-Control', 'no-store')
     res.json(data)
   } catch (error) {
     console.error('Nutrislice dining error:', error)
