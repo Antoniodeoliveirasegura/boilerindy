@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icons'
 import {
   BOILERLINK_URL,
   CLUBS_PAGE_SIZE,
   categoryCount,
-  fetchClubs,
   formatFetched,
   initialsFor,
   resultsLabel,
@@ -14,6 +13,7 @@ import {
   type ClubScope,
   type ClubSearchResult,
 } from '../lib/clubs'
+import { errorMessage, useClubSearch } from '../lib/queries/publicData'
 
 // Student organization directory (issue #16). Data is BoilerLink's public
 // organizations API, cached and searched by GET /api/clubs. Indianapolis groups
@@ -104,18 +104,19 @@ export default function Clubs() {
   const q = (searchParams.get('q') || '').trim()
   const category = (searchParams.get('category') || '').trim()
   const scope = scopeFromParam(searchParams.get('scope'))
-  const filtersKey = `${scope}|${category}|${q}`
 
   const [input, setInput] = useState(q)
-  // The page counter is tied to the filters it was reached under, so changing a
-  // filter starts over at page 1 without an extra render or a wasted request.
-  const [pageState, setPageState] = useState({ key: filtersKey, page: 1 })
-  const page = pageState.key === filtersKey ? pageState.page : 1
-  const [result, setResult] = useState<ClubSearchResult | null>(null)
-  const [clubs, setClubs] = useState<Club[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [requestError, setRequestError] = useState<string | null>(null)
+  // The search is one cached entry per set of filters holding every page
+  // fetched so far (issue #251): "Show more" appends the next page, a filter
+  // the student comes back to answers at once, and while new filters load the
+  // previous list stays on screen dimmed, as before.
+  const search = useClubSearch({ q, category, scope, pageSize: CLUBS_PAGE_SIZE })
+  const pages = useMemo<ClubSearchResult[]>(() => search.data?.pages ?? [], [search.data])
+  const result = pages.length > 0 ? pages[pages.length - 1] : null
+  const clubs = useMemo<Club[]>(() => pages.flatMap((p) => p.clubs), [pages])
+  const loading = search.isPending || search.isPlaceholderData
+  const loadingMore = search.isFetchingNextPage
+  const requestError = search.isError ? errorMessage(search.error, 'Could not load the club directory.') : null
 
   const updateParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -146,28 +147,6 @@ export default function Clubs() {
     return () => clearTimeout(timer)
   }, [input, q, updateParams])
 
-  useEffect(() => {
-    const controller = new AbortController()
-    if (page === 1) setLoading(true)
-    else setLoadingMore(true)
-    fetchClubs({ q, category, scope, page, pageSize: CLUBS_PAGE_SIZE }, controller.signal)
-      .then((res) => {
-        setResult(res)
-        setClubs((prev) => (page === 1 ? res.clubs : [...prev, ...res.clubs]))
-        setRequestError(null)
-      })
-      .catch((error) => {
-        if ((error as Error)?.name === 'AbortError') return
-        setRequestError((error as Error)?.message || 'Could not load the club directory.')
-      })
-      .finally(() => {
-        if (controller.signal.aborted) return
-        setLoading(false)
-        setLoadingMore(false)
-      })
-    return () => controller.abort()
-  }, [q, category, scope, page])
-
   const selectCategory = useCallback((name: string) => updateParams({ category: name || null }), [updateParams])
   const clearFilters = () => {
     setInput('')
@@ -176,7 +155,7 @@ export default function Clubs() {
 
   const total = result?.total ?? 0
   const remaining = Math.max(0, total - clubs.length)
-  const canLoadMore = result != null && result.ok && page < result.pages
+  const canLoadMore = result != null && result.ok && search.hasNextPage
   const categories = (result?.categories ?? []).filter((c) => categoryCount(c, scope) > 0 || c.name === category)
   const categoryKnown = categories.some((c) => c.name === category)
   const fetched = result ? formatFetched(result.fetchedAt) : null
@@ -341,7 +320,7 @@ export default function Clubs() {
         <div className="flex justify-center mb-8">
           <button
             type="button"
-            onClick={() => setPageState({ key: filtersKey, page: page + 1 })}
+            onClick={() => void search.fetchNextPage()}
             disabled={loadingMore}
             className="btn btn-secondary text-[13px] px-5 py-2.5"
           >

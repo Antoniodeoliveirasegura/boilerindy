@@ -1,6 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import AppErrorBoundary from './components/AppErrorBoundary'
+import { BUILD_ID, QUERY_CACHE_MAX_AGE_MS, createQueryClient, createQueryPersister, dehydrateOptions } from './lib/queryClient'
 import { attachBreadcrumbSink, attachErrorSink, captureEarlyWindowErrors } from './lib/errorReporting'
 import './index.css'
 import App from './App'
@@ -43,11 +46,31 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   else setTimeout(bootSentry, 1000)
 }
 
+// The client data cache (issue #251): one QueryClient for the whole app,
+// with the public reads persisted to localStorage so the dashboard paints
+// from the last visit before the network answers. Above AuthProvider (in App)
+// so sign-out can clear it. Without usable storage the plain provider serves
+// an in-memory cache and nothing else changes.
+const queryClient = createQueryClient()
+const persister = createQueryPersister()
+const app = (
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>
+)
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
+    {persister ? (
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{ persister, maxAge: QUERY_CACHE_MAX_AGE_MS, buster: BUILD_ID, dehydrateOptions }}
+      >
+        {app}
+      </PersistQueryClientProvider>
+    ) : (
+      <QueryClientProvider client={queryClient}>{app}</QueryClientProvider>
+    )}
   </StrictMode>,
 )
 

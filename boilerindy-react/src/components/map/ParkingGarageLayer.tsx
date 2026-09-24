@@ -1,17 +1,14 @@
-import { useEffect, useState } from 'react'
 import { CircleMarker, Popup, Tooltip } from 'react-leaflet'
 import { Link } from 'react-router-dom'
 import {
   availabilityLabel,
   directionsUrl,
-  fetchParkingSnapshot,
   formatUpdated,
   STATUS_LABEL,
   type Garage,
   type GarageStatus,
 } from '../../lib/parking'
-
-const REFRESH_MS = 60_000
+import { useParking } from '../../lib/queries/publicData'
 
 const FILL: Record<GarageStatus, string> = {
   open: '#16a34a',
@@ -21,33 +18,15 @@ const FILL: Record<GarageStatus, string> = {
 }
 
 /**
- * Live garage pins for the campus map (issue #14). Self-contained: fetches the
- * snapshot when shown, refreshes once a minute, and renders nothing when the
- * layer is off so it costs nothing until a student asks for it.
+ * Live garage pins for the campus map (issue #14). Reads the parking query the
+ * /parking page uses (issue #251): fetched only while the layer is shown,
+ * refreshed once a minute while the tab is visible, and a failed refresh keeps
+ * whatever was last drawn. Renders nothing when the layer is off, so it costs
+ * nothing until a student asks for it.
  */
 export default function ParkingGarageLayer({ visible }: { visible: boolean }) {
-  const [garages, setGarages] = useState<Garage[]>([])
-
-  useEffect(() => {
-    if (!visible) return
-    let cancelled = false
-    const controller = new AbortController()
-    const load = () =>
-      fetchParkingSnapshot(controller.signal)
-        .then((snap) => {
-          if (!cancelled) setGarages(snap.garages)
-        })
-        .catch(() => {
-          // Keep whatever was last drawn; the parking page explains outages.
-        })
-    load()
-    const timer = setInterval(load, REFRESH_MS)
-    return () => {
-      cancelled = true
-      controller.abort()
-      clearInterval(timer)
-    }
-  }, [visible])
+  const parkingQuery = useParking({ enabled: visible })
+  const garages: Garage[] = parkingQuery.data?.garages ?? []
 
   if (!visible) return null
 

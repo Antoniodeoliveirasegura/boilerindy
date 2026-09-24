@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/mock-backend.js'
+import { test, expect, sampleDining } from './fixtures/mock-backend.js'
 
 // Customizable home dashboard (issue #52). Exercises the real Home UI against
 // the stateful mock of GET/PUT /api/me/dashboard: a new user gets the default
@@ -96,5 +96,54 @@ test.describe('Dashboard customization', () => {
     await dialog.getByRole('button', { name: 'Reset' }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.locator('[data-widget-id="dining"]')).toHaveCount(1)
+  })
+})
+
+// Issue #251 - the client data cache. The dashboard paints from the last
+// persisted snapshot before the network answers, and Home and Transit share
+// one cache entry per dataset instead of each fetching their own.
+test.describe('Client data cache', () => {
+  test('a reload paints the persisted dining snapshot before the delayed response arrives', async ({ page, mockApi }) => {
+    mockApi.login()
+    mockApi.seedDining({ snapshot: sampleDining() })
+    await page.goto('/dashboard')
+    const widget = page.locator('[data-widget-id="dining"]')
+    await expect(widget.getByText('Silver Star Burger')).toBeVisible()
+    // The persister writes on a short throttle; wait for the row to be stored
+    // rather than for a fixed time.
+    await expect
+      .poll(() => page.evaluate(() => (localStorage.getItem('boilerindy-query-cache') || '').includes('Silver Star Burger')))
+      .toBe(true)
+
+    // A later page.route runs first; fallback() hands the request on to the
+    // fixture's handler once the delay has passed.
+    await page.route('**/api/dining*', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await route.fallback()
+    })
+    await page.reload()
+    await expect(widget.getByText('Silver Star Burger')).toBeVisible({ timeout: 2500 })
+  })
+
+  test('Home and Transit share the transit cache: one routes request across both pages', async ({ page, mockApi }) => {
+    mockApi.login()
+    mockApi.seedTransit({
+      routes: [{ RouteID: 31, Description: 'Route 1 - Crimson', MapLineColor: '#990000' }],
+      stops: [{ RouteID: 31, RouteStopID: 1001, Latitude: 39.7742, Longitude: -86.1761, Description: 'Campus Center' }],
+      vehicles: [{ VehicleID: 501, RouteID: 31, Latitude: 39.7745, Longitude: -86.1756, GroundSpeed: 12, Name: '501' }],
+    })
+    const routeRequests = []
+    page.on('request', (request) => {
+      if (request.url().includes('/api/transit/routes')) routeRequests.push(request.url())
+    })
+
+    await page.goto('/dashboard')
+    await expect(page.getByText('Live shuttles')).toBeVisible()
+    await expect.poll(() => routeRequests.length).toBe(1)
+
+    await page.locator('a[href="/transit"]').first().click()
+    await expect(page.getByRole('heading', { name: 'Campus Transit' })).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    expect(routeRequests).toHaveLength(1)
   })
 })

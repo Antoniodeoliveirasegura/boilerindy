@@ -40,6 +40,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -486,19 +487,55 @@ export default function Home() {
   const [calendarLoadError, setCalendarLoadError] = useState('')
   const [calendarLoading, setCalendarLoading] = useState(true)
 
-  const [transitVehicles, setTransitVehicles] = useState<any[]>([])
-  const [transitStops, setTransitStops] = useState<any[]>([])
-  const [transitRouteMap, setTransitRouteMap] = useState<Record<number, number>>(() => ({ ...TRANLOC_ROUTE_ALIASES }))
-  const [transitLoading, setTransitLoading] = useState(true)
-  const [transitError, setTransitError] = useState('')
-  const [transitUpdated, setTransitUpdated] = useState<Date | null>(null)
+  // Live transit through the shared query cache (issue #251): Home and Transit
+  // read the same entries, the vehicle poll pauses while the tab is hidden,
+  // and the last snapshot paints from storage before the network answers.
+  const stopsQuery = useTransitStops()
+  const routesQuery = useTransitRoutes()
+  const vehiclesQuery = useTransitVehicles()
+  const transitVehicles = useMemo<any[]>(
+    () => (Array.isArray(vehiclesQuery.data) ? vehiclesQuery.data : []),
+    [vehiclesQuery.data],
+  )
+  const transitStops = useMemo<any[]>(() => (Array.isArray(stopsQuery.data) ? stopsQuery.data : []), [stopsQuery.data])
+  const transitRouteMap = useMemo<Record<number, number>>(
+    () => (Array.isArray(routesQuery.data) ? buildTranslocRouteIdMap(routesQuery.data) : { ...TRANLOC_ROUTE_ALIASES }),
+    [routesQuery.data],
+  )
+  const transitLoading = vehiclesQuery.isPending || stopsQuery.isPending || routesQuery.isPending
+  // A failed refetch keeps the last vehicles on screen; the widget only shows
+  // the message when it has nothing else to show.
+  const transitError = vehiclesQuery.isError ? errorMessage(vehiclesQuery.error, 'Could not load live buses.') : ''
+  const transitUpdated = useMemo(
+    () => (vehiclesQuery.dataUpdatedAt ? new Date(vehiclesQuery.dataUpdatedAt) : null),
+    [vehiclesQuery.dataUpdatedAt],
+  )
   // Cached, prompt-frugal location: paints the last known position instantly and
   // asks for permission at most once (see useUserLocation) instead of nagging on
   // every login. { lat, lon }
   const userLocation = useUserLocation({ autoPrompt: true })
 
-  const [diningPreview, setDiningPreview] = useState<{ items: string[] } | null>(null)
-  const [diningStatus, setDiningStatus] = useState<any>(null) // { name, is_open, hours, weekly_hours }
+  // Dining snapshot from the shared entry the Dining page uses too (#251).
+  const diningQuery = useDining()
+  const { diningStatus, diningPreview } = useMemo(() => {
+    const none = { diningStatus: null as any, diningPreview: null as { items: string[] } | null }
+    const data = diningQuery.data as any
+    if (!data?.ok || !Array.isArray(data.locations)) return none
+    const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
+    if (!tower) return none
+    // The snapshot names the Indianapolis calendar day it was built for; the
+    // browser's own weekday is only a fallback (a student can be on another date).
+    const todayName = (typeof data.weekday === 'string' && data.weekday) || new Date().toLocaleDateString('en-US', { weekday: 'long' })
+    const todayHrs = tower.weekly_hours?.[todayName]
+    const status = {
+      name: tower.name,
+      is_open: tower.is_open,
+      hours: todayHrs || tower.hours,
+      weekly_hours: tower.weekly_hours || null,
+    }
+    const names = (tower.stations || []).flatMap((s: any) => s.items || []).map((i: any) => i.name).filter(Boolean)
+    return { diningStatus: status as any, diningPreview: names.length > 0 ? { items: names.slice(0, 8) as string[] } : null }
+  }, [diningQuery.data])
 
   const [boardPreview, setBoardPreview] = useState<any[]>([])
   const [boardLoading, setBoardLoading] = useState(true)
@@ -567,36 +604,6 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/dining')
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled || !data?.ok || !Array.isArray(data.locations)) return
-        const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
-        if (!tower) return
-        // The snapshot names the Indianapolis calendar day it was built for; the
-        // browser's own weekday is only a fallback (a student can be on another date).
-        const todayName = (typeof data.weekday === 'string' && data.weekday) || new Date().toLocaleDateString('en-US', { weekday: 'long' })
-        const todayHrs = tower.weekly_hours?.[todayName]
-        setDiningStatus({
-          name: tower.name,
-          is_open: tower.is_open,
-          hours: todayHrs || tower.hours,
-          weekly_hours: tower.weekly_hours || null,
-        })
-        const allItems = (tower.stations || []).flatMap((s: any) => s.items || [])
-        const names = allItems.map((i: any) => i.name).filter(Boolean)
-        if (names.length > 0) {
-          setDiningPreview({ items: names.slice(0, 8) })
-        }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
     ;(async () => {
       setBoardLoading(true)
       try {
@@ -652,60 +659,6 @@ export default function Home() {
     })()
     return () => {
       cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadStopsAndRoutes() {
-      try {
-        const [sRes, rRes] = await Promise.all([fetch('/api/transit/stops'), fetch('/api/transit/routes')])
-        const stopsData = sRes.ok ? await sRes.json() : []
-        const routesData = rRes.ok ? await rRes.json() : null
-        if (cancelled) return
-        setTransitStops(Array.isArray(stopsData) ? stopsData : [])
-        if (Array.isArray(routesData)) {
-          setTransitRouteMap(buildTranslocRouteIdMap(routesData))
-        }
-      } catch {
-        if (!cancelled) setTransitStops([])
-      }
-    }
-
-    async function loadVehicles() {
-      try {
-        const res = await fetch('/api/transit/vehicles')
-        const data = await res.json()
-        if (cancelled) return
-        if (!res.ok || (data && typeof data === 'object' && !Array.isArray(data) && data.error)) {
-          setTransitError(typeof data?.error === 'string' ? data.error : 'Could not load live buses.')
-          setTransitVehicles([])
-        } else {
-          setTransitError('')
-          setTransitVehicles(Array.isArray(data) ? data : [])
-        }
-        setTransitUpdated(new Date())
-      } catch (e) {
-        if (!cancelled) {
-          setTransitError(e instanceof Error ? e.message : 'Could not load live buses.')
-          setTransitVehicles([])
-        }
-      }
-    }
-
-    ;(async () => {
-      setTransitLoading(true)
-      setTransitError('')
-      await loadStopsAndRoutes()
-      await loadVehicles()
-      if (!cancelled) setTransitLoading(false)
-    })()
-
-    const id = window.setInterval(loadVehicles, 10000)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
     }
   }, [])
 
