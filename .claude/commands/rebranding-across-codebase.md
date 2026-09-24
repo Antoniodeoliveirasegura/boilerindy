@@ -15,11 +15,11 @@ Systematically update all references to a product or brand name throughout the e
 ## Common Files
 
 - `**/package.json`
-- `**/package-lock.json`
+- `**/pnpm-lock.yaml`
 - `**/public/favicon.svg`
 - `**/public/icons.svg`
-- `**/src/components/**/*.jsx`
-- `**/src/pages/**/*.jsx`
+- `**/src/components/**/*.tsx`
+- `**/src/pages/**/*.tsx`
 
 ## Suggested Sequence
 
@@ -31,7 +31,7 @@ Systematically update all references to a product or brand name throughout the e
 ## Typical Commit Signals
 
 - Rename relevant directories and files (e.g., hackindy-react/ to boilerindy-react/).
-- Update package.json and package-lock.json with new names.
+- Update package.json and pnpm-lock.yaml with new names (pnpm install, never npm).
 - Replace brand references in code files, environment templates, and documentation.
 - Update assets such as favicons and logos.
 - Change user-facing strings in UI components and pages.
