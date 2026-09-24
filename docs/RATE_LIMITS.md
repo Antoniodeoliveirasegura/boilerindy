@@ -42,8 +42,9 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `ad-event` | `POST /api/spotlight/:campaignId/event` (impression and click beacons from the spotlight rails, one per ad shown) | 200 | 5 min | user, falls back to IP |
 | `analytics` | `POST /api/usage/events` (the first-party usage beacon, batched by the client, #51) | 60 | 5 min | user, falls back to IP |
 | `admin-write` | `PATCH /api/admin/leads/:id`, `PATCH /api/admin/campaigns/:id`, `POST /api/admin/advertisers`, `POST /api/admin/purdue-links/clear`, `POST /api/admin/deleted/:type/:id/restore`, `DELETE /api/admin/deleted/:type/:id`, `POST /api/admin/hidden/marketplace/:id/unhide`, `POST /api/admin/hidden/marketplace/:id/takedown` | 60 | 15 min | user, falls back to IP |
-| AI assistant (pre-existing, not a `createRateLimiter` bucket) | `POST /api/assistant` | 40 | 1 hour | user, falls back to IP |
-| AI board suggestions (pre-existing, not a `createRateLimiter` bucket) | `POST /api/board/ai-suggestions` | 30 | 1 hour | user |
+| `ai-assistant` | `POST /api/assistant` (metered only while a Groq key is configured; the offline router's answers are free. Keeps its pre-envelope 429 body, a string `error`, which the assistant panel renders) | 40 | 1 hour | user, falls back to IP |
+| `ai-board` | `POST /api/board/ai-suggestions` | 30 | 1 hour | user, falls back to IP |
+| `ai-board-tags` (a `createRateWindow`, not a middleware: the auto-tagger inside `POST /api/board/posts` skips its inference call over the limit, and the post is saved untagged) | `POST /api/board/posts` | 30 | 1 hour | user |
 
 Read-only endpoints (`GET /api/...`) are generally not limited: they are
 session-gated, cheap, and limiting them would hurt normal navigation. Two
