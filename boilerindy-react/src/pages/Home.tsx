@@ -904,9 +904,9 @@ export default function Home() {
               <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
             </div>
             <div>
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
                 {now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}
-              </span>
+              </h2>
               <p className="text-[11px] text-[var(--color-txt-3)] mt-0.5">
                 AI · from your linked schedule & calendar
               </p>
@@ -941,7 +941,7 @@ export default function Home() {
         <div className="card p-4 border-[var(--color-border)] transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center gap-2 mb-3">
             <Icon name="alert" size={14} className="text-[var(--color-txt-2)]" />
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Heads Up</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Heads Up</h2>
           </div>
           <div className="space-y-2">
             {smartAlerts.map((alert, i) => (
@@ -1002,9 +1002,9 @@ export default function Home() {
         return (
           <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
                 Cumulative GPA
-              </span>
+              </h2>
               <Link
                 to="/grade-tracker"
                 className="text-[11px] text-[var(--color-accent)] hover:underline"
@@ -1034,9 +1034,9 @@ export default function Home() {
       render: () => (
         <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               {scheduleState.cardLabel}
-            </span>
+            </h2>
             <span className="text-[11px] text-[var(--color-txt-2)] flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
               {scheduleState.statusLabel}
@@ -1092,9 +1092,9 @@ export default function Home() {
       render: () => (
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
               Free Time
-            </span>
+            </h2>
             {/* Not AI: buildSuggestions() is deterministic logic over the
                 schedule. The sparkle badge made it read as a model answer and
                 undercut the real assistant sitting right below it. */}
@@ -1205,7 +1205,7 @@ export default function Home() {
       render: () => (
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Today's Events</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Today's Events</h2>
             <Link to="/events" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
           </div>
           {hasNoCalendarSources && (
@@ -1278,7 +1278,7 @@ export default function Home() {
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-4 gap-2">
             <div>
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Live shuttles</span>
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Live shuttles</h2>
               <div className="flex items-center gap-2 mt-0.5">
                 {transitUpdated && !transitLoading && (
                   <span className="text-[10px] text-[var(--color-txt-3)]">
@@ -1359,7 +1359,7 @@ export default function Home() {
       render: () => (
         <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Dining Snapshot</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Dining Snapshot</h2>
             <Link to="/dining" className="text-[12px] text-[var(--color-accent)] hover:underline">Open dining</Link>
           </div>
 
@@ -1394,7 +1394,7 @@ export default function Home() {
                 <Icon name="messageCircle" size={20} className="text-[var(--color-accent)]" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider block">Student Board</span>
+                <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider block">Student Board</h2>
                 <p className="text-[12px] text-[var(--color-txt-2)] mt-0.5 truncate">Community Q&amp;A from campus</p>
               </div>
             </div>
@@ -1498,7 +1498,7 @@ export default function Home() {
       render: () => (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Tasks Due</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Tasks Due</h2>
             <Link to="/assignments" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
           </div>
           {calendarLoading ? (
@@ -1541,7 +1541,7 @@ export default function Home() {
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-2">
             <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
-            <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Calendar Feed</span>
+            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Calendar Feed</h2>
           </div>
           <p className="text-[13px] text-[var(--color-txt-2)] mb-3">
             Subscribe to your BoilerIndy schedule and events in Google Calendar, Apple Calendar, or Outlook.
@@ -1592,9 +1592,9 @@ export default function Home() {
         <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 transition-all duration-700 delay-75 opacity-100 translate-y-0">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
+              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
                 Finish Setup
-              </div>
+              </h2>
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
                 {needsPurdueConnection
                   ? 'Link your Purdue account next'

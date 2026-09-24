@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { Outlet } from 'react-router-dom'
 import SiteDisclaimer from './SiteDisclaimer'
 import PageLoader from './PageLoader'
+import SkipLink from './SkipLink'
 
 // Layout for the public and auth-flow routes that have no footer of their own
 // (issue #112): the disclaimer has to reach every route, and reset-password,
@@ -15,11 +16,12 @@ import PageLoader from './PageLoader'
 export default function PublicLayout() {
   return (
     <div className="min-h-screen flex flex-col">
-      <div className="flex-1 flex flex-col">
+      <SkipLink />
+      <main id="main" tabIndex={-1} className="flex-1 flex flex-col focus:outline-none">
         <Suspense fallback={<PageLoader />}>
           <Outlet />
         </Suspense>
-      </div>
+      </main>
       <SiteDisclaimer />
     </div>
   )

@@ -66,4 +66,20 @@ describe('useConfirm', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(results).toEqual([false]))
   })
+
+  // Issue #221 - after the dialog closes, focus goes back to the button that
+  // opened it rather than to <body>, so a keyboard user does not lose their
+  // place in the page.
+  it('returns focus to the trigger after the dialog closes', async () => {
+    render(<Harness onResult={() => {}} />)
+    const trigger = screen.getByText('trigger')
+    trigger.focus()
+    fireEvent.click(trigger)
+    await screen.findByRole('dialog')
+    expect(screen.getByRole('button', { name: 'Delete' })).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(trigger).toHaveFocus()
+  })
 })

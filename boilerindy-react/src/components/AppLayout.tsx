@@ -8,6 +8,7 @@ import SessionExpiryWatcher from './SessionExpiryWatcher'
 import SideSpotlightRail from './spotlight/SideSpotlightRail'
 import SiteDisclaimer from './SiteDisclaimer'
 import PageLoader from './PageLoader'
+import SkipLink from './SkipLink'
 
 export default function AppLayout() {
   const { user } = useAuth()
@@ -23,6 +24,7 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SkipLink />
       <Navbar />
       <SideSpotlightRail side="left" />
       <SideSpotlightRail side="right" />
@@ -34,13 +36,14 @@ export default function AppLayout() {
           the page fills the width again. `overflow-x-clip` (not hidden) is the
           safety net for stray horizontal overflow: clip does not create a
           scroll container, so `sticky` panels keep sticking to the viewport and
-          the fixed navbar, bottom nav and assistant are unaffected. */}
-      <div className="overflow-x-clip">
+          the fixed navbar, bottom nav and assistant are unaffected. It is also
+          the page's main landmark and the skip link's target (issue #221). */}
+      <main id="main" tabIndex={-1} className="overflow-x-clip focus:outline-none">
         {/* Inner boundary: navbar + rails stay mounted while a page chunk loads. */}
         <Suspense fallback={<PageLoader />}>
           <Outlet />
         </Suspense>
-      </div>
+      </main>
       {/* Extra bottom padding on mobile clears the fixed bottom nav (issue #112). */}
       <SiteDisclaimer className="mt-auto pb-20 md:pb-6" />
       <CampusAssistant />

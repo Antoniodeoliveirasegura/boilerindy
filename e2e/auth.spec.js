@@ -106,3 +106,19 @@ test.describe('Authentication', () => {
     await expect(page).not.toHaveURL(/\/login/)
   })
 })
+
+// Issue #221 - the sign-in page has no navbar, but its brand panel comes first
+// in the DOM, so the skip link still saves a keyboard user a stop.
+test.describe('Skip link', () => {
+  test('the first Tab on the sign-in page reaches the skip link and Enter lands in main', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/login')
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused()
+
+    await page.keyboard.press('Enter')
+    await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('main')
+  })
+})
