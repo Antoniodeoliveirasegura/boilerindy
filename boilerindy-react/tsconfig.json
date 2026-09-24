@@ -1,7 +1,10 @@
 {
-  // Incremental TypeScript migration (issue #20). allowJs + checkJs:false lets the
-  // existing .jsx/.js keep building untyped while new .ts/.tsx are strictly checked.
-  // Convert files incrementally; flip checkJs on once coverage is high.
+  // Every file under this package's src/ is TypeScript (issue #20, closed out
+  // in #184). allowJs stays on because the frontend imports the shared modules
+  // under the repository root src/ (for example ../../../src/boardLimits.mjs),
+  // which are plain JavaScript that server.mjs uses too: allowJs is what lets
+  // tsc read them and infer the types of their exports. checkJs stays off
+  // because those modules are written for Node, not for strict TypeScript.
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
