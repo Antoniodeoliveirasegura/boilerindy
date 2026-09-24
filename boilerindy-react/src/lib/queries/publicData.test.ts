@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, dehydrate, hydrate } from '@tanstack/react-query'
 import {
   ApiError,
   CLUBS_STALE_MS,
@@ -27,6 +27,8 @@ import {
   QUERY_CACHE_MAX_AGE_MS,
   createQueryClient,
   createQueryPersister,
+  dehydrateOptions,
+  hydrateOptions,
   isPersistedQueryKey,
   isPublicQueryKey,
   retryDelayMs,
@@ -127,6 +129,10 @@ describe('retry policy', () => {
     expect(defaults.refetchOnWindowFocus).toBe(true)
     expect(defaults.retry).toBe(shouldRetry)
     expect(defaults.retryDelay).toBe(retryDelayMs)
+    // Offline means fail now, not pause: the pages' notices and the Tasks
+    // page's device-store fallback both wait on a failure.
+    expect(defaults.networkMode).toBe('always')
+    expect(client.getDefaultOptions().mutations?.networkMode).toBe('always')
   })
 })
 
@@ -163,6 +169,30 @@ describe('what reaches localStorage', () => {
   test('the build id is a non-empty string', () => {
     expect(typeof BUILD_ID).toBe('string')
     expect(BUILD_ID.length).toBeGreaterThan(0)
+  })
+
+  test('a restored row keeps the 24 h gcTime, so an entry no page opens this launch is still there next launch', () => {
+    const source = new QueryClient()
+    source.setQueryData(['parking'], { garages: [] })
+    const persisted = dehydrate(source, { shouldDehydrateQuery: () => true })
+
+    const restored = createQueryClient()
+    hydrate(restored, persisted, hydrateOptions)
+    expect(restored.getQueryCache().find({ queryKey: ['parking'] })?.gcTime).toBe(QUERY_CACHE_MAX_AGE_MS)
+
+    // Without the option the row would get the five-minute default and be
+    // collected, and dropped from storage on the next save, before its page
+    // was opened.
+    const bare = createQueryClient()
+    hydrate(bare, persisted)
+    expect(bare.getQueryCache().find({ queryKey: ['parking'] })?.gcTime).toBe(5 * 60_000)
+  })
+
+  test('mutations are never persisted: a paused task tick would carry the user\'s metadata in its variables and snapshot', () => {
+    const client = createQueryClient()
+    const mutation = client.getMutationCache().build(client, { mutationKey: ['toggle'], mutationFn: async () => undefined })
+    expect(dehydrateOptions.shouldDehydrateMutation?.(mutation)).toBe(false)
+    expect(dehydrate(client, dehydrateOptions).mutations).toEqual([])
   })
 })
 

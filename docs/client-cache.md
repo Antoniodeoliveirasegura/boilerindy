@@ -55,6 +55,12 @@ first load must show the limiter's message rather than a spinner for that
 long. Retries only ever delay the first paint; once an entry holds data, a
 failing refetch leaves it on screen.
 
+Queries and mutations run with `networkMode: 'always'`: while the browser
+reports itself offline a request fails at once instead of pausing until the
+connection returns, which is what the pages' notices and the Tasks page's
+device-store fallback wait on. A paused query would sit on a spinner and a
+paused mutation would never reach that fallback.
+
 ## What is persisted, and why per-user data is not
 
 Only successful queries whose key starts with `transit`, `dining`, `parking` or
@@ -75,6 +81,14 @@ Two guards on the persisted rows:
 - `buster` is a build id minted by `vite.config.js` (`define`, `__BUILD_ID__`)
   on every build, so a deploy discards the previous build's rows. That is what
   protects the UI from a persisted response shape it no longer expects.
+- Restored rows are rebuilt with a 24 h `gcTime` (`hydrateOptions`). A
+  row's own options only apply once a page observes it, so without this a
+  restored entry no page opened within five minutes of launch would be
+  collected and dropped from storage on the next save.
+- Mutations are never written (`shouldDehydrateMutation` is always false). A
+  mutation paused by the offline flag would otherwise be stored with its
+  variables and rollback snapshot, which for a task tick is the user's task
+  metadata, and sign-out removes queries only.
 
 Where localStorage is missing or throws at startup (private mode), the app
 runs the same client without a persister and nothing else changes. When the

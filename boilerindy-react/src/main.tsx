@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import AppErrorBoundary from './components/AppErrorBoundary'
-import { BUILD_ID, QUERY_CACHE_MAX_AGE_MS, createQueryClient, createQueryPersister, dehydrateOptions } from './lib/queryClient'
+import { BUILD_ID, QUERY_CACHE_MAX_AGE_MS, createQueryClient, createQueryPersister, dehydrateOptions, hydrateOptions } from './lib/queryClient'
 import { attachBreadcrumbSink, attachErrorSink, captureEarlyWindowErrors } from './lib/errorReporting'
 import './index.css'
 import App from './App'
@@ -64,7 +64,7 @@ createRoot(document.getElementById('root')!).render(
     {persister ? (
       <PersistQueryClientProvider
         client={queryClient}
-        persistOptions={{ persister, maxAge: QUERY_CACHE_MAX_AGE_MS, buster: BUILD_ID, dehydrateOptions }}
+        persistOptions={{ persister, maxAge: QUERY_CACHE_MAX_AGE_MS, buster: BUILD_ID, dehydrateOptions, hydrateOptions }}
       >
         {app}
       </PersistQueryClientProvider>

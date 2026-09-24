@@ -1,4 +1,4 @@
-import { QueryClient, type Query } from '@tanstack/react-query'
+import { QueryClient, type DehydrateOptions, type HydrateOptions, type Query } from '@tanstack/react-query'
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister'
 import { removeOldestQuery, type Persister } from '@tanstack/react-query-persist-client'
 
@@ -75,7 +75,23 @@ export function shouldDehydrateQuery(query: Pick<Query, 'queryKey' | 'state'>): 
   return query.state.status === 'success' && isPersistedQueryKey(query.queryKey)
 }
 
-export const dehydrateOptions = { shouldDehydrateQuery }
+/**
+ * What the persister may write. Mutations never: a mutation paused by the
+ * browser's offline flag would otherwise be dehydrated with its variables and
+ * rollback snapshot, which for a task tick is the user's task metadata, and
+ * `dropUserQueries` on sign-out removes queries only.
+ */
+export const dehydrateOptions: DehydrateOptions = { shouldDehydrateQuery, shouldDehydrateMutation: () => false }
+
+/**
+ * How restored rows are rebuilt. Without this they would get the default
+ * five-minute gcTime (a row's own options only apply once a page observes
+ * it), so a garage or club entry no page opened within five minutes of launch
+ * was collected and dropped from storage on the next save; the 24 h here
+ * matches `maxAge`, so a restored row survives to the next launch whether or
+ * not this one visited its page.
+ */
+export const hydrateOptions: HydrateOptions = { defaultOptions: { queries: { gcTime: QUERY_CACHE_MAX_AGE_MS } } }
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -85,6 +101,15 @@ export function createQueryClient(): QueryClient {
         refetchOnWindowFocus: true,
         retry: shouldRetry,
         retryDelay: retryDelayMs,
+        // Fail fast while the browser reports itself offline instead of pausing
+        // until it comes back: the pages show their notice on a failure, and
+        // the Tasks page falls back to its device store, the behaviour the
+        // per-page fetches had. A paused query would sit on a spinner and a
+        // paused mutation would never reach that fallback.
+        networkMode: 'always',
+      },
+      mutations: {
+        networkMode: 'always',
       },
     },
   })

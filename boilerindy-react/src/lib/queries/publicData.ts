@@ -178,6 +178,10 @@ export const useClubSearch = (params: Omit<ClubSearchParams, 'page'>) => useInfi
  */
 export async function refreshDining(queryClient: QueryClient): Promise<DiningSnapshot> {
   await queryClient.cancelQueries({ queryKey: diningQuery.queryKey })
+  // fetchQuery leaves this forced queryFn and staleTime on the entry until a
+  // page observes it again (the hook's options replace them then). Nothing
+  // invalidates or refetches ['dining'] on its own today; anything that
+  // starts to should refetch through the hook rather than the entry.
   return queryClient.fetchQuery({
     ...diningQuery,
     queryFn: ({ signal }) => fetchJson<DiningSnapshot>('/api/dining?refresh=1', { signal }),
