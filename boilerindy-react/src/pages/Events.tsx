@@ -1,12 +1,12 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { authRequest } from '../lib/authApi'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 
 type EventItem = {
   id: string
@@ -93,9 +93,11 @@ function getRecsCacheKey(userId: string | undefined) {
 export default function Events() {
   const { user, onboarding } = useAuth()
   const userId = user?.id as string | undefined
-  const [items, setItems] = useState<EventItem[]>([])
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
+  // The same calendar window Free Food reads, one cache entry for both (#327).
+  const calendarQuery = useMyCalendar<EventItem>(CAMPUS_EVENTS_CALENDAR)
+  const items = useMemo<EventItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
+  const loading = calendarQuery.isPending
   const [showPast, setShowPast] = useState(false)
   const [freeFoodOnly, setFreeFoodOnly] = useState(false)
   const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
@@ -136,22 +138,6 @@ export default function Events() {
       })
       .catch(() => {})
       .finally(() => setRecsLoading(false))
-  }
-
-  useEffect(() => {
-    loadData()
-  }, [])
-
-  async function loadData() {
-    setLoading(true)
-    try {
-      const res = (await authRequest('/api/me/calendar?categories=campus_event,event,deadline&limit=500')) as { items?: EventItem[] }
-      setItems(res.items || [])
-    } catch (error) {
-      console.error('Failed to load events:', error)
-    } finally {
-      setLoading(false)
-    }
   }
 
   const filteredItems = useMemo(() => {
@@ -234,7 +220,7 @@ export default function Events() {
             />
             Show past events
           </label>
-          <button onClick={loadData} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button onClick={() => void calendarQuery.refetch()} className="btn btn-secondary text-[13px] px-4 py-2">
             <Icon name="refresh" size={14} />
             Refresh
           </button>

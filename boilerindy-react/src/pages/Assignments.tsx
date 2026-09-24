@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useQueryClient } from '@tanstack/react-query'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
@@ -14,22 +15,17 @@ import { isServerRefusal, writeFailureMessage } from '../lib/writeFailure'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, describeAge, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import {
+  startOfLocalDayIso,
+  useMyCalendar,
+  useMyCalendarCategories,
+  useTaskMeta,
+  useToggleTaskCompletion,
+  userKeys,
+  type TaskMeta,
+} from '../lib/queries/userData'
 
 type Category = { id: string; label?: string; count?: number }
-type Completion = { calendar_item_id?: string; completed_at?: string }
-type ManualTask = {
-  id: string
-  title?: string
-  startTime?: string | null
-  completedAt?: string | null
-  [key: string]: unknown
-}
-type TaskMeta = {
-  completions: Completion[]
-  manualTasks: ManualTask[]
-  unavailable?: boolean
-  local?: boolean
-}
 type CalItem = {
   id: string
   category?: string
@@ -56,29 +52,6 @@ type MergedItem = {
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
-}
-
-type EnsureToggle = { id: string; isManual: boolean; completed: boolean }
-
-/** Re-apply a just-confirmed toggle so a stale meta read cannot snap the UI back. */
-function withEnsuredToggle(meta: TaskMeta, ensure: EnsureToggle | null | undefined): TaskMeta {
-  if (!ensure) return meta
-  const now = new Date().toISOString()
-  if (ensure.isManual) {
-    return {
-      ...meta,
-      manualTasks: (meta.manualTasks || []).map((t) =>
-        t.id === ensure.id
-          ? { ...t, completedAt: ensure.completed ? t.completedAt || now : null }
-          : t,
-      ),
-    }
-  }
-  const completions = (meta.completions || []).filter((c) => c.calendar_item_id !== ensure.id)
-  if (ensure.completed) {
-    completions.push({ calendar_item_id: ensure.id, completed_at: now })
-  }
-  return { ...meta, completions }
 }
 
 const priorityConfig: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -245,10 +218,7 @@ function getInsightsCacheKey(userId: string | undefined, mode: string) {
 export default function Assignments() {
   const { user, onboarding } = useAuth()
   const userId = user?.id as string | undefined
-  const [items, setItems] = useState<CalItem[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
   const [showPast, setShowPast] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MergedItem | null>(null)
 
@@ -266,7 +236,44 @@ export default function Assignments() {
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(true)
 
-  const [taskMeta, setTaskMeta] = useState<TaskMeta>({ completions: [], manualTasks: [] })
+  // The calendar window, the categories and the task metadata through the
+  // per-user query cache (issue #327): keyed by the user, never written to
+  // storage. The window's lower bound is rounded to local midnight so the key
+  // is stable within a day.
+  const queryClient = useQueryClient()
+  const calendarQuery = useMyCalendar<CalItem>({ limit: 500, from: startOfLocalDayIso(14) })
+  const categoriesQuery = useMyCalendarCategories<Category>()
+  const metaQuery = useTaskMeta()
+  const toggleCompletion = useToggleTaskCompletion(userId ?? null)
+  const items = useMemo<CalItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
+  const categories = useMemo<Category[]>(() => categoriesQuery.data?.categories ?? [], [categoriesQuery.data])
+  const loading = calendarQuery.isPending || categoriesQuery.isPending || metaQuery.isPending
+  // Once a write has fallen back to the device store, this page works from
+  // that store until it is opened again, as before: localMeta is the snapshot
+  // it shows, re-read after every device-store write. The server's own
+  // "no task tables yet" answer (unavailable), or a first read that never
+  // answered, lands there too; a failed background refetch does not, because
+  // the cache still holds the last good metadata.
+  const [localMeta, setLocalMeta] = useState<TaskMeta | null>(null)
+  const taskMeta = useMemo<TaskMeta>(() => {
+    if (localMeta) return localMeta
+    const serverDown = metaQuery.data ? metaQuery.data.unavailable === true : metaQuery.isError
+    if (serverDown) {
+      return userId
+        ? (taskMetaFromLocalStore(userId) as TaskMeta)
+        : { completions: [], manualTasks: [], unavailable: true, local: false }
+    }
+    return metaQuery.data ?? { completions: [], manualTasks: [] }
+  }, [userId, localMeta, metaQuery.data, metaQuery.isError])
+  const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
+  function enterLocalMode() {
+    if (userId) setLocalMeta(taskMetaFromLocalStore(userId) as TaskMeta)
+  }
+  function reloadAssignments() {
+    void calendarQuery.refetch()
+    void categoriesQuery.refetch()
+    void metaQuery.refetch()
+  }
   const [hideCompleted, setHideCompleted] = useState(false)
   const [priorities, setPriorities] = useState<Record<string, string>>(() => (userId ? loadPriorities(userId) : {}))
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
@@ -316,79 +323,6 @@ export default function Assignments() {
 
   const activeInsight = insightsMode === 'study' ? studyPlan : insightsText
 
-  const loadTaskMeta = useCallback(
-    async (opts?: {
-      retainOnError?: boolean
-      /** Keep this toggle even if the meta response is briefly stale. */
-      ensureToggle?: { id: string; isManual: boolean; completed: boolean } | null
-    }) => {
-      const uid = userId
-      const retainOnError = opts?.retainOnError === true
-      const ensureToggle = opts?.ensureToggle || null
-      if (!retainOnError) setTaskError('')
-      try {
-        const meta = (await authRequest('/api/me/tasks/meta')) as TaskMeta & { unavailable?: boolean }
-        if (meta.unavailable) {
-          // After an optimistic toggle, keep in-memory state if the meta endpoint
-          // is temporarily unavailable - localStorage may still be stale.
-          if (retainOnError) return
-          if (uid) {
-            setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
-          } else {
-            setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
-          }
-          return
-        }
-        setTaskMeta(withEnsuredToggle({ ...meta, unavailable: false, local: false }, ensureToggle))
-      } catch {
-        if (retainOnError) return
-        if (uid) {
-          setTaskMeta(taskMetaFromLocalStore(uid) as TaskMeta)
-        } else {
-          setTaskMeta({ completions: [], manualTasks: [], unavailable: true, local: false })
-        }
-      }
-    },
-    [userId],
-  )
-
-  async function loadData() {
-    setLoading(true)
-    try {
-      // Fetch from 14 days ago so the 500-item window covers upcoming items
-      // rather than being swamped by historical data
-      const from = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-      const [calRes, catRes] = await Promise.all([
-        authRequest(`/api/me/calendar?limit=500&from=${encodeURIComponent(from)}`),
-        authRequest('/api/me/calendar/categories'),
-      ])
-      setItems((calRes as { items?: CalItem[] }).items || [])
-      setCategories((catRes as { categories?: Category[] }).categories || [])
-      await loadTaskMeta()
-    } catch (error) {
-      console.error('Failed to load assignments:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    // loadData performs its setState after an await; calling it inside an IIFE
-    // keeps the effect body free of a synchronous setState call. loadData is a
-    // freshly-created function each render, so it stays out of the dep array.
-    void (async () => {
-      await loadData()
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    if (!user?.id) return
-    void (async () => {
-      await loadTaskMeta()
-    })()
-  }, [user?.id, loadTaskMeta])
-
   // Reload stored priorities when the signed-in user changes. Adjusting during
   // render (guarded by a user-id check) avoids the setState-in-effect warning;
   // the initial value is seeded in the useState initializer above.
@@ -396,6 +330,10 @@ export default function Assignments() {
   if (userId !== prevPriorityUid) {
     setPrevPriorityUid(userId)
     setPriorities(userId ? loadPriorities(userId) : {})
+    // A page already in device-only mode would otherwise keep showing the
+    // previous account's device-store snapshot until its next local write;
+    // the queries re-key on their own.
+    setLocalMeta(null)
   }
 
   function setItemPriority(item: MergedItem, priority: string | null) {
@@ -487,7 +425,7 @@ export default function Assignments() {
 
   function applyLocalToggle(uid: string, item: MergedItem, nextDone: boolean) {
     mirrorToggleToLocalStore(uid, item, nextDone)
-    setTaskMeta(taskMetaFromLocalStore(uid))
+    enterLocalMode()
   }
 
   /** Persist completion to localStorage without flipping UI into local-only mode. */
@@ -518,23 +456,9 @@ export default function Assignments() {
     saveLocalTasks(uid, raw)
   }
 
-  function applyOptimisticToggle(item: MergedItem, nextDone: boolean) {
-    const now = new Date().toISOString()
-    setTaskMeta((prev) => {
-      if (item.isManual) {
-        return {
-          ...prev,
-          manualTasks: (prev.manualTasks || []).map((t) =>
-            t.id === item.id ? { ...t, completedAt: nextDone ? now : null } : t,
-          ),
-        }
-      }
-      const completions = (prev.completions || []).filter((c) => c.calendar_item_id !== item.id)
-      if (nextDone) {
-        completions.push({ calendar_item_id: item.id, completed_at: now })
-      }
-      return { ...prev, completions }
-    })
+  // The metadata itself is patched by the mutation (useToggleTaskCompletion);
+  // the open detail panel keeps its own copy of the item.
+  function reflectToggleInSelection(item: MergedItem, nextDone: boolean) {
     setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, completed: nextDone } : prev))
   }
 
@@ -555,11 +479,9 @@ export default function Assignments() {
       return
     }
 
-    // Flip UI immediately so the checkbox never waits on the network.
-    applyOptimisticToggle(item, nextDone)
+    reflectToggleInSelection(item, nextDone)
     if (nextDone) playCompleteReward(item.id, e)
 
-    const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
     if (useLocalOnly) {
       applyLocalToggle(uid, item, nextDone)
       if (nextDone) track('task_completed')
@@ -567,39 +489,23 @@ export default function Assignments() {
     }
 
     try {
-      if (item.isManual) {
-        await authRequest(`/api/me/tasks/manual/${item.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ completed: nextDone }),
-        })
-      } else {
-        await authRequest('/api/me/tasks/calendar/complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ calendarItemId: item.id, completed: nextDone }),
-        })
-      }
+      // The tick lands in the cached metadata before the request goes out
+      // (issue #327); the checkbox never waits on the network.
+      await toggleCompletion.mutateAsync({ id: item.id, isManual: item.isManual, completed: nextDone })
       if (nextDone) track('task_completed')
-      // Keep local cache aligned so any later fallback cannot snap the checkbox back.
+      // Keep the device copy aligned so a later fallback cannot snap the checkbox back.
       mirrorToggleToLocalStore(uid, item, nextDone)
-      // Reconcile in the background; keep this toggle if meta is briefly stale.
-      void loadTaskMeta({
-        retainOnError: true,
-        ensureToggle: { id: item.id, isManual: item.isManual, completed: nextDone },
-      })
     } catch (err) {
       console.error(err)
       if (isServerRefusal(err)) {
         // The server answered and refused (the user-write limiter's 429, a 404
-        // for an item a sync removed): stay online, undo the tick and reconcile
-        // with what the server has. Only no response or a 5xx means offline
-        // (issue #202, src/lib/writeFailure.ts).
-        applyOptimisticToggle(item, item.completed)
+        // for an item a sync removed): the mutation has already put the
+        // metadata back; undo the panel's copy and say why (issue #202).
+        reflectToggleInSelection(item, item.completed)
         setTaskError(writeFailureMessage(err, 'Could not update this task. Please try again.'))
-        void loadTaskMeta({ retainOnError: true })
         return
       }
+      // No response or a 5xx: keep the tick and save it on this device.
       setTaskError(errorText(err, 'Server sync failed - saved on this device.'))
       applyLocalToggle(uid, item, nextDone)
     }
@@ -609,19 +515,18 @@ export default function Assignments() {
     const uid = userId
     if (!uid) return
     setTaskError('')
-    const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
     if (useLocalOnly) {
       const raw = loadLocalTasks(uid)
       raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
       saveLocalTasks(uid, raw)
-      setTaskMeta(taskMetaFromLocalStore(uid))
+      enterLocalMode()
       setSelectedItem(null)
       return
     }
     try {
       await authRequest(`/api/me/tasks/manual/${id}`, { method: 'DELETE' })
       setSelectedItem(null)
-      await loadTaskMeta()
+      await queryClient.invalidateQueries({ queryKey: userKeys.taskMeta(uid) })
     } catch (e) {
       console.error(e)
       if (isServerRefusal(e)) {
@@ -634,7 +539,7 @@ export default function Assignments() {
       const raw = loadLocalTasks(uid)
       raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
       saveLocalTasks(uid, raw)
-      setTaskMeta(taskMetaFromLocalStore(uid))
+      enterLocalMode()
       setSelectedItem(null)
     }
   }
@@ -653,7 +558,6 @@ export default function Assignments() {
     setAddSubmitting(true)
     setTaskError('')
 
-    const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
     if (useLocalOnly) {
       const raw = loadLocalTasks(uid)
       raw.manualTasks.push({
@@ -663,7 +567,7 @@ export default function Assignments() {
         completedAt: null,
       })
       saveLocalTasks(uid, raw)
-      setTaskMeta(taskMetaFromLocalStore(uid))
+      enterLocalMode()
       setNewTitle('')
       setAddSubmitting(false)
       return
@@ -676,7 +580,7 @@ export default function Assignments() {
         body: JSON.stringify({ title: t, dueAt: due.toISOString() }),
       })
       setNewTitle('')
-      await loadTaskMeta()
+      await queryClient.invalidateQueries({ queryKey: userKeys.taskMeta(uid) })
     } catch (err) {
       console.error(err)
       if (isServerRefusal(err)) {
@@ -695,7 +599,7 @@ export default function Assignments() {
         completedAt: null,
       })
       saveLocalTasks(uid, raw)
-      setTaskMeta(taskMetaFromLocalStore(uid))
+      enterLocalMode()
       setNewTitle('')
     } finally {
       setAddSubmitting(false)
@@ -756,7 +660,7 @@ export default function Assignments() {
             />
             Show past items
           </label>
-          <button onClick={loadData} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button onClick={reloadAssignments} className="btn btn-secondary text-[13px] px-4 py-2">
             <Icon name="refresh" size={14} />
             Refresh
           </button>

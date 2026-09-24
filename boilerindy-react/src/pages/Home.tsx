@@ -41,6 +41,7 @@ import { useUserLocation } from '../hooks/useUserLocation'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -481,11 +482,16 @@ export default function Home() {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const { summary: gpaSummary } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
-  const [classes, setClasses] = useState<any[]>([])
-  const [classLoadError, setClassLoadError] = useState('')
-  const [calendarItems, setCalendarItems] = useState<any[]>([])
-  const [calendarLoadError, setCalendarLoadError] = useState('')
-  const [calendarLoading, setCalendarLoading] = useState(true)
+  // Classes and the calendar window through the per-user query cache (issue
+  // #327): keyed by the user, shared with Schedule, Assignments and Events, and
+  // never written to storage. A failed refetch keeps the last answer on screen.
+  const classesQuery = useMyClasses<any>({ limit: 200, mode: 'display' })
+  const calendarQuery = useMyCalendar<any>({ categories: HOME_CALENDAR_CATEGORIES, limit: 200 })
+  const classes = useMemo<any[]>(() => classesQuery.data?.items ?? [], [classesQuery.data])
+  const calendarItems = useMemo<any[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
+  const calendarLoading = classesQuery.isPending || calendarQuery.isPending
+  const classLoadError = classesQuery.isError ? errorMessage(classesQuery.error, 'Could not load classes.') : ''
+  const calendarLoadError = calendarQuery.isError ? errorMessage(calendarQuery.error, 'Could not load events.') : ''
 
   // Live transit through the shared query cache (issue #251): Home and Transit
   // read the same entries, the vehicle poll pauses while the tab is hidden,
@@ -630,36 +636,6 @@ export default function Home() {
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 60000)
     return () => window.clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setCalendarLoading(true)
-      const [classesResult, calResult] = await Promise.allSettled([
-        authRequest('/api/me/classes?limit=200&mode=display'),
-        authRequest(`/api/me/calendar?categories=${HOME_CALENDAR_CATEGORIES}&limit=200`),
-      ])
-      if (cancelled) return
-      if (classesResult.status === 'fulfilled') {
-        setClasses((classesResult.value as { items?: any[] }).items || [])
-        setClassLoadError('')
-      } else {
-        setClasses([])
-        setClassLoadError(classesResult.reason?.message || 'Could not load classes.')
-      }
-      if (calResult.status === 'fulfilled') {
-        setCalendarItems((calResult.value as { items?: any[] }).items || [])
-        setCalendarLoadError('')
-      } else {
-        setCalendarItems([])
-        setCalendarLoadError(calResult.reason?.message || 'Could not load events.')
-      }
-      setCalendarLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   const cleanCalendarItems = useMemo(
