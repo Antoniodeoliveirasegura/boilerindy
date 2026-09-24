@@ -63,9 +63,10 @@ export default function AdminLayout() {
             </div>
           </aside>
 
-          <main className="flex-1 min-w-0">
+          {/* AppLayout renders the page's <main> (issue #221); this is a plain column. */}
+          <div className="flex-1 min-w-0">
             <Outlet />
-          </main>
+          </div>
         </div>
       </div>
     </div>

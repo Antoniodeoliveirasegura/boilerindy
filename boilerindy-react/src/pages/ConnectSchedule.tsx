@@ -5,6 +5,7 @@ import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
 import { PROVIDER_LINKS, checkScheduleSourceUrl, type ScheduleSourceKind } from '../lib/scheduleSourceUrl'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
+import StatusBanner from '../components/StatusBanner'
 
 type SourceConfig = {
   label: string
@@ -303,14 +304,9 @@ export default function ConnectSchedule() {
   // ── Render ──
 
   const bannerEl = banner && (
-    <div className={`mb-6 card p-4 text-[13px] flex items-start gap-3 ${
-      bannerType === 'success' ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/20' :
-      bannerType === 'error' ? 'bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/20' :
-      'text-[var(--color-txt-1)]'
-    }`}>
-      <Icon name={bannerType === 'success' ? 'check' : bannerType === 'error' ? 'close' : 'info'} size={16} className="shrink-0 mt-0.5" />
+    <StatusBanner tone={bannerType === 'success' || bannerType === 'error' ? bannerType : 'info'} className="mb-6">
       {banner}
-    </div>
+    </StatusBanner>
   )
 
   // ────────────────────────────────────────
