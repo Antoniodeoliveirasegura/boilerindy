@@ -191,7 +191,7 @@ describe('what reaches localStorage', () => {
   test('mutations are never persisted: a paused task tick would carry the user\'s metadata in its variables and snapshot', () => {
     const client = createQueryClient()
     const mutation = client.getMutationCache().build(client, { mutationKey: ['toggle'], mutationFn: async () => undefined })
-    expect(dehydrateOptions.shouldDehydrateMutation?.(mutation)).toBe(false)
+    expect(dehydrateOptions.shouldDehydrateMutation?.(mutation as never)).toBe(false)
     expect(dehydrate(client, dehydrateOptions).mutations).toEqual([])
   })
 })
