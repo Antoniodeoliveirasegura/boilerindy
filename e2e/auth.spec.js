@@ -10,6 +10,21 @@ test.describe('Authentication', () => {
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
   })
 
+  // Issue #246 - the sponsor rails mount outside RequireAuth, so a signed-out
+  // visit to an app route used to request /api/spotlight/active twice (a 401
+  // each time) before the redirect. The rails now wait for the session.
+  test('a signed-out visit to an app route requests no sponsor content', async ({ page, mockApi }) => {
+    mockApi.logout()
+    const spotlightRequests = []
+    page.on('request', (request) => {
+      if (request.url().includes('/api/spotlight/')) spotlightRequests.push(request.url())
+    })
+    await page.goto('/dashboard')
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    expect(spotlightRequests).toEqual([])
+  })
+
   test('shows an error message when credentials are invalid', async ({ page, mockApi }) => {
     mockApi.logout()
     await page.goto('/login')
