@@ -586,11 +586,17 @@ export default function Marketplace() {
     setReportDetails('')
   }
 
-  /** Close the open report form; focus that was inside it goes back to the Report button, not the top of the page. */
+  /**
+   * Close the open report form; focus that was inside it goes back to the Report
+   * button, not the top of the page. Focus resting on the <main> landmark counts
+   * as nowhere, like body: main is click-focusable (tabIndex -1) since #221, and
+   * Safari leaves it there after a click on any button.
+   */
   function closeReport() {
     const form = reportFormRef.current
     const active = document.activeElement
-    const refocus = !!form && (!active || active === document.body || form.contains(active))
+    const refocus =
+      !!form && (!active || active === document.body || active === document.getElementById('main') || form.contains(active))
     resetReport()
     if (refocus) reportButtonRef.current?.focus()
   }

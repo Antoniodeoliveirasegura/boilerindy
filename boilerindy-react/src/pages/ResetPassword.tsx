@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, updateUserPassword } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { parseNextPath } from '../lib/authApi'
+import StatusBanner from '../components/StatusBanner'
 
 // Landing page for Supabase password-recovery links (sent from the Login
 // "Forgot password?" form). Only PASSWORD_RECOVERY sessions may set a new
@@ -121,9 +122,9 @@ export default function ResetPassword() {
         <p className="text-[13px] text-[var(--color-txt-1)] mb-6">Choose a strong password for your account.</p>
 
         {message && (
-          <div className="text-[13px] text-[var(--color-error)] mb-4 bg-[var(--color-error)]/10 border border-[var(--color-error)]/20 rounded-lg px-3 py-2">
+          <StatusBanner tone="error" className="mb-4">
             {message}
-          </div>
+          </StatusBanner>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
