@@ -17,9 +17,15 @@ production frontend; Vercel rewrites `/api/*` to the Render backend.
 
 - `server.mjs`: the Express app. It starts listening on import, so it is never
   imported by a test. Routes are registered as `app.<verb>('/api/...')`; the
-  feature routers under `src/routes/` (issue #191, in progress) export
-  `createXRouter(deps)` and are mounted where their routes used to be, with
-  absolute paths inside.
+  feature routers under `src/routes/` (issue #191, in progress; `layouts.mjs`
+  is the first and the shape to copy) export `createXRouter(deps)` and are
+  mounted where their routes used to be, with absolute paths inside.
+  `docs/api-routes.md` is the generated inventory of every route and the file
+  it lives in (`pnpm run docs:routes`; `test/apiRoutesDoc.test.mjs` fails when
+  it is stale). The seven session-free public reads (transit, parking, clubs,
+  push config, dining) are registered ahead of `app.use(session(...))` with a
+  `Cache-Control` header so Vercel's edge can cache them; `test/publicReadKey.test.mjs`
+  pins that block.
 - `src/*.mjs`: backend modules, camelCase, named exports. Anything that needs a
   test lives here with a matching `test/<name>.test.mjs` (node:test, run with
   `pnpm test:backend`), and the route handler in `server.mjs` stays thin. The
@@ -55,10 +61,13 @@ production frontend; Vercel rewrites `/api/*` to the Render backend.
 ## Where a change goes
 
 - Backend logic: a function in `src/*.mjs` with its test, then the thin route.
-- A new route: register it, list it in `docs/RATE_LIMITS.md` if it carries a
-  limiter, regenerate `docs/api-routes.md` with `pnpm run docs:routes` once
-  that inventory exists on your branch (issue #191), and use the error
-  envelope.
+- A new route: register it (a session-free public read goes in the block
+  ahead of the session middleware, with the `publicReadIpRateLimit` and
+  `publicReadRateLimit` pair and a `Cache-Control` header), list it in
+  `docs/RATE_LIMITS.md` if it carries a limiter (a limiter that meters only
+  some requests takes a `skip` predicate rather than a wrapper, so the doc
+  guard still sees it on the route line), regenerate `docs/api-routes.md` with
+  `pnpm run docs:routes`, and use the error envelope.
 - A migration: a new `db/*.sql` file added to the README order; never edit an
   applied file in place.
 - Frontend logic: `lib/` with a colocated `*.test.ts`; components and pages get
@@ -109,7 +118,24 @@ production frontend; Vercel rewrites `/api/*` to the Render backend.
 ## In flight
 
 - Issue #191: `server.mjs` is being split into feature routers under
-  `src/routes/`, one router per PR, in the order the issue brief gives.
-- Issues #251 and #327: the client data cache. Public reads and per-user reads
-  go through the query hooks in `boilerindy-react/src/lib/queries/`; new pages
-  should use them rather than a `useEffect` with `fetch`.
+  `src/routes/`, one router per PR, in the order the issue brief gives. The
+  prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25;
+  `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and `friends`
+  remain, each following `createLayoutsRouter`. A router's limiter is only
+  seen by the doc guard when it destructures the limiter under the name
+  `server.mjs` uses.
+
+## Landed recently
+
+- The client data cache (issues #251 and #327, 2026-09-25). Public reads
+  (`lib/queries/publicData.ts`, persisted to localStorage) and per-user reads
+  (`lib/queries/userData.ts`, keyed by the user id, never persisted, dropped
+  on sign-out) go through the query hooks in `boilerindy-react/src/lib/queries/`;
+  new pages read through them rather than a `useEffect` with `fetch`.
+  `docs/client-cache.md` has the keys, stale times, polling and retry rules
+  and the three client settings that matter: `networkMode: 'always'`, the
+  24 h `gcTime` for restored rows, and no mutation persistence. Phase 3, a
+  service worker cache, is #328 and an owner decision.
+- The edge cache for the public reads (#250, 2026-09-25): the block described
+  under Layout. A user-specific response must never carry a `public`
+  `Cache-Control`.

@@ -12,8 +12,10 @@ patterns an agent applies most, so it can be loaded on its own.
 ## Architecture in one paragraph
 
 An Express backend (`server.mjs`, with feature routers moving to
-`src/routes/` under issue #191) whose logic lives in `src/*.mjs` modules, each
-with a `test/<name>.test.mjs`; a React 19 + Vite + TypeScript frontend in
+`src/routes/` under issue #191; `layouts.mjs` is the first) whose logic lives
+in `src/*.mjs` modules, each with a `test/<name>.test.mjs`, and whose seven
+session-free public reads sit ahead of the session middleware so the edge can
+cache them; a React 19 + Vite + TypeScript frontend in
 `boilerindy-react/` (`pages/`, `components/`, `context/`, `hooks/`, `lib/`,
 with the TanStack Query layer in `lib/queries/`); Supabase migrations in
 `db/*.sql` applied in README order; Playwright specs in `e2e/` against a mocked
@@ -37,7 +39,7 @@ the API share one set of limits, layouts and programs.
 | Backend module | node:test | `test/<name>.test.mjs` | `pnpm test:backend` |
 | Frontend unit | Vitest + Testing Library | colocated `*.test.ts(x)` | `pnpm -C boilerindy-react test` |
 | End to end | Playwright | `e2e/*.spec.js` with `e2e/fixtures/mock-backend.js` | `pnpm exec playwright test` |
-| Docs guards | node:test | `test/rateLimitDocs.test.mjs`, `test/envExample.test.mjs`, `test/dbApplyOrder.test.mjs` | in `pnpm test:backend` |
+| Docs guards | node:test | `test/rateLimitDocs.test.mjs`, `test/apiRoutesDoc.test.mjs`, `test/envExample.test.mjs`, `test/dbApplyOrder.test.mjs` | in `pnpm test:backend` |
 
 `server.mjs` starts listening on import, so route handlers are not unit
 tested: put the logic in a module and keep the handler thin. Frontend tests
