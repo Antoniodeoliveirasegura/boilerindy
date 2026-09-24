@@ -442,6 +442,7 @@ pnpm run test:e2e              # Run Playwright E2E suite (builds + previews the
                                # mocks the backend - no Supabase creds needed)
 pnpm run check:conventions     # Dash scan + AI co-author trailer check, same as CI
 pnpm run check:db              # Replay every db/ file on a scratch Postgres (PGHOST etc.), same as CI
+pnpm run docs:routes           # Regenerate docs/api-routes.md, the route inventory a test keeps in step
 
 # From boilerindy-react/
 pnpm install --frozen-lockfile # Install frontend dependencies

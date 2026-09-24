@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "check:conventions": "node scripts/check-conventions.mjs dashes && node scripts/check-conventions.mjs commits",
     "check:db": "node scripts/check-db-apply.mjs",
+    "docs:routes": "node scripts/list-routes.mjs --write",
     "playwright:install": "playwright install chromium",
     "vapid:generate": "node scripts/generate-vapid-keys.mjs"
   },
