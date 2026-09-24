@@ -9,9 +9,11 @@ import {
   type ReactNode,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { clearAiCaches } from '../lib/aiInsightCache'
+import { dropUserQueries } from '../lib/queries/userData'
 import {
   authRequest,
   getDisplayName,
@@ -68,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BackendSession | null>(null)
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [authConfig, setAuthConfig] = useState<AuthConfig>({
     authProvider: 'local',
     purdueAuthMode: 'mock',
@@ -274,6 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Drop the per-user AI caches (issue #219) but keep board drafts, which
         // are per user too and must survive a re-login (issue #23).
         clearAiCaches({ keepBoardDrafts: true })
+        dropUserQueries(queryClient)
         setSupabaseUser(null)
         // The Supabase session is gone either way, but a backend session the
         // sign-in form applied was never Supabase's to revoke. Clearing it
@@ -290,7 +294,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
       subscription.unsubscribe()
     }
-  }, [syncUserToBackend])
+  }, [syncUserToBackend, queryClient])
 
   const signOut = useCallback(async () => {
     try {
@@ -301,13 +305,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       // Leave nothing personal on a shared computer (issue #219), even when a
       // request fails (offline, a cold-start 502), and after both awaits so an
-      // insight written while they were in flight goes too.
+      // insight written while they were in flight goes too. The query cache
+      // holds this user's calendar, classes and tasks in memory (issue #327);
+      // they go the same way. Only the ['me', ...] rows: clearing the whole
+      // client would empty the public snapshot the next launch paints from.
       clearAiCaches()
+      dropUserQueries(queryClient)
     }
     supabaseOwnsSession.current = false
     setSession(null)
     setSupabaseUser(null)
-  }, [])
+  }, [queryClient])
 
   const user = session?.user ?? null
   const onboarding = useMemo<Onboarding>(

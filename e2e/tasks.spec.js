@@ -28,6 +28,46 @@ test.describe('Assignment workflow', () => {
     await expect(page.getByText(title)).toBeVisible()
   })
 
+  // Issue #327 - ticking a task is optimistic: the checkbox flips before the
+  // server answers, and a refusal (here the user-write limiter's 429) flips it
+  // back and says why, with the same message as before.
+  test('a refused completion rolls the tick back and says why', async ({ page, mockApi }) => {
+    mockApi.login()
+    const inTwoDays = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+    mockApi.seedCalendarItems([
+      {
+        id: 'cal-e2e-1',
+        title: 'E2E problem set 3',
+        category: 'assignment',
+        startTime: inTwoDays.toISOString(),
+        endTime: inTwoDays.toISOString(),
+        allDay: false,
+        location: null,
+        description: '',
+      },
+    ])
+    // A later page.route runs before the fixture's handler; once removes it
+    // after the first match, so a retry would reach the mock backend.
+    await page.route(
+      '**/api/me/tasks/calendar/complete',
+      (route) =>
+        route.fulfill({
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '30' },
+          body: JSON.stringify({ error: { status: 429 } }),
+        }),
+      { times: 1 },
+    )
+
+    await page.goto('/assignments')
+    await expect(page.getByText('E2E problem set 3')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Mark as done', exact: true }).click()
+    await expect(page.getByText('You are making changes too quickly. Please wait a moment and try again.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Mark as done', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Mark as not done', exact: true })).toHaveCount(0)
+  })
+
   test('keeps the task list empty before anything is added', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/assignments')

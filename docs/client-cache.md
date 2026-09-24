@@ -43,6 +43,44 @@ is the first load, `isError` is a notice beside whatever data is on screen (a
 failed refetch never blanks a widget), and `dataUpdatedAt` feeds the "Updated
 12:04" stamps.
 
+## Per-user reads
+
+The signed-in reads that several pages repeat go through the same client
+(`boilerindy-react/src/lib/queries/userData.ts`, issue #327), fetched with
+`authRequest` so a 401 still sends the browser to sign in. Every key starts
+with `['me', userId]`, so two accounts on one browser never see each other's
+rows, and the 30 s default stale time applies.
+
+| Key | Route | Read by |
+|---|---|---|
+| `['me', userId, 'calendar', { categories, limit, from }]` | `GET /api/me/calendar?...` | Home (its own window), Assignments (`from` rounded to local midnight 14 days back, so the key is stable within a day), Events and Free Food (one shared window) |
+| `['me', userId, 'classes', { limit, mode }]` | `GET /api/me/classes?...` | Home (display mode), Schedule (chronological) |
+| `['me', userId, 'calendar-categories']` | `GET /api/me/calendar/categories` | Assignments |
+| `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |
+
+Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
+lands in the cached metadata at once, after cancelling any metadata fetch in
+flight, then the server call runs. A refusal (the user-write limiter's 429, a
+404 for an item a sync removed) restores the snapshot and the page shows why;
+no response or a 5xx keeps the tick and the page mirrors it to the device
+store, as before. The metadata is invalidated afterwards either way, so the
+cache ends on the server's truth. The layout boards, grades, degree, dining
+favorites and study groups keep their own local-first hooks.
+
+Nothing under `['me', ...]` is ever persisted (`shouldDehydrateQuery` rejects
+it), and both sign-out paths in `AuthContext` (the button, and Supabase's
+SIGNED_OUT event from another tab or a revoked token) call `dropUserQueries`,
+which aborts and removes the `['me', ...]` rows next to `clearAiCaches()`, so a
+shared computer keeps nothing of the last student in memory either. Only those
+rows: clearing the whole client would also empty the public snapshot in
+localStorage that the next launch paints from. Writes that change these rows
+elsewhere (linking a feed, a sync, deleting a source on the Connect page) call
+`invalidateUserQueries`, so the dashboard does not serve pre-sync classes for
+the rest of the stale window.
+
+The task metadata query does not retry: the Tasks page has its own fallback
+(the device store) and showed it after one failed read before the cache.
+
 ## Retries
 
 `fetchJson` throws an `ApiError` with the HTTP status for any non-2xx answer
@@ -70,9 +108,8 @@ identical for every student, so a device can hold it without knowing who is
 signed in. One public entry is left out on purpose: `['transit', 'vehicles']`.
 Live positions are stale after 10 s, so persisting them would only paint
 yesterday's buses on the map for a moment, and re-serialising the whole cache
-on every 10 s poll is work nobody benefits from. Per-user reads (calendar items, tasks, layouts) follow in phase 2
-(issue #327): their keys will carry the user id, they will be excluded from
-persistence, and the client will be cleared on sign-out, the same rule the
+on every 10 s poll is work nobody benefits from. The per-user reads above carry the user id in their keys, are excluded from
+persistence, and go with the rest of the client on sign-out, the same rule the
 per-user localStorage stores already follow.
 
 Two guards on the persisted rows:
