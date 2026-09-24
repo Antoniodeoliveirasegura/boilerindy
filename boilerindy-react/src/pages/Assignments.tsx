@@ -330,6 +330,10 @@ export default function Assignments() {
   if (userId !== prevPriorityUid) {
     setPrevPriorityUid(userId)
     setPriorities(userId ? loadPriorities(userId) : {})
+    // A page already in device-only mode would otherwise keep showing the
+    // previous account's device-store snapshot until its next local write;
+    // the queries re-key on their own.
+    setLocalMeta(null)
   }
 
   function setItemPriority(item: MergedItem, priority: string | null) {
