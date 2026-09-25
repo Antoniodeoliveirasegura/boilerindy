@@ -13,6 +13,10 @@ TypeScript frontend (`boilerindy-react/`) on Vercel, Supabase for the database
 and auth, and a Groq-backed campus assistant. `www.boilerindy.app` is the
 production frontend; Vercel rewrites `/api/*` to the Render backend.
 
+Licensed under the Apache License 2.0 (`LICENSE`, `NOTICE`, issue #189):
+contributions are accepted under the same terms, and the license grants no
+rights to the BoilerIndy name or logo.
+
 ## Layout
 
 - `server.mjs`: the Express app. It starts listening on import, so it is never
