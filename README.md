@@ -505,4 +505,4 @@ existing clone, `git add --renormalize .` followed by `git checkout -- .` clears
 
 ## License
 
-This repository does not include a license file. Add one if you intend to share or publish the project.
+BoilerIndy is licensed under the Apache License, Version 2.0 (issue #189); the full text is in [LICENSE](LICENSE) and the attribution line in [NOTICE](NOTICE). The license covers the code only: it grants no rights to the BoilerIndy name or logo (section 6), which the trademark review in #112 will settle, and contributions are accepted under the same terms (section 5).
