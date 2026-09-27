@@ -9,6 +9,8 @@ import {
   respondDbError,
   respondRouteError,
   respondSchemaMissing,
+  respondSoftDeleteFeatureDbError,
+  SOFT_DELETE_SQL_FILE,
 } from '../src/dbErrors.mjs'
 
 // Issue #218: a missing table used to answer 503 with Supabase SQL Editor
@@ -400,4 +402,49 @@ test('respondDbError still answers 503 when the table is missing, not 404', (t) 
   const res = mockRes()
   respondDbError(res, tableMissing(), DB_FEATURES.guide)
   assert.equal(res.statusCode, 503)
+})
+
+test('respondSoftDeleteFeatureDbError: a missing deleted_at column answers the feature code and logs the soft-delete file', (t) => {
+  const log = spyConsoleError(t)
+  assert.equal(SOFT_DELETE_SQL_FILE, 'db/supabase-soft-delete.sql')
+  const config = { feature: 'soft_probe', label: 'Soft probe', sqlFile: 'db/supabase-soft-probe.sql', fallback: 'Nope.' }
+  for (const err of [
+    { code: '42703', message: 'column soft_probe.deleted_at does not exist' },
+    { code: 'PGRST204', message: "Could not find the 'deleted_at' column of 'soft_probe' in the schema cache" },
+  ]) {
+    const res = mockRes()
+    respondSoftDeleteFeatureDbError(res, err, config)
+    assert.equal(res.statusCode, 503)
+    assert.deepEqual(res.body, {
+      error: { message: 'Soft probe is not set up yet. Please try again later.', code: 'soft_probe_schema_missing', status: 503 },
+    })
+  }
+  assert.equal(log.count, 2)
+  assert.match(log.text(), /\[soft_probe\] schema missing: run db\/supabase-soft-delete\.sql in the Supabase SQL Editor/)
+  assert.doesNotMatch(log.text(), /supabase-soft-probe\.sql/, 'the feature file would not add deleted_at')
+})
+
+test('respondSoftDeleteFeatureDbError: any other error goes to respondDbError', (t) => {
+  const log = spyConsoleError(t)
+  const config = { feature: 'soft_other', label: 'Soft other', sqlFile: 'db/supabase-soft-other.sql', fallback: 'Could not load.' }
+
+  // A missing table names the feature's own file.
+  const missing = mockRes()
+  respondSoftDeleteFeatureDbError(missing, tableMissing(), config)
+  assert.equal(missing.statusCode, 503)
+  assert.equal(missing.body.error.code, 'soft_other_schema_missing')
+  assert.match(log.text(), /run db\/supabase-soft-other\.sql in/)
+
+  // A missing column other than deleted_at is the feature's too.
+  respondSoftDeleteFeatureDbError(mockRes(), { code: '42703', message: 'column soft_other.edited_at does not exist' }, config)
+  assert.doesNotMatch(log.text(), /supabase-soft-delete\.sql/)
+
+  // Anything else is the fallback 500, and a missing row stays a quiet 404.
+  const broken = mockRes()
+  respondSoftDeleteFeatureDbError(broken, uniqueViolation(), config)
+  assert.equal(broken.statusCode, 500)
+  assert.deepEqual(broken.body, { error: { message: 'Could not load.', status: 500 } })
+  const gone = mockRes()
+  respondSoftDeleteFeatureDbError(gone, { code: 'PGRST116', message: 'no rows' }, config)
+  assert.equal(gone.statusCode, 404)
 })

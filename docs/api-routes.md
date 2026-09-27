@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 3 files: `server.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`.
+141 routes in 4 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -55,10 +55,10 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/clubs` | `server.mjs` |
 | POST | `/api/connections` | `server.mjs` |
 | PATCH | `/api/connections/:requesterId` | `server.mjs` |
-| GET | `/api/deals` | `server.mjs` |
-| POST | `/api/deals` | `server.mjs` |
-| PATCH | `/api/deals/:id` | `server.mjs` |
-| DELETE | `/api/deals/:id` | `server.mjs` |
+| GET | `/api/deals` | `src/routes/deals.mjs` |
+| POST | `/api/deals` | `src/routes/deals.mjs` |
+| PATCH | `/api/deals/:id` | `src/routes/deals.mjs` |
+| DELETE | `/api/deals/:id` | `src/routes/deals.mjs` |
 | GET | `/api/debug/source/:sourceId` | `server.mjs` |
 | GET | `/api/dining` | `server.mjs` |
 | GET | `/api/guide` | `server.mjs` |

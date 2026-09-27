@@ -87,6 +87,7 @@ import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { createLayoutsRouter } from './src/routes/layouts.mjs'
 import { createLostFoundRouter } from './src/routes/lostFound.mjs'
+import { createDealsRouter } from './src/routes/deals.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -119,8 +120,9 @@ import {
   respondDbError,
   respondRouteError,
   respondSchemaMissing,
+  respondSoftDeleteFeatureDbError,
+  SOFT_DELETE_SQL_FILE,
 } from './src/dbErrors.mjs'
-import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
 import {
   evaluateReportTarget,
   isMissingGalleryPricingColumn,
@@ -3723,19 +3725,6 @@ app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (r
 // ============================================================
 
 const BOARD_SQL_FILE = DB_FEATURES.board.sqlFile
-// Adds deleted_at to board_posts, marketplace_listings, lost_found_items,
-// guide_recommendations and deals. Their list and delete queries filter on it.
-const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
-
-// For the board, guide, deals and marketplace: a missing deleted_at column still
-// answers the feature's schema_missing code, but the log names the soft-delete
-// migration, since rerunning the feature's own file would not add it (#218).
-function respondSoftDeleteFeatureDbError(res, err, config) {
-  if (isMissingColumnError(err, 'deleted_at')) {
-    return respondSchemaMissing(res, { ...config, sqlFile: SOFT_DELETE_SQL_FILE }, err)
-  }
-  return respondDbError(res, err, config)
-}
 
 // 503 board_schema_missing until the board tables exist, 500 otherwise. Each
 // feature's responder below is the same wrapper over src/dbErrors.mjs (#218).
@@ -4579,73 +4568,10 @@ app.delete('/api/study-groups/:id', userWriteRateLimit, requireIdParam('id'), re
 })
 
 // ============================================================
-// Campus Perks (issue #24) - admin-curated local deals for students.
-// GET is for everyone (active + unexpired); create/edit/delete require admin.
-// Requires db/supabase-campus-deals.sql.
+// Campus Perks (issue #24) - admin-curated local deals, in
+// src/routes/deals.mjs (issue #191).
 // ============================================================
-
-function respondDealsDbError(res, err) {
-  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.deals)
-}
-
-app.get('/api/deals', requireAuth, async (req, res) => {
-  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  // Admins can request everything (incl. inactive/expired) to manage from the UI.
-  const includeAll = req.query.all === '1' && isUserAdmin(req.currentUser)
-  try {
-    let query = supabase.from('deals').select('*').is('deleted_at', null).order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
-    if (category) query = query.eq('category', category)
-    const { data, error } = await query
-    if (error) throw error
-    const rows = includeAll ? (data || []) : (data || []).filter((d) => isDealActive(d))
-    res.json({ deals: rows.map(mapDealRow), isAdmin: isUserAdmin(req.currentUser) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.post('/api/deals', userWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
-  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  try {
-    const { data, error } = await supabase
-      .from('deals')
-      .insert({ ...value, created_by: req.currentUser.id })
-      .select('*')
-      .single()
-    if (error) throw error
-    res.status(201).json({ deal: mapDealRow(data) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
-  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  if (Object.keys(value).length === 0) {
-    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
-  }
-  try {
-    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').maybeSingle()
-    if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
-    res.json({ deal: mapDealRow(data) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
-    res.status(204).end()
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
+app.use(createDealsRouter({ supabase, requireAuth, requireAdmin, isUserAdmin, userWriteRateLimit }))
 
 // ============================================================
 // Student Marketplace (issue #32, Phase 1) - listings + reports.
