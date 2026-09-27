@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 7 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`.
+141 routes in 8 files: `server.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -53,8 +53,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/board/posts/:id/reply` | `server.mjs` |
 | POST | `/api/board/posts/:id/upvote` | `server.mjs` |
 | GET | `/api/clubs` | `server.mjs` |
-| POST | `/api/connections` | `server.mjs` |
-| PATCH | `/api/connections/:requesterId` | `server.mjs` |
+| POST | `/api/connections` | `src/routes/friends.mjs` |
+| PATCH | `/api/connections/:requesterId` | `src/routes/friends.mjs` |
 | GET | `/api/deals` | `src/routes/deals.mjs` |
 | POST | `/api/deals` | `src/routes/deals.mjs` |
 | PATCH | `/api/deals/:id` | `src/routes/deals.mjs` |
@@ -87,7 +87,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/me/calendar-feed/token` | `server.mjs` |
 | GET | `/api/me/calendar/categories` | `server.mjs` |
 | GET | `/api/me/classes` | `server.mjs` |
-| GET | `/api/me/connections` | `server.mjs` |
+| GET | `/api/me/connections` | `src/routes/friends.mjs` |
 | GET | `/api/me/dashboard` | `src/routes/layouts.mjs` |
 | PUT | `/api/me/dashboard` | `src/routes/layouts.mjs` |
 | GET | `/api/me/degree` | `server.mjs` |
@@ -101,11 +101,11 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/me/grades` | `server.mjs` |
 | PATCH | `/api/me/grades/:id` | `server.mjs` |
 | DELETE | `/api/me/grades/:id` | `server.mjs` |
-| GET | `/api/me/matches` | `server.mjs` |
+| GET | `/api/me/matches` | `src/routes/friends.mjs` |
 | GET | `/api/me/profile` | `server.mjs` |
 | PATCH | `/api/me/profile` | `server.mjs` |
-| GET | `/api/me/profile-card` | `server.mjs` |
-| PUT | `/api/me/profile-card` | `server.mjs` |
+| GET | `/api/me/profile-card` | `src/routes/friends.mjs` |
+| PUT | `/api/me/profile-card` | `src/routes/friends.mjs` |
 | GET | `/api/me/schedule-overrides` | `server.mjs` |
 | PUT | `/api/me/schedule-overrides` | `server.mjs` |
 | GET | `/api/me/services` | `src/routes/layouts.mjs` |
