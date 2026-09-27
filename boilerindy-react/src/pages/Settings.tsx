@@ -7,6 +7,7 @@ import { clearAiCaches } from '../lib/aiInsightCache'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
+import BlockedUsersCard from '../components/settings/BlockedUsersCard'
 import { useConfirm } from '../hooks/useConfirm'
 import StatusBanner from '../components/StatusBanner'
 
@@ -450,6 +451,8 @@ export default function Settings() {
               Read the privacy policy
             </Link>
           </div>
+
+          <BlockedUsersCard />
 
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">

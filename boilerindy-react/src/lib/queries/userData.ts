@@ -4,12 +4,13 @@ import { authRequest } from '../authApi'
 import { isServerRefusal } from '../writeFailure'
 
 // The signed-in reads that several pages repeat, through the query cache
-// (issue #327): the calendar window, the class list, the calendar categories
-// and the task metadata. Every key carries the user id, so two accounts on one
-// browser never see each other's rows, and nothing under ['me', ...] is ever
-// written to storage (queryClient.ts excludes it; AuthContext clears the
-// client on sign-out). The fetcher is authRequest, so a 401 still sends the
-// browser to sign in. docs/client-cache.md has the map.
+// (issue #327): the calendar window, the class list, the calendar categories,
+// the task metadata and the blocked users (issue #192). Every key carries the
+// user id, so two accounts on one browser never see each other's rows, and
+// nothing under ['me', ...] is ever written to storage (queryClient.ts
+// excludes it; AuthContext clears the client on sign-out). The fetcher is
+// authRequest, so a 401 still sends the browser to sign in.
+// docs/client-cache.md has the map.
 
 export type CalendarParams = { categories?: string; limit?: number; from?: string }
 
@@ -34,6 +35,8 @@ export type TaskMeta = {
 }
 /** One completion toggle: the item, whether it is a manual task, and the state it should have next. */
 export type ToggleInput = { id: string; isManual: boolean; completed: boolean }
+/** A row of GET /api/me/blocks: someone the student blocked. */
+export type BlockedUser = { userId: string; displayName: string; createdAt: string }
 
 /**
  * Midnight at the start of the local day `daysAgo` days back, as an ISO
@@ -77,6 +80,7 @@ export const userKeys = {
   classes: (userId: string, params: ClassesParams) => ['me', userId, 'classes', normalizeClassesParams(params)] as const,
   calendarCategories: (userId: string) => ['me', userId, 'calendar-categories'] as const,
   taskMeta: (userId: string) => ['me', userId, 'tasks', 'meta'] as const,
+  blocks: (userId: string) => ['me', userId, 'blocks'] as const,
 }
 
 export function myCalendarQuery<T>(userId: string | null, params: CalendarParams) {
@@ -134,7 +138,23 @@ export function taskMetaQuery(userId: string | null) {
   })
 }
 
-/** Mark every per-user row stale after a write that changes them elsewhere (a feed link, a sync, a source deletion). */
+/**
+ * GET /api/me/blocks: the users the student blocked, newest first. Blocks made
+ * by other people take effect but are never listed. Both block routes and
+ * unblocking call invalidateUserQueries, which refreshes it.
+ */
+export function myBlocksQuery(userId: string | null) {
+  return queryOptions({
+    queryKey: userKeys.blocks(userId ?? ''),
+    queryFn: async ({ signal }) => {
+      const data = (await authRequest('/api/me/blocks', { signal })) as { blocks?: BlockedUser[] } | null
+      return Array.isArray(data?.blocks) ? data.blocks : []
+    },
+    enabled: Boolean(userId),
+  })
+}
+
+/** Mark every per-user row stale after a write that changes them elsewhere (a feed link, a sync, a source deletion, a block). */
 export function invalidateUserQueries(queryClient: QueryClient): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['me'] })
 }
@@ -171,6 +191,10 @@ export function useMyCalendarCategories<T = { id: string; label?: string; count?
 
 export function useTaskMeta() {
   return useQuery(taskMetaQuery(useUserId()))
+}
+
+export function useMyBlocks() {
+  return useQuery(myBlocksQuery(useUserId()))
 }
 
 /** The task metadata with one toggle applied, the way the server will store it. */

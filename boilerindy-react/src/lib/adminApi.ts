@@ -1,4 +1,5 @@
 import { authRequest } from './authApi'
+import type { ReportTargetType } from './reportReasons'
 
 // Admin console API helpers (migrated to TypeScript, issue #20).
 
@@ -125,7 +126,7 @@ export function takeDownHiddenListing(id: string): Promise<unknown> {
 // marketplace listings and users. An admin opens the content, takes it down
 // through the helpers above, and resolves or dismisses the report here.
 export type ReportStatus = 'open' | 'resolved' | 'dismissed'
-export type ReportTargetType = 'board_post' | 'board_reply' | 'lost_found' | 'guide' | 'study_group' | 'marketplace' | 'user'
+export type { ReportTargetType }
 
 export type ContentReport = {
   id: string

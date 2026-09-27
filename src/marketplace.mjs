@@ -15,13 +15,14 @@ export const MAX_LISTING_TITLE = 120
 export const MAX_LISTING_DESCRIPTION = 2000
 export const REPORTS_TO_HIDE = 3
 
-// Report reasons (issue #204). The website's report form (#224) sends one
-// flattened string: a bare reason, or `other: <details>` when the reporter
-// typed something. A client may instead send { reason, details } as separate
-// fields. parseReportInput accepts both and stores one shape. The list itself
-// is owned by src/contentReports.mjs, which reports every surface (#192), and
-// is re-exported here because boilerindy-react imports these values from this
-// module; marketplace_reports.reason is free text, so the list can grow.
+// Report reasons (issue #204). POST /api/marketplace/:id/report takes one
+// flattened string, a bare reason or `other: <details>` when the reporter typed
+// something (what the website's inline form sent until #192 moved it to
+// POST /api/reports), or { reason, details } as separate fields.
+// parseReportInput accepts both and stores one shape. The list itself is owned
+// by src/contentReports.mjs, which reports every surface (#192), and is
+// re-exported here for this route's callers; marketplace_reports.reason is
+// free text, so the list can grow.
 export { REPORT_REASONS }
 const REPORT_REASON_SET = new Set(REPORT_REASONS)
 

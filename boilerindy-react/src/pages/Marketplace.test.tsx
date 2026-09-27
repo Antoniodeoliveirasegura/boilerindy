@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render as renderUi, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactElement } from 'react'
 import Marketplace from './Marketplace'
 import { authRequest } from '../lib/authApi'
 
 // Galleries and pricing choices (#177) on the website: cards and the detail
 // gallery read `images` / `priceMode`, and the compose form sends the
-// structured `photos` list and `priceMode` the API expects. Mark sold, delete
-// and report (#224) show a failure in the page banner and never open a
-// browser dialog.
+// structured `photos` list and `priceMode` the API expects. Mark sold and
+// delete (#224) show a failure in the page banner and never open a browser
+// dialog. A report goes through the shared report dialog to POST /api/reports
+// (#192), which keeps the automatic hide and files it in the admin queue.
 
 const confirmMock = vi.hoisted(() => vi.fn())
 
@@ -18,6 +21,16 @@ vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMoc
 
 const free = { id: 'free', title: 'Chair', priceCents: 0, images: ['https://example.com/a.jpg', 'https://example.com/b.jpg'] }
 const REPORT_REASONS = 'Why are you reporting this listing?'
+
+// The Report and Block actions refresh per-user queries, so the page needs a client.
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderUi(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
+
+function refusal(status: number, message: string) {
+  return Object.assign(new Error(message), { status, payload: { error: { message, status } } })
+}
 
 beforeEach(() => {
   confirmMock.mockReset().mockResolvedValue(true)
@@ -41,10 +54,10 @@ afterEach(() => {
 })
 
 /** The default API, except that `method failing` rejects the way a failed request does. */
-function failRequest(method: string, failing: string) {
+function failRequest(method: string, failing: string, error: unknown = new Error('boom')) {
   const answer = vi.mocked(authRequest).getMockImplementation()
   vi.mocked(authRequest).mockImplementation(async (path, options) => {
-    if (path === failing && options?.method === method) throw new Error('boom')
+    if (path === failing && options?.method === method) throw error
     return answer?.(path, options)
   })
 }
@@ -67,7 +80,7 @@ async function openReport() {
   render(<Marketplace />)
   fireEvent.click(await screen.findByText('Chair'))
   fireEvent.click(await screen.findByRole('button', { name: 'Report listing' }))
-  return within(screen.getByRole('group', { name: REPORT_REASONS }))
+  return within(within(screen.getByRole('dialog', { name: 'Report this listing' })).getByRole('group', { name: REPORT_REASONS }))
 }
 
 it('distinguishes Free, Best offer and unspecified prices and displays the entire gallery', async () => {
@@ -134,44 +147,69 @@ it('puts a listing back and shows the server message when deleting it fails', as
   expectNoBrowserDialogs()
 })
 
-it('reports with a chosen reason and confirms inline', async () => {
+it('reports through the dialog with a chosen reason and thanks the student', async () => {
   const reasons = await openReport()
   const submit = screen.getByRole('button', { name: 'Submit report' })
   expect(submit).toBeDisabled()
   expect(screen.queryByLabelText('Tell us more (optional)')).not.toBeInTheDocument()
   fireEvent.click(reasons.getByLabelText('Something else'))
   const details = screen.getByLabelText('Tell us more (optional)')
-  // 'other: ' plus the details must fit the server's 500-character reason.
-  expect(details).toHaveAttribute('maxlength', '493')
+  // The details travel in their own field now, up to the queue's 500 characters.
+  expect(details).toHaveAttribute('maxlength', '500')
   fireEvent.change(details, { target: { value: 'Asks for a deposit first' } })
   fireEvent.click(submit)
-  expect(await screen.findByText('Thanks, our team will review it.')).toHaveAttribute('role', 'status')
-  const [, options] = requestsTo('/api/marketplace/free/report')[0]
+  expect(await screen.findByRole('status')).toHaveTextContent('Thanks, our team will review it.')
+  const [, options] = requestsTo('/api/reports')[0]
   expect(options?.method).toBe('POST')
-  expect(JSON.parse(String(options?.body))).toEqual({ reason: 'other: Asks for a deposit first' })
-  expect(screen.queryByRole('group', { name: REPORT_REASONS })).not.toBeInTheDocument()
+  expect(JSON.parse(String(options?.body))).toEqual({ targetType: 'marketplace', targetId: 'free', reason: 'other', details: 'Asks for a deposit first' })
+  expect(requestsTo('/api/marketplace/free/report')).toHaveLength(0)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Report listing' })).toHaveFocus()
   expectNoBrowserDialogs()
 })
 
-it('returns focus to the Report button when the report form is cancelled', async () => {
+it('returns focus to the Report button when the report is cancelled', async () => {
   await openReport()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  expect(screen.queryByRole('group', { name: REPORT_REASONS })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Report listing' })).toHaveFocus()
-  expect(requestsTo('/api/marketplace/free/report')).toHaveLength(0)
+  expect(requestsTo('/api/reports')).toHaveLength(0)
 })
 
-it('keeps the report form and shows the server message when a report fails', async () => {
-  failRequest('POST', '/api/marketplace/free/report')
+it('keeps the report dialog open and shows the server message when a report is refused', async () => {
+  failRequest('POST', '/api/reports', refusal(404, 'That content is no longer available.'))
   const reasons = await openReport()
   fireEvent.click(reasons.getByLabelText('Scam or fraud'))
   fireEvent.click(screen.getByRole('button', { name: 'Submit report' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('boom')
-  expect(JSON.parse(String(requestsTo('/api/marketplace/free/report')[0][1]?.body))).toEqual({ reason: 'scam' })
+  expect(await screen.findByRole('alert')).toHaveTextContent('That content is no longer available.')
+  expect(JSON.parse(String(requestsTo('/api/reports')[0][1]?.body))).toMatchObject({ targetType: 'marketplace', targetId: 'free', reason: 'scam' })
   expect(screen.queryByText('Thanks, our team will review it.')).not.toBeInTheDocument()
   expect(reasons.getByLabelText('Scam or fraud')).toBeChecked()
   expectNoBrowserDialogs()
+})
+
+it('blocks the seller after the prompt, closes the listing and refetches the browse list', async () => {
+  render(<Marketplace />)
+  fireEvent.click(await screen.findByText('Chair'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Block author' }))
+  await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Block this author?', tone: 'danger' })))
+  await waitFor(() => expect(requestsTo('/api/marketplace?')).toHaveLength(1))
+  expect(requestsTo('/api/me/blocks/content/marketplace/free')[0][1]).toEqual({ method: 'POST' })
+  expect(screen.queryByRole('button', { name: 'Block author' })).not.toBeInTheDocument()
+  expect(await screen.findByRole('status')).toHaveTextContent('Blocked. You can unblock them in Settings.')
+})
+
+it('offers no Report or Block on the student\'s own listing', async () => {
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace/free') return { listing: { ...free, isMine: true } }
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  fireEvent.click(await screen.findByText('Chair'))
+  expect(await screen.findByRole('button', { name: 'Edit listing' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Report listing' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Block author' })).not.toBeInTheDocument()
 })
 
 // Issue #204: three reports hide a listing automatically. Until now its owner

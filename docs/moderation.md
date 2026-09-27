@@ -234,3 +234,42 @@ with the same type and id it would report, or `POST /api/me/blocks/:userId`
 where it holds a user id (friend matches, connections and requests), then
 reloads the list it came from. An anonymous post offers Report only. Settings
 lists `GET /api/me/blocks` with an Unblock for each row.
+
+Every row a client offers these on says whether it is the student's own:
+`isMine` on board posts and replies, guide recommendations, study groups and
+listings, `isOwner` on lost and found items. Board posts and replies also
+carry `anon` (replies since #192 PR 3, including the one `POST
+/api/board/posts/:id/reply` answers with), so a client can leave Block out on
+an anonymous one. None of them carries the author's id.
+
+## On the website
+
+`hooks/useReportAndBlock.tsx` in `boilerindy-react/` holds both actions for
+every page, so a new surface only places the buttons.
+
+- **Report** appears on every board post and reply, lost and found item, guide
+  recommendation, study group and marketplace listing that is not the
+  student's own, and as **Report user** on friend matches and connections. It
+  opens the report dialog (`components/ReportDialog.tsx`): the five reasons in
+  the server's order (read through `lib/reportReasons.ts`), details asked for
+  on "Something else" and optional on the rest, sent to `POST /api/reports`.
+  A refusal keeps the dialog open with the server's message; a report or a
+  duplicate closes it and shows "Thanks, our team will review it." for a few
+  seconds. The listing report goes through this route too, which keeps the
+  automatic hide; `POST /api/marketplace/:id/report` stays for older clients.
+- **Block author** sits next to Report on board posts and replies, lost and
+  found items, guide recommendations, study groups and the listing detail,
+  and uses the by-content route after the prompt "Block this author? You will
+  no longer see each other's posts." The page then reads its list again, so
+  the author's content leaves the screen. An anonymous board post or reply
+  offers Report alone.
+- **Block** on friend matches, connections and incoming requests blocks the
+  person by id after "Block <name>? You will no longer see each other's
+  posts, and any connection or request between you ends.", then matches and
+  connections are read again.
+- **Settings, Blocked users** (after Privacy) lists `GET /api/me/blocks`
+  through the `['me', userId, 'blocks']` query (see
+  [client-cache.md](client-cache.md)), with Unblock on each row
+  (`DELETE /api/me/blocks/:userId`) and "You have not blocked anyone." when
+  it is empty. Every block and unblock marks the per-user queries stale, so
+  the list is current the next time Settings opens.
