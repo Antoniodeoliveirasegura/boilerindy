@@ -1,8 +1,17 @@
-import { REPORT_REASONS } from '../../../src/contentReports.mjs'
+import { MAX_REPORT_DETAILS, REPORT_REASONS } from '../../../src/contentReports.mjs'
 
 // Report reasons as students and admins read them (issue #192). The values
 // come from src/contentReports.mjs, which the API validates against, so a form
 // can never offer a reason the server rejects; the labels are UI copy.
+
+/** What a student can report: content_reports.target_type, the keys of REPORT_TARGETS. */
+export type ReportTargetType = 'board_post' | 'board_reply' | 'lost_found' | 'guide' | 'study_group' | 'marketplace' | 'user'
+
+/** What POST /api/me/blocks/content/:targetType/:targetId blocks the author of; a user is blocked by id. */
+export type BlockTargetType = Exclude<ReportTargetType, 'user'>
+
+/** The most details the API keeps with a report (content_reports.details). */
+export { MAX_REPORT_DETAILS }
 
 export const REPORT_REASON_LABELS: Record<string, string> = {
   spam: 'Spam',

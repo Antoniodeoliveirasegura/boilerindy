@@ -460,6 +460,54 @@ export function sampleParkingSnapshot(overrides = {}) {
   }
 }
 
+// Campus board (#192): seedBoard posts carry authorId and authorName the way
+// board_posts keeps user_id, on the mock's side only. GET /api/board/posts
+// answers in the server's shape (a name or "Anonymous", isMine, anon), never
+// with the author's id, and leaves out posts and replies by a blocked author.
+function boardPost(post, i) {
+  return {
+    id: post.id || `post-${i + 1}`,
+    title: post.title || 'A question',
+    body: post.body || '',
+    anon: post.anon === true,
+    authorId: post.authorId || 'e2e-user-2',
+    authorName: post.authorName || 'Riley Boilermaker',
+    upvotes: post.upvotes ?? 0,
+    pinned: false,
+    tags: post.tags || [],
+    time: post.time || new Date().toISOString(),
+    replies: (post.replies || []).map((r, j) => ({
+      id: r.id || `${post.id || `post-${i + 1}`}-reply-${j + 1}`,
+      body: r.body || 'A reply',
+      anon: r.anon === true,
+      authorId: r.authorId || 'e2e-user-2',
+      authorName: r.authorName || 'Riley Boilermaker',
+      time: r.time || new Date().toISOString(),
+    })),
+  }
+}
+
+function boardListItem(post, viewerId, blocked) {
+  const { authorId, authorName, replies, ...rest } = post
+  const shown = replies
+    .filter((r) => !blocked.has(r.authorId))
+    .map(({ authorId: replyAuthor, authorName: replyName, ...reply }) => ({
+      ...reply,
+      user: reply.anon ? 'Anonymous' : replyName,
+      isMine: replyAuthor === viewerId,
+    }))
+  return {
+    ...rest,
+    user: post.anon ? 'Anonymous' : authorName,
+    isMine: authorId === viewerId,
+    upvotedByMe: false,
+    editedTime: null,
+    replies: shown,
+    replyCount: shown.length,
+    hasMoreReplies: false,
+  }
+}
+
 function sessionPayload(state) {
   return {
     expiresAt: null,
@@ -513,6 +561,19 @@ export const test = base.extend({
       // stores them as-is and would throw on the generic `{ items: [] }`
       // fallback below.
       transit: { routes: [], stops: [], vehicles: [] },
+      // Campus board (#192): see boardPost / seedBoard.
+      board: { posts: [] },
+      // Reporting and blocking (#192): every POST /api/reports body the page
+      // sent, and the users the test user blocked, newest first, in the
+      // GET /api/me/blocks shape.
+      reports: [],
+      blocks: [],
+    }
+
+    // A block by the test user, kept once like the blocked_users primary key.
+    const addBlock = (userId, displayName) => {
+      if (userId === state.user.id || state.blocks.some((b) => b.userId === userId)) return
+      state.blocks.unshift({ userId, displayName: displayName || 'Student', createdAt: new Date().toISOString() })
     }
 
     const json = (route, status, body) =>
@@ -920,6 +981,47 @@ export const test = base.extend({
         return json(route, 200, { sent: state.push.subscriptions.length, failed: 0, removed: 0 })
       }
 
+      // Campus board and moderation (#192): shapes mirror the board list route,
+      // src/routes/reports.mjs and src/routes/blocks.mjs.
+      if (pathname === '/api/board/posts' && method === 'GET') {
+        const blocked = new Set(state.blocks.map((b) => b.userId))
+        const posts = state.board.posts
+          .filter((p) => !blocked.has(p.authorId))
+          .map((p) => boardListItem(p, state.user.id, blocked))
+        return json(route, 200, { posts, page: 0, hasMore: false })
+      }
+      if (pathname === '/api/reports' && method === 'POST') {
+        state.reports.push(bodyOf())
+        return json(route, 200, { ok: true })
+      }
+      if (pathname === '/api/me/blocks' && method === 'GET') {
+        return json(route, 200, { blocks: state.blocks.map((b) => ({ ...b })) })
+      }
+      const blockContentMatch = pathname.match(/^\/api\/me\/blocks\/content\/([^/]+)\/([^/]+)$/)
+      if (blockContentMatch && method === 'POST') {
+        const [, type, id] = blockContentMatch
+        // Only board content is seeded; blocking by anything else finds no
+        // author and changes nothing, like a missing row on the server.
+        const posts = state.board.posts
+        const target =
+          type === 'board_post' ? posts.find((p) => p.id === id) : type === 'board_reply' ? posts.flatMap((p) => p.replies).find((r) => r.id === id) : null
+        if (target?.anon) {
+          return json(route, 400, { error: { message: 'Anonymous posts cannot be blocked. Report it instead.', status: 400 } })
+        }
+        if (target) addBlock(target.authorId, target.authorName)
+        return json(route, 200, { ok: true })
+      }
+      const blockMatch = pathname.match(/^\/api\/me\/blocks\/([^/]+)$/)
+      if (blockMatch && method === 'POST') {
+        const author = state.board.posts.find((p) => p.authorId === blockMatch[1])
+        addBlock(blockMatch[1], author?.authorName)
+        return json(route, 200, { ok: true })
+      }
+      if (blockMatch && method === 'DELETE') {
+        state.blocks = state.blocks.filter((b) => b.userId !== blockMatch[1])
+        return json(route, 200, { ok: true })
+      }
+
       // Transit (issue #162): arrays seeded via seedTransit, empty by default.
       if (pathname === '/api/transit/routes') {
         return json(route, 200, state.transit.routes)
@@ -1023,6 +1125,15 @@ export const test = base.extend({
       },
       seedTransit({ routes = [], stops = [], vehicles = [] } = {}) {
         state.transit = { routes, stops, vehicles }
+      },
+      // Board posts by other students (#192): { id, title, authorId, authorName, anon, replies }.
+      seedBoard({ posts = [] } = {}) {
+        state.board.posts = posts.map(boardPost)
+      },
+      // Users the test user already blocked: { userId, displayName }.
+      seedBlocks(blocks = []) {
+        state.blocks = []
+        for (const b of [...blocks].reverse()) addBlock(b.userId, b.displayName)
       },
     }
 

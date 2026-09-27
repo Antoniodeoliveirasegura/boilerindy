@@ -3835,7 +3835,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
 
   const myId = req.currentUser.id
   const posts = postsData.map(p => {
-    const replies = (inlineReplies[p.id] || []).map(r => mapBoardReply(r, nameMap))
+    const replies = (inlineReplies[p.id] || []).map(r => mapBoardReply(r, nameMap, myId))
     // reply_count is maintained by sync_board_post_reply_count; fall back to what
     // is on screen so a post still counts its replies on an unmigrated database.
     const replyCount = Number.isFinite(p.reply_count) ? p.reply_count : replies.length
@@ -3898,7 +3898,7 @@ app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async
   const rows = data || []
   const nameMap = await boardDisplayNames(rows)
   res.json({
-    replies: rows.map(r => mapBoardReply(r, nameMap)),
+    replies: rows.map(r => mapBoardReply(r, nameMap, req.currentUser.id)),
     page,
     hasMore: rows.length === REPLY_PAGE_SIZE,
   })
@@ -4128,6 +4128,8 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id')
       id: reply.id,
       body: reply.body,
       user: reply.is_anon ? 'Anonymous' : req.currentUser.display_name,
+      anon: reply.is_anon,
+      isMine: true,
       time: reply.created_at,
     }
   })

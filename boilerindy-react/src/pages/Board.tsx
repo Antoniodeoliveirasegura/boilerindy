@@ -6,6 +6,7 @@ import { track } from '../lib/usageStats'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+import { useReportAndBlock } from '../hooks/useReportAndBlock'
 // Same caps and page sizes the API enforces (issue #200)
 import {
   MAX_BOARD_TITLE,
@@ -13,13 +14,14 @@ import {
   MAX_BOARD_REPLY,
 } from '../../../src/boardLimits.mjs'
 
-type Reply = { id?: string; user?: string; body?: string; time?: string; [key: string]: unknown }
+type Reply = { id?: string; user?: string; body?: string; time?: string; anon?: boolean; isMine?: boolean; [key: string]: unknown }
 type Post = {
   id: string
   title?: string
   body?: string
   time?: string
   editedTime?: string | null
+  anon?: boolean
   isMine?: boolean
   upvotes?: number
   upvotedByMe?: boolean
@@ -39,10 +41,19 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
+// Report and Block author on someone else's post or reply (issue #192). An
+// anonymous one is reported only: the Blocked users list names everyone on it,
+// so blocking its author would unmask them (owner decision, 2026-09-27). Only
+// an explicit anon: false offers the block.
+function canBlockAuthor(item: { isMine?: boolean; anon?: boolean }) {
+  return !item.isMine && item.anon === false
+}
+
 export default function Board() {
   const { user } = useAuth()
   const userId = user?.id as string | undefined
   const { confirm, confirmDialog } = useConfirm()
+  const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [posts, setPosts] = useState<Post[]>([])
   const [sort, setSort] = useState('recent')
   const [loading, setLoading] = useState(true)
@@ -307,6 +318,11 @@ export default function Board() {
     }
   }
 
+  // A blocked author's posts and replies leave the board, so it is read again.
+  const handleBlockAuthor = async (targetType: 'board_post' | 'board_reply', id: string) => {
+    if (await blockAuthor(targetType, id)) await fetchPosts({ silent: true })
+  }
+
   // ── Edit post (issue #7) ───────────────────────────────────────────────────
   const startEditPost = (post: Post) => {
     setEditingId(post.id)
@@ -457,6 +473,7 @@ export default function Board() {
   return (
     <div className="max-w-[42rem] mx-auto px-4 sm:px-6 py-8 pb-28">
       {confirmDialog}
+      {moderationUi}
       {/* Hero */}
       <header className="relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] mb-8">
         <div className="absolute inset-0 bg-gradient-to-br from-[var(--color-accent-bg)]/90 via-[var(--color-gold)]/6 to-transparent pointer-events-none" />
@@ -917,6 +934,25 @@ export default function Board() {
                         {deletingId === post.id ? 'Deleting…' : 'Delete'}
                       </button>
                     )}
+                    {!post.isMine && (
+                      <button
+                        type="button"
+                        onClick={(e) => report({ targetType: 'board_post', targetId: post.id, targetLabel: 'this post' }, e.currentTarget)}
+                        className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+                      >
+                        <Icon name="flag" size={13} />
+                        Report
+                      </button>
+                    )}
+                    {canBlockAuthor(post) && (
+                      <button
+                        type="button"
+                        onClick={() => void handleBlockAuthor('board_post', post.id)}
+                        className="text-[12px] font-medium text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+                      >
+                        Block author
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => toggleReplies(post.id)}
@@ -976,6 +1012,28 @@ export default function Board() {
                                 <span className="font-medium text-[var(--color-txt-2)]">{reply.user}</span>
                                 <span>·</span>
                                 <span>{reply.time}</span>
+                                {reply.id && !reply.isMine && (
+                                  <span className="ml-auto inline-flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={(e) =>
+                                        report({ targetType: 'board_reply', targetId: reply.id as string, targetLabel: 'this reply' }, e.currentTarget)
+                                      }
+                                      className="font-medium hover:text-[var(--color-error)]"
+                                    >
+                                      Report
+                                    </button>
+                                    {canBlockAuthor(reply) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleBlockAuthor('board_reply', reply.id as string)}
+                                        className="font-medium hover:text-[var(--color-error)]"
+                                      >
+                                        Block author
+                                      </button>
+                                    )}
+                                  </span>
+                                )}
                               </div>
                             </li>
                           ))}

@@ -8,6 +8,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
+import { useReportAndBlock } from '../hooks/useReportAndBlock'
 
 // Neighborhood Guide (issue #31): student-submitted local recommendations.
 const CAMPUS_CENTER: [number, number] = [39.774, -86.172]
@@ -49,6 +50,7 @@ const EMPTY_FORM = { category: 'food', title: '', body: '', placeName: '', lat: 
 
 export default function Guide() {
   const { confirm, confirmDialog } = useConfirm()
+  const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const { user } = useAuth()
   const { dark } = useTheme()
   const isAdmin = Boolean(user?.isAdmin)
@@ -169,6 +171,11 @@ export default function Guide() {
     }
   }
 
+  // A blocked author's tips leave the guide, so it is read again (issue #192).
+  async function handleBlockAuthor(rec: Rec) {
+    if (await blockAuthor('guide', rec.id)) load(activeCat)
+  }
+
   function togglePin(rec: Rec) {
     authRequest(`/api/guide/${rec.id}/pin`, {
       method: 'PATCH',
@@ -186,6 +193,7 @@ export default function Guide() {
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
       {confirmDialog}
+      {moderationUi}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Neighborhood Guide</h1>
@@ -377,20 +385,37 @@ export default function Guide() {
                   <span className="text-[12px] font-semibold">{rec.upvotes}</span>
                 </button>
               </div>
-              {(rec.isMine || isAdmin) && (
-                <div className="flex gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
-                  {isAdmin && (
-                    <button type="button" onClick={() => togglePin(rec)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)]">
-                      {rec.pinned ? 'Unpin' : 'Pin'}
+              {/* Everyone gets the row: Report and Block author on someone
+                  else's tip (issue #192), Delete on your own, Pin for admins. */}
+              <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
+                {isAdmin && (
+                  <button type="button" onClick={() => togglePin(rec)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)]">
+                    {rec.pinned ? 'Unpin' : 'Pin'}
+                  </button>
+                )}
+                {rec.isMine ? (
+                  <button type="button" onClick={() => handleDelete(rec)} className="text-[12px] text-[var(--color-error)] hover:underline">
+                    Delete
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => report({ targetType: 'guide', targetId: rec.id, targetLabel: 'this recommendation' }, e.currentTarget)}
+                      className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)] inline-flex items-center gap-1"
+                    >
+                      <Icon name="flag" size={12} /> Report
                     </button>
-                  )}
-                  {rec.isMine && (
-                    <button type="button" onClick={() => handleDelete(rec)} className="text-[12px] text-[var(--color-error)] hover:underline">
-                      Delete
+                    <button
+                      type="button"
+                      onClick={() => void handleBlockAuthor(rec)}
+                      className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+                    >
+                      Block author
                     </button>
-                  )}
-                </div>
-              )}
+                  </>
+                )}
+              </div>
             </div>
           ))}
         </div>

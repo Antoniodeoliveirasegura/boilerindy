@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { authRequest } from '../lib/authApi'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+import { useReportAndBlock } from '../hooks/useReportAndBlock'
 
 // Standalone Lost & Found (issue #47) - its own page + table, independent of the
 // campus board. Students post lost/found items, search them, and the author can
-// mark a post resolved (rendered dimmed) or delete it.
+// mark a post resolved (rendered dimmed) or delete it. Everyone else can report
+// the post or block its author (issue #192).
 
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   lost: { label: 'Lost', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' },
@@ -37,6 +39,7 @@ const EMPTY_FORM = { type: 'lost', title: '', description: '', location: '', con
 
 export default function LostFound() {
   const { confirm, confirmDialog } = useConfirm()
+  const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [items, setItems] = useState<LostFoundItem[]>([])
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState(false)
@@ -156,9 +159,15 @@ export default function LostFound() {
     }
   }
 
+  // A blocked author's posts leave the list, so it is read again.
+  async function handleBlockAuthor(item: LostFoundItem) {
+    if (await blockAuthor('lost_found', item.id)) await loadItems()
+  }
+
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
       {confirmDialog}
+      {moderationUi}
       <div className="mb-6 animate-fade-in-up">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Lost &amp; Found</h1>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[680px]">
@@ -344,7 +353,7 @@ export default function LostFound() {
                         </span>
                       )}
                     </div>
-                    {item.isOwner && (
+                    {item.isOwner ? (
                       <div className="flex items-center gap-2 mt-3">
                         <button
                           type="button"
@@ -359,6 +368,23 @@ export default function LostFound() {
                           className="text-[12px] px-3 py-1.5 rounded-xl border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10"
                         >
                           Delete
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 mt-3">
+                        <button
+                          type="button"
+                          onClick={(e) => report({ targetType: 'lost_found', targetId: item.id, targetLabel: 'this post' }, e.currentTarget)}
+                          className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)] inline-flex items-center gap-1"
+                        >
+                          <Icon name="flag" size={12} /> Report
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleBlockAuthor(item)}
+                          className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+                        >
+                          Block author
                         </button>
                       </div>
                     )}

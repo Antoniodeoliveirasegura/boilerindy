@@ -11,8 +11,10 @@ import {
   dropUserQueries,
   fetchTaskMeta,
   invalidateUserQueries,
+  myBlocksQuery,
   startOfLocalDayIso,
   taskMetaQuery,
+  useMyBlocks,
   useToggleTaskCompletion,
   userKeys,
   type TaskMeta,
@@ -48,6 +50,7 @@ describe('keys and urls', () => {
     expect(userKeys.classes('u1', { limit: 200, mode: 'display' })).toEqual(['me', 'u1', 'classes', { limit: 200, mode: 'display' }])
     expect(userKeys.calendarCategories('u1')).toEqual(['me', 'u1', 'calendar-categories'])
     expect(userKeys.taskMeta('u1')).toEqual(['me', 'u1', 'tasks', 'meta'])
+    expect(userKeys.blocks('u1')).toEqual(['me', 'u1', 'blocks'])
   })
 
   test('the urls match what the pages sent before', () => {
@@ -87,6 +90,7 @@ describe('keys and urls', () => {
 
   test('nothing under me is persisted', () => {
     expect(isPersistedQueryKey(userKeys.taskMeta('u1'))).toBe(false)
+    expect(isPersistedQueryKey(userKeys.blocks('u1'))).toBe(false)
     expect(shouldDehydrateQuery({ queryKey: userKeys.calendar('u1', { limit: 500 }), state: { status: 'success' } } as never)).toBe(false)
   })
 })
@@ -102,6 +106,36 @@ describe('fetchTaskMeta', () => {
     })
     request.mockResolvedValueOnce({ completions: [], manualTasks: [], unavailable: true })
     await expect(fetchTaskMeta()).resolves.toMatchObject({ unavailable: true, local: false })
+  })
+})
+
+// Issue #192: Settings lists the student's blocks from GET /api/me/blocks.
+describe('blocked users', () => {
+  const blocks = [{ userId: 'u9', displayName: 'Riley', createdAt: '2026-09-27T10:00:00.000Z' }]
+
+  test('reads GET /api/me/blocks and answers the rows, or none for an odd answer', async () => {
+    request.mockResolvedValueOnce({ blocks })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    await expect(client.fetchQuery(myBlocksQuery('u1'))).resolves.toEqual(blocks)
+    expect(request).toHaveBeenCalledWith('/api/me/blocks', expect.objectContaining({ signal: expect.anything() }))
+    request.mockResolvedValueOnce({})
+    await expect(client.fetchQuery({ ...myBlocksQuery('u2') })).resolves.toEqual([])
+  })
+
+  test('waits for a signed-in user', () => {
+    expect(myBlocksQuery(null).enabled).toBe(false)
+    expect(myBlocksQuery('u1').enabled).toBe(true)
+  })
+
+  test('useMyBlocks keys the list by the signed-in user, and a block elsewhere refreshes it', async () => {
+    request.mockResolvedValue({ blocks })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
+    const { result } = renderHook(() => useMyBlocks(), { wrapper })
+    await waitFor(() => expect(result.current.data).toEqual(blocks))
+    expect(client.getQueryData(userKeys.blocks('u1'))).toEqual(blocks)
+    await invalidateUserQueries(client)
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
   })
 })
 

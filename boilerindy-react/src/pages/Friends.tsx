@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
+import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 
 // Friend Matching (issue #17). Privacy is opt-in (discoverable, default off):
 // pre-acceptance only name, interests, and shared-course count are shown.
+// Matches and connections can be reported, and anyone here, a request's sender
+// included, can be blocked (issue #192).
 
 type Match = {
   userId: string
@@ -22,6 +25,7 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 export default function Friends() {
+  const { report, blockUser, moderationUi } = useReportAndBlock()
   const [bio, setBio] = useState('')
   const [interests, setInterests] = useState('')
   const [discoverable, setDiscoverable] = useState(false)
@@ -130,8 +134,23 @@ export default function Friends() {
       })
   }
 
+  function reportUser(person: { userId: string; displayName?: string }, opener: HTMLElement) {
+    report({ targetType: 'user', targetId: person.userId, targetLabel: person.displayName || 'this student' }, opener)
+  }
+
+  // A block ends any connection or request between the two and takes each out
+  // of the other's matches, so both lists are read again.
+  async function handleBlock(person: { userId: string; displayName?: string }) {
+    if (!(await blockUser(person.userId, person.displayName || 'this student'))) return
+    loadMatches()
+    loadConnections()
+  }
+
+  const personAction = 'text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]'
+
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
+      {moderationUi}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">People</h1>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1">Meet classmates who share your courses.</p>
@@ -179,9 +198,10 @@ export default function Friends() {
             {incoming.map((req) => (
               <div key={req.userId} className="card p-4 flex items-center justify-between gap-3">
                 <span className="text-[14px] font-medium text-[var(--color-txt-0)]">{req.displayName} wants to connect</span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button type="button" onClick={() => respond(req, 'accept')} className="btn btn-primary text-[12px] px-3 py-2">Accept</button>
                   <button type="button" onClick={() => respond(req, 'decline')} className="text-[12px] px-3 py-2 rounded-xl border border-[var(--color-border-2)] text-[var(--color-txt-2)]">Decline</button>
+                  <button type="button" onClick={() => void handleBlock(req)} className={`${personAction} px-1`}>Block</button>
                 </div>
               </div>
             ))}
@@ -195,9 +215,15 @@ export default function Friends() {
           <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">Your connections</div>
           <div className="space-y-2">
             {accepted.map((c) => (
-              <div key={c.userId} className="card p-4 flex items-center justify-between gap-3">
-                <span className="text-[14px] font-medium text-[var(--color-txt-0)]">{c.displayName}</span>
-                {c.email && <a href={`mailto:${c.email}`} className="text-[12px] text-[var(--color-accent)] hover:underline">{c.email}</a>}
+              <div key={c.userId} className="card p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-[14px] font-medium text-[var(--color-txt-0)]">{c.displayName}</span>
+                  {c.email && <a href={`mailto:${c.email}`} className="text-[12px] text-[var(--color-accent)] hover:underline">{c.email}</a>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={(e) => reportUser(c, e.currentTarget)} className={personAction}>Report user</button>
+                  <button type="button" onClick={() => void handleBlock(c)} className={personAction}>Block</button>
+                </div>
               </div>
             ))}
           </div>
@@ -244,6 +270,10 @@ export default function Friends() {
                   <Icon name="plus" size={14} />
                   Connect
                 </button>
+              </div>
+              <div className="flex gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
+                <button type="button" onClick={(e) => reportUser(m, e.currentTarget)} className={personAction}>Report user</button>
+                <button type="button" onClick={() => void handleBlock(m)} className={personAction}>Block</button>
               </div>
             </div>
           ))}

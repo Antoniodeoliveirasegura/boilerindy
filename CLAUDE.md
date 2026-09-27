@@ -34,7 +34,7 @@ rights to the BoilerIndy name or logo.
   test lives here with a matching `test/<name>.test.mjs` (node:test, run with
   `pnpm test:backend`), and the route handler in `server.mjs` stays thin. The
   shared modules the frontend also imports (`dashboardLayout.mjs`,
-  `servicesLayout.mjs`, `boardLimits.mjs`, `marketplace.mjs`,
+  `servicesLayout.mjs`, `boardLimits.mjs`, `contentReports.mjs`,
   `degreePrograms.mjs`, `purdueMajors.mjs`, `gradeTracker.mjs`) keep the browser
   and the API on one set of values.
 - `src/dbErrors.mjs` and `docs/api-error-codes.md`: the error envelope
@@ -77,6 +77,8 @@ rights to the BoilerIndy name or logo.
 - Frontend logic: `lib/` with a colocated `*.test.ts`; components and pages get
   `*.test.tsx` next to them (Vitest and Testing Library, `pnpm -C
   boilerindy-react test`).
+- Content that students post gets a Report and a Block action, through
+  `hooks/useReportAndBlock.tsx` (see `docs/moderation.md`).
 - Per-user browser state: keys carry the user id, saving refuses without one,
   and sign-out clears it (see `createLocalLayoutStore.ts` and
   `queries/userData.ts`).
