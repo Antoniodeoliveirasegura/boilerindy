@@ -23,6 +23,8 @@ async function withApp({ user = ME, handlers = {}, classItems = CLASS_ITEMS } = 
     friend_match_courses: () => ({ data: [], error: null }),
     connections: () => ({ data: [], error: null }),
     users: () => ({ data: [], error: null }),
+    // Nobody is blocked unless a test says so (#192).
+    blocked_users: () => ({ data: [], error: null }),
     ...handlers,
   })
   const limiterHits = []
@@ -312,6 +314,63 @@ test('my connections: accepted ones carry the email, incoming requests do not, o
   await withApp({}, async ({ call, supabase }) => {
     assert.deepEqual((await call('GET', '/api/me/connections')).body, { accepted: [], incoming: [] })
     assert.equal(supabase.queriesOf('users').length, 0, 'no user lookup without connections')
+  })
+})
+
+test('a block either way keeps a user out of my matches, my connections and my requests (#192)', async () => {
+  // I blocked Ana; Bo blocked me.
+  const blockedUsers = () => ({ data: [{ blocker_id: ME.id, blocked_id: ANA }, { blocker_id: BO, blocked_id: ME.id }], error: null })
+  const matchHandlers = {
+    blocked_users: blockedUsers,
+    user_profiles: (chain) =>
+      hasCall(chain, 'maybeSingle')
+        ? { data: { discoverable: true }, error: null }
+        : { data: [{ user_id: CY, interests: ['go'], discoverable: true }], error: null },
+    friend_match_courses: () => ({
+      data: [
+        { user_id: ANA, course_code: 'CS 18000' },
+        { user_id: BO, course_code: 'CS 18000' },
+        { user_id: CY, course_code: 'CS 18000' },
+      ],
+      error: null,
+    }),
+    users: () => ({ data: [{ id: CY, display_name: 'Cy' }], error: null }),
+  }
+  await withApp({ handlers: matchHandlers }, async ({ call, supabase }) => {
+    const answer = await call('GET', '/api/me/matches')
+    assert.deepEqual(answer.body.matches.map((m) => m.userId), [CY])
+    const [users] = supabase.queriesOf('users')
+    assert.ok(hasCall(users.chain, 'in', 'id', [CY]), 'a blocked user is never even looked up')
+  })
+  const connectionHandlers = {
+    blocked_users: blockedUsers,
+    connections: () => ({
+      data: [
+        { requester_id: ME.id, addressee_id: ANA, status: 'accepted' },
+        { requester_id: BO, addressee_id: ME.id, status: 'pending' },
+        { requester_id: CY, addressee_id: ME.id, status: 'pending' },
+      ],
+      error: null,
+    }),
+    users: () => ({ data: [{ id: CY, display_name: 'Cy', email: 'cy@purdue.edu' }], error: null }),
+  }
+  await withApp({ handlers: connectionHandlers }, async ({ call, supabase }) => {
+    const answer = await call('GET', '/api/me/connections')
+    assert.deepEqual(answer.body, { accepted: [], incoming: [{ userId: CY, displayName: 'Cy' }] })
+    const [users] = supabase.queriesOf('users')
+    assert.ok(hasCall(users.chain, 'in', 'id', [CY]))
+  })
+  const requestHandlers = {
+    blocked_users: blockedUsers,
+    user_profiles: () => ({ data: { discoverable: true }, error: null }),
+    connections: () => ({ data: null, error: null }),
+  }
+  await withApp({ handlers: requestHandlers }, async ({ call, supabase }) => {
+    for (const addresseeId of [ANA, BO]) {
+      const answer = await call('POST', '/api/connections', { addresseeId })
+      assert.deepEqual(answer.body, { ok: true, status: 'pending' }, 'the same answer as a real request')
+    }
+    assert.equal(supabase.queriesOf('connections').length, 0, 'nothing is written across a block')
   })
 })
 

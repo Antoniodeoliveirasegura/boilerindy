@@ -30,8 +30,9 @@ function row(overrides = {}) {
   }
 }
 
-async function withApp({ user = STUDENT, table = () => ({ data: [], error: null }) } = {}, run) {
-  const supabase = fakeSupabase({ lost_found_items: table })
+// Nobody is blocked unless a test says so (#192).
+async function withApp({ user = STUDENT, table = () => ({ data: [], error: null }), blocked = () => ({ data: [], error: null }) } = {}, run) {
+  const supabase = fakeSupabase({ lost_found_items: table, blocked_users: blocked })
   const limiterHits = []
   const limiter = (name) => (req, _res, next) => {
     limiterHits.push(`${name} ${req.method} ${req.path}`)
@@ -158,6 +159,34 @@ test('GET ignores an unknown type or status and answers an empty, unavailable li
     const answer = await call('GET', '/api/lost-found')
     assert.equal(answer.status, 200)
     assert.deepEqual(answer.body, { items: [], unavailable: true })
+  })
+})
+
+test('GET leaves out users on either side of a block, in the query, and fails soft if the blocks cannot be read (#192)', async () => {
+  const BLOCKED_ME = '55555555-5555-4555-8555-555555555555'
+  const blocked = () => ({
+    data: [
+      { blocker_id: STUDENT.id, blocked_id: OTHER },
+      { blocker_id: BLOCKED_ME, blocked_id: STUDENT.id },
+    ],
+    error: null,
+  })
+  await withApp({ blocked }, async ({ call, supabase }) => {
+    assert.equal((await call('GET', '/api/lost-found?q=bottle')).status, 200)
+    const [{ chain }] = supabase.queriesOf('lost_found_items')
+    assert.ok(hasCall(chain, 'not', 'user_id', 'in', `(${OTHER},${BLOCKED_ME})`))
+  })
+  await withApp({}, async ({ call, supabase }) => {
+    await call('GET', '/api/lost-found')
+    const [{ chain }] = supabase.queriesOf('lost_found_items')
+    assert.ok(!hasCall(chain, 'not'), 'no filter when nobody is blocked')
+  })
+  const timeout = { code: '57014', message: 'canceling statement due to statement timeout' }
+  await withApp({ blocked: () => ({ data: null, error: timeout }) }, async ({ call, supabase }) => {
+    const answer = await call('GET', '/api/lost-found')
+    assert.equal(answer.status, 200)
+    assert.deepEqual(answer.body, { items: [], unavailable: true })
+    assert.equal(supabase.queriesOf('lost_found_items').length, 0, 'nothing is listed without the block set')
   })
 })
 

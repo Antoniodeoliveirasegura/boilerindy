@@ -111,6 +111,14 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-report-and-block.sql',
     'Could not send the report. Please try again.',
   ),
+  // Blocking users (#192). Only the block routes answer this code: a list that
+  // hides blocked users reads an empty block set while the table is missing.
+  blocked_users: dbFeature(
+    'blocked_users',
+    'Blocked users',
+    'db/supabase-report-and-block.sql',
+    'Could not update your blocked users. Please try again.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',

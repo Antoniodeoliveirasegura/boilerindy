@@ -1,4 +1,5 @@
 import express from 'express'
+import { excludeAuthors, isBlockedEither, loadBlockedIds } from '../blocks.mjs'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { badRequest } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
@@ -48,6 +49,7 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
     const q = typeof req.query.q === 'string' ? sanitizeSearchTerm(req.query.q) : ''
     const page = Math.max(0, parseInt(req.query.page, 10) || 0)
     try {
+      const blocked = await loadBlockedIds(supabase, userId)
       let query = supabase
         .from('marketplace_listings')
         .select('*')
@@ -58,6 +60,9 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
         .range(page * MARKETPLACE_PAGE_SIZE, page * MARKETPLACE_PAGE_SIZE + MARKETPLACE_PAGE_SIZE - 1)
       if (category) query = query.eq('category', category)
       if (q) query = query.ilike('title', `%${q}%`)
+      // Users on either side of a block with the caller are left out in the
+      // query, so hasMore stays exact (#192).
+      query = excludeAuthors(query, 'user_id', blocked)
       const { data, error } = await query
       if (error) throw error
       res.json({
@@ -113,7 +118,12 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
     try {
       const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).maybeSingle()
       if (error) throw error
-      if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
+      if (
+        !data
+        || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))
+        // A block either way reads as a missing listing (#192).
+        || isBlockedEither(await loadBlockedIds(supabase, userId), data.user_id)
+      ) {
         return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
       }
       const { data: seller } = await supabase.from('users').select('display_name, email').eq('id', data.user_id).single()

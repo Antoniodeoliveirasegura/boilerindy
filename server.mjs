@@ -94,6 +94,8 @@ import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
 import { createFriendsRouter } from './src/routes/friends.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
+import { createBlocksRouter } from './src/routes/blocks.mjs'
+import { excludeAuthors, loadBlockedIds } from './src/blocks.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -2606,10 +2608,13 @@ app.use(createLostFoundRouter({ supabase, requireAuth, isUserAdmin, lostFoundWri
 // session above, apiNotFound and the error handler below) is unaffected.
 app.use(createLayoutsRouter({ supabase, requireAuth, userWriteRateLimit }))
 
-// ── Reporting content (issue #192) ──────────────────────────────────────────
+// ── Reporting content and blocking users (issue #192) ───────────────────────
 // POST /api/reports lives in src/routes/reports.mjs: one report route for every
-// surface students post to, feeding the admin queue below.
+// surface students post to, feeding the admin queue below. The block routes
+// (/api/me/blocks*) live in src/routes/blocks.mjs; every list of other
+// students' content leaves blocked users out through src/blocks.mjs.
 app.use(createReportsRouter({ supabase, requireAuth, reportRateLimit }))
+app.use(createBlocksRouter({ supabase, requireAuth, userWriteRateLimit }))
 
 app.get('/', (_req, res) => {
   res.redirect(clientAppUrl)
@@ -3762,12 +3767,23 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
   const page = Math.max(0, parseInt(req.query.page, 10) || 0)
 
+  // Users on either side of a block with the caller are left out in the
+  // queries, so paging stays exact (issue #192). Anonymous posts keep their
+  // user_id, so the filter covers them too.
+  let blocked
+  try {
+    blocked = await loadBlockedIds(supabase, req.currentUser.id)
+  } catch (err) {
+    return respondBoardDbError(res, err)
+  }
+
   // select('*') keeps the board working whether or not the optional
   // edited_at migration (db/supabase-board-only.sql) has been applied yet
   let query = supabase
     .from('board_posts')
     .select('*')
     .is('deleted_at', null)
+  query = excludeAuthors(query, 'user_id', blocked)
   if (sort === 'popular') {
     query = query
       .order('pinned', { ascending: false })
@@ -3788,10 +3804,11 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
     // Newest first with a hard cap (issue #200): only the newest INLINE_REPLIES
     // per post are previewed, and the rest of a thread comes from
     // GET /api/board/posts/:id/replies.
-    const { data: rd } = await supabase
+    const replyQuery = supabase
       .from('board_replies')
       .select('id, post_id, body, is_anon, created_at, user_id')
       .in('post_id', postIds)
+    const { data: rd } = await excludeAuthors(replyQuery, 'user_id', blocked)
       .order('created_at', { ascending: false })
       .limit(INLINE_REPLY_FETCH_LIMIT)
     repliesData = rd || []
@@ -3862,10 +3879,18 @@ app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
 
-  const { data, error } = await supabase
+  // Replies by users on either side of a block are left out (issue #192).
+  let blocked
+  try {
+    blocked = await loadBlockedIds(supabase, req.currentUser.id)
+  } catch (err) {
+    return respondBoardDbError(res, err)
+  }
+  const replyQuery = supabase
     .from('board_replies')
     .select('id, post_id, body, is_anon, created_at, user_id')
     .eq('post_id', postId)
+  const { data, error } = await excludeAuthors(replyQuery, 'user_id', blocked)
     .order('created_at', { ascending: true })
     .range(page * REPLY_PAGE_SIZE, page * REPLY_PAGE_SIZE + REPLY_PAGE_SIZE - 1)
   if (error) return respondBoardDbError(res, error)

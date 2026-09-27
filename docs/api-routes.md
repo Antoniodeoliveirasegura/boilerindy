@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-144 routes in 10 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+148 routes in 11 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -84,6 +84,10 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/marketplace/capabilities` | `src/routes/marketplace.mjs` |
 | GET | `/api/marketplace/mine` | `src/routes/marketplace.mjs` |
 | POST | `/api/marketplace/photos/authorize` | `src/routes/marketplace.mjs` |
+| GET | `/api/me/blocks` | `src/routes/blocks.mjs` |
+| POST | `/api/me/blocks/:userId` | `src/routes/blocks.mjs` |
+| DELETE | `/api/me/blocks/:userId` | `src/routes/blocks.mjs` |
+| POST | `/api/me/blocks/content/:targetType/:targetId` | `src/routes/blocks.mjs` |
 | GET | `/api/me/calendar` | `server.mjs` |
 | GET | `/api/me/calendar-feed` | `server.mjs` |
 | POST | `/api/me/calendar-feed/token` | `server.mjs` |
