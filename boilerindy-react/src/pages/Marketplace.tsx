@@ -74,6 +74,7 @@ const STEP_TEXT: Record<PhotoStep, string> = {
 const REPORT_REASON_LABELS: Record<string, string> = {
   spam: 'Spam',
   scam: 'Scam or fraud',
+  harassment: 'Harassment',
   prohibited: 'Prohibited item',
   other: 'Something else',
 }

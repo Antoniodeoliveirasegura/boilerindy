@@ -2,9 +2,10 @@ import express from 'express'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { badRequest } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
-import { evaluateReportTarget, mapListingRow, parseReportInput, shouldAutoHide, validateListingInput } from '../marketplace.mjs'
+import { evaluateReportTarget, mapListingRow, parseReportParts, validateListingInput } from '../marketplace.mjs'
 import { countMarketplaceReports, findOwnedMarketplaceListing, respondMarketplaceDbError } from '../marketplaceDb.mjs'
 import { photoAuthorizationHandler } from '../marketplacePhotos.mjs'
+import { recordListingReport } from '../marketplaceReports.mjs'
 import { ownerOrAdminScope } from '../moderation.mjs'
 import { sanitizeSearchTerm } from '../searchTerm.mjs'
 
@@ -200,10 +201,12 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
   // listing is looked up before the insert (issue #204): until then a report
   // against a soft-deleted or unknown id reached the foreign key and came back
   // as a 500, and nothing stopped a seller reporting their own listing.
+  // recordListingReport also files the report in the admin queue (#192), the
+  // same write POST /api/reports makes for a listing.
   router.post('/api/marketplace/:id/report', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
     const userId = req.currentUser.id
     const listingId = req.params.id
-    const parsed = parseReportInput(req.body || {})
+    const parsed = parseReportParts(req.body || {})
     if (!parsed.ok) return badRequest(res, parsed.message)
     try {
       const { data: listing, error: lookupErr } = await supabase
@@ -219,22 +222,14 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
       }
       if (verdict.status !== 200) return badRequest(res, verdict.message)
 
-      const { error: insErr } = await supabase
-        .from('marketplace_reports')
-        .insert({ listing_id: listingId, reporter_id: userId, reason: parsed.reason, created_at: new Date().toISOString() })
-      // The primary key (listing_id, reporter_id) caps a reporter at one report
-      // per listing, so a second one cannot move the count. Answering here says
-      // so plainly and saves the recount round trip.
-      if (insErr?.code === '23505') return res.json({ ok: true, duplicate: true })
-      if (insErr) throw insErr
-
-      const { count } = await supabase
-        .from('marketplace_reports')
-        .select('reporter_id', { count: 'exact', head: true })
-        .eq('listing_id', listingId)
-      if (shouldAutoHide(count)) {
-        await supabase.from('marketplace_listings').update({ hidden: true }).eq('id', listingId)
-      }
+      const { duplicate } = await recordListingReport(supabase, {
+        listingId,
+        reporterId: userId,
+        reason: parsed.reason,
+        details: parsed.details,
+        now: new Date().toISOString(),
+      })
+      if (duplicate) return res.json({ ok: true, duplicate: true })
       res.json({ ok: true })
     } catch (e) {
       return respondMarketplaceDbError(res, e)

@@ -92,6 +92,8 @@ import { createGuideRouter } from './src/routes/guide.mjs'
 import { createStudyGroupsRouter } from './src/routes/studyGroups.mjs'
 import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
 import { createFriendsRouter } from './src/routes/friends.mjs'
+import { createReportsRouter } from './src/routes/reports.mjs'
+import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -510,6 +512,14 @@ const userWriteRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 120,
   message: 'You are making changes too quickly. Please wait a moment and try again.',
+})
+// Reports on student content (issue #192): generous for someone flagging a
+// run of spam, low enough that the queue cannot be flooded from one account.
+const reportRateLimit = createRateLimiter({
+  name: 'report',
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: 'Too many reports. Please try again in an hour.',
 })
 // Advertiser campaign creates and edits (issue #202). Portal sessions carry
 // req.session.advertiserId rather than a student userId, so the default key
@@ -2595,6 +2605,11 @@ app.use(createLostFoundRouter({ supabase, requireAuth, isUserAdmin, lostFoundWri
 // #191). Mounted where the routes were, so ordering-sensitive middleware (the
 // session above, apiNotFound and the error handler below) is unaffected.
 app.use(createLayoutsRouter({ supabase, requireAuth, userWriteRateLimit }))
+
+// ── Reporting content (issue #192) ──────────────────────────────────────────
+// POST /api/reports lives in src/routes/reports.mjs: one report route for every
+// surface students post to, feeding the admin queue below.
+app.use(createReportsRouter({ supabase, requireAuth, reportRateLimit }))
 
 app.get('/', (_req, res) => {
   res.redirect(clientAppUrl)
@@ -4922,6 +4937,12 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
 
   res.json({ ok: true, cleared })
 })
+
+// ── Content reports queue (admin, issue #192) ───────────────────────────────
+// GET /api/admin/reports and PATCH /api/admin/reports/:id live in
+// src/routes/adminReports.mjs; taking reported content down stays with each
+// type's own DELETE route and the hidden-listing takedown below.
+app.use(createAdminReportsRouter({ supabase, requireAuth, requireAdmin, adminWriteRateLimit }))
 
 // ── Soft-delete moderation (admin) ───────────────────────────────────────────
 // User/owner delete endpoints only soft-delete (set deleted_at). Admins review

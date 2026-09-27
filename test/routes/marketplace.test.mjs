@@ -58,6 +58,8 @@ async function withApp({ user = STUDENT, handlers = {} } = {}, run) {
   const supabase = fakeSupabase({
     marketplace_listings: () => ({ data: [], error: null }),
     marketplace_reports: () => ({ data: [], error: null }),
+    // The admin queue a listing report also writes (#192).
+    content_reports: () => ({ data: null, error: null }),
     users: () => ({ data: { display_name: 'Sam Seller', email: 'seller@purdue.edu' }, error: null }),
     ...handlers,
   })
@@ -391,13 +393,21 @@ test('report: a duplicate answers without recounting, and the third distinct rep
     assert.equal(insert.listing_id, LISTING)
     assert.equal(insert.reporter_id, STUDENT.id)
     assert.equal(insert.reason, 'other: never shipped')
+    // The same report reaches the admin queue with the reason and details apart (#192).
+    const queued = supabase.queriesOf('content_reports')[0].chain.find((c) => c.method === 'insert').args[0]
+    assert.equal(queued.target_type, 'marketplace')
+    assert.equal(queued.target_id, LISTING)
+    assert.equal(queued.reason, 'other')
+    assert.equal(queued.details, 'never shipped')
     assert.deepEqual((await call('POST', `/api/marketplace/${LISTING}/report`, { reason: 'spam' })).body, { ok: true })
     assert.equal(supabase.queriesOf('marketplace_listings').filter((q) => operation(q.chain) === 'update').length, 0, 'two reporters do not hide it')
 
     duplicate = true
     const before = supabase.queriesOf('marketplace_reports').length
+    const queuedBefore = supabase.queriesOf('content_reports').length
     assert.deepEqual((await call('POST', `/api/marketplace/${LISTING}/report`, { reason: 'spam' })).body, { ok: true, duplicate: true })
     assert.equal(supabase.queriesOf('marketplace_reports').length, before + 1, 'the duplicate insert is the only query, no recount')
+    assert.equal(supabase.queriesOf('content_reports').length, queuedBefore, 'a duplicate is not queued again')
 
     duplicate = false
     assert.deepEqual((await call('POST', `/api/marketplace/${LISTING}/report`, { reason: 'scam' })).body, { ok: true })

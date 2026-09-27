@@ -104,6 +104,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-friend-matching.sql',
     'Could not load matches. Please try again.',
   ),
+  // Reports on any student content, and the admin queue that reads them (#192).
+  content_reports: dbFeature(
+    'content_reports',
+    'Reporting content',
+    'db/supabase-report-and-block.sql',
+    'Could not send the report. Please try again.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',
