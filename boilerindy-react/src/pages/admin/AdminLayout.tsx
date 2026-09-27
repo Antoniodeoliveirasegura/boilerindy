@@ -7,6 +7,7 @@ const NAV = [
   { to: '/admin/leads', label: 'Access requests', icon: 'users' },
   { to: '/admin/campaigns', label: 'Campaigns', icon: 'briefcase' },
   { to: '/admin/advertisers', label: 'Advertisers', icon: 'check' },
+  { to: '/admin/reports', label: 'Reports', icon: 'flag' },
   { to: '/admin/deleted', label: 'Deleted content', icon: 'trash' },
 ]
 

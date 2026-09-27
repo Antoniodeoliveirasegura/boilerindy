@@ -119,3 +119,39 @@ export function takeDownHiddenListing(id: string): Promise<unknown> {
     method: 'POST',
   })
 }
+
+// The report queue (issue #192): what students reported on board posts and
+// replies, lost and found items, guide recommendations, study groups,
+// marketplace listings and users. An admin opens the content, takes it down
+// through the helpers above, and resolves or dismisses the report here.
+export type ReportStatus = 'open' | 'resolved' | 'dismissed'
+export type ReportTargetType = 'board_post' | 'board_reply' | 'lost_found' | 'guide' | 'study_group' | 'marketplace' | 'user'
+
+export type ContentReport = {
+  id: string
+  targetType: ReportTargetType
+  targetId: string
+  reason: string
+  details: string
+  status: ReportStatus
+  createdAt: string
+  reporter: { id: string; displayName: string | null }
+  target: {
+    title: string
+    authorId: string | null
+    authorName: string | null
+    deleted: boolean
+    hidden: boolean
+  } | null
+}
+
+export function listReports(status: ReportStatus): Promise<unknown> {
+  return authRequest(`/api/admin/reports?status=${encodeURIComponent(status)}`)
+}
+
+export function closeReport(id: string, status: 'resolved' | 'dismissed'): Promise<unknown> {
+  return authRequest(`/api/admin/reports/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+}

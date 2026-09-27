@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { authRequest } from './authApi'
-import { getLiveContent, takeDownContent, type DeletedContentType } from './adminApi'
+import { closeReport, getLiveContent, listReports, takeDownContent, type DeletedContentType } from './adminApi'
 
 // Live-content takedown (#195): the admin panel removes an item through its
 // type's public DELETE route, so each type must map to the path server.mjs
@@ -40,5 +40,27 @@ describe('getLiveContent', () => {
     expect(authRequest).toHaveBeenCalledWith(`/api/admin/content/study-groups/${ID}`)
     await getLiveContent('board', 'x y/z')
     expect(authRequest).toHaveBeenLastCalledWith('/api/admin/content/board/x%20y%2Fz')
+  })
+})
+
+// The report queue (#192): the list reads by status and a report closes with
+// a PATCH, the two routes src/routes/adminReports.mjs serves.
+describe('the report queue helpers', () => {
+  test('listReports reads the queue for one status', async () => {
+    await listReports('open')
+    expect(authRequest).toHaveBeenCalledWith('/api/admin/reports?status=open')
+  })
+
+  test('closeReport sends the new status to the report with an encoded id', async () => {
+    await closeReport(ID, 'dismissed')
+    expect(authRequest).toHaveBeenCalledWith(`/api/admin/reports/${ID}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'dismissed' }),
+    })
+    await closeReport('a/b', 'resolved')
+    expect(authRequest).toHaveBeenLastCalledWith('/api/admin/reports/a%2Fb', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'resolved' }),
+    })
   })
 })

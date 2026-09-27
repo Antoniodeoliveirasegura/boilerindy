@@ -73,6 +73,7 @@ test('the codes clients depend on are pinned; board and advertiser keep their ex
   assert.deepEqual(codes.sort(), [
     'advertiser_schema_missing',
     'board_schema_missing',
+    'content_reports_schema_missing',
     'deals_schema_missing',
     'friends_schema_missing',
     'guide_schema_missing',

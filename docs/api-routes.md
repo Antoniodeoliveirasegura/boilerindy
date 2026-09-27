@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 8 files: `server.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`.
+144 routes in 10 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -27,6 +27,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/admin/leads/:id` | `server.mjs` |
 | GET | `/api/admin/overview` | `server.mjs` |
 | POST | `/api/admin/purdue-links/clear` | `server.mjs` |
+| GET | `/api/admin/reports` | `src/routes/adminReports.mjs` |
+| PATCH | `/api/admin/reports/:id` | `src/routes/adminReports.mjs` |
 | GET | `/api/admin/sentry-test` | `server.mjs` |
 | GET | `/api/advertiser/campaigns` | `server.mjs` |
 | POST | `/api/advertiser/campaigns` | `server.mjs` |
@@ -131,6 +133,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/push/subscriptions` | `server.mjs` |
 | DELETE | `/api/push/subscriptions` | `server.mjs` |
 | POST | `/api/push/test` | `server.mjs` |
+| POST | `/api/reports` | `src/routes/reports.mjs` |
 | GET | `/api/session` | `server.mjs` |
 | POST | `/api/sign-out` | `server.mjs` |
 | DELETE | `/api/sources/:sourceId` | `server.mjs` |
