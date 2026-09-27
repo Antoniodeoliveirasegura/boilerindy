@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 6 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`.
+141 routes in 7 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -73,15 +73,15 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/lost-found` | `src/routes/lostFound.mjs` |
 | PATCH | `/api/lost-found/:id` | `src/routes/lostFound.mjs` |
 | DELETE | `/api/lost-found/:id` | `src/routes/lostFound.mjs` |
-| GET | `/api/marketplace` | `server.mjs` |
-| POST | `/api/marketplace` | `server.mjs` |
-| GET | `/api/marketplace/:id` | `server.mjs` |
-| PATCH | `/api/marketplace/:id` | `server.mjs` |
-| DELETE | `/api/marketplace/:id` | `server.mjs` |
-| POST | `/api/marketplace/:id/report` | `server.mjs` |
-| GET | `/api/marketplace/capabilities` | `server.mjs` |
-| GET | `/api/marketplace/mine` | `server.mjs` |
-| POST | `/api/marketplace/photos/authorize` | `server.mjs` |
+| GET | `/api/marketplace` | `src/routes/marketplace.mjs` |
+| POST | `/api/marketplace` | `src/routes/marketplace.mjs` |
+| GET | `/api/marketplace/:id` | `src/routes/marketplace.mjs` |
+| PATCH | `/api/marketplace/:id` | `src/routes/marketplace.mjs` |
+| DELETE | `/api/marketplace/:id` | `src/routes/marketplace.mjs` |
+| POST | `/api/marketplace/:id/report` | `src/routes/marketplace.mjs` |
+| GET | `/api/marketplace/capabilities` | `src/routes/marketplace.mjs` |
+| GET | `/api/marketplace/mine` | `src/routes/marketplace.mjs` |
+| POST | `/api/marketplace/photos/authorize` | `src/routes/marketplace.mjs` |
 | GET | `/api/me/calendar` | `server.mjs` |
 | GET | `/api/me/calendar-feed` | `server.mjs` |
 | POST | `/api/me/calendar-feed/token` | `server.mjs` |
