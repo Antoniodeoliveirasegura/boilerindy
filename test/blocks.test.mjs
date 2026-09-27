@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { MAX_BLOCKS, excludeAuthors, isBlockedEither, loadBlockedIds } from '../src/blocks.mjs'
+import { MAX_BLOCKS, excludeBlocked, isBlockedEither, loadBlockedIds } from '../src/blocks.mjs'
 import { fakeSupabase, hasCall } from './routes/fakeSupabase.mjs'
 
 // Issue #192: the block set every list of other students' content reads, and
@@ -43,7 +43,7 @@ test('loadBlockedIds is empty before README step 38 runs, and throws any other f
   await assert.rejects(loadBlockedIds(failing, ME), (e) => e === timeout)
 })
 
-test('excludeAuthors adds one not-in filter for a non-empty set and leaves the query alone otherwise', () => {
+test('excludeBlocked adds one not-in filter for a non-empty set and leaves the query alone otherwise', () => {
   const calls = []
   const query = {
     not(...args) {
@@ -51,10 +51,10 @@ test('excludeAuthors adds one not-in filter for a non-empty set and leaves the q
       return 'filtered'
     },
   }
-  assert.equal(excludeAuthors(query, 'user_id', new Set()), query)
-  assert.equal(excludeAuthors(query, 'user_id', undefined), query)
+  assert.equal(excludeBlocked(query, 'user_id', new Set()), query)
+  assert.equal(excludeBlocked(query, 'user_id', undefined), query)
   assert.deepEqual(calls, [])
-  assert.equal(excludeAuthors(query, 'creator_id', new Set([BLOCKED_BY_ME, BLOCKED_ME])), 'filtered')
+  assert.equal(excludeBlocked(query, 'creator_id', new Set([BLOCKED_BY_ME, BLOCKED_ME])), 'filtered')
   assert.deepEqual(calls, [['creator_id', 'in', `(${BLOCKED_BY_ME},${BLOCKED_ME})`]])
 })
 

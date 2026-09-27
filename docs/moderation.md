@@ -204,7 +204,7 @@ the filter reads `user_id`, which an anonymous post keeps on the server.
 `loadBlockedIds(supabase, userId)` in `src/blocks.mjs` reads every
 `blocked_users` row the caller is on either side of, in one query, and returns
 the other users as a set. Each list passes that set to
-`excludeAuthors(query, column, blocked)`, which adds
+`excludeBlocked(query, column, blocked)`, which adds
 `.not(column, 'in', '(...)')` to the query itself, so a page is still a full
 page and `hasMore` stays exact. The set is applied on:
 

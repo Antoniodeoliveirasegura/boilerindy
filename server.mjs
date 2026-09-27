@@ -95,7 +95,7 @@ import { createFriendsRouter } from './src/routes/friends.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
-import { excludeAuthors, loadBlockedIds } from './src/blocks.mjs'
+import { excludeBlocked, loadBlockedIds } from './src/blocks.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -3783,7 +3783,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
     .from('board_posts')
     .select('*')
     .is('deleted_at', null)
-  query = excludeAuthors(query, 'user_id', blocked)
+  query = excludeBlocked(query, 'user_id', blocked)
   if (sort === 'popular') {
     query = query
       .order('pinned', { ascending: false })
@@ -3808,7 +3808,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
       .from('board_replies')
       .select('id, post_id, body, is_anon, created_at, user_id')
       .in('post_id', postIds)
-    const { data: rd } = await excludeAuthors(replyQuery, 'user_id', blocked)
+    const { data: rd } = await excludeBlocked(replyQuery, 'user_id', blocked)
       .order('created_at', { ascending: false })
       .limit(INLINE_REPLY_FETCH_LIMIT)
     repliesData = rd || []
@@ -3890,7 +3890,7 @@ app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async
     .from('board_replies')
     .select('id, post_id, body, is_anon, created_at, user_id')
     .eq('post_id', postId)
-  const { data, error } = await excludeAuthors(replyQuery, 'user_id', blocked)
+  const { data, error } = await excludeBlocked(replyQuery, 'user_id', blocked)
     .order('created_at', { ascending: true })
     .range(page * REPLY_PAGE_SIZE, page * REPLY_PAGE_SIZE + REPLY_PAGE_SIZE - 1)
   if (error) return respondBoardDbError(res, error)

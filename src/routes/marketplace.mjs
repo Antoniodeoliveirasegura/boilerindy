@@ -1,5 +1,5 @@
 import express from 'express'
-import { excludeAuthors, isBlockedEither, loadBlockedIds } from '../blocks.mjs'
+import { excludeBlocked, isBlockedEither, loadBlockedIds } from '../blocks.mjs'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { badRequest } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
@@ -62,7 +62,7 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
       if (q) query = query.ilike('title', `%${q}%`)
       // Users on either side of a block with the caller are left out in the
       // query, so hasMore stays exact (#192).
-      query = excludeAuthors(query, 'user_id', blocked)
+      query = excludeBlocked(query, 'user_id', blocked)
       const { data, error } = await query
       if (error) throw error
       res.json({

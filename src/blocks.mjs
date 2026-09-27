@@ -37,14 +37,16 @@ export async function loadBlockedIds(supabase, userId) {
 /**
  * Leave out rows whose `column` names a blocked user. The ids are UUIDs from
  * the database, so the PostgREST list needs no quoting. Returns the query
- * unchanged when nothing is blocked, so the common case adds no filter.
+ * unchanged when nothing is blocked, so the common case adds no filter. (Not
+ * named for authors: CodeQL's js/missing-rate-limiting reads any call named
+ * like "auth" as an authorization check.)
  * @template Q
  * @param {Q & { not: (column: string, op: string, value: string) => Q }} query
  * @param {string} column
  * @param {Set<string>} blockedIds
  * @returns {Q}
  */
-export function excludeAuthors(query, column, blockedIds) {
+export function excludeBlocked(query, column, blockedIds) {
   if (!blockedIds || blockedIds.size === 0) return query
   return query.not(column, 'in', `(${[...blockedIds].join(',')})`)
 }
