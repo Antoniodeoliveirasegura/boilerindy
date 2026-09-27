@@ -10,8 +10,9 @@ expectation is that every open report is looked at within 24 hours. Anything
 urgent, or anything the app cannot express, goes to `abuse@boilerindy.app`
 (the Support page, `/support`, says so).
 
-Blocking users is the second half of #192 and is documented here when it
-lands.
+A student can also block another student. A block works both ways: the two
+stop seeing each other's content, matches and connection requests everywhere
+(see [Blocking users](#blocking-users)).
 
 ## Tables
 
@@ -27,13 +28,16 @@ server, with the service-role key, reads or writes them.
   `details` free text up to 500 characters, `status` one of `open`, `resolved`,
   `dismissed`, and `resolved_at` and `resolved_by` record who closed it and
   when.
-- `blocked_users`: one row per block (`blocker_id`, `blocked_id`), used by the
-  block routes once they land.
+- `blocked_users`: one row per block (`blocker_id`, `blocked_id`,
+  `created_at`), primary key on the pair and no self-block. The server applies
+  each row in both directions (see [Blocking users](#blocking-users)).
 
 Until step 38 runs nothing breaks: `POST /api/reports` answers
 `503 content_reports_schema_missing` for everything but a marketplace listing,
-whose report keeps working through `marketplace_reports`, and the admin
-Reports page shows that reporting is not set up yet.
+whose report keeps working through `marketplace_reports`, the admin Reports
+page shows that reporting is not set up yet, the block routes answer
+`503 blocked_users_schema_missing`, and every list reads as if nobody had
+blocked anyone.
 
 ## Reasons
 
@@ -158,9 +162,75 @@ details, who reported it and how long ago; one older than a day is marked.
 
 There is no admin block: an admin's tools are the takedown and the queue.
 
+## Blocking users
+
+A block works both ways. Once either student blocks the other, neither sees
+the other's board posts and replies, lost and found items, guide
+recommendations, study groups or marketplace listings, neither appears in the
+other's matches or connections, and neither can send the other a connection
+request. Blocking also deletes the pair's `connections` rows in both
+directions, so an accepted connection or a pending request ends with it;
+unblocking does not bring them back. A student can block up to 500 users.
+
+The routes are in `src/routes/blocks.mjs`. All of them need a signed-in
+student, and the three writes are limited by `user-write` (see
+[RATE_LIMITS.md](RATE_LIMITS.md)).
+
+| Route | Answers |
+|---|---|
+| `GET /api/me/blocks` | `200 { "blocks": [{ "userId", "displayName", "createdAt" }] }`: the users the caller blocked, newest first. Blocks by other people take effect but are never listed. |
+| `POST /api/me/blocks/:userId` | `200 { "ok": true }`, also for a repeat; `400` "You cannot block yourself."; `404` "User not found."; `400` "You have reached the limit of blocked users." |
+| `POST /api/me/blocks/content/:targetType/:targetId` | Blocks whoever wrote the content: `200 { "ok": true }`; `400` "You have reached the limit of blocked users."; `400` "Anonymous posts cannot be blocked. Report it instead."; `404` "Not found." for a type other than `board_post`, `board_reply`, `lost_found`, `guide`, `study_group` and `marketplace`. |
+| `DELETE /api/me/blocks/:userId` | `200 { "ok": true }`, also when there was no block. |
+
+All four answer `503 blocked_users_schema_missing` before step 38 runs and
+`500` "Could not update your blocked users. Please try again." on any other
+database failure. A malformed id gets the `404` envelope.
+
+Only friend matching shows user ids; no list of posts names its authors. So
+a post is blocked by the post: the by-content route looks the author up on the
+server, through the type's table and author column in `REPORT_TARGETS`. It
+answers `200 { "ok": true }` whether the content still exists, is the caller's
+own or was blocked, so the answer says nothing about who wrote what.
+
+**Anonymous posts cannot be blocked** (owner decision, 2026-09-27). The Blocked
+users list names everyone on it, so blocking the author of an anonymous board
+post or reply would unmask them. Those answer `400` and are reported instead.
+A block made any other way still hides that person's anonymous posts, because
+the filter reads `user_id`, which an anonymous post keeps on the server.
+
+### How the lists apply a block
+
+`loadBlockedIds(supabase, userId)` in `src/blocks.mjs` reads every
+`blocked_users` row the caller is on either side of, in one query, and returns
+the other users as a set. Each list passes that set to
+`excludeBlocked(query, column, blocked)`, which adds
+`.not(column, 'in', '(...)')` to the query itself, so a page is still a full
+page and `hasMore` stays exact. The set is applied on:
+
+- the board: `GET /api/board/posts` (the posts and the reply previews under
+  them) and `GET /api/board/posts/:id/replies`, on `user_id`;
+- the lost and found, guide and marketplace lists, on `user_id`; a listing's
+  detail answers `404` "Listing not found." across a block;
+- both study group lists, on `creator_id`;
+- friend matching: matches and the connections list skip the other user, and
+  `POST /api/connections` gives its usual `{ "ok": true, "status": "pending" }`
+  without writing anything (`canReceiveFriendRequest` refuses a blocked pair).
+
+Before step 38 runs the set is empty, so every list works as before. Any other
+failure to read it fails the list rather than show a blocked user's content;
+lost and found answers its empty `unavailable` list. A post's `replyCount`
+still counts replies from blocked users, whose text the thread leaves out.
+
 ## What a client needs to call
 
 The website and the native app (boilerindy-app#59) call `POST /api/reports`
 with the target type and id of whatever the student is looking at, and show
 the answer's message on a `400` or `404`. A `duplicate` answer reads as
 success. Only admins call the queue routes.
+
+To block, a client calls `POST /api/me/blocks/content/:targetType/:targetId`
+with the same type and id it would report, or `POST /api/me/blocks/:userId`
+where it holds a user id (friend matches, connections and requests), then
+reloads the list it came from. An anonymous post offers Report only. Settings
+lists `GET /api/me/blocks` with an Unblock for each row.

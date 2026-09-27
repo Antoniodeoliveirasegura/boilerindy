@@ -1,4 +1,5 @@
 import express from 'express'
+import { excludeBlocked, loadBlockedIds } from '../blocks.mjs'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { DB_FEATURES, respondDbError, respondSchemaMissing } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
@@ -135,9 +136,11 @@ export function createStudyGroupsRouter({ supabase, requireAuth, isUserAdmin, ge
       const ids = (mem || []).map((m) => m.group_id)
       if (!ids.length) return res.json({ groups: [] })
       // Taken-down groups keep their member rows (so a restore brings them back)
-      // but must not show up here.
+      // but must not show up here, and neither does a group whose creator is on
+      // either side of a block with the caller (#192).
+      const blocked = await loadBlockedIds(supabase, userId)
       const { data: groups } = await selectLiveRows((liveOnly) => {
-        const query = supabase.from('study_groups').select('*').in('id', ids)
+        const query = excludeBlocked(supabase.from('study_groups').select('*').in('id', ids), 'creator_id', blocked)
         return liveOnly ? query.is('deleted_at', null) : query
       })
       const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
@@ -153,8 +156,10 @@ export function createStudyGroupsRouter({ supabase, requireAuth, isUserAdmin, ge
     const course = normalizeCourseCode(req.query.course)
     if (!course) return res.status(400).json({ error: { message: 'A valid course code is required.', status: 400 } })
     try {
+      // Groups whose creator is on either side of a block with the caller are left out (#192).
+      const blocked = await loadBlockedIds(supabase, userId)
       const { data: groups, error } = await selectLiveRows((liveOnly) => {
-        let query = supabase.from('study_groups').select('*').eq('course_code', course)
+        let query = excludeBlocked(supabase.from('study_groups').select('*').eq('course_code', course), 'creator_id', blocked)
         if (liveOnly) query = query.is('deleted_at', null)
         return query.order('created_at', { ascending: false }).limit(100)
       })

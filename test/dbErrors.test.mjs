@@ -72,6 +72,7 @@ test('the codes clients depend on are pinned; board and advertiser keep their ex
   const codes = Object.values(DB_FEATURES).map((config) => `${config.feature}_schema_missing`)
   assert.deepEqual(codes.sort(), [
     'advertiser_schema_missing',
+    'blocked_users_schema_missing',
     'board_schema_missing',
     'content_reports_schema_missing',
     'deals_schema_missing',

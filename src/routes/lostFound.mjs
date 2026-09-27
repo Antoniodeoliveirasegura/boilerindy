@@ -1,4 +1,5 @@
 import express from 'express'
+import { excludeBlocked, loadBlockedIds } from '../blocks.mjs'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
 import { ownerOrAdminScope } from '../moderation.mjs'
@@ -53,6 +54,14 @@ export function createLostFoundRouter({ supabase, requireAuth, isUserAdmin, lost
     const status = req.query.status === 'resolved' || req.query.status === 'open' ? req.query.status : null
     const search = typeof req.query.q === 'string' ? sanitizeSearchTerm(req.query.q) : ''
 
+    let blocked
+    try {
+      blocked = await loadBlockedIds(supabase, userId)
+    } catch (err) {
+      console.error('GET /api/lost-found:', err.message)
+      return res.json({ items: [], unavailable: true })
+    }
+
     let query = supabase
       .from('lost_found_items')
       .select('*')
@@ -63,6 +72,8 @@ export function createLostFoundRouter({ supabase, requireAuth, isUserAdmin, lost
     if (type) query = query.eq('type', type)
     if (status) query = query.eq('status', status)
     if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,location.ilike.%${search}%`)
+    // Users on either side of a block with the caller are left out (#192).
+    query = excludeBlocked(query, 'user_id', blocked)
 
     const { data, error } = await query
     if (error) {

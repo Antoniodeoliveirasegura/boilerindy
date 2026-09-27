@@ -61,6 +61,8 @@ async function withApp({ user = STUDENT, handlers = {} } = {}, run) {
     // The admin queue a listing report also writes (#192).
     content_reports: () => ({ data: null, error: null }),
     users: () => ({ data: { display_name: 'Sam Seller', email: 'seller@purdue.edu' }, error: null }),
+    // Nobody is blocked unless a test says so (#192).
+    blocked_users: () => ({ data: [], error: null }),
     ...handlers,
   })
   const photos = fakePhotos()
@@ -270,6 +272,22 @@ test('the detail hides a hidden listing from everyone but its owner and admins, 
     assert.deepEqual(answer.body, { listing: mapListingRow(row, STUDENT.id, { name: 'Sam Seller', email: 'seller@purdue.edu' }) })
     const [seller] = supabase.queriesOf('users')
     assert.ok(hasCall(seller.chain, 'eq', 'id', SELLER))
+  })
+})
+
+test('a block either way leaves the seller\'s listings out of the list, in the query, and their detail reads as missing (#192)', async () => {
+  const blockedUsers = () => ({ data: [{ blocker_id: SELLER, blocked_id: STUDENT.id }], error: null })
+  await withApp({ handlers: { blocked_users: blockedUsers } }, async ({ call, supabase }) => {
+    assert.equal((await call('GET', '/api/marketplace')).status, 200)
+    const [{ chain }] = supabase.queriesOf('marketplace_listings')
+    assert.ok(hasCall(chain, 'not', 'user_id', 'in', `(${SELLER})`))
+  })
+  const handlers = { blocked_users: blockedUsers, marketplace_listings: () => ({ data: listingRow({ user_id: SELLER }), error: null }) }
+  await withApp({ handlers }, async ({ call, supabase }) => {
+    const answer = await call('GET', `/api/marketplace/${LISTING}`)
+    assert.equal(answer.status, 404)
+    assert.deepEqual(answer.body, { error: { message: 'Listing not found.', status: 404 } })
+    assert.equal(supabase.queriesOf('users').length, 0, 'the seller contact is never read')
   })
 })
 

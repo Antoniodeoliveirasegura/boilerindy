@@ -39,6 +39,8 @@ async function withApp({ user = STUDENT, handlers = {}, counts = [4] } = {}, run
   const supabase = fakeSupabase({
     guide_recommendations: () => ({ data: [], error: null }),
     guide_upvotes: () => ({ data: null, error: null }),
+    // Nobody is blocked unless a test says so (#192).
+    blocked_users: () => ({ data: [], error: null }),
     ...handlers,
   })
   const limiterHits = []
@@ -165,6 +167,16 @@ test('GET skips the upvote lookup for an empty list', async () => {
     const answer = await call('GET', '/api/guide')
     assert.deepEqual(answer.body, { recommendations: [] })
     assert.equal(supabase.queriesOf('guide_upvotes').length, 0)
+  })
+})
+
+test('GET leaves out users on either side of a block, in the query (#192)', async () => {
+  const BLOCKED_ME = '55555555-5555-4555-8555-555555555555'
+  const handlers = { blocked_users: () => ({ data: [{ blocker_id: BLOCKED_ME, blocked_id: STUDENT.id }], error: null }) }
+  await withApp({ handlers }, async ({ call, supabase }) => {
+    assert.equal((await call('GET', '/api/guide')).status, 200)
+    const [{ chain }] = supabase.queriesOf('guide_recommendations')
+    assert.ok(hasCall(chain, 'not', 'user_id', 'in', `(${BLOCKED_ME})`))
   })
 })
 

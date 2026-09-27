@@ -38,6 +38,8 @@ async function withApp({ user = STUDENT, handlers = {}, classItems = CLASS_ITEMS
     study_groups: () => ({ data: [], error: null }),
     study_group_members: () => ({ data: [], error: null }),
     study_group_courses: () => ({ data: [], error: null }),
+    // Nobody is blocked unless a test says so (#192).
+    blocked_users: () => ({ data: [], error: null }),
     ...handlers,
   })
   const limiterHits = []
@@ -261,6 +263,22 @@ test('the course list needs a valid code, hides deleted groups and falls back un
     assert.equal(answer.status, 200)
     assert.equal(answer.body.groups.length, 1)
     assert.equal(supabase.queriesOf('study_groups').length, 2)
+  })
+})
+
+test('both group lists leave out groups whose creator is on either side of a block, in the query (#192)', async () => {
+  const handlers = {
+    blocked_users: () => ({ data: [{ blocker_id: STUDENT.id, blocked_id: OTHER }], error: null }),
+    study_group_members: () => ({ data: [{ group_id: GROUP_ID }], error: null }),
+  }
+  await withApp({ handlers }, async ({ call, supabase }) => {
+    assert.equal((await call('GET', '/api/study-groups?course=cs18000')).status, 200)
+    assert.equal((await call('GET', '/api/me/study-groups')).status, 200)
+    const [course, mine] = supabase.queriesOf('study_groups')
+    assert.ok(hasCall(course.chain, 'eq', 'course_code', 'CS 18000'))
+    assert.ok(hasCall(course.chain, 'not', 'creator_id', 'in', `(${OTHER})`))
+    assert.ok(hasCall(mine.chain, 'in', 'id', [GROUP_ID]))
+    assert.ok(hasCall(mine.chain, 'not', 'creator_id', 'in', `(${OTHER})`))
   })
 })
 

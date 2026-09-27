@@ -1,4 +1,5 @@
 import express from 'express'
+import { excludeBlocked, loadBlockedIds } from '../blocks.mjs'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { DB_FEATURES, respondSoftDeleteFeatureDbError } from '../dbErrors.mjs'
 import { mapGuideRow, validateGuideInput } from '../guideRecommendations.mjs'
@@ -37,6 +38,7 @@ export function createGuideRouter({ supabase, requireAuth, requireAdmin, isUserA
     const userId = req.currentUser.id
     const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
     try {
+      const blocked = await loadBlockedIds(supabase, userId)
       let query = supabase
         .from('guide_recommendations')
         .select('*')
@@ -46,6 +48,8 @@ export function createGuideRouter({ supabase, requireAuth, requireAdmin, isUserA
         .order('created_at', { ascending: false })
         .limit(200)
       if (category) query = query.eq('category', category)
+      // Users on either side of a block with the caller are left out (#192).
+      query = excludeBlocked(query, 'user_id', blocked)
       const { data, error } = await query
       if (error) throw error
 

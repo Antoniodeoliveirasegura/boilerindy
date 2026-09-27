@@ -1,4 +1,5 @@
 import express from 'express'
+import { loadBlockedIds } from '../blocks.mjs'
 import { assertBoardPostTextAllowed } from '../boardProfanity.mjs'
 import { DB_FEATURES, respondDbError } from '../dbErrors.mjs'
 import { mapMatchCard, rankMatches, sendConnectionRequest, validateProfileInput } from '../friendMatching.mjs'
@@ -107,9 +108,11 @@ export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUse
       for (const c of conns || []) {
         connected.add(c.requester_id === userId ? c.addressee_id : c.requester_id)
       }
+      // Nor anyone on either side of a block (#192).
+      const blocked = await loadBlockedIds(supabase, userId)
 
       const candidates = [...byUser.entries()]
-        .filter(([uid]) => !connected.has(uid))
+        .filter(([uid]) => !connected.has(uid) && !blocked.has(uid))
         .map(([uid, courses]) => ({ userId: uid, courses }))
       const ranked = rankMatches(myCourses, candidates)
       if (ranked.length === 0) return res.json({ matches: [], discoverable: true })
@@ -136,12 +139,14 @@ export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUse
     }
   })
 
-  // Send a connection request (blocked silently if the addressee declined before,
-  // is not discoverable, or does not exist). The gate lives in
-  // sendConnectionRequest (src/friendMatching.mjs) so it is tested (#203).
+  // Send a connection request (dropped silently if the addressee declined before,
+  // is not discoverable, does not exist, or a block stands between the two, #192).
+  // The gate lives in sendConnectionRequest (src/friendMatching.mjs) so it is
+  // tested (#203).
   router.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
     try {
-      const out = await sendConnectionRequest(supabase, req.currentUser.id, req.body?.addresseeId, { nowIso: () => new Date().toISOString() })
+      const blocked = await loadBlockedIds(supabase, req.currentUser.id)
+      const out = await sendConnectionRequest(supabase, req.currentUser.id, req.body?.addresseeId, { nowIso: () => new Date().toISOString(), blocked })
       return res.status(out.status).json(out.body)
     } catch (e) {
       return respondFriendsDbError(res, e)
@@ -182,11 +187,14 @@ export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUse
         .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
       if (error) throw error
 
+      // A block deletes the pair's rows; one that slipped in around it stays hidden (#192).
+      const blocked = await loadBlockedIds(supabase, userId)
       const accepted = []
       const incoming = []
       const otherIds = new Set()
       for (const c of conns || []) {
         const other = c.requester_id === userId ? c.addressee_id : c.requester_id
+        if (blocked.has(other)) continue
         otherIds.add(other)
         if (c.status === 'accepted') accepted.push({ userId: other })
         else if (c.status === 'pending' && c.addressee_id === userId) incoming.push({ userId: c.requester_id })
