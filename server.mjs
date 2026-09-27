@@ -88,6 +88,7 @@ import { hasFreeFood } from './src/freeFood.mjs'
 import { createLayoutsRouter } from './src/routes/layouts.mjs'
 import { createLostFoundRouter } from './src/routes/lostFound.mjs'
 import { createDealsRouter } from './src/routes/deals.mjs'
+import { createGuideRouter } from './src/routes/guide.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -97,7 +98,6 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
-import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import {
   BOARD_PAGE_SIZE,
   INLINE_REPLIES,
@@ -4202,131 +4202,10 @@ app.delete('/api/board/posts/:id', userWriteRateLimit, requireIdParam('id'), req
 })
 
 // ============================================================
-// Neighborhood Guide (issue #31) - student-submitted local recommendations.
-// Reuses board conventions: boardWriteRateLimit, boardProfanity, upvote toggle.
-// Requires db/supabase-neighborhood-guide.sql.
+// Neighborhood Guide (issue #31) - student recommendations, in
+// src/routes/guide.mjs (issue #191).
 // ============================================================
-
-function respondGuideDbError(res, err) {
-  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.guide)
-}
-
-app.get('/api/guide', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  try {
-    let query = supabase
-      .from('guide_recommendations')
-      .select('*')
-      .is('deleted_at', null)
-      .order('pinned', { ascending: false })
-      .order('upvote_count', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(200)
-    if (category) query = query.eq('category', category)
-    const { data, error } = await query
-    if (error) throw error
-
-    const recs = data || []
-    let upvoted = new Set()
-    if (recs.length) {
-      const { data: votes } = await supabase
-        .from('guide_upvotes')
-        .select('rec_id')
-        .eq('user_id', userId)
-        .in('rec_id', recs.map((r) => r.id))
-      upvoted = new Set((votes || []).map((v) => v.rec_id))
-    }
-    res.json({ recommendations: recs.map((r) => mapGuideRow(r, userId, upvoted)) })
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-app.post('/api/guide', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const { value, error: invalid } = validateGuideInput(req.body || {})
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-
-  const profanity = assertBoardPostTextAllowed(value.title, value.body)
-  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-
-  try {
-    const { data, error } = await supabase
-      .from('guide_recommendations')
-      .insert({ user_id: req.currentUser.id, ...value })
-      .select('*')
-      .single()
-    if (error) throw error
-    res.status(201).json({ recommendation: mapGuideRow(data, req.currentUser.id) })
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const recId = req.params.id
-  const userId = req.currentUser.id
-  try {
-    const { data: rec, error: recErr } = await supabase
-      .from('guide_recommendations')
-      .select('id')
-      .eq('id', recId)
-      .is('deleted_at', null)
-      .maybeSingle()
-    if (recErr) throw recErr
-    if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
-    res.json(
-      await toggleUpvote({
-        supabase,
-        table: 'guide_upvotes',
-        refColumn: 'rec_id',
-        refId: recId,
-        userId,
-        now: nowIso(),
-        syncCount: () => communityCounters.syncGuideRecUpvotes(recId),
-      }),
-    )
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
-  const pinned = req.body?.pinned === true || req.body?.pinned === 'true'
-  try {
-    const { data, error } = await supabase
-      .from('guide_recommendations')
-      .update({ pinned })
-      .eq('id', req.params.id)
-      .is('deleted_at', null)
-      .select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
-    res.json({ ok: true, pinned })
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-// Delete - owner or admin (admins take down live recommendations, issue #195).
-app.delete('/api/guide/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const query = supabase
-      .from('guide_recommendations')
-      .update({ deleted_at: nowIso() })
-      .eq('id', req.params.id)
-      .is('deleted_at', null)
-    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
-    if (error) throw error
-    if (!data?.length) {
-      return res.status(404).json({ error: { message: 'Recommendation not found or not yours.', status: 404 } })
-    }
-    res.status(204).end()
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
+app.use(createGuideRouter({ supabase, requireAuth, requireAdmin, isUserAdmin, communityCounters, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
 // Study Group Finder (issue #33) - per-course groups from synced schedules.
