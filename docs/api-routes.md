@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 5 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`.
+141 routes in 6 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -111,9 +111,9 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/me/services` | `src/routes/layouts.mjs` |
 | PUT | `/api/me/services` | `src/routes/layouts.mjs` |
 | GET | `/api/me/sources` | `server.mjs` |
-| GET | `/api/me/study-groups` | `server.mjs` |
-| GET | `/api/me/study-groups/courses` | `server.mjs` |
-| PATCH | `/api/me/study-groups/opt-in` | `server.mjs` |
+| GET | `/api/me/study-groups` | `src/routes/studyGroups.mjs` |
+| GET | `/api/me/study-groups/courses` | `src/routes/studyGroups.mjs` |
+| PATCH | `/api/me/study-groups/opt-in` | `src/routes/studyGroups.mjs` |
 | POST | `/api/me/tasks/calendar/complete` | `server.mjs` |
 | POST | `/api/me/tasks/manual` | `server.mjs` |
 | PATCH | `/api/me/tasks/manual/:id` | `server.mjs` |
@@ -138,11 +138,11 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/sources/purdue/schedule` | `server.mjs` |
 | POST | `/api/spotlight/:campaignId/event` | `server.mjs` |
 | GET | `/api/spotlight/active` | `server.mjs` |
-| GET | `/api/study-groups` | `server.mjs` |
-| POST | `/api/study-groups` | `server.mjs` |
-| DELETE | `/api/study-groups/:id` | `server.mjs` |
-| POST | `/api/study-groups/:id/join` | `server.mjs` |
-| POST | `/api/study-groups/:id/leave` | `server.mjs` |
+| GET | `/api/study-groups` | `src/routes/studyGroups.mjs` |
+| POST | `/api/study-groups` | `src/routes/studyGroups.mjs` |
+| DELETE | `/api/study-groups/:id` | `src/routes/studyGroups.mjs` |
+| POST | `/api/study-groups/:id/join` | `src/routes/studyGroups.mjs` |
+| POST | `/api/study-groups/:id/leave` | `src/routes/studyGroups.mjs` |
 | POST | `/api/sync/:sourceId` | `server.mjs` |
 | GET | `/api/transit/routes` | `server.mjs` |
 | GET | `/api/transit/stops` | `server.mjs` |

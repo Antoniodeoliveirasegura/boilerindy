@@ -11,6 +11,10 @@ export const MAX_GROUP_DESCRIPTION = 1000
 export const MAX_MEETING_INFO = 200
 export const MAX_CAPACITY = 100
 
+// Soft delete for groups came later (issue #195) and is a separate migration.
+// Named by the study-groups router and the admin content map in server.mjs.
+export const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
+
 /**
  * Extract a normalized course code ("CS 18000") from arbitrary text.
  * @param {unknown} text
