@@ -91,6 +91,7 @@ import { createDealsRouter } from './src/routes/deals.mjs'
 import { createGuideRouter } from './src/routes/guide.mjs'
 import { createStudyGroupsRouter } from './src/routes/studyGroups.mjs'
 import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
+import { createFriendsRouter } from './src/routes/friends.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -109,7 +110,7 @@ import {
   validateBoardReply,
 } from './src/boardLimits.mjs'
 import { groupRepliesByPost, mapBoardReply } from './src/boardReplies.mjs'
-import { coursesFromClassItems, STUDY_SOFT_DELETE_SQL_FILE } from './src/studyGroups.mjs'
+import { STUDY_SOFT_DELETE_SQL_FILE } from './src/studyGroups.mjs'
 import { isMissingColumnError, isUuid, ownerOrAdminScope } from './src/moderation.mjs'
 import { requireIdParam } from './src/httpGuards.mjs'
 import {
@@ -128,7 +129,6 @@ import { countMarketplaceReports, respondMarketplaceDbError } from './src/market
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
 import { createPurdueLinkFlowRateLimit, linkHandoffToken } from './src/purdueLinkThrottle.mjs'
-import { validateProfileInput, rankMatches, mapMatchCard, sendConnectionRequest } from './src/friendMatching.mjs'
 import {
   matchIntent,
   formatNextClass,
@@ -4224,195 +4224,10 @@ const marketplacePhotos = createMarketplacePhotos({ supabase, secret: sessionSec
 app.use(createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, marketplacePhotos, marketplacePhotoRateLimit, marketplaceReadRateLimit, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
-// Friend Matching (issue #17) - connect students who share courses.
-// Privacy is opt-in (discoverable, default off); pre-acceptance only display
-// name, interests, and shared-course count are exposed. Requires
-// db/supabase-friend-matching.sql.
+// Friend Matching (issue #17) - students who share courses, in
+// src/routes/friends.mjs (issue #191).
 // ============================================================
-
-function respondFriendsDbError(res, err) {
-  return respondDbError(res, err, DB_FEATURES.friends)
-}
-
-// My profile + discoverable status.
-app.get('/api/me/profile-card', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data, error } = await supabase.from('user_profiles').select('*').eq('user_id', userId).maybeSingle()
-    if (error) throw error
-    res.json({
-      bio: data?.bio || '',
-      interests: Array.isArray(data?.interests) ? data.interests : [],
-      discoverable: Boolean(data?.discoverable),
-    })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Update profile; on discoverable=true, snapshot my course codes for matching.
-app.put('/api/me/profile-card', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { value, error: invalid } = validateProfileInput(req.body || {})
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  const profanity = assertBoardPostTextAllowed(value.bio, value.interests.join(' '))
-  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-  try {
-    const { error } = await supabase
-      .from('user_profiles')
-      .upsert({ user_id: userId, ...value, updated_at: nowIso() }, { onConflict: 'user_id' })
-    if (error) throw error
-    await supabase.from('friend_match_courses').delete().eq('user_id', userId)
-    if (value.discoverable) {
-      const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
-      const courses = coursesFromClassItems(items)
-      if (courses.length) {
-        await supabase.from('friend_match_courses').insert(courses.map((c) => ({ user_id: userId, course_code: c })))
-      }
-    }
-    res.json({ ok: true, ...value })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Discoverable users sharing >=1 course, ranked by overlap. No email/schedule.
-app.get('/api/me/matches', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const me = await supabase.from('user_profiles').select('discoverable').eq('user_id', userId).maybeSingle()
-    if (!me.data?.discoverable) return res.json({ matches: [], discoverable: false })
-
-    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
-    const myCourses = new Set(coursesFromClassItems(items))
-    if (myCourses.size === 0) return res.json({ matches: [], discoverable: true })
-
-    // Candidate users who share at least one of my courses (excluding me).
-    const { data: courseRows, error: cErr } = await supabase
-      .from('friend_match_courses')
-      .select('user_id, course_code')
-      .in('course_code', [...myCourses])
-    if (cErr) throw cErr
-    const byUser = new Map()
-    for (const row of courseRows || []) {
-      if (row.user_id === userId) continue
-      if (!byUser.has(row.user_id)) byUser.set(row.user_id, [])
-      byUser.get(row.user_id).push(row.course_code)
-    }
-    if (byUser.size === 0) return res.json({ matches: [], discoverable: true })
-
-    // Exclude users with an existing connection (any direction/status).
-    const { data: conns } = await supabase
-      .from('connections')
-      .select('requester_id, addressee_id')
-      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
-    const connected = new Set()
-    for (const c of conns || []) {
-      connected.add(c.requester_id === userId ? c.addressee_id : c.requester_id)
-    }
-
-    const candidates = [...byUser.entries()]
-      .filter(([uid]) => !connected.has(uid))
-      .map(([uid, courses]) => ({ userId: uid, courses }))
-    const ranked = rankMatches(myCourses, candidates)
-    if (ranked.length === 0) return res.json({ matches: [], discoverable: true })
-
-    // Hydrate names + interests for the ranked candidates (discoverable only).
-    const ids = ranked.map((r) => r.userId)
-    const { data: profiles } = await supabase.from('user_profiles').select('user_id, interests, discoverable').in('user_id', ids)
-    const { data: users } = await supabase.from('users').select('id, display_name').in('id', ids)
-    const profById = new Map((profiles || []).map((p) => [p.user_id, p]))
-    const userById = new Map((users || []).map((u) => [u.id, u]))
-
-    const matches = ranked
-      .filter((r) => profById.get(r.userId)?.discoverable)
-      .map((r) => {
-        const card = mapMatchCard(
-          { id: r.userId, display_name: userById.get(r.userId)?.display_name, interests: profById.get(r.userId)?.interests },
-          r.sharedCount,
-        )
-        return { ...card, sharedCourses: r.sharedCourses }
-      })
-    res.json({ matches, discoverable: true })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Send a connection request (blocked silently if the addressee declined before,
-// is not discoverable, or does not exist). The gate lives in
-// sendConnectionRequest (src/friendMatching.mjs) so it is tested (#203).
-app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
-  try {
-    const out = await sendConnectionRequest(supabase, req.currentUser.id, req.body?.addresseeId, { nowIso })
-    return res.status(out.status).json(out.body)
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Accept or decline an incoming request.
-app.patch('/api/connections/:requesterId', userWriteRateLimit, requireIdParam('requesterId'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const requesterId = req.params.requesterId
-  const action = String(req.body?.action || '').trim()
-  if (!['accept', 'decline'].includes(action)) {
-    return res.status(400).json({ error: { message: 'Action must be accept or decline.', status: 400 } })
-  }
-  try {
-    const { data, error } = await supabase
-      .from('connections')
-      .update({ status: action === 'accept' ? 'accepted' : 'declined' })
-      .eq('requester_id', requesterId)
-      .eq('addressee_id', userId)
-      .eq('status', 'pending')
-      .select('requester_id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'No pending request from that user.', status: 404 } })
-    res.json({ ok: true, status: action === 'accept' ? 'accepted' : 'declined' })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// My connections: accepted (with contact email) + incoming pending requests.
-app.get('/api/me/connections', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data: conns, error } = await supabase
-      .from('connections')
-      .select('requester_id, addressee_id, status')
-      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
-    if (error) throw error
-
-    const accepted = []
-    const incoming = []
-    const otherIds = new Set()
-    for (const c of conns || []) {
-      const other = c.requester_id === userId ? c.addressee_id : c.requester_id
-      otherIds.add(other)
-      if (c.status === 'accepted') accepted.push({ userId: other })
-      else if (c.status === 'pending' && c.addressee_id === userId) incoming.push({ userId: c.requester_id })
-    }
-    const { data: users } = otherIds.size
-      ? await supabase.from('users').select('id, display_name, email').in('id', [...otherIds])
-      : { data: [] }
-    const userById = new Map((users || []).map((u) => [u.id, u]))
-    // Accepted connections may see the Purdue email for contact; pending may not.
-    const acctOut = accepted.map((a) => ({
-      userId: a.userId,
-      displayName: userById.get(a.userId)?.display_name || 'Student',
-      email: userById.get(a.userId)?.email || null,
-    }))
-    const inOut = incoming.map((a) => ({
-      userId: a.userId,
-      displayName: userById.get(a.userId)?.display_name || 'Student',
-    }))
-    res.json({ accepted: acctOut, incoming: inOut })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
+app.use(createFriendsRouter({ supabase, requireAuth, getClassItemsForUser, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
 // Advertiser portal (separate from student auth - see
