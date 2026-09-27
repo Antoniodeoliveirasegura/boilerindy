@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 4 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`.
+141 routes in 5 files: `server.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -61,11 +61,11 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | DELETE | `/api/deals/:id` | `src/routes/deals.mjs` |
 | GET | `/api/debug/source/:sourceId` | `server.mjs` |
 | GET | `/api/dining` | `server.mjs` |
-| GET | `/api/guide` | `server.mjs` |
-| POST | `/api/guide` | `server.mjs` |
-| DELETE | `/api/guide/:id` | `server.mjs` |
-| PATCH | `/api/guide/:id/pin` | `server.mjs` |
-| POST | `/api/guide/:id/upvote` | `server.mjs` |
+| GET | `/api/guide` | `src/routes/guide.mjs` |
+| POST | `/api/guide` | `src/routes/guide.mjs` |
+| DELETE | `/api/guide/:id` | `src/routes/guide.mjs` |
+| PATCH | `/api/guide/:id/pin` | `src/routes/guide.mjs` |
+| POST | `/api/guide/:id/upvote` | `src/routes/guide.mjs` |
 | GET | `/api/health` | `server.mjs` |
 | POST | `/api/internal/push/run-reminders` | `server.mjs` |
 | POST | `/api/internal/sources/resync` | `server.mjs` |
