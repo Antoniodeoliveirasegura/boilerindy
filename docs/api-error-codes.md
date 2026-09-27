@@ -45,9 +45,10 @@ suffix to its "coming soon" state.
 
 `src/dbErrors.mjs` owns these responses. `DB_FEATURES` lists each feature's
 key (the code prefix), the subject of the client message, the SQL file(s) that
-create its tables, and the 500 fallback message. The route helpers in
-`server.mjs` (`respondBoardDbError`, `respondMarketplaceDbError` and the rest)
-are thin wrappers over `respondDbError`.
+create its tables, and the 500 fallback message. The per-feature route helpers
+(`respondBoardDbError` in `server.mjs`, `respondMarketplaceDbError` in
+`src/marketplaceDb.mjs`, and the rest in the feature routers under
+`src/routes/`) are thin wrappers over `respondDbError`.
 
 - A missing table or column answers `503` with the feature's code and the
   message `<Feature> is not set up yet. Please try again later.` That is
