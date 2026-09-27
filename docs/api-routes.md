@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-141 routes in 2 files: `server.mjs`, `src/routes/layouts.mjs`.
+141 routes in 3 files: `server.mjs`, `src/routes/lostFound.mjs`, `src/routes/layouts.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -69,10 +69,10 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/health` | `server.mjs` |
 | POST | `/api/internal/push/run-reminders` | `server.mjs` |
 | POST | `/api/internal/sources/resync` | `server.mjs` |
-| GET | `/api/lost-found` | `server.mjs` |
-| POST | `/api/lost-found` | `server.mjs` |
-| PATCH | `/api/lost-found/:id` | `server.mjs` |
-| DELETE | `/api/lost-found/:id` | `server.mjs` |
+| GET | `/api/lost-found` | `src/routes/lostFound.mjs` |
+| POST | `/api/lost-found` | `src/routes/lostFound.mjs` |
+| PATCH | `/api/lost-found/:id` | `src/routes/lostFound.mjs` |
+| DELETE | `/api/lost-found/:id` | `src/routes/lostFound.mjs` |
 | GET | `/api/marketplace` | `server.mjs` |
 | POST | `/api/marketplace` | `server.mjs` |
 | GET | `/api/marketplace/:id` | `server.mjs` |
