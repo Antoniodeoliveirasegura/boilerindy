@@ -119,6 +119,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-report-and-block.sql',
     'Could not update your blocked users. Please try again.',
   ),
+  // Linking a Purdue address by a code mailed to it (#181).
+  purdue_email_verification: dbFeature(
+    'purdue_email_verification',
+    'Purdue email verification',
+    'db/supabase-purdue-email-verification.sql',
+    'Could not start verification. Please try again.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',

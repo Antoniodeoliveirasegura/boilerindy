@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-148 routes in 11 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 12 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -112,6 +112,9 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/me/profile` | `server.mjs` |
 | GET | `/api/me/profile-card` | `src/routes/friends.mjs` |
 | PUT | `/api/me/profile-card` | `src/routes/friends.mjs` |
+| POST | `/api/me/purdue-email/request` | `src/routes/purdueEmail.mjs` |
+| GET | `/api/me/purdue-email/status` | `src/routes/purdueEmail.mjs` |
+| POST | `/api/me/purdue-email/verify` | `src/routes/purdueEmail.mjs` |
 | GET | `/api/me/schedule-overrides` | `server.mjs` |
 | PUT | `/api/me/schedule-overrides` | `server.mjs` |
 | GET | `/api/me/services` | `src/routes/layouts.mjs` |

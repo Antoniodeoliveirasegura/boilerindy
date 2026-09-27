@@ -9,6 +9,10 @@ cookie jar, so the route answered a JSON 401 and the link never completed.
 The handoff replaces the cookie with a short-lived, single-use token that
 identifies the student for exactly one link attempt.
 
+A student can also link a `@purdue.edu` address without CAS, by typing a code
+mailed to it: see [purdue-email-verification.md](purdue-email-verification.md)
+(issue #181). Both paths write the same link through `linkPurdueIdentity`.
+
 ## Sequence
 
 1. The app, signed in with its session cookie, calls
