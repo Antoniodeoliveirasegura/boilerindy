@@ -58,6 +58,7 @@ rows, and the 30 s default stale time applies.
 | `['me', userId, 'calendar-categories']` | `GET /api/me/calendar/categories` | Assignments |
 | `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |
 | `['me', userId, 'blocks']` | `GET /api/me/blocks` | Settings, Blocked users (issue #192) |
+| `['me', userId, 'purdue-email']` | `GET /api/me/purdue-email/status` | The Purdue email card on Settings and setup (issue #181); no retries |
 
 Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
 lands in the cached metadata at once, after cancelling any metadata fetch in

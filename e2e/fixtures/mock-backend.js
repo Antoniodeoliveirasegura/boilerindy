@@ -5,6 +5,7 @@ import {
   normalizeLayout as normalizeServicesLayout,
 } from '../../src/servicesLayout.mjs'
 import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from '../../src/manualTasks.mjs'
+import { normalizePurdueEmail, parseVerificationCode } from '../../src/purdueEmailVerification.mjs'
 
 // Stateful, in-memory mock of the BoilerIndy backend. Each test gets a fresh
 // `mockApi` controller that intercepts every `/api/**` call (and the Supabase
@@ -568,6 +569,9 @@ export const test = base.extend({
       // GET /api/me/blocks shape.
       reports: [],
       blocks: [],
+      // Purdue email-code verification (#181): the one live code, whose value
+      // is always 123456, as { email, expiresAt, attempts, consumed }.
+      purdueChallenge: null,
     }
 
     // A block by the test user, kept once like the blocked_users primary key.
@@ -1022,6 +1026,42 @@ export const test = base.extend({
         return json(route, 200, { ok: true })
       }
 
+      // Purdue email-code verification (#181): the three routes in the shapes
+      // of src/routes/purdueEmail.mjs, with its address and code rules. A right
+      // code links the address on the user and the onboarding summary, the way
+      // the session reads it after linkPurdueIdentity.
+      if (pathname === '/api/me/purdue-email/status' && method === 'GET') {
+        const c = state.purdueChallenge
+        return json(route, 200, {
+          linked: Boolean(state.user.hasPurdueLinked),
+          purdueEmail: state.user.purdueEmail || null,
+          pending: c && !c.consumed ? { email: c.email, expiresAt: c.expiresAt, attemptsLeft: Math.max(0, 5 - c.attempts) } : null,
+        })
+      }
+      if (pathname === '/api/me/purdue-email/request' && method === 'POST') {
+        const email = normalizePurdueEmail(bodyOf().email)
+        if (!email) return json(route, 400, { error: { message: 'Use your @purdue.edu address.', status: 400 } })
+        if (state.user.hasPurdueLinked && state.user.purdueEmail === email) return json(route, 200, { ok: true, alreadyLinked: true })
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+        state.purdueChallenge = { email, expiresAt, attempts: 0, consumed: false }
+        return json(route, 200, { ok: true, email, expiresAt, cooldownSeconds: 60 })
+      }
+      if (pathname === '/api/me/purdue-email/verify' && method === 'POST') {
+        const code = parseVerificationCode(bodyOf().code)
+        if (!code) return json(route, 400, { error: { message: 'Enter the 6-digit code.', status: 400 } })
+        const c = state.purdueChallenge
+        if (!c || c.consumed) return json(route, 400, { error: { message: 'Request a code first.', status: 400 } })
+        if (c.attempts >= 5) return json(route, 400, { error: { message: 'That code has expired. Request a new one.', status: 400 } })
+        if (code !== '123456') {
+          c.attempts += 1
+          return json(route, 400, { error: { message: 'That code is not right.', status: 400 } })
+        }
+        c.consumed = true
+        state.user = { ...state.user, purdueEmail: c.email, purdueUsername: c.email.split('@')[0], hasPurdueLinked: true }
+        state.onboarding = { ...state.onboarding, hasPurdueLinked: true, needsPurdueConnection: false }
+        return json(route, 200, { ok: true, purdueEmail: c.email })
+      }
+
       // Transit (issue #162): arrays seeded via seedTransit, empty by default.
       if (pathname === '/api/transit/routes') {
         return json(route, 200, state.transit.routes)
@@ -1079,6 +1119,10 @@ export const test = base.extend({
       },
       setOnboarding(overrides) {
         state.onboarding = defaultOnboarding(overrides)
+      },
+      // The signed-in user, e.g. { purdueEmail: null, hasPurdueLinked: false } for an unlinked student.
+      setUser(overrides) {
+        state.user = { ...DEFAULT_USER, ...overrides }
       },
       seedClasses(items, meta = {}) {
         state.classes = items

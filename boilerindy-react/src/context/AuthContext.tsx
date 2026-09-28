@@ -25,6 +25,9 @@ import {
 type AuthUser = {
   name?: string | null
   email?: string | null
+  /** The linked Purdue address (CAS, the dev mock or an emailed code, issue #181). */
+  purdueEmail?: string | null
+  hasPurdueLinked?: boolean
   [key: string]: unknown
 }
 
@@ -45,6 +48,8 @@ export type BackendSession = {
 type AuthConfig = {
   authProvider: string
   purdueAuthMode: string
+  /** False when PURDUE_AUTH_MODE is off: no CAS or mock link, only an emailed code. */
+  supportsPurdueLink?: boolean
 }
 
 type AuthContextValue = {
