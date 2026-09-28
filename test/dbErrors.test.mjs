@@ -80,6 +80,7 @@ test('the codes clients depend on are pinned; board and advertiser keep their ex
     'guide_schema_missing',
     'marketplace_schema_missing',
     'moderation_schema_missing',
+    'purdue_email_verification_schema_missing',
     'study_groups_schema_missing',
   ])
 })

@@ -95,6 +95,8 @@ import { createFriendsRouter } from './src/routes/friends.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
+import { createPurdueEmailRouter } from './src/routes/purdueEmail.mjs'
+import { LINKED_TO_ANOTHER_PURDUE_ACCOUNT_MESSAGE } from './src/purdueEmailVerification.mjs'
 import { excludeBlocked, loadBlockedIds } from './src/blocks.mjs'
 import {
   LETTER_GRADES,
@@ -197,7 +199,7 @@ import {
   resetTokenExpiry,
   isResetTokenExpired,
 } from './src/advertiserPasswordReset.mjs'
-import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
+import { sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -361,6 +363,15 @@ const sessionSyncIpRateLimit = createRateLimiter({
   max: 600,
   keyBy: 'ip',
   message: 'Too many session requests from this network. Please try again shortly.',
+})
+// Purdue email-code verification (#181): the code requests and the code
+// checks share ten an hour per student, which bounds both the mail sent to
+// any one address and the guesses at a six-digit code.
+const purdueVerifyRateLimit = createRateLimiter({
+  name: 'purdue-verify',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: 'Too many verification attempts. Please try again in an hour.',
 })
 // One handoff token per native Purdue link attempt (#214); tokens live 10 min.
 const purdueLinkTokenRateLimit = createRateLimiter({
@@ -1131,10 +1142,7 @@ async function linkPurdueIdentity(userId, { email }) {
   // message sends the student to support. The address stays out of the text:
   // the website carries this message in a redirect URL.
   if (currentPurdueEmail) {
-    throw new Error(
-      'Your BoilerIndy profile is already linked to a different Purdue account. '
-      + 'Contact support to release that link before linking another one.',
-    )
+    throw new Error(LINKED_TO_ANOTHER_PURDUE_ACCOUNT_MESSAGE)
   }
 
   const { data: existingRows } = await supabase
@@ -2615,6 +2623,12 @@ app.use(createLayoutsRouter({ supabase, requireAuth, userWriteRateLimit }))
 // students' content leaves blocked users out through src/blocks.mjs.
 app.use(createReportsRouter({ supabase, requireAuth, reportRateLimit }))
 app.use(createBlocksRouter({ supabase, requireAuth, userWriteRateLimit }))
+
+// ── Purdue email-code verification (issue #181) ─────────────────────────────
+// /api/me/purdue-email/* in src/routes/purdueEmail.mjs: a code mailed to a
+// @purdue.edu address links it through linkPurdueIdentity, in every
+// PURDUE_AUTH_MODE, since it proves only that the student reads that mailbox.
+app.use(createPurdueEmailRouter({ supabase, requireAuth, purdueVerifyRateLimit, linkPurdueIdentity, sendEmail, isProduction }))
 
 app.get('/', (_req, res) => {
   res.redirect(clientAppUrl)

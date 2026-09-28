@@ -19,6 +19,7 @@ coding conventions live in the root [README.md](../README.md).
 - [marketplace-photos.md](marketplace-photos.md) - how the app and the website authorize a direct Supabase Storage upload with the student session, up to six ordered photos per listing.
 - [moderation.md](moderation.md) - how students report what other students post and block each other, and how an admin works the one report queue at `/admin/reports` (issue #192).
 - [parking-status.md](parking-status.md) - live garage availability for Purdue Indianapolis students, behind the `/parking` page, the campus map layer and `GET /api/parking/garages` (issue #14).
+- [purdue-email-verification.md](purdue-email-verification.md) - how a student links a `@purdue.edu` address to their BoilerIndy account by typing a six-digit code mailed to it, with no Purdue CAS round trip and no admin or database step (issue #181).
 - [purdue-link.md](purdue-link.md) - the short-lived, single-use token that lets the native app link a Purdue identity without the `pih.sid` session cookie (issue #214).
 - [push-notifications.md](push-notifications.md) - Web Push deadline reminders: the `/settings` card, the `/api/push/` routes behind it, and the reminder runner the Supabase scheduler triggers every 5 minutes (issue #9).
 - [RATE_LIMITS.md](RATE_LIMITS.md) - the configurable, in-memory rate limiting that protects the backend, keyed by the signed-in user id when a session exists and otherwise by client IP.

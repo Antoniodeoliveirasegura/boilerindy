@@ -35,6 +35,7 @@ Not every route has moved to this envelope yet, so a client should read
 | `moderation_schema_missing` | 503 | `/api/admin/deleted/:type*`, `/api/admin/content/:type/:id` | That content type has no `deleted_at` column yet: `db/supabase-study-groups-soft-delete.sql` for `study-groups`, `db/supabase-soft-delete.sql` for every other type. | Admin view: show the message for that type. Retrying does not help until the migration runs; the message does not name the file (see below). |
 | `push_not_configured` | 503 | `/api/push/*` | Push tables are missing (`db/supabase-push.sql`). Its message still names that file. | Show notifications as not set up (the website Settings card does). |
 | `push_disabled` | 503 | `/api/push/*` | The server has no VAPID keys. | Treat push as switched off. |
+| `purdue_email_verification_schema_missing` | 503 | `/api/me/purdue-email/*` | `purdue_email_challenges` is missing: README step 39, `db/supabase-purdue-email-verification.sql`, has not run (see [purdue-email-verification.md](purdue-email-verification.md)). Linking through CAS or the mock is unaffected. | Show email verification as not available yet. |
 | `purdue_linking_disabled` | 400 | `POST /api/purdue/link-token` | `PURDUE_AUTH_MODE=off`. | Hide the Purdue link option. See [purdue-link.md](purdue-link.md). |
 | `purdue_link_unconfigured` | 503 | `POST /api/purdue/link-token` | `SESSION_SECRET` is shorter than 32 characters. | Show linking as unavailable. |
 | `purdue_link_unauthorized` | 401 | `POST /api/purdue/link-token` | The session has no valid student id. | Send the student to sign in again. |
@@ -97,6 +98,9 @@ table. Show the message and let the student retry later.
 - `GET /api/marketplace/capabilities`: the gallery and pricing columns are not
   there yet; both clients hold off on galleries and price choices.
 - Marketplace photo routes: photo storage is unavailable or not configured.
+- `POST /api/me/purdue-email/request`: the verification code could not be
+  mailed (Resend failed, or email is not configured in production). Nothing
+  is pending afterwards, so the student can ask again at once.
 
 ## Older error shapes
 
