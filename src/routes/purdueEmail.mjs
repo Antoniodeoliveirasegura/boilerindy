@@ -122,7 +122,8 @@ export function createPurdueEmailRouter({ supabase, requireAuth, purdueVerifyRat
       try {
         delivery = await sendEmail({ to: email, ...purdueVerificationEmail({ code }) })
       } catch (sendErr) {
-        console.error(`[purdue-email] could not send a code to ${maskEmail(email)}:`, sendErr?.message || sendErr)
+        // A constant format string: the address is an argument, never the format.
+        console.error('[purdue-email] could not send a code to %s:', maskEmail(email), sendErr?.message || sendErr)
       }
       if (!delivery || (delivery.skipped && isProduction)) {
         if (delivery?.skipped) console.error('[purdue-email] RESEND_API_KEY or RESEND_FROM is not set; no code was sent')
@@ -132,7 +133,7 @@ export function createPurdueEmailRouter({ supabase, requireAuth, purdueVerifyRat
         return res.status(503).json({ error: { message: UNSENT_MESSAGE, status: 503 } })
       }
       // Local work without an email provider, like the advertiser reset link.
-      if (delivery.skipped) console.log(`[purdue-email] dev code for ${maskEmail(email)}: ${code}`)
+      if (delivery.skipped) console.log('[purdue-email] dev code for %s: %s', maskEmail(email), code)
       res.json({ ok: true, email, expiresAt, cooldownSeconds: RESEND_COOLDOWN_MS / 1000 })
     } catch (e) {
       return respondDbError(res, e, DB_FEATURES.purdue_email_verification)

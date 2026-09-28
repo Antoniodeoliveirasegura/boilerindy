@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { format } from 'node:util'
 import express from 'express'
 import { createPurdueEmailRouter } from '../../src/routes/purdueEmail.mjs'
 import { hashCode, LINKED_TO_ANOTHER_PURDUE_ACCOUNT_MESSAGE } from '../../src/purdueEmailVerification.mjs'
@@ -149,7 +150,7 @@ function codeIn(message) {
 async function captureConsole(block) {
   const lines = []
   const saved = { log: console.log, warn: console.warn, error: console.error }
-  for (const level of Object.keys(saved)) console[level] = (...args) => lines.push(args.join(' '))
+  for (const level of Object.keys(saved)) console[level] = (...args) => lines.push(format(...args))
   try {
     await block(lines)
   } finally {
@@ -381,7 +382,7 @@ test('a failed send removes the code, answers 503, and leaves no cooldown behind
       assert.equal(mail.length, 2)
     })
   })
-  assert.ok(lines.some((line) => line.includes('j***@purdue.edu')), 'the failure is logged with a masked address')
+  assert.ok(lines.includes('[purdue-email] could not send a code to j***@purdue.edu: Resend send failed (500): boom'), 'logged with a masked address')
   assert.ok(!lines.some((line) => line.includes(EMAIL)), 'never the full address')
 })
 
