@@ -158,3 +158,27 @@ then `verify` with the code, and refresh the session after a `200` from
 `verify` so `user.hasPurdueLinked` and the Marketplace flip without a reload.
 A `cooldownSeconds` or `retryAfterSeconds` tells the client when to enable
 "Send a new code".
+
+## On the website
+
+`components/PurdueEmailVerification.tsx` is the card: the address, then the
+code with a resend countdown from `cooldownSeconds` (or a `429`'s
+`retryAfterSeconds`), the server's own words for a wrong, expired or used-up
+code and for a failed delivery, and the verified state. A verified code
+refreshes the session and marks the per-user queries stale, so
+`user.hasPurdueLinked`, the onboarding summary and the Marketplace posting gate
+flip without a reload. A code sent before a reload is picked up again from
+`status`, through `usePurdueEmailStatus()` (key `['me', userId, 'purdue-email']`,
+see [client-cache.md](client-cache.md)).
+
+- **Settings**: the Purdue account card shows in every `PURDUE_AUTH_MODE`.
+  Unlinked, it holds the card, plus "Sign in with Purdue instead" in `cas`
+  mode.
+- **Setup** (`/setup`): where linking is required (`needsPurdueConnection`, in
+  `cas` and `mock` mode), the Purdue step still comes first, with the card, the
+  CAS button in `cas` mode and "Link without a code (development)", the dev
+  mock link, in `mock` mode. Where it is not (`off`, as in production), an
+  unlinked student gets the card as an optional section above the calendar
+  sources, so connecting a calendar never waits on it.
+- The Marketplace still sends an unlinked student to setup, and the Privacy
+  page says Resend also delivers the codes.

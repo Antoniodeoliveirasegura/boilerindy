@@ -12,6 +12,8 @@ import {
   fetchTaskMeta,
   invalidateUserQueries,
   myBlocksQuery,
+  normalizePurdueEmailStatus,
+  purdueEmailStatusQuery,
   startOfLocalDayIso,
   taskMetaQuery,
   useMyBlocks,
@@ -51,6 +53,7 @@ describe('keys and urls', () => {
     expect(userKeys.calendarCategories('u1')).toEqual(['me', 'u1', 'calendar-categories'])
     expect(userKeys.taskMeta('u1')).toEqual(['me', 'u1', 'tasks', 'meta'])
     expect(userKeys.blocks('u1')).toEqual(['me', 'u1', 'blocks'])
+    expect(userKeys.purdueEmail('u1')).toEqual(['me', 'u1', 'purdue-email'])
   })
 
   test('the urls match what the pages sent before', () => {
@@ -136,6 +139,29 @@ describe('blocked users', () => {
     expect(client.getQueryData(userKeys.blocks('u1'))).toEqual(blocks)
     await invalidateUserQueries(client)
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+  })
+})
+
+// Issue #181: the Purdue email card resumes a pending code from the status route.
+describe('Purdue email status', () => {
+  test('reads GET /api/me/purdue-email/status and fills in whatever is missing', async () => {
+    const pending = { email: 'jdoe@purdue.edu', expiresAt: '2026-09-28T12:10:00.000Z', attemptsLeft: 4 }
+    request.mockResolvedValueOnce({ linked: false, purdueEmail: null, pending })
+    const client = new QueryClient()
+    await expect(client.fetchQuery(purdueEmailStatusQuery('u1'))).resolves.toEqual({ linked: false, purdueEmail: null, pending })
+    expect(request).toHaveBeenCalledWith('/api/me/purdue-email/status', expect.objectContaining({ signal: expect.anything() }))
+    expect(normalizePurdueEmailStatus(null)).toEqual({ linked: false, purdueEmail: null, pending: null })
+    expect(normalizePurdueEmailStatus({ linked: true, purdueEmail: 'jdoe@purdue.edu', pending: {} })).toEqual({
+      linked: true,
+      purdueEmail: 'jdoe@purdue.edu',
+      pending: null,
+    })
+  })
+
+  test('waits for a signed-in user, never retries, and is never persisted', () => {
+    expect(purdueEmailStatusQuery(null).enabled).toBe(false)
+    expect(purdueEmailStatusQuery('u1').retry).toBe(false)
+    expect(isPersistedQueryKey(userKeys.purdueEmail('u1'))).toBe(false)
   })
 })
 
