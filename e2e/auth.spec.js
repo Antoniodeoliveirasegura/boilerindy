@@ -25,6 +25,29 @@ test.describe('Authentication', () => {
     expect(spotlightRequests).toEqual([])
   })
 
+  // Issue #369 - AppLayout rendered the navbar, bottom tab bar and assistant
+  // while the session check was in flight, so a signed-out visitor saw the
+  // signed-in app for the length of that request. A MutationObserver records
+  // any <nav> that appears before the redirect reaches /login.
+  test('a signed-out visit to an app route never shows the app shell before login', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.route('**/api/session', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      await route.fallback()
+    })
+    await page.addInitScript(() => {
+      window.__appShellSeen = false
+      const check = () => {
+        if (window.location.pathname !== '/login' && document.querySelector('nav')) window.__appShellSeen = true
+      }
+      new MutationObserver(check).observe(document, { childList: true, subtree: true })
+    })
+    await page.goto('/events')
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    expect(await page.evaluate(() => window.__appShellSeen)).toBe(false)
+  })
+
   test('shows an error message when credentials are invalid', async ({ page, mockApi }) => {
     mockApi.logout()
     await page.goto('/login')
