@@ -104,6 +104,20 @@ describe('registerServiceWorker', () => {
     const failing: ContainerLike = { controller: null, register: async () => { throw new Error('nope') }, addEventListener: () => {} }
     expect(await registerServiceWorker({ onUpdateReady: () => {}, container: failing, doc, setInterval: () => 1 })).toBeNull()
   })
+
+  // Sentry BOILERINDY-REACT-5: a headless crawler's stubbed service worker API
+  // resolved register() with nothing, and reading .waiting off it threw.
+  test('resolves null and sets nothing up when register() resolves to nothing', async () => {
+    const stubbed = { controller: null, register: async () => undefined, addEventListener: () => {} } as unknown as ContainerLike
+    const onUpdateReady = vi.fn()
+    const setInterval = vi.fn()
+    const doc = { visibilityState: 'visible', addEventListener: vi.fn() }
+
+    await expect(registerServiceWorker({ onUpdateReady, container: stubbed, doc, setInterval })).resolves.toBeNull()
+    expect(onUpdateReady).not.toHaveBeenCalled()
+    expect(setInterval).not.toHaveBeenCalled()
+    expect(doc.addEventListener).not.toHaveBeenCalled()
+  })
 })
 
 describe('applyUpdate', () => {
