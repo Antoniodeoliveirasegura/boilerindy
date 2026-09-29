@@ -13,6 +13,7 @@ import {
   haversineMeters,
   getOrderedStopsForRoute,
   isRouteActiveNow,
+  isRouteRunningForDisplay,
   type TransitRoute,
 } from '../lib/transitShared'
 import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
@@ -725,14 +726,14 @@ export default function Transit() {
           </button>
           {routes.map((route) => {
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
-            const activeToday = isRouteActiveNow(route)
+            const running = isRouteRunningForDisplay(route, count)
             return (
               <button
                 key={route.id}
                 onClick={() => setSelectedRoute(selectedRoute?.id === route.id ? null : route)}
                 className={`pill whitespace-nowrap flex items-center gap-2 transition-opacity shrink-0 min-h-[40px] sm:min-h-0
                   ${selectedRoute?.id === route.id ? 'pill-active' : ''}
-                  ${!activeToday ? 'opacity-40' : ''}`}
+                  ${!running ? 'opacity-40' : ''}`}
                 title={route.schedule?.label ?? ''}
               >
                 <span
@@ -744,8 +745,8 @@ export default function Transit() {
                 <span className="hidden sm:inline">{route.shortName}</span>
                 <span className="sm:hidden">{route.num}</span>
                 {count > 0 && <span className="text-[var(--color-txt-3)]">({count})</span>}
-                {!activeToday && (
-                  <span className="text-[10px] text-[var(--color-txt-3)] font-normal hidden sm:inline">off</span>
+                {!running && (
+                  <span className="text-[10px] text-[var(--color-txt-3)] font-normal hidden sm:inline">not running now</span>
                 )}
               </button>
             )
