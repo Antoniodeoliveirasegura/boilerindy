@@ -85,6 +85,7 @@ import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
+import { onboardingFlags } from './src/onboardingFlags.mjs'
 import { createCommunityCounters } from './src/communityCounters.mjs'
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
@@ -804,16 +805,7 @@ async function getUserSummary(userOrId) {
     onboardingSummaryCache.set(userId, counts, gen)
   }
 
-  const hasPurdueLinked = Boolean(user?.purdue_email)
-  return {
-    linkedSourceCount: counts.linkedSourceCount,
-    classCount: counts.classCount,
-    hasPurdueLinked,
-    // When Purdue linking is off, never prompt a link and let users attach
-    // calendar sources directly (no identity link required).
-    needsPurdueConnection: purdueLinkingEnabled ? !hasPurdueLinked : false,
-    needsScheduleSource: (purdueLinkingEnabled ? hasPurdueLinked : true) && counts.linkedSourceCount === 0,
-  }
+  return onboardingFlags({ counts, hasPurdueLinked: Boolean(user?.purdue_email), purdueLinkingEnabled })
 }
 
 async function getCurrentUser(req) {
