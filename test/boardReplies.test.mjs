@@ -127,7 +127,14 @@ test('30 posts by 50 replies: 5 inline each, every reply reachable by page', () 
 // preview and a page of the full thread are the same object to the client.
 test('names a non-anonymous author from the batch lookup', () => {
   const row = { id: 'r1', body: 'hi', is_anon: false, user_id: 'u1', created_at: at(1) }
-  assert.deepEqual(mapBoardReply(row, { u1: 'Jo Doe' }), { id: 'r1', body: 'hi', user: 'Jo Doe', time: at(1) })
+  assert.deepEqual(mapBoardReply(row, { u1: 'Jo Doe' }, 'u2'), {
+    id: 'r1',
+    body: 'hi',
+    user: 'Jo Doe',
+    anon: false,
+    isMine: false,
+    time: at(1),
+  })
 })
 
 test('falls back to Student when the name lookup missed', () => {
@@ -138,7 +145,26 @@ test('falls back to Student when the name lookup missed', () => {
 
 test('never leaks the author of an anonymous reply', () => {
   const row = { id: 'r1', body: 'hi', is_anon: true, user_id: 'u1', created_at: at(1) }
-  const mapped = mapBoardReply(row, { u1: 'Jo Doe' })
+  const mapped = mapBoardReply(row, { u1: 'Jo Doe' }, 'u2')
   assert.equal(mapped.user, 'Anonymous')
   assert.ok(!Object.values(mapped).includes('u1'), 'the user id must not reach the client')
+})
+
+// Issue #192: the website offers Report on a reply that is not the viewer's
+// and Block author only on a named one, so each reply says which it is.
+test('flags an anonymous reply, and marks the viewer\'s own', () => {
+  const anonymous = { id: 'r1', body: 'hi', is_anon: true, user_id: 'u1', created_at: at(1) }
+  assert.equal(mapBoardReply(anonymous, {}, 'u2').anon, true)
+  assert.equal(mapBoardReply(anonymous, {}, 'u2').isMine, false)
+  assert.equal(mapBoardReply(anonymous, {}, 'u1').isMine, true, 'an anonymous reply is still the author\'s own')
+  const named = { ...anonymous, is_anon: false }
+  assert.equal(mapBoardReply(named, {}, 'u1').anon, false)
+  assert.equal(mapBoardReply(named, {}, 'u1').isMine, true)
+})
+
+test('is never the viewer\'s own without a viewer', () => {
+  const row = { id: 'r1', body: 'hi', is_anon: false, user_id: 'u1', created_at: at(1) }
+  assert.equal(mapBoardReply(row, {}).isMine, false)
+  assert.equal(mapBoardReply({ ...row, user_id: undefined }, {}).isMine, false)
+  assert.equal(mapBoardReply({ ...row, is_anon: undefined }, {}).anon, false)
 })

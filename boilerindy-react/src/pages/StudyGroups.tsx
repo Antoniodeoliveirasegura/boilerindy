@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
+import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 
 // Study Group Finder (issue #33). Privacy is opt-in (default off): a student only
 // appears in classmate counts after turning the toggle on, and membership is
-// visible only within a group.
+// visible only within a group. A group someone else started can be reported,
+// or its creator blocked (issue #192).
 const EMPTY_FORM = { title: '', description: '', meetingInfo: '', capacity: '' }
 
 type StudyCourse = { code: string; classmateCount?: number }
@@ -19,6 +21,8 @@ type StudyGroup = {
   meetingInfo?: string
   description?: string
   joinedByMe?: boolean
+  /** The caller started the group (mapStudyGroupRow). */
+  isMine?: boolean
 }
 
 function errorText(e: unknown, fallback: string): string {
@@ -26,6 +30,7 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 export default function StudyGroups() {
+  const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [optIn, setOptIn] = useState(false)
   const [courses, setCourses] = useState<StudyCourse[]>([])
   const [loadingCourses, setLoadingCourses] = useState(true)
@@ -159,6 +164,13 @@ export default function StudyGroups() {
       .catch(() => {})
   }
 
+  // A blocked creator's groups leave both lists, so both are read again.
+  async function handleBlockCreator(group: StudyGroup) {
+    if (!(await blockAuthor('study_group', group.id))) return
+    if (selectedCourse) selectCourse(selectedCourse)
+    loadMyGroups()
+  }
+
   function renderGroupCard(group: StudyGroup, context: 'course' | 'mine') {
     return (
       <div key={group.id} className="card p-4">
@@ -211,12 +223,31 @@ export default function StudyGroups() {
             See all {group.courseCode} groups
           </button>
         )}
+        {!group.isMine && (
+          <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
+            <button
+              type="button"
+              onClick={(e) => report({ targetType: 'study_group', targetId: group.id, targetLabel: 'this group' }, e.currentTarget)}
+              className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)] inline-flex items-center gap-1"
+            >
+              <Icon name="flag" size={12} /> Report
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBlockCreator(group)}
+              className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+            >
+              Block author
+            </button>
+          </div>
+        )}
       </div>
     )
   }
 
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
+      {moderationUi}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Study Groups</h1>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1">

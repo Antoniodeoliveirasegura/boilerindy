@@ -1,8 +1,9 @@
 // Minimal transactional email via Resend's HTTP API - no SDK dependency, just
 // fetch. Disabled-safe: when RESEND_API_KEY / RESEND_FROM are unset the send is
-// skipped and the link is logged to the server console, so local/dev works
-// without an email provider (mirrors the Sentry "disabled without DSN" wiring
-// in server.mjs). Currently used for the advertiser password-reset flow.
+// skipped and the caller logs the link or code to the server console, so
+// local/dev works without an email provider (mirrors the Sentry "disabled
+// without DSN" wiring in server.mjs). Used for the advertiser password reset
+// and the Purdue email verification codes (issue #181).
 //
 // CAN-SPAM (issue #116): `sendEmail` is for TRANSACTIONAL messages only -
 // password resets and the like. Those need only accurate routing (a real
@@ -141,6 +142,40 @@ export function advertiserPasswordResetEmail({ resetUrl, companyName }) {
       </td></tr>
     </table>
     <p style="margin:16px 0 0;font-size:11px;color:#a1a1aa;">BoilerIndy · Advertiser Portal</p>
+  </td></tr>
+</table>`.trim()
+  return { subject, html }
+}
+
+/**
+ * The Purdue email verification code (issue #181). Pure - returns the subject
+ * + HTML body. The code appears once, set large and spaced out with CSS so a
+ * copy still pastes as six digits; no link, so there is nothing to click in a
+ * look-alike message.
+ */
+export function purdueVerificationEmail({ code }) {
+  const safeCode = escapeHtml(code)
+  const subject = 'Your BoilerIndy verification code'
+  const html = `
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f4f4f5;padding:32px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <tr><td align="center">
+    <table width="480" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7;">
+      <tr><td style="background:#000000;padding:24px 32px;">
+        <span style="color:#D4A84B;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Boiler<span style="color:#ffffff;">Indy</span></span>
+      </td></tr>
+      <tr><td style="padding:32px;">
+        <h1 style="margin:0 0 12px;font-size:20px;color:#18181b;">Your verification code</h1>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#52525b;">
+          Enter this code in BoilerIndy to link this Purdue email to your account.
+        </p>
+        <p style="margin:0 0 20px;font-size:34px;font-weight:700;letter-spacing:10px;color:#18181b;font-family:'SFMono-Regular',Menlo,Consolas,monospace;">${safeCode}</p>
+        <p style="margin:0;font-size:15px;line-height:1.6;color:#52525b;">It expires in 10 minutes.</p>
+      </td></tr>
+      <tr><td style="padding:20px 32px;border-top:1px solid #f4f4f5;">
+        <p style="margin:0;font-size:12px;line-height:1.5;color:#a1a1aa;">If you did not ask for this, ignore it; nothing changes on your account.</p>
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0;font-size:11px;color:#a1a1aa;">BoilerIndy</p>
   </td></tr>
 </table>`.trim()
   return { subject, html }

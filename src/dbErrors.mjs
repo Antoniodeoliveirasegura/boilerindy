@@ -23,6 +23,13 @@
 //   respondDbError(res, err, config)
 //                                 respondSchemaMissing for a schema-missing error, otherwise
 //                                 logs code and message and answers 500 with config.fallback.
+//   SOFT_DELETE_SQL_FILE          db/supabase-soft-delete.sql, the migration that adds
+//                                 deleted_at to the board, marketplace, lost and found,
+//                                 guide and deals tables (issue #195).
+//   respondSoftDeleteFeatureDbError(res, err, config)
+//                                 respondDbError, except that a missing deleted_at column
+//                                 answers the feature's code with SOFT_DELETE_SQL_FILE named
+//                                 in the log (moved out of server.mjs for the routers, #191).
 //   badRequest(res, message)      400 { error: { message, status: 400 } } (issue #206).
 //   respondRouteError(res, err, { label, fallback })
 //                                 for routes with no DB_FEATURES entry (tasks, grades, dining
@@ -37,6 +44,8 @@
 // Logs carry the error's code and message only, never `details` or `hint`:
 // console.error is forwarded to Sentry (captureConsoleIntegration) and a
 // Postgres detail can hold row values.
+
+import { isMissingColumnError } from './moderation.mjs'
 
 /**
  * @typedef {object} DbFeature
@@ -94,6 +103,28 @@ export const DB_FEATURES = Object.freeze({
     'Friend matching',
     'db/supabase-friend-matching.sql',
     'Could not load matches. Please try again.',
+  ),
+  // Reports on any student content, and the admin queue that reads them (#192).
+  content_reports: dbFeature(
+    'content_reports',
+    'Reporting content',
+    'db/supabase-report-and-block.sql',
+    'Could not send the report. Please try again.',
+  ),
+  // Blocking users (#192). Only the block routes answer this code: a list that
+  // hides blocked users reads an empty block set while the table is missing.
+  blocked_users: dbFeature(
+    'blocked_users',
+    'Blocked users',
+    'db/supabase-report-and-block.sql',
+    'Could not update your blocked users. Please try again.',
+  ),
+  // Linking a Purdue address by a code mailed to it (#181).
+  purdue_email_verification: dbFeature(
+    'purdue_email_verification',
+    'Purdue email verification',
+    'db/supabase-purdue-email-verification.sql',
+    'Could not start verification. Please try again.',
   ),
   advertiser: dbFeature(
     'advertiser',
@@ -235,6 +266,25 @@ export function respondDbError(res, err, config) {
   const { code, message } = errorFields(err)
   console.error(`${config.feature} DB error:`, code, message)
   return res.status(500).json({ error: { message: config.fallback, status: 500 } })
+}
+
+/** The migration that adds deleted_at to the soft-deletable tables (issue #195). */
+export const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
+
+/**
+ * For the board, guide, deals and marketplace: a missing deleted_at column still
+ * answers the feature's schema_missing code, but the log names the soft-delete
+ * migration, since rerunning the feature's own file would not add it (#218).
+ * Any other error goes to respondDbError.
+ * @param {{ status: (code: number) => any }} res Express response
+ * @param {unknown} err
+ * @param {DbFeature} config
+ */
+export function respondSoftDeleteFeatureDbError(res, err, config) {
+  if (isMissingColumnError(err, 'deleted_at')) {
+    return respondSchemaMissing(res, { ...config, sqlFile: SOFT_DELETE_SQL_FILE }, err)
+  }
+  return respondDbError(res, err, config)
 }
 
 // ---- Routes outside DB_FEATURES (issue #206) --------------------------------

@@ -57,6 +57,7 @@ const AdminLeads = lazy(() => import('./pages/admin/AdminLeads'))
 const AdminCampaigns = lazy(() => import('./pages/admin/AdminCampaigns'))
 const AdminAdvertisers = lazy(() => import('./pages/admin/AdminAdvertisers'))
 const AdminDeleted = lazy(() => import('./pages/admin/AdminDeleted'))
+const AdminReports = lazy(() => import('./pages/admin/AdminReports'))
 
 export default function App() {
   return (
@@ -281,6 +282,7 @@ export default function App() {
                 <Route path="leads" element={<AdminLeads />} />
                 <Route path="campaigns" element={<AdminCampaigns />} />
                 <Route path="advertisers" element={<AdminAdvertisers />} />
+                <Route path="reports" element={<AdminReports />} />
                 <Route path="deleted" element={<AdminDeleted />} />
               </Route>
             </Route>

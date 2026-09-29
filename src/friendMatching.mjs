@@ -3,6 +3,7 @@
 // ranking helpers kept here so they are unit-testable without DB/HTTP; the
 // connection-request gate takes the Supabase client as an argument for the
 // same reason.
+import { isBlockedEither } from './blocks.mjs'
 import { isUuid } from './httpGuards.mjs'
 
 export { normalizeCourseCode, coursesFromClassItems } from './studyGroups.mjs'
@@ -78,26 +79,28 @@ export function mapMatchCard(user, sharedCount) {
 
 /**
  * Whether a user may receive a connection request (#203). Matching is opt-in,
- * so only discoverable profiles qualify; a missing row (unknown user) does not.
- * Kept tiny so #192 can add blocked users here.
+ * so only discoverable profiles qualify; a missing row (unknown user) does not,
+ * and neither does anyone on either side of a block with the requester (#192).
  * @param {{ discoverable?: boolean } | null | undefined} profileRow - user_profiles row
+ * @param {{ blocked?: boolean }} [options] - blocked: a block stands between the two users
  */
-export function canReceiveFriendRequest(profileRow) {
-  return Boolean(profileRow?.discoverable)
+export function canReceiveFriendRequest(profileRow, { blocked = false } = {}) {
+  return Boolean(profileRow?.discoverable) && !blocked
 }
 
 /**
  * POST /api/connections (#203). A malformed or self id is a 400. An unknown,
- * non-discoverable or previously declining addressee gets the same pending
- * answer as a real request but no row, so the response is not an oracle for
- * who exists or who opted in. Only a discoverable addressee gets an upsert.
+ * non-discoverable, blocked (either way, #192) or previously declining
+ * addressee gets the same pending answer as a real request but no row, so the
+ * response is not an oracle for who exists, who opted in or who blocked whom.
+ * Only a discoverable, unblocked addressee gets an upsert.
  * @param {object} supabase - service-role client
  * @param {string} userId - the requester (req.currentUser.id)
  * @param {unknown} rawAddresseeId - req.body.addresseeId as sent
- * @param {{ nowIso?: () => string }} [options]
+ * @param {{ nowIso?: () => string, blocked?: Set<string> }} [options] - blocked: loadBlockedIds for the requester
  * @returns {Promise<{ status: number, body: object }>} throws the Supabase error on a DB failure
  */
-export async function sendConnectionRequest(supabase, userId, rawAddresseeId, { nowIso = () => new Date().toISOString() } = {}) {
+export async function sendConnectionRequest(supabase, userId, rawAddresseeId, { nowIso = () => new Date().toISOString(), blocked = new Set() } = {}) {
   // Lowercased so an uppercase copy of my own id cannot slip past the self check.
   const addresseeId = String(rawAddresseeId || '').trim().toLowerCase()
   if (!isUuid(addresseeId) || addresseeId === String(userId).toLowerCase()) {
@@ -107,7 +110,7 @@ export async function sendConnectionRequest(supabase, userId, rawAddresseeId, { 
 
   const target = await supabase.from('user_profiles').select('discoverable').eq('user_id', addresseeId).maybeSingle()
   if (target.error) throw target.error
-  if (!canReceiveFriendRequest(target.data)) return pending
+  if (!canReceiveFriendRequest(target.data, { blocked: isBlockedEither(blocked, addresseeId) })) return pending
 
   // If the addressee previously declined me, silently no-op (requester sees pending).
   const prior = await supabase

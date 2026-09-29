@@ -796,7 +796,7 @@ export default function Home() {
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const needsScheduleSource = onboarding?.needsScheduleSource
-  const purdueLinkingOff = (authConfig as { supportsPurdueLink?: boolean })?.supportsPurdueLink === false
+  const purdueLinkingOff = authConfig?.supportsPurdueLink === false
   const showSetupBanner = (needsPurdueConnection || needsScheduleSource) && !shouldSkipSetup()
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass

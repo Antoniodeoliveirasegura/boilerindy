@@ -7,6 +7,8 @@ import { clearAiCaches } from '../lib/aiInsightCache'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
+import BlockedUsersCard from '../components/settings/BlockedUsersCard'
+import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import { useConfirm } from '../hooks/useConfirm'
 import StatusBanner from '../components/StatusBanner'
 
@@ -308,15 +310,16 @@ export default function Settings() {
         </form>
 
         <div className="space-y-4">
-          {(authConfig as { supportsPurdueLink?: boolean })?.supportsPurdueLink !== false && (
-          <div className="card p-5">
+          {/* Shown in every PURDUE_AUTH_MODE: an emailed code links a Purdue
+              address even with CAS and the mock off (issue #181). */}
+          <div className="card p-5" data-testid="purdue-account-card">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
               Purdue account
             </div>
             {user?.hasPurdueLinked ? (
               <>
                 <div className="text-[15px] font-semibold text-[var(--color-txt-0)]">Linked</div>
-                <div className="text-[13px] text-[var(--color-txt-2)] mt-1">{String(user.purdueEmail ?? '')}</div>
+                <div className="text-[13px] text-[var(--color-txt-2)] mt-1">{user.purdueEmail ?? ''}</div>
                 <p className="text-[13px] text-[var(--color-txt-1)] mt-3 leading-relaxed">
                   Purdue is connected as a linked identity. Purdue-specific sources like timetable feeds can now be attached from setup.
                 </p>
@@ -328,21 +331,23 @@ export default function Settings() {
             ) : (
               <>
                 <div className="text-[15px] font-semibold text-[var(--color-txt-0)]">Not linked yet</div>
-                <p className="text-[13px] text-[var(--color-txt-1)] mt-2 leading-relaxed">
-                  Sign in with your normal app account first, then link Purdue here or in setup. This keeps authentication separate from Purdue data access.
+                <p className="text-[13px] text-[var(--color-txt-1)] mt-2 mb-4 leading-relaxed">
+                  Link your @purdue.edu email to post on the Marketplace. Your sign-in stays as it is.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => startPurdueLink('/settings')}
-                  className="btn btn-primary text-[13px] px-4 py-2 mt-4"
-                >
-                  <Icon name="graduation" size={14} />
-                  Link Purdue account
-                </button>
+                <PurdueEmailVerification />
+                {authConfig?.purdueAuthMode === 'cas' ? (
+                  <button
+                    type="button"
+                    onClick={() => startPurdueLink('/settings')}
+                    className="btn btn-secondary w-full justify-center text-[13px] px-4 py-2 mt-3"
+                  >
+                    <Icon name="graduation" size={14} />
+                    Sign in with Purdue instead
+                  </button>
+                ) : null}
               </>
             )}
           </div>
-          )}
 
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
@@ -450,6 +455,8 @@ export default function Settings() {
               Read the privacy policy
             </Link>
           </div>
+
+          <BlockedUsersCard />
 
           <div className="card p-5">
             <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">

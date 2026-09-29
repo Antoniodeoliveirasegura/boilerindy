@@ -29,10 +29,13 @@ Not every route has moved to this envelope yet, so a client should read
 | `deals_schema_missing` | 503 | `/api/deals*` | Campus Perks tables, or their `deleted_at` column, are missing. | "Coming soon" for perks. |
 | `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below) | Marketplace tables, their `deleted_at` column, or the gallery and pricing columns (`image_urls`, `price_mode`) are missing. | "Coming soon" for the marketplace. |
 | `friends_schema_missing` | 503 | `/api/me/profile-card`, `/api/me/matches`, `/api/connections*`, `/api/me/connections` | Friend matching tables are missing. | "Coming soon" for friend matching. |
+| `content_reports_schema_missing` | 503 | `POST /api/reports` (not for a marketplace listing, which is still counted through `marketplace_reports`), `/api/admin/reports*` | `content_reports` is missing: README step 38, `db/supabase-report-and-block.sql`, has not run (see [moderation.md](moderation.md)). | Tell the student reporting is not available yet; the admin queue shows the message. |
+| `blocked_users_schema_missing` | 503 | `/api/me/blocks*` | `blocked_users` is missing: README step 38, `db/supabase-report-and-block.sql`, has not run (see [moderation.md](moderation.md)). The lists that hide blocked users keep working and hide nobody. | Tell the student blocking is not available yet. |
 | `advertiser_schema_missing` | 503 | `/api/advertiser/*`, and the portal admin routes `/api/admin/leads*`, `/api/admin/campaigns*`, `/api/admin/advertisers` | Advertiser portal tables (portal, campaigns or password resets) are missing. Count-only reads cannot see a missing table: `/api/admin/overview` and the impression and tap counts of `/api/advertiser/campaigns/:id/stats` answer `200` with zeros instead. | Show the portal as unavailable. |
 | `moderation_schema_missing` | 503 | `/api/admin/deleted/:type*`, `/api/admin/content/:type/:id` | That content type has no `deleted_at` column yet: `db/supabase-study-groups-soft-delete.sql` for `study-groups`, `db/supabase-soft-delete.sql` for every other type. | Admin view: show the message for that type. Retrying does not help until the migration runs; the message does not name the file (see below). |
 | `push_not_configured` | 503 | `/api/push/*` | Push tables are missing (`db/supabase-push.sql`). Its message still names that file. | Show notifications as not set up (the website Settings card does). |
 | `push_disabled` | 503 | `/api/push/*` | The server has no VAPID keys. | Treat push as switched off. |
+| `purdue_email_verification_schema_missing` | 503 | `/api/me/purdue-email/*` | `purdue_email_challenges` is missing: README step 39, `db/supabase-purdue-email-verification.sql`, has not run (see [purdue-email-verification.md](purdue-email-verification.md)). Linking through CAS or the mock is unaffected. | Show email verification as not available yet. |
 | `purdue_linking_disabled` | 400 | `POST /api/purdue/link-token` | `PURDUE_AUTH_MODE=off`. | Hide the Purdue link option. See [purdue-link.md](purdue-link.md). |
 | `purdue_link_unconfigured` | 503 | `POST /api/purdue/link-token` | `SESSION_SECRET` is shorter than 32 characters. | Show linking as unavailable. |
 | `purdue_link_unauthorized` | 401 | `POST /api/purdue/link-token` | The session has no valid student id. | Send the student to sign in again. |
@@ -45,9 +48,10 @@ suffix to its "coming soon" state.
 
 `src/dbErrors.mjs` owns these responses. `DB_FEATURES` lists each feature's
 key (the code prefix), the subject of the client message, the SQL file(s) that
-create its tables, and the 500 fallback message. The route helpers in
-`server.mjs` (`respondBoardDbError`, `respondMarketplaceDbError` and the rest)
-are thin wrappers over `respondDbError`.
+create its tables, and the 500 fallback message. The per-feature route helpers
+(`respondBoardDbError` in `server.mjs`, `respondMarketplaceDbError` in
+`src/marketplaceDb.mjs`, and the rest in the feature routers under
+`src/routes/`) are thin wrappers over `respondDbError`.
 
 - A missing table or column answers `503` with the feature's code and the
   message `<Feature> is not set up yet. Please try again later.` That is
@@ -94,6 +98,9 @@ table. Show the message and let the student retry later.
 - `GET /api/marketplace/capabilities`: the gallery and pricing columns are not
   there yet; both clients hold off on galleries and price choices.
 - Marketplace photo routes: photo storage is unavailable or not configured.
+- `POST /api/me/purdue-email/request`: the verification code could not be
+  mailed (Resend failed, or email is not configured in production). Nothing
+  is pending afterwards, so the student can ask again at once.
 
 ## Older error shapes
 

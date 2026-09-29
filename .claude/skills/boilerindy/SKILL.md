@@ -12,8 +12,9 @@ patterns an agent applies most, so it can be loaded on its own.
 ## Architecture in one paragraph
 
 An Express backend (`server.mjs`, with feature routers moving to
-`src/routes/` under issue #191; `layouts.mjs` is the first) whose logic lives
-in `src/*.mjs` modules, each with a `test/<name>.test.mjs`, and whose seven
+`src/routes/` under issue #191: layouts, lost and found, deals, guide, study
+groups, marketplace and friends so far, each a `createXRouter(deps)` mounted
+where its routes were) whose logic lives in `src/*.mjs` modules, each with a `test/<name>.test.mjs`, and whose seven
 session-free public reads sit ahead of the session middleware so the edge can
 cache them; a React 19 + Vite + TypeScript frontend in
 `boilerindy-react/` (`pages/`, `components/`, `context/`, `hooks/`, `lib/`,
@@ -41,8 +42,10 @@ the API share one set of limits, layouts and programs.
 | End to end | Playwright | `e2e/*.spec.js` with `e2e/fixtures/mock-backend.js` | `pnpm exec playwright test` |
 | Docs guards | node:test | `test/rateLimitDocs.test.mjs`, `test/apiRoutesDoc.test.mjs`, `test/envExample.test.mjs`, `test/dbApplyOrder.test.mjs` | in `pnpm test:backend` |
 
-`server.mjs` starts listening on import, so route handlers are not unit
-tested: put the logic in a module and keep the handler thin. Frontend tests
+`server.mjs` starts listening on import, so its route handlers are not unit
+tested: put the logic in a module and keep the handler thin. A feature router
+under `src/routes/` is tested by booting it on a small Express app in
+`test/routes/<name>.test.mjs` with the recording `test/routes/fakeSupabase.mjs`. Frontend tests
 mock `../lib/authApi` and `../context/AuthContext` with `vi.mock`; pages that
 read through the query layer render under a `QueryClientProvider` (see
 `src/pages/Dining.test.tsx`).

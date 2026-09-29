@@ -86,6 +86,18 @@ import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calend
 import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { createLayoutsRouter } from './src/routes/layouts.mjs'
+import { createLostFoundRouter } from './src/routes/lostFound.mjs'
+import { createDealsRouter } from './src/routes/deals.mjs'
+import { createGuideRouter } from './src/routes/guide.mjs'
+import { createStudyGroupsRouter } from './src/routes/studyGroups.mjs'
+import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
+import { createFriendsRouter } from './src/routes/friends.mjs'
+import { createReportsRouter } from './src/routes/reports.mjs'
+import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
+import { createBlocksRouter } from './src/routes/blocks.mjs'
+import { createPurdueEmailRouter } from './src/routes/purdueEmail.mjs'
+import { LINKED_TO_ANOTHER_PURDUE_ACCOUNT_MESSAGE } from './src/purdueEmailVerification.mjs'
+import { excludeBlocked, loadBlockedIds } from './src/blocks.mjs'
 import {
   LETTER_GRADES,
   MAX_COURSE_NAME,
@@ -95,7 +107,6 @@ import {
   DEFAULT_TERM,
 } from './src/gradeTracker.mjs'
 import { getProgram } from './src/degreePrograms.mjs'
-import { validateGuideInput, mapGuideRow } from './src/guideRecommendations.mjs'
 import {
   BOARD_PAGE_SIZE,
   INLINE_REPLIES,
@@ -105,10 +116,9 @@ import {
   validateBoardReply,
 } from './src/boardLimits.mjs'
 import { groupRepliesByPost, mapBoardReply } from './src/boardReplies.mjs'
-import { validateStudyGroupInput, normalizeCourseCode, coursesFromClassItems } from './src/studyGroups.mjs'
-import { isMissingColumnError, isUuid, ownerOrAdminScope, selectLiveRows } from './src/moderation.mjs'
-import { requireUuidParam } from './src/httpGuards.mjs'
-import { joinStudyGroup, joinOutcomeToResponse } from './src/studyGroupJoin.mjs'
+import { STUDY_SOFT_DELETE_SQL_FILE } from './src/studyGroups.mjs'
+import { isMissingColumnError, isUuid, ownerOrAdminScope } from './src/moderation.mjs'
+import { requireIdParam } from './src/httpGuards.mjs'
 import {
   badRequest,
   DB_FEATURES,
@@ -117,22 +127,14 @@ import {
   respondDbError,
   respondRouteError,
   respondSchemaMissing,
+  respondSoftDeleteFeatureDbError,
+  SOFT_DELETE_SQL_FILE,
 } from './src/dbErrors.mjs'
-import { validateDealInput, mapDealRow, isDealActive } from './src/campusDeals.mjs'
-import {
-  evaluateReportTarget,
-  isMissingGalleryPricingColumn,
-  mapListingRow,
-  MARKETPLACE_GALLERY_PRICING_SQL_FILE,
-  parseReportInput,
-  shouldAutoHide,
-  validateListingInput,
-} from './src/marketplace.mjs'
-import { createMarketplacePhotos, photoAuthorizationHandler, PhotoError, respondPhotoError } from './src/marketplacePhotos.mjs'
+import { createMarketplacePhotos } from './src/marketplacePhotos.mjs'
+import { countMarketplaceReports, respondMarketplaceDbError } from './src/marketplaceDb.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
 import { createPurdueLinkFlowRateLimit, linkHandoffToken } from './src/purdueLinkThrottle.mjs'
-import { validateProfileInput, rankMatches, mapMatchCard, sendConnectionRequest } from './src/friendMatching.mjs'
 import {
   matchIntent,
   formatNextClass,
@@ -197,7 +199,7 @@ import {
   resetTokenExpiry,
   isResetTokenExpired,
 } from './src/advertiserPasswordReset.mjs'
-import { sendAdvertiserPasswordResetEmail } from './src/email.mjs'
+import { sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -362,6 +364,15 @@ const sessionSyncIpRateLimit = createRateLimiter({
   keyBy: 'ip',
   message: 'Too many session requests from this network. Please try again shortly.',
 })
+// Purdue email-code verification (#181): the code requests and the code
+// checks share ten an hour per student, which bounds both the mail sent to
+// any one address and the guesses at a six-digit code.
+const purdueVerifyRateLimit = createRateLimiter({
+  name: 'purdue-verify',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: 'Too many verification attempts. Please try again in an hour.',
+})
 // One handoff token per native Purdue link attempt (#214); tokens live 10 min.
 const purdueLinkTokenRateLimit = createRateLimiter({
   name: 'purdue-link-token',
@@ -488,6 +499,10 @@ const marketplaceReadRateLimit = createRateLimiter({
   max: 100,
   message: 'Too many marketplace requests. Please slow down.',
 })
+const marketplacePhotoRateLimit = createRateLimiter({
+  name: 'marketplace-photo', windowMs: 60 * 60 * 1000, max: 20,
+  message: 'Too many photo uploads. Please try again in an hour.',
+})
 // Club directory searches never reach BoilerLink per request (the directory is
 // cached for hours), so they get their own bucket instead of eating into the
 // live transit / dining budget shared by `public-read`. Search-as-you-type
@@ -510,6 +525,14 @@ const userWriteRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 120,
   message: 'You are making changes too quickly. Please wait a moment and try again.',
+})
+// Reports on student content (issue #192): generous for someone flagging a
+// run of spam, low enough that the queue cannot be flooded from one account.
+const reportRateLimit = createRateLimiter({
+  name: 'report',
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: 'Too many reports. Please try again in an hour.',
 })
 // Advertiser campaign creates and edits (issue #202). Portal sessions carry
 // req.session.advertiserId rather than a student userId, so the default key
@@ -1119,10 +1142,7 @@ async function linkPurdueIdentity(userId, { email }) {
   // message sends the student to support. The address stays out of the text:
   // the website carries this message in a redirect URL.
   if (currentPurdueEmail) {
-    throw new Error(
-      'Your BoilerIndy profile is already linked to a different Purdue account. '
-      + 'Contact support to release that link before linking another one.',
-    )
+    throw new Error(LINKED_TO_ANOTHER_PURDUE_ACCOUNT_MESSAGE)
   }
 
   const { data: existingRows } = await supabase
@@ -1860,13 +1880,6 @@ app.get('/api/me/sources', requireAuth, async (req, res) => {
 })
 
 // Debug endpoint to diagnose calendar import issues (disabled in production)
-// Issue #196: an id-shaped route param that is not a UUID reaches PostgREST as
-// 22P02 and used to surface as a 500 that Sentry recorded as an error. Answer
-// 404, the same as a row that is not there, so a prober cannot tell a malformed
-// id from a missing one. `:type` (admin content type) and the calendar feed
-// token are not UUIDs and keep their own validation.
-const requireIdParam = (...names) => requireUuidParam(...names, { status: 404, message: 'Not found.' })
-
 app.get('/api/debug/source/:sourceId', requireIdParam('sourceId'), requireAuth, async (req, res) => {
   if (isProduction) {
     return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
@@ -2592,168 +2605,9 @@ app.get('/feeds/calendar/:file', calendarFeedRateLimit, async (req, res) => {
 })
 
 // ── Lost & Found: standalone feature, independent of the board (issue #47) ────
-
-const LOST_FOUND_TYPES = new Set(['lost', 'found'])
-
-function mapLostFoundRow(row, userId) {
-  return {
-    id: row.id,
-    type: row.type,
-    title: row.title,
-    description: row.description,
-    location: row.location,
-    contact: row.contact,
-    status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    isOwner: row.user_id === userId,
-  }
-}
-
-function cleanField(value, max) {
-  const trimmed = String(value ?? '').trim()
-  return trimmed ? trimmed.slice(0, max) : null
-}
-
-// Strip PostgREST filter separators and ILIKE wildcards from free-text search so a
-// crafted `q` can't inject extra `.or()` clauses or abuse %/_ wildcards.
-function sanitizeSearchTerm(value) {
-  return String(value ?? '').replace(/[%_,()\\]/g, ' ').trim().slice(0, 120)
-}
-
-app.get('/api/lost-found', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const type = typeof req.query.type === 'string' && LOST_FOUND_TYPES.has(req.query.type) ? req.query.type : null
-  const status = req.query.status === 'resolved' || req.query.status === 'open' ? req.query.status : null
-  const search = typeof req.query.q === 'string' ? sanitizeSearchTerm(req.query.q) : ''
-
-  let query = supabase
-    .from('lost_found_items')
-    .select('*')
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(200)
-
-  if (type) query = query.eq('type', type)
-  if (status) query = query.eq('status', status)
-  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,location.ilike.%${search}%`)
-
-  const { data, error } = await query
-  if (error) {
-    console.error('GET /api/lost-found:', error.message)
-    return res.json({ items: [], unavailable: true })
-  }
-  res.json({ items: (data || []).map((row) => mapLostFoundRow(row, userId)) })
-})
-
-app.post('/api/lost-found', lostFoundWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const type = String(req.body?.type || '').trim()
-  if (!LOST_FOUND_TYPES.has(type)) {
-    return res.status(400).json({ error: { message: 'Type must be "lost" or "found".', status: 400 } })
-  }
-  const title = cleanField(req.body?.title, 200)
-  if (!title) {
-    return res.status(400).json({ error: { message: 'A short title is required.', status: 400 } })
-  }
-  const description = cleanField(req.body?.description, 2000)
-  const location = cleanField(req.body?.location, 200)
-  const contact = cleanField(req.body?.contact, 200)
-
-  // Reuse the campus board's profanity policy so all user text is moderated.
-  const policy = assertBoardPostTextAllowed(title, `${description || ''}\n${location || ''}`)
-  if (!policy.ok) {
-    return res.status(400).json({ error: { message: policy.message, status: 400 } })
-  }
-
-  const { data, error } = await supabase
-    .from('lost_found_items')
-    .insert({ user_id: userId, type, title, description, location, contact, status: 'open' })
-    .select()
-    .single()
-  if (error) {
-    console.error('POST /api/lost-found:', error.message)
-    return res.status(500).json({ error: { message: 'Could not save your post. Please try again.', status: 500 } })
-  }
-  res.status(201).json({ item: mapLostFoundRow(data, userId) })
-})
-
-app.patch('/api/lost-found/:id', lostFoundWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { id } = req.params
-
-  const { data: existing, error: findErr } = await supabase
-    .from('lost_found_items')
-    .select('*')
-    .eq('id', id)
-    .is('deleted_at', null)
-    .maybeSingle()
-  if (findErr || !existing) {
-    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
-  }
-  if (existing.user_id !== userId) {
-    // Uniform 404 (not 403) so this can't be used as an existence oracle.
-    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
-  }
-
-  const patch = {}
-  if (req.body?.status === 'resolved' || req.body?.status === 'open') patch.status = req.body.status
-  if (req.body?.title !== undefined) {
-    const title = cleanField(req.body.title, 200)
-    if (!title) return res.status(400).json({ error: { message: 'Title cannot be empty.', status: 400 } })
-    patch.title = title
-  }
-  if (req.body?.description !== undefined) patch.description = cleanField(req.body.description, 2000)
-  if (req.body?.location !== undefined) patch.location = cleanField(req.body.location, 200)
-  if (req.body?.contact !== undefined) patch.contact = cleanField(req.body.contact, 200)
-
-  if (Object.keys(patch).length === 0) {
-    return res.status(400).json({ error: { message: 'Nothing to update.', status: 400 } })
-  }
-
-  const nextTitle = patch.title ?? existing.title
-  const nextDesc = patch.description ?? existing.description
-  const nextLoc = patch.location ?? existing.location
-  const policy = assertBoardPostTextAllowed(nextTitle, `${nextDesc || ''}\n${nextLoc || ''}`)
-  if (!policy.ok) {
-    return res.status(400).json({ error: { message: policy.message, status: 400 } })
-  }
-
-  const { data, error } = await supabase
-    .from('lost_found_items')
-    .update(patch)
-    .eq('id', id)
-    .eq('user_id', userId)
-    .select()
-    .single()
-  if (error) {
-    console.error('PATCH /api/lost-found/:id:', error.message)
-    return res.status(500).json({ error: { message: 'Could not update the post.', status: 500 } })
-  }
-  res.json({ item: mapLostFoundRow(data, userId) })
-})
-
-app.delete('/api/lost-found/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { id } = req.params
-  // Soft delete: hide the item (set deleted_at) instead of removing it. The
-  // owner or an admin taking it down (issue #195) can delete; admins can
-  // restore or permanently delete it from the moderation view.
-  const query = supabase
-    .from('lost_found_items')
-    .update({ deleted_at: nowIso() })
-    .eq('id', id)
-    .is('deleted_at', null)
-  const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
-  if (error) {
-    console.error('DELETE /api/lost-found/:id:', error.message)
-    return res.status(500).json({ error: { message: 'Could not delete the post.', status: 500 } })
-  }
-  if (!data || data.length === 0) {
-    return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
-  }
-  res.json({ ok: true })
-})
+// The standalone Lost & Found routes live in src/routes/lostFound.mjs (issue
+// #191), mounted where they were, above the layouts router.
+app.use(createLostFoundRouter({ supabase, requireAuth, isUserAdmin, lostFoundWriteRateLimit, userWriteRateLimit }))
 
 // ── Customizable board layouts (issue #52) ───────────────────────────────────
 // The home dashboard and Student Services board layouts live in
@@ -2761,6 +2615,20 @@ app.delete('/api/lost-found/:id', userWriteRateLimit, requireIdParam('id'), requ
 // #191). Mounted where the routes were, so ordering-sensitive middleware (the
 // session above, apiNotFound and the error handler below) is unaffected.
 app.use(createLayoutsRouter({ supabase, requireAuth, userWriteRateLimit }))
+
+// ── Reporting content and blocking users (issue #192) ───────────────────────
+// POST /api/reports lives in src/routes/reports.mjs: one report route for every
+// surface students post to, feeding the admin queue below. The block routes
+// (/api/me/blocks*) live in src/routes/blocks.mjs; every list of other
+// students' content leaves blocked users out through src/blocks.mjs.
+app.use(createReportsRouter({ supabase, requireAuth, reportRateLimit }))
+app.use(createBlocksRouter({ supabase, requireAuth, userWriteRateLimit }))
+
+// ── Purdue email-code verification (issue #181) ─────────────────────────────
+// /api/me/purdue-email/* in src/routes/purdueEmail.mjs: a code mailed to a
+// @purdue.edu address links it through linkPurdueIdentity, in every
+// PURDUE_AUTH_MODE, since it proves only that the student reads that mailbox.
+app.use(createPurdueEmailRouter({ supabase, requireAuth, purdueVerifyRateLimit, linkPurdueIdentity, sendEmail, isProduction }))
 
 app.get('/', (_req, res) => {
   res.redirect(clientAppUrl)
@@ -3887,19 +3755,6 @@ app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (r
 // ============================================================
 
 const BOARD_SQL_FILE = DB_FEATURES.board.sqlFile
-// Adds deleted_at to board_posts, marketplace_listings, lost_found_items,
-// guide_recommendations and deals. Their list and delete queries filter on it.
-const SOFT_DELETE_SQL_FILE = 'db/supabase-soft-delete.sql'
-
-// For the board, guide, deals and marketplace: a missing deleted_at column still
-// answers the feature's schema_missing code, but the log names the soft-delete
-// migration, since rerunning the feature's own file would not add it (#218).
-function respondSoftDeleteFeatureDbError(res, err, config) {
-  if (isMissingColumnError(err, 'deleted_at')) {
-    return respondSchemaMissing(res, { ...config, sqlFile: SOFT_DELETE_SQL_FILE }, err)
-  }
-  return respondDbError(res, err, config)
-}
 
 // 503 board_schema_missing until the board tables exist, 500 otherwise. Each
 // feature's responder below is the same wrapper over src/dbErrors.mjs (#218).
@@ -3926,12 +3781,23 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
   const sort = req.query.sort === 'popular' ? 'popular' : 'recent'
   const page = Math.max(0, parseInt(req.query.page, 10) || 0)
 
+  // Users on either side of a block with the caller are left out in the
+  // queries, so paging stays exact (issue #192). Anonymous posts keep their
+  // user_id, so the filter covers them too.
+  let blocked
+  try {
+    blocked = await loadBlockedIds(supabase, req.currentUser.id)
+  } catch (err) {
+    return respondBoardDbError(res, err)
+  }
+
   // select('*') keeps the board working whether or not the optional
   // edited_at migration (db/supabase-board-only.sql) has been applied yet
   let query = supabase
     .from('board_posts')
     .select('*')
     .is('deleted_at', null)
+  query = excludeBlocked(query, 'user_id', blocked)
   if (sort === 'popular') {
     query = query
       .order('pinned', { ascending: false })
@@ -3952,10 +3818,11 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
     // Newest first with a hard cap (issue #200): only the newest INLINE_REPLIES
     // per post are previewed, and the rest of a thread comes from
     // GET /api/board/posts/:id/replies.
-    const { data: rd } = await supabase
+    const replyQuery = supabase
       .from('board_replies')
       .select('id, post_id, body, is_anon, created_at, user_id')
       .in('post_id', postIds)
+    const { data: rd } = await excludeBlocked(replyQuery, 'user_id', blocked)
       .order('created_at', { ascending: false })
       .limit(INLINE_REPLY_FETCH_LIMIT)
     repliesData = rd || []
@@ -3982,7 +3849,7 @@ app.get('/api/board/posts', requireAuth, async (req, res) => {
 
   const myId = req.currentUser.id
   const posts = postsData.map(p => {
-    const replies = (inlineReplies[p.id] || []).map(r => mapBoardReply(r, nameMap))
+    const replies = (inlineReplies[p.id] || []).map(r => mapBoardReply(r, nameMap, myId))
     // reply_count is maintained by sync_board_post_reply_count; fall back to what
     // is on screen so a post still counts its replies on an unmigrated database.
     const replyCount = Number.isFinite(p.reply_count) ? p.reply_count : replies.length
@@ -4026,10 +3893,18 @@ app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async
   if (postError) return respondBoardDbError(res, postError)
   if (!post) return res.status(404).json({ error: { message: 'Post not found.', status: 404 } })
 
-  const { data, error } = await supabase
+  // Replies by users on either side of a block are left out (issue #192).
+  let blocked
+  try {
+    blocked = await loadBlockedIds(supabase, req.currentUser.id)
+  } catch (err) {
+    return respondBoardDbError(res, err)
+  }
+  const replyQuery = supabase
     .from('board_replies')
     .select('id, post_id, body, is_anon, created_at, user_id')
     .eq('post_id', postId)
+  const { data, error } = await excludeBlocked(replyQuery, 'user_id', blocked)
     .order('created_at', { ascending: true })
     .range(page * REPLY_PAGE_SIZE, page * REPLY_PAGE_SIZE + REPLY_PAGE_SIZE - 1)
   if (error) return respondBoardDbError(res, error)
@@ -4037,7 +3912,7 @@ app.get('/api/board/posts/:id/replies', requireIdParam('id'), requireAuth, async
   const rows = data || []
   const nameMap = await boardDisplayNames(rows)
   res.json({
-    replies: rows.map(r => mapBoardReply(r, nameMap)),
+    replies: rows.map(r => mapBoardReply(r, nameMap, req.currentUser.id)),
     page,
     hasMore: rows.length === REPLY_PAGE_SIZE,
   })
@@ -4267,6 +4142,8 @@ app.post('/api/board/posts/:id/reply', boardWriteRateLimit, requireIdParam('id')
       id: reply.id,
       body: reply.body,
       user: reply.is_anon ? 'Anonymous' : req.currentUser.display_name,
+      anon: reply.is_anon,
+      isMine: true,
       time: reply.created_at,
     }
   })
@@ -4377,884 +4254,36 @@ app.delete('/api/board/posts/:id', userWriteRateLimit, requireIdParam('id'), req
 })
 
 // ============================================================
-// Neighborhood Guide (issue #31) - student-submitted local recommendations.
-// Reuses board conventions: boardWriteRateLimit, boardProfanity, upvote toggle.
-// Requires db/supabase-neighborhood-guide.sql.
+// Neighborhood Guide (issue #31) - student recommendations, in
+// src/routes/guide.mjs (issue #191).
 // ============================================================
-
-function respondGuideDbError(res, err) {
-  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.guide)
-}
-
-app.get('/api/guide', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  try {
-    let query = supabase
-      .from('guide_recommendations')
-      .select('*')
-      .is('deleted_at', null)
-      .order('pinned', { ascending: false })
-      .order('upvote_count', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(200)
-    if (category) query = query.eq('category', category)
-    const { data, error } = await query
-    if (error) throw error
-
-    const recs = data || []
-    let upvoted = new Set()
-    if (recs.length) {
-      const { data: votes } = await supabase
-        .from('guide_upvotes')
-        .select('rec_id')
-        .eq('user_id', userId)
-        .in('rec_id', recs.map((r) => r.id))
-      upvoted = new Set((votes || []).map((v) => v.rec_id))
-    }
-    res.json({ recommendations: recs.map((r) => mapGuideRow(r, userId, upvoted)) })
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-app.post('/api/guide', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const { value, error: invalid } = validateGuideInput(req.body || {})
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-
-  const profanity = assertBoardPostTextAllowed(value.title, value.body)
-  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-
-  try {
-    const { data, error } = await supabase
-      .from('guide_recommendations')
-      .insert({ user_id: req.currentUser.id, ...value })
-      .select('*')
-      .single()
-    if (error) throw error
-    res.status(201).json({ recommendation: mapGuideRow(data, req.currentUser.id) })
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-app.post('/api/guide/:id/upvote', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const recId = req.params.id
-  const userId = req.currentUser.id
-  try {
-    const { data: rec, error: recErr } = await supabase
-      .from('guide_recommendations')
-      .select('id')
-      .eq('id', recId)
-      .is('deleted_at', null)
-      .maybeSingle()
-    if (recErr) throw recErr
-    if (!rec) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
-    res.json(
-      await toggleUpvote({
-        supabase,
-        table: 'guide_upvotes',
-        refColumn: 'rec_id',
-        refId: recId,
-        userId,
-        now: nowIso(),
-        syncCount: () => communityCounters.syncGuideRecUpvotes(recId),
-      }),
-    )
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-app.patch('/api/guide/:id/pin', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
-  const pinned = req.body?.pinned === true || req.body?.pinned === 'true'
-  try {
-    const { data, error } = await supabase
-      .from('guide_recommendations')
-      .update({ pinned })
-      .eq('id', req.params.id)
-      .is('deleted_at', null)
-      .select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Recommendation not found.', status: 404 } })
-    res.json({ ok: true, pinned })
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
-
-// Delete - owner or admin (admins take down live recommendations, issue #195).
-app.delete('/api/guide/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const query = supabase
-      .from('guide_recommendations')
-      .update({ deleted_at: nowIso() })
-      .eq('id', req.params.id)
-      .is('deleted_at', null)
-    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
-    if (error) throw error
-    if (!data?.length) {
-      return res.status(404).json({ error: { message: 'Recommendation not found or not yours.', status: 404 } })
-    }
-    res.status(204).end()
-  } catch (e) {
-    return respondGuideDbError(res, e)
-  }
-})
+app.use(createGuideRouter({ supabase, requireAuth, requireAdmin, isUserAdmin, communityCounters, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
-// Study Group Finder (issue #33) - per-course groups from synced schedules.
-// Privacy is opt-in (default off); only opted-in users count as classmates.
-// Requires db/supabase-study-groups.sql.
+// Study Group Finder (issue #33) - per-course groups, in
+// src/routes/studyGroups.mjs (issue #191).
 // ============================================================
-
-// Soft delete for groups came later (issue #195) and is a separate migration.
-const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
-const STUDY_SOFT_DELETE_DB = {
-  ...DB_FEATURES.study_groups,
-  label: 'Removing study groups',
-  sqlFile: STUDY_SOFT_DELETE_SQL_FILE,
-}
-
-function respondStudyDbError(res, err) {
-  // Checked first so the log names the soft-delete migration rather than the
-  // base study-groups file; the client sees study_groups_schema_missing either way.
-  if (isMissingColumnError(err, 'deleted_at')) return respondSchemaMissing(res, STUDY_SOFT_DELETE_DB, err)
-  return respondDbError(res, err, DB_FEATURES.study_groups)
-}
-
-function mapStudyGroupRow(row, userId, memberCounts, myGroupIds) {
-  return {
-    id: row.id,
-    courseCode: row.course_code,
-    title: row.title,
-    description: row.description || '',
-    meetingInfo: row.meeting_info || '',
-    capacity: row.capacity ?? null,
-    memberCount: memberCounts.get(row.id) || 0,
-    joinedByMe: myGroupIds.has(row.id),
-    isMine: row.creator_id === userId,
-    createdAt: row.created_at,
-  }
-}
-
-async function loadStudyMembership(groupIds, userId) {
-  const memberCounts = new Map()
-  const myGroupIds = new Set()
-  if (groupIds.length) {
-    const { data: members } = await supabase
-      .from('study_group_members')
-      .select('group_id, user_id')
-      .in('group_id', groupIds)
-    for (const m of members || []) {
-      memberCounts.set(m.group_id, (memberCounts.get(m.group_id) || 0) + 1)
-      if (m.user_id === userId) myGroupIds.add(m.group_id)
-    }
-  }
-  return { memberCounts, myGroupIds }
-}
-
-// The user's detected courses + opt-in status + classmate counts (opted-in only).
-app.get('/api/me/study-groups/courses', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const optIn = Boolean(req.currentUser.study_groups_opt_in)
-    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
-    const courses = coursesFromClassItems(items)
-    const counts = new Map()
-    if (courses.length) {
-      const { data } = await supabase
-        .from('study_group_courses')
-        .select('course_code, user_id')
-        .in('course_code', courses)
-      for (const row of data || []) {
-        if (row.user_id === userId) continue // never count yourself
-        counts.set(row.course_code, (counts.get(row.course_code) || 0) + 1)
-      }
-    }
-    res.json({ optIn, courses: courses.map((c) => ({ code: c, classmateCount: counts.get(c) || 0 })) })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Toggle opt-in; on opt-in, snapshot the user's course codes for classmate counts.
-app.patch('/api/me/study-groups/opt-in', userWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const optIn = req.body?.optIn === true || req.body?.optIn === 'true'
-  try {
-    const { error } = await supabase.from('users').update({ study_groups_opt_in: optIn }).eq('id', userId)
-    if (error) throw error
-    await supabase.from('study_group_courses').delete().eq('user_id', userId)
-    if (optIn) {
-      const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
-      const courses = coursesFromClassItems(items)
-      if (courses.length) {
-        await supabase.from('study_group_courses').insert(courses.map((c) => ({ user_id: userId, course_code: c })))
-      }
-    }
-    res.json({ ok: true, optIn })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Groups the current user belongs to.
-app.get('/api/me/study-groups', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data: mem, error } = await supabase
-      .from('study_group_members')
-      .select('group_id')
-      .eq('user_id', userId)
-    if (error) throw error
-    const ids = (mem || []).map((m) => m.group_id)
-    if (!ids.length) return res.json({ groups: [] })
-    // Taken-down groups keep their member rows (so a restore brings them back)
-    // but must not show up here.
-    const { data: groups } = await selectLiveRows((liveOnly) => {
-      const query = supabase.from('study_groups').select('*').in('id', ids)
-      return liveOnly ? query.is('deleted_at', null) : query
-    })
-    const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
-    res.json({ groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// List groups for a course.
-app.get('/api/study-groups', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const course = normalizeCourseCode(req.query.course)
-  if (!course) return res.status(400).json({ error: { message: 'A valid course code is required.', status: 400 } })
-  try {
-    const { data: groups, error } = await selectLiveRows((liveOnly) => {
-      let query = supabase.from('study_groups').select('*').eq('course_code', course)
-      if (liveOnly) query = query.is('deleted_at', null)
-      return query.order('created_at', { ascending: false }).limit(100)
-    })
-    if (error) throw error
-    const ids = (groups || []).map((g) => g.id)
-    const { memberCounts, myGroupIds } = await loadStudyMembership(ids, userId)
-    res.json({ courseCode: course, groups: (groups || []).map((g) => mapStudyGroupRow(g, userId, memberCounts, myGroupIds)) })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Create a group (creator auto-joins).
-app.post('/api/study-groups', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const { value, error: invalid } = validateStudyGroupInput(req.body || {})
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  const profanity = assertBoardPostTextAllowed(value.title, value.description)
-  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-  try {
-    const { data, error } = await supabase
-      .from('study_groups')
-      .insert({ creator_id: req.currentUser.id, ...value })
-      .select('*')
-      .single()
-    if (error) throw error
-    await supabase.from('study_group_members').insert({ group_id: data.id, user_id: req.currentUser.id, joined_at: nowIso() })
-    res.status(201).json({
-      group: mapStudyGroupRow(data, req.currentUser.id, new Map([[data.id, 1]]), new Set([data.id])),
-    })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Join a group (respects capacity).
-app.post('/api/study-groups/:id/join', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const groupId = req.params.id
-  try {
-    // maybeSingle so a missing or taken-down group is the 404 below, not a 500.
-    const { data: group, error: gErr } = await selectLiveRows((liveOnly) => {
-      let query = supabase.from('study_groups').select('id, capacity').eq('id', groupId)
-      if (liveOnly) query = query.is('deleted_at', null)
-      return query.maybeSingle()
-    })
-    if (gErr) throw gErr
-    if (!group) return res.status(404).json({ error: { message: 'Group not found.', status: 404 } })
-
-    // Counting members here and inserting after let two students take the same
-    // last seat (#207). src/studyGroupJoin.mjs prefers a Postgres function that
-    // locks the group and does count, check and insert in one transaction, and
-    // falls back to the old read-then-insert until that migration runs.
-    const result = await joinStudyGroup(supabase, {
-      groupId,
-      userId,
-      capacity: group.capacity,
-      now: nowIso(),
-    })
-    if (result.error) throw result.error
-    const { status, body } = joinOutcomeToResponse(result)
-    res.status(status).json(body)
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Leave a group.
-app.post('/api/study-groups/:id/leave', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { error } = await supabase
-      .from('study_group_members')
-      .delete()
-      .eq('group_id', req.params.id)
-      .eq('user_id', userId)
-    if (error) throw error
-    res.json({ ok: true })
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
-
-// Delete a group - its creator or an admin (issue #195). Soft delete: the group
-// leaves every list, but its members stay attached so an admin restore from the
-// moderation view brings it back whole. Answers 503 (respondStudyDbError) until
-// db/supabase-study-groups-soft-delete.sql adds the deleted_at column.
-app.delete('/api/study-groups/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const groupId = req.params.id
-  if (!isUuid(groupId)) {
-    return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
-  }
-  try {
-    const query = supabase
-      .from('study_groups')
-      .update({ deleted_at: nowIso() })
-      .eq('id', groupId)
-      .is('deleted_at', null)
-    const { data, error } = await ownerOrAdminScope(query, {
-      userId: req.currentUser.id,
-      isAdmin: isUserAdmin(req.currentUser),
-      ownerColumn: 'creator_id',
-    }).select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Group not found or not yours.', status: 404 } })
-    res.status(204).end()
-  } catch (e) {
-    return respondStudyDbError(res, e)
-  }
-})
+app.use(createStudyGroupsRouter({ supabase, requireAuth, isUserAdmin, getClassItemsForUser, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
-// Campus Perks (issue #24) - admin-curated local deals for students.
-// GET is for everyone (active + unexpired); create/edit/delete require admin.
-// Requires db/supabase-campus-deals.sql.
+// Campus Perks (issue #24) - admin-curated local deals, in
+// src/routes/deals.mjs (issue #191).
 // ============================================================
-
-function respondDealsDbError(res, err) {
-  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.deals)
-}
-
-app.get('/api/deals', requireAuth, async (req, res) => {
-  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  // Admins can request everything (incl. inactive/expired) to manage from the UI.
-  const includeAll = req.query.all === '1' && isUserAdmin(req.currentUser)
-  try {
-    let query = supabase.from('deals').select('*').is('deleted_at', null).order('featured', { ascending: false }).order('created_at', { ascending: false }).limit(200)
-    if (category) query = query.eq('category', category)
-    const { data, error } = await query
-    if (error) throw error
-    const rows = includeAll ? (data || []) : (data || []).filter((d) => isDealActive(d))
-    res.json({ deals: rows.map(mapDealRow), isAdmin: isUserAdmin(req.currentUser) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.post('/api/deals', userWriteRateLimit, requireAuth, requireAdmin, async (req, res) => {
-  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: false })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  try {
-    const { data, error } = await supabase
-      .from('deals')
-      .insert({ ...value, created_by: req.currentUser.id })
-      .select('*')
-      .single()
-    if (error) throw error
-    res.status(201).json({ deal: mapDealRow(data) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.patch('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
-  const { value, error: invalid } = validateDealInput(req.body || {}, { partial: true })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  if (Object.keys(value).length === 0) {
-    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
-  }
-  try {
-    const { data, error } = await supabase.from('deals').update(value).eq('id', req.params.id).is('deleted_at', null).select('*').maybeSingle()
-    if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
-    res.json({ deal: mapDealRow(data) })
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
-
-app.delete('/api/deals/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('deals').update({ deleted_at: nowIso() }).eq('id', req.params.id).is('deleted_at', null).select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Deal not found.', status: 404 } })
-    res.status(204).end()
-  } catch (e) {
-    return respondDealsDbError(res, e)
-  }
-})
+app.use(createDealsRouter({ supabase, requireAuth, requireAdmin, isUserAdmin, userWriteRateLimit }))
 
 // ============================================================
-// Student Marketplace (issue #32, Phase 1) - listings + reports.
-// Posting requires Purdue verification; 3 distinct reports auto-hide a listing.
-// Requires db/supabase-marketplace.sql.
+// Student Marketplace (issue #32, Phase 1) - listings and reports, in
+// src/routes/marketplace.mjs (issue #191). The photo helper is built here so
+// the router never sees the session secret.
 // ============================================================
-
-const MARKETPLACE_PAGE_SIZE = 24
 const marketplacePhotos = createMarketplacePhotos({ supabase, secret: sessionSecret })
-const marketplacePhotoRateLimit = createRateLimiter({
-  name: 'marketplace-photo', windowMs: 60 * 60 * 1000, max: 20,
-  message: 'Too many photo uploads. Please try again in an hour.',
-})
-async function findOwnedMarketplaceListing(id, userId) {
-  const { data, error } = await supabase.from('marketplace_listings').select('*')
-    .eq('id', id).eq('user_id', userId).is('deleted_at', null).maybeSingle()
-  if (error) throw error
-  return data
-}
-// Reports per listing, for the owner's "hidden after reports" notice and the
-// admin review list. marketplace_reports has no id column and PostgREST cannot
-// group, so the rows come back and are counted here; the caller only ever asks
-// about listings it is already showing.
-async function countMarketplaceReports(listingIds) {
-  const counts = new Map()
-  if (!listingIds.length) return counts
-  const { data, error } = await supabase
-    .from('marketplace_reports')
-    .select('listing_id, reason')
-    .in('listing_id', listingIds)
-  if (error) throw error
-  for (const row of data || []) {
-    const entry = counts.get(row.listing_id) || { count: 0, reasons: [] }
-    entry.count += 1
-    if (row.reason) entry.reasons.push(row.reason)
-    counts.set(row.listing_id, entry)
-  }
-  return counts
-}
-
-app.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
-  photoAuthorizationHandler({ photos: marketplacePhotos, findOwnedListing: findOwnedMarketplaceListing }))
-
-// A missing image_urls or price_mode column also answers marketplace_schema_missing,
-// with the gallery and pricing migration named in the log, since the base
-// marketplace file does not add them (#218).
-function respondMarketplaceDbError(res, err) {
-  if (err instanceof PhotoError) return respondPhotoError(res, err)
-  if (isMissingGalleryPricingColumn(err)) {
-    return respondSchemaMissing(res, { ...DB_FEATURES.marketplace, sqlFile: MARKETPLACE_GALLERY_PRICING_SQL_FILE }, err)
-  }
-  return respondSoftDeleteFeatureDbError(res, err, DB_FEATURES.marketplace)
-}
-
-// Browse active, non-hidden listings with optional category/text filter + paging.
-app.get('/api/marketplace', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const category = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : ''
-  const q = typeof req.query.q === 'string' ? sanitizeSearchTerm(req.query.q) : ''
-  const page = Math.max(0, parseInt(req.query.page, 10) || 0)
-  try {
-    let query = supabase
-      .from('marketplace_listings')
-      .select('*')
-      .is('deleted_at', null)
-      .eq('status', 'active')
-      .eq('hidden', false)
-      .order('created_at', { ascending: false })
-      .range(page * MARKETPLACE_PAGE_SIZE, page * MARKETPLACE_PAGE_SIZE + MARKETPLACE_PAGE_SIZE - 1)
-    if (category) query = query.eq('category', category)
-    if (q) query = query.ilike('title', `%${q}%`)
-    const { data, error } = await query
-    if (error) throw error
-    res.json({
-      listings: (data || []).map((r) => mapListingRow(r, userId)),
-      page,
-      hasMore: (data || []).length === MARKETPLACE_PAGE_SIZE,
-      canPost: Boolean(req.currentUser.purdue_linked_at),
-    })
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
-
-// The current user's own listings (any status).
-app.get('/api/marketplace/mine', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data, error } = await supabase
-      .from('marketplace_listings')
-      .select('*')
-      .eq('user_id', userId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-    if (error) throw error
-    const listings = data || []
-    // Only hidden rows carry a count: it explains why the listing went dark.
-    // A live listing's running total is moderation data and stays server-side.
-    const reports = await countMarketplaceReports(listings.filter((r) => r.hidden).map((r) => r.id))
-    res.json({
-      listings: listings.map((r) => mapListingRow(r, userId, null, { reportCount: reports.get(r.id)?.count })),
-    })
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
-
-// Clients check this before uploading a gallery to avoid older servers dropping fields.
-app.get('/api/marketplace/capabilities', requireAuth, async (_req, res) => {
-  res.set('Cache-Control', 'no-store')
-  try {
-    const { error } = await supabase.from('marketplace_listings').select('image_urls,price_mode').limit(0)
-    if (error) throw error
-    res.json({ gallery: true, pricing: true, maxPhotos: 6 })
-  } catch {
-    res.status(503).json({ error: { message: 'Marketplace photo and pricing setup is not complete. Please try again later.', status: 503 } })
-  }
-})
-
-// Listing detail - reveals seller contact (name + Purdue email) to signed-in
-// users, so it is rate-limited to blunt bulk id-enumeration harvesting (#114).
-app.get('/api/marketplace/:id', marketplaceReadRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).maybeSingle()
-    if (error) throw error
-    if (!data || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))) {
-      return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
-    }
-    const { data: seller } = await supabase.from('users').select('display_name, email').eq('id', data.user_id).single()
-    res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.email }) })
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
-
-// Create - requires Purdue verification.
-app.post('/api/marketplace', boardWriteRateLimit, requireAuth, async (req, res) => {
-  if (!req.currentUser.purdue_linked_at) {
-    return res.status(403).json({ error: { message: 'Link your Purdue account in setup before posting.', status: 403 } })
-  }
-  const { value, error: invalid } = validateListingInput(req.body || {}, { partial: false })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  const profanity = assertBoardPostTextAllowed(value.title, value.description)
-  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-  try {
-    Object.assign(value, await marketplacePhotos.resolve(req.body || {}, req.currentUser.id))
-    const { data, error } = await supabase
-      .from('marketplace_listings')
-      .insert({ user_id: req.currentUser.id, ...value })
-      .select('*')
-      .single()
-    if (error) throw error
-    res.status(201).json({ listing: mapListingRow(data, req.currentUser.id) })
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
-
-// Edit / mark sold - owner only.
-app.patch('/api/marketplace/:id', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { value, error: invalid } = validateListingInput(req.body || {}, { partial: true })
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  if (Object.keys(value).length === 0 && req.body?.imageUploadReceipt === undefined && req.body?.photos === undefined) {
-    return res.status(400).json({ error: { message: 'No valid fields to update.', status: 400 } })
-  }
-  if (value.title || value.description) {
-    const profanity = assertBoardPostTextAllowed(value.title || '', value.description || '')
-    if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-  }
-  try {
-    const current = await findOwnedMarketplaceListing(req.params.id, userId)
-    if (!current) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
-    Object.assign(value, await marketplacePhotos.resolve(req.body || {}, userId, req.params.id, current.image_url, current.image_urls))
-    const { data, error } = await supabase
-      .from('marketplace_listings')
-      .update({ ...value, updated_at: nowIso() })
-      .eq('id', req.params.id)
-      .eq('user_id', userId)
-      .is('deleted_at', null)
-      .select('*')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
-    res.json({ listing: mapListingRow(data[0], userId) })
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
-
-// Delete - owner or admin.
-app.delete('/api/marketplace/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    // Soft delete: hide the listing (set deleted_at). Admins purge it
-    // permanently from the moderation view.
-    const query = supabase
-      .from('marketplace_listings')
-      .update({ deleted_at: nowIso() })
-      .eq('id', req.params.id)
-      .is('deleted_at', null)
-    const { data, error } = await ownerOrAdminScope(query, { userId, isAdmin: isUserAdmin(req.currentUser) }).select('id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
-    res.status(204).end()
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
-
-// Report a listing; auto-hide at REPORTS_TO_HIDE distinct reporters. The
-// listing is looked up before the insert (issue #204): until then a report
-// against a soft-deleted or unknown id reached the foreign key and came back
-// as a 500, and nothing stopped a seller reporting their own listing.
-app.post('/api/marketplace/:id/report', boardWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const listingId = req.params.id
-  const parsed = parseReportInput(req.body || {})
-  if (!parsed.ok) return badRequest(res, parsed.message)
-  try {
-    const { data: listing, error: lookupErr } = await supabase
-      .from('marketplace_listings')
-      .select('id, user_id, hidden')
-      .eq('id', listingId)
-      .is('deleted_at', null)
-      .maybeSingle()
-    if (lookupErr) throw lookupErr
-    const verdict = evaluateReportTarget({ listing, reporterId: userId })
-    if (verdict.status === 404) {
-      return res.status(404).json({ error: { message: verdict.message, status: 404 } })
-    }
-    if (verdict.status !== 200) return badRequest(res, verdict.message)
-
-    const { error: insErr } = await supabase
-      .from('marketplace_reports')
-      .insert({ listing_id: listingId, reporter_id: userId, reason: parsed.reason, created_at: nowIso() })
-    // The primary key (listing_id, reporter_id) caps a reporter at one report
-    // per listing, so a second one cannot move the count. Answering here says
-    // so plainly and saves the recount round trip.
-    if (insErr?.code === '23505') return res.json({ ok: true, duplicate: true })
-    if (insErr) throw insErr
-
-    const { count } = await supabase
-      .from('marketplace_reports')
-      .select('reporter_id', { count: 'exact', head: true })
-      .eq('listing_id', listingId)
-    if (shouldAutoHide(count)) {
-      await supabase.from('marketplace_listings').update({ hidden: true }).eq('id', listingId)
-    }
-    res.json({ ok: true })
-  } catch (e) {
-    return respondMarketplaceDbError(res, e)
-  }
-})
+app.use(createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, marketplacePhotos, marketplacePhotoRateLimit, marketplaceReadRateLimit, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
-// Friend Matching (issue #17) - connect students who share courses.
-// Privacy is opt-in (discoverable, default off); pre-acceptance only display
-// name, interests, and shared-course count are exposed. Requires
-// db/supabase-friend-matching.sql.
+// Friend Matching (issue #17) - students who share courses, in
+// src/routes/friends.mjs (issue #191).
 // ============================================================
-
-function respondFriendsDbError(res, err) {
-  return respondDbError(res, err, DB_FEATURES.friends)
-}
-
-// My profile + discoverable status.
-app.get('/api/me/profile-card', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data, error } = await supabase.from('user_profiles').select('*').eq('user_id', userId).maybeSingle()
-    if (error) throw error
-    res.json({
-      bio: data?.bio || '',
-      interests: Array.isArray(data?.interests) ? data.interests : [],
-      discoverable: Boolean(data?.discoverable),
-    })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Update profile; on discoverable=true, snapshot my course codes for matching.
-app.put('/api/me/profile-card', boardWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { value, error: invalid } = validateProfileInput(req.body || {})
-  if (invalid) return res.status(400).json({ error: { message: invalid, status: 400 } })
-  const profanity = assertBoardPostTextAllowed(value.bio, value.interests.join(' '))
-  if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
-  try {
-    const { error } = await supabase
-      .from('user_profiles')
-      .upsert({ user_id: userId, ...value, updated_at: nowIso() }, { onConflict: 'user_id' })
-    if (error) throw error
-    await supabase.from('friend_match_courses').delete().eq('user_id', userId)
-    if (value.discoverable) {
-      const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
-      const courses = coursesFromClassItems(items)
-      if (courses.length) {
-        await supabase.from('friend_match_courses').insert(courses.map((c) => ({ user_id: userId, course_code: c })))
-      }
-    }
-    res.json({ ok: true, ...value })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Discoverable users sharing >=1 course, ranked by overlap. No email/schedule.
-app.get('/api/me/matches', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const me = await supabase.from('user_profiles').select('discoverable').eq('user_id', userId).maybeSingle()
-    if (!me.data?.discoverable) return res.json({ matches: [], discoverable: false })
-
-    const { items } = await getClassItemsForUser(userId, { term: 'auto', limit: 200 })
-    const myCourses = new Set(coursesFromClassItems(items))
-    if (myCourses.size === 0) return res.json({ matches: [], discoverable: true })
-
-    // Candidate users who share at least one of my courses (excluding me).
-    const { data: courseRows, error: cErr } = await supabase
-      .from('friend_match_courses')
-      .select('user_id, course_code')
-      .in('course_code', [...myCourses])
-    if (cErr) throw cErr
-    const byUser = new Map()
-    for (const row of courseRows || []) {
-      if (row.user_id === userId) continue
-      if (!byUser.has(row.user_id)) byUser.set(row.user_id, [])
-      byUser.get(row.user_id).push(row.course_code)
-    }
-    if (byUser.size === 0) return res.json({ matches: [], discoverable: true })
-
-    // Exclude users with an existing connection (any direction/status).
-    const { data: conns } = await supabase
-      .from('connections')
-      .select('requester_id, addressee_id')
-      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
-    const connected = new Set()
-    for (const c of conns || []) {
-      connected.add(c.requester_id === userId ? c.addressee_id : c.requester_id)
-    }
-
-    const candidates = [...byUser.entries()]
-      .filter(([uid]) => !connected.has(uid))
-      .map(([uid, courses]) => ({ userId: uid, courses }))
-    const ranked = rankMatches(myCourses, candidates)
-    if (ranked.length === 0) return res.json({ matches: [], discoverable: true })
-
-    // Hydrate names + interests for the ranked candidates (discoverable only).
-    const ids = ranked.map((r) => r.userId)
-    const { data: profiles } = await supabase.from('user_profiles').select('user_id, interests, discoverable').in('user_id', ids)
-    const { data: users } = await supabase.from('users').select('id, display_name').in('id', ids)
-    const profById = new Map((profiles || []).map((p) => [p.user_id, p]))
-    const userById = new Map((users || []).map((u) => [u.id, u]))
-
-    const matches = ranked
-      .filter((r) => profById.get(r.userId)?.discoverable)
-      .map((r) => {
-        const card = mapMatchCard(
-          { id: r.userId, display_name: userById.get(r.userId)?.display_name, interests: profById.get(r.userId)?.interests },
-          r.sharedCount,
-        )
-        return { ...card, sharedCourses: r.sharedCourses }
-      })
-    res.json({ matches, discoverable: true })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Send a connection request (blocked silently if the addressee declined before,
-// is not discoverable, or does not exist). The gate lives in
-// sendConnectionRequest (src/friendMatching.mjs) so it is tested (#203).
-app.post('/api/connections', boardWriteRateLimit, requireAuth, async (req, res) => {
-  try {
-    const out = await sendConnectionRequest(supabase, req.currentUser.id, req.body?.addresseeId, { nowIso })
-    return res.status(out.status).json(out.body)
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// Accept or decline an incoming request.
-app.patch('/api/connections/:requesterId', userWriteRateLimit, requireIdParam('requesterId'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const requesterId = req.params.requesterId
-  const action = String(req.body?.action || '').trim()
-  if (!['accept', 'decline'].includes(action)) {
-    return res.status(400).json({ error: { message: 'Action must be accept or decline.', status: 400 } })
-  }
-  try {
-    const { data, error } = await supabase
-      .from('connections')
-      .update({ status: action === 'accept' ? 'accepted' : 'declined' })
-      .eq('requester_id', requesterId)
-      .eq('addressee_id', userId)
-      .eq('status', 'pending')
-      .select('requester_id')
-    if (error) throw error
-    if (!data?.length) return res.status(404).json({ error: { message: 'No pending request from that user.', status: 404 } })
-    res.json({ ok: true, status: action === 'accept' ? 'accepted' : 'declined' })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
-
-// My connections: accepted (with contact email) + incoming pending requests.
-app.get('/api/me/connections', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data: conns, error } = await supabase
-      .from('connections')
-      .select('requester_id, addressee_id, status')
-      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
-    if (error) throw error
-
-    const accepted = []
-    const incoming = []
-    const otherIds = new Set()
-    for (const c of conns || []) {
-      const other = c.requester_id === userId ? c.addressee_id : c.requester_id
-      otherIds.add(other)
-      if (c.status === 'accepted') accepted.push({ userId: other })
-      else if (c.status === 'pending' && c.addressee_id === userId) incoming.push({ userId: c.requester_id })
-    }
-    const { data: users } = otherIds.size
-      ? await supabase.from('users').select('id, display_name, email').in('id', [...otherIds])
-      : { data: [] }
-    const userById = new Map((users || []).map((u) => [u.id, u]))
-    // Accepted connections may see the Purdue email for contact; pending may not.
-    const acctOut = accepted.map((a) => ({
-      userId: a.userId,
-      displayName: userById.get(a.userId)?.display_name || 'Student',
-      email: userById.get(a.userId)?.email || null,
-    }))
-    const inOut = incoming.map((a) => ({
-      userId: a.userId,
-      displayName: userById.get(a.userId)?.display_name || 'Student',
-    }))
-    res.json({ accepted: acctOut, incoming: inOut })
-  } catch (e) {
-    return respondFriendsDbError(res, e)
-  }
-})
+app.use(createFriendsRouter({ supabase, requireAuth, getClassItemsForUser, boardWriteRateLimit, userWriteRateLimit }))
 
 // ============================================================
 // Advertiser portal (separate from student auth - see
@@ -5950,6 +4979,12 @@ app.post('/api/admin/purdue-links/clear', adminWriteRateLimit, requireAuth, requ
   res.json({ ok: true, cleared })
 })
 
+// ── Content reports queue (admin, issue #192) ───────────────────────────────
+// GET /api/admin/reports and PATCH /api/admin/reports/:id live in
+// src/routes/adminReports.mjs; taking reported content down stays with each
+// type's own DELETE route and the hidden-listing takedown below.
+app.use(createAdminReportsRouter({ supabase, requireAuth, requireAdmin, adminWriteRateLimit }))
+
 // ── Soft-delete moderation (admin) ───────────────────────────────────────────
 // User/owner delete endpoints only soft-delete (set deleted_at). Admins review
 // hidden content here and either restore it or permanently (hard) delete it -
@@ -6074,7 +5109,7 @@ app.get('/api/admin/hidden/marketplace', requireAuth, requireAdmin, async (_req,
       .limit(200)
     if (error) throw error
     const listings = data || []
-    const reports = await countMarketplaceReports(listings.map((r) => r.id))
+    const reports = await countMarketplaceReports(supabase, listings.map((r) => r.id))
     res.json({
       items: listings.map((row) => ({
         ...row,

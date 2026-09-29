@@ -44,3 +44,17 @@ export function requireUuidParam(...args) {
     return next()
   }
 }
+
+/**
+ * The :id guard the routes use (issue #196). An id-shaped route param that is
+ * not a UUID reaches PostgREST as 22P02 and used to surface as a 500 that
+ * Sentry recorded as an error. Answer 404, the same as a row that is not
+ * there, so a prober cannot tell a malformed id from a missing one. `:type`
+ * (admin content type) and the calendar feed token are not UUIDs and keep
+ * their own validation. Shared by server.mjs and the feature routers under
+ * src/routes/ (issue #191).
+ * @param {...(string | string[])} names
+ */
+export function requireIdParam(...names) {
+  return requireUuidParam(...names, { status: 404, message: 'Not found.' })
+}

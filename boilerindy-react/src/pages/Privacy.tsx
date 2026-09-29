@@ -23,8 +23,9 @@ password.`,
   },
   {
     title: 'Linking your Purdue account',
-    body: `If you link Purdue, we store only your Purdue email and username. You sign in on
-Purdue's own CAS login - BoilerIndy never asks for, receives, or stores your Purdue password.`,
+    body: `If you link Purdue, we store only your Purdue email and username. You link it either on
+Purdue's own CAS login or by typing a code we email to your Purdue address - BoilerIndy never
+asks for, receives, or stores your Purdue password.`,
   },
   {
     title: 'Your schedule and calendar',
@@ -78,8 +79,9 @@ impression and tap counts for their own campaigns. We rely on a few service prov
 app: Supabase (database and authentication), Groq (only the AI-assistant requests
 described above), Sentry (crash and error reports, with emails, tokens, and cookies stripped out
 before they are sent), Vercel (hosting and anonymous page-performance metrics), and Resend (email
-delivery for advertiser accounts only). Public info shown in the app - transit, dining menus, and
-map buildings - is fetched from public sources without sending them anything about you.`,
+delivery for advertiser accounts and for the code that verifies a Purdue email). Public info shown
+in the app - transit, dining menus, and map buildings - is fetched from public sources without
+sending them anything about you.`,
   },
   {
     title: 'Your calendar feed link',

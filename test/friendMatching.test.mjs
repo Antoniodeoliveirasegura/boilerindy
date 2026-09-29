@@ -70,6 +70,12 @@ test('canReceiveFriendRequest is false when discoverable is off', () => {
 
 test('canReceiveFriendRequest is true when discoverable is on', () => {
   assert.equal(canReceiveFriendRequest({ discoverable: true }), true)
+  assert.equal(canReceiveFriendRequest({ discoverable: true }, { blocked: false }), true)
+})
+
+test('canReceiveFriendRequest is false across a block, even for a discoverable user (#192)', () => {
+  assert.equal(canReceiveFriendRequest({ discoverable: true }, { blocked: true }), false)
+  assert.equal(canReceiveFriendRequest({ discoverable: false }, { blocked: true }), false)
 })
 
 const ME = '11111111-1111-4111-8111-111111111111'
@@ -143,6 +149,14 @@ test('sendConnectionRequest stays silent when the addressee declined before', as
   const { supabase, upserts } = fakeSupabase({ profile: { discoverable: true }, prior: { status: 'declined' } })
   assert.deepEqual(await send(supabase, THEM), PENDING)
   assert.equal(upserts().length, 0)
+})
+
+test('sendConnectionRequest answers pending without writing when a block stands between the two (#192)', async () => {
+  const { supabase, calls, upserts } = fakeSupabase({ profile: { discoverable: true } })
+  const blocked = new Set([THEM])
+  assert.deepEqual(await sendConnectionRequest(supabase, ME, THEM.toUpperCase(), { nowIso: () => NOW, blocked }), PENDING)
+  assert.equal(upserts().length, 0)
+  assert.equal(calls.length, 1, 'the same path as a non-discoverable addressee: one profile read, no connections read')
 })
 
 test('sendConnectionRequest answers 400 for a malformed or self id without touching the DB', async () => {

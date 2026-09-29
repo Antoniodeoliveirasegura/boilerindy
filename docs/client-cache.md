@@ -57,6 +57,8 @@ rows, and the 30 s default stale time applies.
 | `['me', userId, 'classes', { limit, mode }]` | `GET /api/me/classes?...` | Home (display mode), Schedule (chronological) |
 | `['me', userId, 'calendar-categories']` | `GET /api/me/calendar/categories` | Assignments |
 | `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |
+| `['me', userId, 'blocks']` | `GET /api/me/blocks` | Settings, Blocked users (issue #192) |
+| `['me', userId, 'purdue-email']` | `GET /api/me/purdue-email/status` | The Purdue email card on Settings and setup (issue #181); no retries |
 
 Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
 lands in the cached metadata at once, after cancelling any metadata fetch in
@@ -76,7 +78,8 @@ rows: clearing the whole client would also empty the public snapshot in
 localStorage that the next launch paints from. Writes that change these rows
 elsewhere (linking a feed, a sync, deleting a source on the Connect page) call
 `invalidateUserQueries`, so the dashboard does not serve pre-sync classes for
-the rest of the stale window.
+the rest of the stale window. Blocking and unblocking (issue #192) invalidate
+them too, which is what refreshes the Blocked users list in Settings.
 
 The task metadata query does not retry: the Tasks page has its own fallback
 (the device store) and showed it after one failed read before the cache.

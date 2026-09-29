@@ -6,6 +6,7 @@ import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
 import { PROVIDER_LINKS, checkScheduleSourceUrl, type ScheduleSourceKind } from '../lib/scheduleSourceUrl'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
+import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import StatusBanner from '../components/StatusBanner'
 import { invalidateUserQueries } from '../lib/queries/userData'
 
@@ -71,9 +72,7 @@ export default function ConnectSchedule() {
   // other pages hold in the query cache (issue #327); each success marks them stale.
   const queryClient = useQueryClient()
   const usesCasPurdue = authConfig?.purdueAuthMode === 'cas'
-
-  const [purdueEmail, setPurdueEmail] = useState('')
-  const [linking, setLinking] = useState(false)
+  const usesMockPurdue = authConfig?.purdueAuthMode === 'mock'
 
   const [icsUrl, setIcsUrl] = useState('')
   const [urlError, setUrlError] = useState('')
@@ -121,31 +120,12 @@ export default function ConnectSchedule() {
   }, [loadData, needsPurdueConnection])
 
   // ── Step 1: Link Purdue ──
+  // An emailed code links a @purdue.edu address in every PURDUE_AUTH_MODE
+  // (issue #181); the card refreshes the session itself.
 
-  async function handleLinkPurdue(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (!purdueEmail.trim() || !purdueEmail.includes('@')) {
-      setBannerType('error')
-      setBanner('Please enter a valid Purdue email address.')
-      return
-    }
-    setLinking(true)
-    setBanner('')
-    try {
-      await authRequest('/api/purdue/mock-link', {
-        method: 'POST',
-        body: JSON.stringify({ email: purdueEmail.trim() }),
-      })
-      await refreshSession()
-      setPurdueEmail('')
-      setBannerType('success')
-      setBanner('Purdue account linked! You can now connect your calendars.')
-    } catch (error) {
-      setBannerType('error')
-      setBanner(errorText(error, 'Could not link Purdue account.'))
-    } finally {
-      setLinking(false)
-    }
+  function handlePurdueLinked(message: string) {
+    setBannerType('success')
+    setBanner(message)
   }
 
   // ── Step 2: Connect source ──
@@ -338,44 +318,25 @@ export default function ConnectSchedule() {
         {bannerEl}
 
         <div className="card p-4 sm:p-6">
+          <PurdueEmailVerification
+            allowDevLink={usesMockPurdue}
+            onLinked={() => handlePurdueLinked('Purdue account linked! You can now connect your calendars.')}
+          />
           {usesCasPurdue ? (
-            <div className="space-y-4">
+            <div className="mt-5 pt-5 border-t border-[var(--color-border)] space-y-3">
               <p className="text-[13px] text-[var(--color-txt-2)] leading-relaxed">
-                On boilerindy.app you sign in with official Purdue CAS - we never ask you to type your Purdue password into this app.
+                Or sign in with official Purdue CAS - we never ask you to type your Purdue password into this app.
               </p>
               <button
                 type="button"
                 onClick={() => (startPurdueFromAuth || startPurdueLink)('/setup')}
-                className="btn btn-primary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center rounded-xl"
+                className="btn btn-secondary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center rounded-xl"
               >
                 <Icon name="graduation" size={16} />
                 Sign in with Purdue
               </button>
             </div>
-          ) : (
-            <form onSubmit={handleLinkPurdue}>
-              <label htmlFor="purdue-email" className="block text-[13px] font-medium text-[var(--color-txt-1)] mb-2">
-                Purdue email address
-              </label>
-              <input
-                id="purdue-email"
-                type="email"
-                value={purdueEmail}
-                onChange={(e) => setPurdueEmail(e.target.value)}
-                placeholder="you@purdue.edu"
-                className="input w-full px-4 py-3 text-[16px] sm:text-[14px] mb-4 rounded-xl"
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={linking || !purdueEmail.trim()}
-                className="btn btn-primary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center disabled:opacity-50 rounded-xl"
-              >
-                <Icon name="graduation" size={16} />
-                {linking ? 'Linking…' : 'Link Purdue Account'}
-              </button>
-            </form>
-          )}
+          ) : null}
         </div>
 
         <p className="text-center text-[12px] text-[var(--color-txt-3)] mt-4 px-4">
@@ -409,6 +370,29 @@ export default function ConnectSchedule() {
       </div>
 
       {bannerEl}
+
+      {/* Linking is not required here (PURDUE_AUTH_MODE=off, as in production),
+          so the Purdue step is offered, not enforced: calendars work without
+          it, and a verified address opens Marketplace posting (issue #181). */}
+      {!user?.hasPurdueLinked ? (
+        <div className="card p-4 sm:p-6 mb-6 sm:mb-8" data-testid="setup-purdue-email">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center shrink-0">
+              <Icon name="graduation" size={18} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold text-[var(--color-txt-0)]">Link your Purdue email</h2>
+              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 leading-relaxed">
+                Optional. Verify your @purdue.edu address to post on the Marketplace; your calendars work without it.
+              </p>
+            </div>
+          </div>
+          <PurdueEmailVerification
+            allowDevLink={usesMockPurdue}
+            onLinked={() => handlePurdueLinked('Purdue email linked. You can post on the Marketplace now.')}
+          />
+        </div>
+      ) : null}
 
       {/* Connected Sources */}
       {sources.length > 0 && (

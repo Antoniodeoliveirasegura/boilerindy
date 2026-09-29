@@ -3,6 +3,7 @@ import Icon from '../components/Icons'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { useConfirm } from '../hooks/useConfirm'
+import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import {
   FORM_DEFAULT_CATEGORY,
   MARKETPLACE_CATEGORIES,
@@ -32,7 +33,6 @@ import {
   type PhotoStep,
   type ReadyPhoto,
 } from '../lib/marketplacePhotos'
-import { MAX_REPORT_REASON, REPORT_DETAILS_SEPARATOR, REPORT_REASONS } from '../../../src/marketplace.mjs'
 
 // Student Marketplace (issue #32, Phase 1). No payments / no messaging - contact
 // is the seller's name + Purdue email, shown on the detail panel. Listing photos
@@ -65,25 +65,6 @@ const STEP_TEXT: Record<PhotoStep, string> = {
   authorizing: 'Getting upload permission',
   uploading: 'Uploading',
 }
-
-// Report reasons (#224). The values come from src/marketplace.mjs (#204), which
-// is what the API validates against, so the form cannot offer a reason the
-// server rejects; the labels are UI copy and stay here. The server stores the
-// reason as text capped at MAX_REPORT_REASON, so "other" sends its details
-// after the prefix and the details field leaves room for it.
-const REPORT_REASON_LABELS: Record<string, string> = {
-  spam: 'Spam',
-  scam: 'Scam or fraud',
-  prohibited: 'Prohibited item',
-  other: 'Something else',
-}
-const REPORT_OPTIONS: { value: string; label: string }[] = REPORT_REASONS.map((value: string) => ({
-  value,
-  label: REPORT_REASON_LABELS[value] ?? value,
-}))
-const REPORT_OTHER_PREFIX = `other${REPORT_DETAILS_SEPARATOR}`
-const REPORT_DETAILS_MAX = MAX_REPORT_REASON - REPORT_OTHER_PREFIX.length
-const NOTICE_MS = 4000
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
@@ -254,6 +235,10 @@ function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, o
 
 export default function Marketplace() {
   const { confirm, confirmDialog } = useConfirm()
+  // Report listing and Block author on another seller's listing (issue #192):
+  // the shared report dialog, which files the report in the admin queue and
+  // counts it toward the automatic hide (#204).
+  const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [tab, setTab] = useState('browse') // 'browse' | 'mine'
   const [listings, setListings] = useState<Listing[]>([])
   const [mine, setMine] = useState<Listing[]>([])
@@ -273,14 +258,7 @@ export default function Marketplace() {
   const [photo, setPhoto] = useState<PhotoState>({ status: 'idle' })
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
-  const [reportOpen, setReportOpen] = useState(false)
-  const [reportReason, setReportReason] = useState('')
-  const [reportDetails, setReportDetails] = useState('')
-  const [reporting, setReporting] = useState(false)
-  const [notice, setNotice] = useState('')
   const formRef = useRef<HTMLFormElement>(null)
-  const reportButtonRef = useRef<HTMLButtonElement>(null)
-  const reportFormRef = useRef<HTMLFormElement>(null)
   // Bumped whenever the photo is replaced, removed or the form closes, so a
   // pipeline still running for an earlier pick cannot land its result.
   const photoRun = useRef(0)
@@ -298,13 +276,6 @@ export default function Marketplace() {
   useEffect(() => {
     track('marketplace_viewed')
   }, [])
-
-  // The report confirmation is a passing line, not a lasting banner.
-  useEffect(() => {
-    if (!notice) return
-    const timer = setTimeout(() => setNotice(''), NOTICE_MS)
-    return () => clearTimeout(timer)
-  }, [notice])
 
   const loadBrowse = useCallback(
     (opts: BrowseOpts = {}) => {
@@ -378,8 +349,6 @@ export default function Marketplace() {
     authRequest(`/api/marketplace/${listing.id}`)
       .then((data) => {
         const d = data as { listing?: Listing }
-        resetReport()
-        setNotice('')
         setSelected(d?.listing || null)
       })
       .catch(() => {})
@@ -387,8 +356,6 @@ export default function Marketplace() {
 
   function closeListing() {
     setSelected(null)
-    resetReport()
-    setNotice('')
   }
 
   // ── Compose / edit form ───────────────────────────────────────────────────
@@ -549,7 +516,6 @@ export default function Marketplace() {
   async function markSold(listing: Listing) {
     if (!(await confirm({ title: `Mark "${listing.title}" as sold?`, confirmLabel: 'Mark sold' }))) return
     setError('')
-    setNotice('')
     try {
       await authRequest(`/api/marketplace/${listing.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'sold' }) })
     } catch (e) {
@@ -563,7 +529,6 @@ export default function Marketplace() {
   async function deleteListing(listing: Listing) {
     if (!(await confirm({ title: `Delete "${listing.title}"?`, confirmLabel: 'Delete', tone: 'danger' }))) return
     setError('')
-    setNotice('')
     const index = mine.findIndex((l) => l.id === listing.id)
     const openDetail = selected?.id === listing.id ? selected : null
     setMine((prev) => prev.filter((l) => l.id !== listing.id))
@@ -580,52 +545,12 @@ export default function Marketplace() {
     loadBrowse({})
   }
 
-  function resetReport() {
-    setReportOpen(false)
-    setReportReason('')
-    setReportDetails('')
-  }
-
-  /**
-   * Close the open report form; focus that was inside it goes back to the Report
-   * button, not the top of the page. Focus resting on the <main> landmark counts
-   * as nowhere, like body: main is click-focusable (tabIndex -1) since #221, and
-   * Safari leaves it there after a click on any button.
-   */
-  function closeReport() {
-    const form = reportFormRef.current
-    const active = document.activeElement
-    const refocus =
-      !!form && (!active || active === document.body || active === document.getElementById('main') || form.contains(active))
-    resetReport()
-    if (refocus) reportButtonRef.current?.focus()
-  }
-
-  function toggleReport() {
-    const open = !reportOpen
-    resetReport()
-    setReportOpen(open)
-    setNotice('')
-  }
-
-  async function submitReport(e: React.FormEvent<HTMLFormElement>, listing: Listing) {
-    e.preventDefault()
-    if (!reportReason || reporting) return
-    setError('')
-    setNotice('')
-    setReporting(true)
-    const details = reportDetails.trim()
-    const reason = reportReason === 'other' && details ? `${REPORT_OTHER_PREFIX}${details}` : reportReason
-    try {
-      await authRequest(`/api/marketplace/${listing.id}/report`, { method: 'POST', body: JSON.stringify({ reason }) })
-    } catch (err) {
-      setError(errorText(err, 'Could not send the report.'))
-      return
-    } finally {
-      setReporting(false)
-    }
-    closeReport()
-    setNotice('Thanks, our team will review it.')
+  // A blocked seller's listings leave the browse list, this one included, so
+  // the detail closes and the list is fetched again.
+  async function blockSeller(listing: Listing) {
+    if (!(await blockAuthor('marketplace', listing.id))) return
+    closeListing()
+    loadBrowse({})
   }
 
   function listingCard(listing: Listing, context: 'browse' | 'mine') {
@@ -681,6 +606,7 @@ export default function Marketplace() {
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24">
       {confirmDialog}
+      {moderationUi}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Marketplace</h1>
@@ -844,67 +770,24 @@ export default function Marketplace() {
                 <Icon name="edit" size={12} /> Edit listing
               </button>
             ) : (
-              <button
-                ref={reportButtonRef}
-                type="button"
-                onClick={toggleReport}
-                aria-expanded={reportOpen}
-                aria-controls="listing-report"
-                className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-              >
-                Report listing
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => report({ targetType: 'marketplace', targetId: selected.id, targetLabel: 'this listing' }, e.currentTarget)}
+                  className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)] inline-flex items-center gap-1"
+                >
+                  <Icon name="flag" size={12} /> Report listing
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void blockSeller(selected)}
+                  className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
+                >
+                  Block author
+                </button>
+              </>
             )}
           </div>
-          {reportOpen && !selected.isMine ? (
-            <form ref={reportFormRef} id="listing-report" onSubmit={(e) => void submitReport(e, selected)} className="mt-3 pt-3 border-t border-[var(--color-border)] space-y-3" data-report-form>
-              <fieldset disabled={reporting} className="m-0 p-0 border-0 min-w-0">
-                <legend className="text-[12px] font-semibold text-[var(--color-txt-1)] mb-2">Why are you reporting this listing?</legend>
-                <div className="flex flex-col gap-2">
-                  {REPORT_OPTIONS.map((r) => (
-                    <label key={r.value} className="flex items-center gap-2 text-[13px] text-[var(--color-txt-1)] cursor-pointer select-none">
-                      <input
-                        type="radio"
-                        name="listing-report-reason"
-                        value={r.value}
-                        checked={reportReason === r.value}
-                        onChange={() => setReportReason(r.value)}
-                        className="w-4 h-4 border-[var(--color-border-2)] accent-[var(--color-accent)]"
-                      />
-                      {r.label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              {reportReason === 'other' ? (
-                <div>
-                  <label className="block text-[12px] text-[var(--color-txt-2)] mb-1" htmlFor="listing-report-details">
-                    Tell us more (optional)
-                  </label>
-                  <textarea
-                    id="listing-report-details"
-                    value={reportDetails}
-                    onChange={(e) => setReportDetails(e.target.value)}
-                    maxLength={REPORT_DETAILS_MAX}
-                    rows={2}
-                    disabled={reporting}
-                    className="input w-full text-[13px] px-3 py-2 resize-y"
-                  />
-                </div>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-3">
-                <button type="submit" disabled={!reportReason || reporting} className="btn btn-primary px-4 py-2 text-[13px] disabled:opacity-60">
-                  {reporting ? 'Sending…' : 'Submit report'}
-                </button>
-                <button type="button" onClick={closeReport} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : null}
-          <p role="status" className={`text-[12px] text-[var(--color-success)] ${notice ? 'mt-3' : ''}`} data-report-notice>
-            {notice}
-          </p>
         </div>
       ) : null}
 

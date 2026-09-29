@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isUuid, requireUuidParam } from '../src/httpGuards.mjs'
+import { isUuid, requireIdParam, requireUuidParam } from '../src/httpGuards.mjs'
 
 // Issue #203 (reused by #196): malformed ids are rejected before they reach
 // PostgREST as a 22P02 500.
@@ -101,4 +101,18 @@ test('requireUuidParam can answer a custom status and message', () => {
   assert.equal(nextCalled, false)
   assert.equal(res.statusCode, 404)
   assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+})
+
+test('requireIdParam answers a malformed id with the 404 envelope and passes a UUID (#196, #191)', () => {
+  for (const params of [{ id: 'abc' }, { id: `${ID}x` }, {}]) {
+    const { res, nextCalled } = run(requireIdParam('id'), params)
+    assert.equal(nextCalled, false)
+    assert.equal(res.statusCode, 404)
+    assert.deepEqual(res.body, { error: { message: 'Not found.', status: 404 } })
+  }
+  assert.equal(run(requireIdParam('id'), { id: ID }).nextCalled, true)
+  const both = requireIdParam('requesterId', 'id')
+  assert.equal(run(both, { requesterId: ID, id: ID }).nextCalled, true)
+  assert.equal(run(both, { requesterId: ID, id: 'nope' }).res.statusCode, 404)
+  assert.throws(() => requireIdParam(), TypeError)
 })

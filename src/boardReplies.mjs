@@ -50,15 +50,21 @@ export function groupRepliesByPost(replies, { perPost = INLINE_REPLIES } = {}) {
 }
 
 /**
- * Shape one reply row the way both board routes return it.
+ * Shape one reply row the way both board routes return it. `anon` and `isMine`
+ * let the website offer Report on someone else's reply and Block author only
+ * on a named one (issue #192: anonymous replies cannot be blocked). The
+ * author's id never leaves the server, so an anonymous reply stays anonymous.
  * @param {{ id: string, body: string, is_anon?: boolean, user_id?: string, created_at?: string }} reply
  * @param {Record<string, string>} nameMap display names by user id
+ * @param {string | null} [viewerId] the signed-in caller, for isMine
  */
-export function mapBoardReply(reply, nameMap = {}) {
+export function mapBoardReply(reply, nameMap = {}, viewerId = null) {
   return {
     id: reply.id,
     body: reply.body,
     user: reply.is_anon ? 'Anonymous' : (nameMap[reply.user_id] || 'Student'),
+    anon: reply.is_anon === true,
+    isMine: viewerId != null && reply.user_id === viewerId,
     time: reply.created_at,
   }
 }

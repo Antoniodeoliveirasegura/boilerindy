@@ -2,6 +2,7 @@
 // unit-testable without DB/HTTP. No payments and no messaging in Phase 1 -
 // contact is the seller's display name + Purdue email shown on the detail page.
 
+import { REPORT_REASONS } from './contentReports.mjs'
 import { isMissingColumnError } from './moderation.mjs'
 
 export const MARKETPLACE_CATEGORIES = [
@@ -14,12 +15,15 @@ export const MAX_LISTING_TITLE = 120
 export const MAX_LISTING_DESCRIPTION = 2000
 export const REPORTS_TO_HIDE = 3
 
-// Report reasons (issue #204). The website's report form (#224) sends one
-// flattened string: a bare reason, or `other: <details>` when the reporter
-// typed something. A client may instead send { reason, details } as separate
-// fields. parseReportInput accepts both and stores one shape, so the enum lives
-// here rather than in the page: boilerindy-react imports these values.
-export const REPORT_REASONS = ['spam', 'scam', 'prohibited', 'other']
+// Report reasons (issue #204). POST /api/marketplace/:id/report takes one
+// flattened string, a bare reason or `other: <details>` when the reporter typed
+// something (what the website's inline form sent until #192 moved it to
+// POST /api/reports), or { reason, details } as separate fields.
+// parseReportInput accepts both and stores one shape. The list itself is owned
+// by src/contentReports.mjs, which reports every surface (#192), and is
+// re-exported here for this route's callers; marketplace_reports.reason is
+// free text, so the list can grow.
+export { REPORT_REASONS }
 const REPORT_REASON_SET = new Set(REPORT_REASONS)
 
 // marketplace_reports.reason is CHECK (char_length(reason) <= 500), so the
@@ -29,11 +33,13 @@ export const MAX_REPORT_REASON = 500
 export const REPORT_DETAILS_SEPARATOR = ': '
 
 /**
- * Validate a report body and compose the stored reason.
+ * Validate a report body and keep the reason and its details apart, the shape
+ * content_reports stores (#192). parseReportInput composes the same two into
+ * the one string marketplace_reports stores.
  * @param {{ reason?: unknown, details?: unknown }} body
- * @returns {{ ok: true, reason: string } | { ok: false, message: string }}
+ * @returns {{ ok: true, reason: string, details: string } | { ok: false, message: string }}
  */
-export function parseReportInput(body) {
+export function parseReportParts(body) {
   const raw = String(body?.reason ?? '').trim()
   if (!raw) return { ok: false, message: 'Choose a reason for the report.' }
   // Split on the first separator so `other: it never shipped` reads as the
@@ -44,8 +50,30 @@ export function parseReportInput(body) {
     return { ok: false, message: `Reason must be one of: ${REPORT_REASONS.join(', ')}.` }
   }
   const details = String(body?.details ?? '').trim() || (cut === -1 ? '' : raw.slice(cut + 1).trim())
+  return { ok: true, reason, details }
+}
+
+/**
+ * The one string marketplace_reports.reason stores: the bare reason, or
+ * `reason: details`, cut to the column's 500 characters.
+ * @param {string} reason
+ * @param {string} [details]
+ * @returns {string}
+ */
+export function composeReportReason(reason, details) {
   const composed = details ? `${reason}${REPORT_DETAILS_SEPARATOR}${details}` : reason
-  return { ok: true, reason: composed.slice(0, MAX_REPORT_REASON) }
+  return composed.slice(0, MAX_REPORT_REASON)
+}
+
+/**
+ * Validate a report body and compose the stored reason.
+ * @param {{ reason?: unknown, details?: unknown }} body
+ * @returns {{ ok: true, reason: string } | { ok: false, message: string }}
+ */
+export function parseReportInput(body) {
+  const parts = parseReportParts(body)
+  if (!parts.ok) return parts
+  return { ok: true, reason: composeReportReason(parts.reason, parts.details) }
 }
 
 /**
