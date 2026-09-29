@@ -378,9 +378,6 @@ export default function Landing() {
                 <Icon name="home" size={16} />
                 Get started free
               </Link>
-              <Link to="/" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] px-7 py-3.5 rounded-xl border border-[var(--color-gold-dark)]/30 hover:bg-[var(--color-gold-dark)]/10 no-underline transition-colors">
-                Explore the app
-              </Link>
             </div>
           </div>
         </div>
