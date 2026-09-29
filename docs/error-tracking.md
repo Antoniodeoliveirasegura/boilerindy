@@ -73,8 +73,17 @@ JWTs, bearer tokens and hex secrets. Sentry's own identifiers (`event_id`,
 `trace_id`, `release`, `debug_meta` and a few more, see `PASSTHROUGH_KEYS`)
 are left alone: they have the same hex shape as a secret, and a redacted
 `event_id` makes Sentry reject the whole envelope with a 400, which is what
-silently dropped every event until 2026-09-14. `sendDefaultPii` is off and
-tracing is off (`tracesSampleRate: 0`). Unit tests in `test/sentryScrub.test.mjs`.
+silently dropped every event until 2026-09-14. Tracing is off
+(`tracesSampleRate: 0`). Unit tests in `test/sentryScrub.test.mjs`.
+
+**Data collection**: `SENTRY_DATA_COLLECTION`, in the same file, is the
+`dataCollection` option both `Sentry.init` calls pass. Sentry 11 replaced
+`sendDefaultPii` with `dataCollection` and made an unset one collect the user
+and their IP address, cookies, every header and request bodies. The constant
+keeps the Sentry 10 `sendDefaultPii: false` baseline (no user or IP, no cookies
+or bodies, forwarding and IP headers such as `x-forwarded-for` denied), and a
+test fails if either side stops passing it. Without it, a backend error event
+carries the student's IP in `x-forwarded-for`.
 
 ## Smoke test
 

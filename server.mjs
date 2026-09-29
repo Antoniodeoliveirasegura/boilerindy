@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import * as Sentry from '@sentry/node'
-import { scrubSentryEvent } from './src/sentryScrub.mjs'
+import { SENTRY_DATA_COLLECTION, scrubSentryEvent } from './src/sentryScrub.mjs'
 
 // Error tracking (issue #50). Plain error capture only (no auto-tracing, which
 // would need a pre-import hook). A missing DSN means Sentry is fully disabled -
@@ -12,7 +12,7 @@ if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
-    sendDefaultPii: false,
+    dataCollection: SENTRY_DATA_COLLECTION,
     tracesSampleRate: 0, // errors only - keeps the free tier roomy
     // ponytail: route every console.error (the ~80 catch-and-log swallow points)
     // to Sentry, instead of editing each catch block. Adds to the default

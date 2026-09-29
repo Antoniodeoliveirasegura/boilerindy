@@ -123,3 +123,27 @@ export function scrubSentryEvent(event) {
     return null
   }
 }
+
+// What the SDK may collect before beforeSend runs, passed as `dataCollection`
+// on both sides. Sentry 11 replaced `sendDefaultPii` with it, and leaving it
+// unset now collects the user and their IP address, cookies, every header,
+// request and response bodies, GenAI inputs and outputs and database queries.
+// This is the v10 `sendDefaultPii: false` baseline as Sentry's v10-to-v11
+// migration guide spells it out: no user or IP, no cookies or bodies, and the
+// forwarding and IP headers denied. scrubSentryEvent still runs on every event.
+const PII_HEADER_DENYLIST = ['forwarded', '-ip', 'remote-', 'via', '-user']
+
+export const SENTRY_DATA_COLLECTION = {
+  userInfo: false,
+  cookies: false,
+  httpHeaders: {
+    request: { deny: PII_HEADER_DENYLIST },
+    response: { deny: PII_HEADER_DENYLIST },
+  },
+  httpBodies: [],
+  urlQueryParams: { deny: PII_HEADER_DENYLIST },
+  genAI: { inputs: false, outputs: false },
+  databaseQueryData: false,
+  queues: false,
+  graphQL: { document: false, variables: false },
+}
