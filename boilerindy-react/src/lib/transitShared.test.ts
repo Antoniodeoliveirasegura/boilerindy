@@ -7,6 +7,7 @@ import {
   haversineMeters,
   inferCanonicalFromTransLocRoute,
   isRouteActiveNow,
+  isRouteRunningForDisplay,
   nearestStopForVehicle,
   routes,
   type TransitRoute,
@@ -70,6 +71,29 @@ describe('isRouteActiveNow', () => {
 
   test('defaults to the current instant', () => {
     expect(typeof isRouteActiveNow(crimson)).toBe('boolean')
+  })
+})
+
+// Issue #373 - the pill for a weekday route read "off" next to a live bus on
+// a Sunday. The live feed is the truth; the static schedule only fills in
+// when no bus is reporting.
+describe('isRouteRunningForDisplay', () => {
+  const sundayNoon = new Date('2026-09-27T16:00:00Z') // 12:00 EDT, Sunday
+  const wednesdayNoon = new Date('2026-09-09T16:00:00Z') // 12:00 EDT, Wednesday
+
+  test('a live bus makes a route running even when its schedule says it is not', () => {
+    expect(isRouteActiveNow(crimson, sundayNoon)).toBe(false)
+    expect(isRouteRunningForDisplay(crimson, 1, sundayNoon)).toBe(true)
+  })
+
+  test('with no live bus the schedule decides', () => {
+    expect(isRouteRunningForDisplay(crimson, 0, sundayNoon)).toBe(false)
+    expect(isRouteRunningForDisplay(crimson, 0, wednesdayNoon)).toBe(true)
+    expect(isRouteRunningForDisplay(orange, 0, sundayNoon)).toBe(true)
+  })
+
+  test('a scheduled route with no bus reporting is still shown as running', () => {
+    expect(isRouteRunningForDisplay(yellow, 0, wednesdayNoon)).toBe(true)
   })
 })
 
