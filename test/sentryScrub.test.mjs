@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scrubSentryEvent } from '../src/sentryScrub.mjs'
+import { readFileSync } from 'node:fs'
+import { SENTRY_DATA_COLLECTION, scrubSentryEvent } from '../src/sentryScrub.mjs'
 
 test('redacts email addresses anywhere in string values', () => {
   const event = scrubSentryEvent({
@@ -149,4 +150,28 @@ test('keeps a hint that is not quoting a row', () => {
     extra: { pgError: { hint: 'Perhaps you meant the column "users.display_name".' } },
   })
   assert.equal(event.extra.pgError.hint, 'Perhaps you meant the column "users.display_name".')
+})
+
+test('the data collection baseline keeps the Sentry 10 sendDefaultPii: false defaults', () => {
+  const collection = SENTRY_DATA_COLLECTION
+  assert.equal(collection.userInfo, false)
+  assert.equal(collection.cookies, false)
+  assert.deepEqual(collection.httpBodies, [])
+  assert.deepEqual(collection.genAI, { inputs: false, outputs: false })
+  assert.equal(collection.databaseQueryData, false)
+  assert.equal(collection.queues, false)
+  assert.deepEqual(collection.graphQL, { document: false, variables: false })
+  for (const list of [collection.httpHeaders.request.deny, collection.httpHeaders.response.deny, collection.urlQueryParams.deny]) {
+    assert.deepEqual(list, ['forwarded', '-ip', 'remote-', 'via', '-user'])
+  }
+})
+
+// Sentry 11 reads an unset dataCollection as "collect everything", so dropping
+// the option from either Sentry.init call would widen collection silently.
+test('the server and the website both pass the baseline to Sentry.init', () => {
+  for (const file of ['server.mjs', 'boilerindy-react/src/main.tsx']) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+    assert.match(source, /dataCollection: SENTRY_DATA_COLLECTION,/, `${file} does not pass SENTRY_DATA_COLLECTION`)
+    assert.doesNotMatch(source, /sendDefaultPii/, `${file} still sets sendDefaultPii, which Sentry 11 ignores`)
+  }
 })
