@@ -82,12 +82,16 @@ export async function registerServiceWorker({
   checkIntervalMs = UPDATE_CHECK_INTERVAL_MS,
   scriptUrl = '/sw.js',
 }: RegisterOptions): Promise<RegistrationLike | null> {
-  let registration: RegistrationLike
+  let registration: RegistrationLike | undefined
   try {
     registration = await container.register(scriptUrl)
   } catch {
     return null
   }
+  // A browser resolves a registration or rejects, but a stubbed service worker
+  // API (a headless crawler's, Sentry BOILERINDY-REACT-5) can resolve nothing,
+  // and reading .waiting off that threw an unhandled rejection.
+  if (!registration) return null
   watchForWaitingWorker(registration, onUpdateReady, container)
 
   const check = () => {
