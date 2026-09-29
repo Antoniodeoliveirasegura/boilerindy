@@ -21,11 +21,11 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   const bootSentry = async () => {
     try {
       const Sentry = await import('@sentry/react')
-      const { scrubSentryEvent } = await import('../../src/sentryScrub.mjs')
+      const { SENTRY_DATA_COLLECTION, scrubSentryEvent } = await import('../../src/sentryScrub.mjs')
       Sentry.init({
         dsn: import.meta.env.VITE_SENTRY_DSN,
         environment: import.meta.env.MODE,
-        sendDefaultPii: false,
+        dataCollection: SENTRY_DATA_COLLECTION,
         tracesSampleRate: 0, // errors only - keeps the free tier roomy
         beforeSend: scrubSentryEvent,
       })
