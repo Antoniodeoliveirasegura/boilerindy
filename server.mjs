@@ -52,7 +52,13 @@ import { normalizeItemName } from './src/diningFavorites.mjs'
 import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
-import { STUDY_HELP_DEADLINE_HOURS, buildDiningContext, startsWithin, wantsStudyHelp } from './src/assistantContext.mjs'
+import {
+  STUDY_HELP_DEADLINE_HOURS,
+  buildDiningContext,
+  calendarContextFor,
+  startsWithin,
+  wantsStudyHelp,
+} from './src/assistantContext.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -2713,7 +2719,7 @@ Rules:
 - Be concise and friendly. For simple questions: 2-4 sentences, no bullets. For "what should I do now?", "plan my afternoon", or similar planning questions: a short prioritized list of 3-5 bullets, each one concrete and tied to a real time.
 - Open with the answer. No "Sure!", no "Great question", no restating what they asked.
 - Answer directly from the context data when available - do not hedge or defer.
-- Refer to the student's own data specifically. "You have CS 30200 at 2:30pm in ET 202" beats "you have a class this afternoon".
+- Refer to the student's own data specifically: name the course code, time and room exactly as the context lists them, rather than "you have a class this afternoon". Never name a course, time or room the context does not list.
 - When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
 - For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section when it is present (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
@@ -3072,7 +3078,7 @@ app.post('/api/assistant', requireAuth, assistantRateLimit, async (req, res) => 
     `=== CURRENT DATE & TIME ===\n${nowLabel} at ${timeLabel} (Eastern)`,
     pageHint,
     buildDiningContext(dining, { now, question: lastUserMessage }),
-    calendarRows.length ? buildAssistantCalendarContext(calendarRows, now, { includeStudyHelp, completedIds }) : '',
+    calendarContextFor(calendarRows, (rows) => buildAssistantCalendarContext(rows, now, { includeStudyHelp, completedIds })),
     buildManualTaskContext(manualTasks, now),
     focusHint ? `=== WHAT THEY ARE ASKING ABOUT ===\n${focusHint}` : '',
   ].filter(Boolean).join('\n\n')
