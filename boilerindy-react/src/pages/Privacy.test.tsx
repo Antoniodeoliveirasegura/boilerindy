@@ -43,3 +43,14 @@ describe('Privacy contact', () => {
     expect(screen.getByRole('link', { name: 'How to delete your account' })).toHaveAttribute('href', '/delete-account')
   })
 })
+
+// Issue #365 - only email and Google sign-in are enabled, so the policy must
+// not list providers the app does not offer.
+describe('Privacy sign-in providers', () => {
+  test('names Google and no provider the app does not offer', () => {
+    const { container } = renderAt('/privacy')
+    const text = container.textContent || ''
+    expect(text).toMatch(/a sign-in provider such as Google/)
+    expect(text).not.toMatch(/Apple, GitHub|GitHub, or Discord|Google\/Apple/)
+  })
+})

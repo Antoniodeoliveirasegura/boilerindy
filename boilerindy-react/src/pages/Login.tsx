@@ -315,8 +315,8 @@ export default function Login() {
             {forgotMode
               ? 'Enter your account email and we will send you a reset link.'
               : isSignup
-                ? 'Create your account to get started.'
-                : 'Sign in to continue to BoilerIndy.'}
+                ? 'Create your account with Google or your email. Purdue linking comes after sign-up, in setup.'
+                : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
           </p>
 
           <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode ? 'hidden' : ''}`}>

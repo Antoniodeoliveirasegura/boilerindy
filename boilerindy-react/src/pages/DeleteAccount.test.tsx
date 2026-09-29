@@ -46,3 +46,13 @@ describe('DeleteAccount page', () => {
     expect(screen.getByRole('link', { name: /back to settings/i })).toHaveAttribute('href', '/settings')
   })
 })
+
+// Issue #365 - only email and Google sign-in are enabled.
+describe('DeleteAccount sign-in providers', () => {
+  test('tells provider sign-ups without a password to use email, naming only Google', () => {
+    const { container } = renderAt('/delete-account')
+    const text = container.textContent || ''
+    expect(text).toMatch(/signed up with a sign-in provider such as Google and never set a password/)
+    expect(text).not.toMatch(/Apple|GitHub|Discord/)
+  })
+})

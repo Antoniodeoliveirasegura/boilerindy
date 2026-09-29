@@ -17,9 +17,9 @@ sponsored by Purdue University.`,
   {
     title: 'Account information',
     body: `When you create an account we store your email address, the name you provide, and - if
-you sign in with Google, Apple, GitHub, or Discord - the avatar and provider that service
-returns. Authentication is handled by Supabase. We never see or store your Google/Apple/etc.
-password.`,
+you sign in with a sign-in provider such as Google - the avatar and provider that service
+returns. Authentication is handled by Supabase. We never see or store the password for that
+provider.`,
   },
   {
     title: 'Linking your Purdue account',
