@@ -5,6 +5,7 @@ import { useGradeTracker } from '../hooks/useGradeTracker'
 import { useMajor } from '../hooks/useMajor'
 import DegreeProgress, { type ReqCourse } from '../components/DegreeProgress'
 import { LETTER_GRADES, DEFAULT_CREDIT_HOURS, isGpaLetter } from '../lib/gradeTrackerStore'
+import PageTitle from '../components/PageTitle'
 
 const EMPTY_FORM = {
   courseName: '',
@@ -119,6 +120,7 @@ export default function GradeTracker() {
 
   return (
     <div className="max-w-[920px] mx-auto px-6 py-8 pb-24">
+      <PageTitle>Grade Tracker</PageTitle>
       <div className="mb-6">
         <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
           Academics

@@ -3,6 +3,7 @@ import { authRequest } from '../lib/authApi'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
+import PageTitle from '../components/PageTitle'
 
 // Standalone Lost & Found (issue #47) - its own page + table, independent of the
 // campus board. Students post lost/found items, search them, and the author can
@@ -166,6 +167,7 @@ export default function LostFound() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Lost & Found</PageTitle>
       {confirmDialog}
       {moderationUi}
       <div className="mb-6 animate-fade-in-up">

@@ -9,6 +9,7 @@ import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
+import PageTitle from '../components/PageTitle'
 
 // Neighborhood Guide (issue #31): student-submitted local recommendations.
 const CAMPUS_CENTER: [number, number] = [39.774, -86.172]
@@ -192,6 +193,7 @@ export default function Guide() {
 
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
+      <PageTitle>Neighborhood Guide</PageTitle>
       {confirmDialog}
       {moderationUi}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">

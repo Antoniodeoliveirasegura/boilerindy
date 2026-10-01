@@ -9,6 +9,7 @@ import {
   getCampaignStats,
   advertiserSignOut,
 } from '../../lib/advertiserApi'
+import PageTitle from '../../components/PageTitle'
 
 // Campaigns that have been live (or are) have stats worth showing.
 const STATS_STATUSES = new Set(['active', 'paused', 'ended'])
@@ -474,6 +475,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
 
   return (
     <div className="flex-1 bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+      <PageTitle>Advertiser dashboard</PageTitle>
       <header className="border-b border-[var(--color-border)] bg-[var(--color-bg-1)]/60 backdrop-blur sticky top-0 z-10">
         <div className="max-w-[920px] mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">

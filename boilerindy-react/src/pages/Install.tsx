@@ -10,6 +10,7 @@ import {
   readInstallEnv,
   type InstallPlatform,
 } from '../lib/install'
+import PageTitle from '../components/PageTitle'
 
 // Public "add BoilerIndy to your phone" walkthrough (issue #9 follow-up).
 // Picks the visitor's platform up front, offers the native install prompt
@@ -62,6 +63,7 @@ export default function Install() {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12" data-testid="install-page">
+      <PageTitle>Install the app</PageTitle>
       <div className="max-w-[720px] mx-auto">
         <Link to="/login" className="text-[13px] text-[var(--color-accent)] hover:underline">
           Back to sign in

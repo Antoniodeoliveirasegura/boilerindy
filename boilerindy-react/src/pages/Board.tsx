@@ -13,6 +13,7 @@ import {
   MAX_BOARD_BODY,
   MAX_BOARD_REPLY,
 } from '../../../src/boardLimits.mjs'
+import PageTitle from '../components/PageTitle'
 
 type Reply = { id?: string; user?: string; body?: string; time?: string; anon?: boolean; isMine?: boolean; [key: string]: unknown }
 type Post = {
@@ -472,6 +473,7 @@ export default function Board() {
 
   return (
     <div className="max-w-[42rem] mx-auto px-4 sm:px-6 py-8 pb-28">
+      <PageTitle>Campus Board</PageTitle>
       {confirmDialog}
       {moderationUi}
       {/* Hero */}

@@ -20,6 +20,7 @@ import {
   type ScheduleOverrideState,
   type ScheduleSeriesOverride,
 } from '../lib/scheduleOverrideStore'
+import PageTitle from '../components/PageTitle'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_CODES: Record<string, string> = {
@@ -504,6 +505,7 @@ export default function Schedule() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Class Schedule</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Class Schedule</h1>

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { getAdminOverview, clearAdminPurdueLink } from '../../lib/adminApi'
 import { AlertBanner, PageHeader } from './adminShared'
 import { useConfirm } from '../../hooks/useConfirm'
+import PageTitle from '../../components/PageTitle'
 
 type Overview = {
   newLeads?: number
@@ -92,6 +93,7 @@ export default function AdminOverview() {
 
   return (
     <div>
+      <PageTitle>Admin overview</PageTitle>
       {confirmDialog}
       <PageHeader
         title="Overview"

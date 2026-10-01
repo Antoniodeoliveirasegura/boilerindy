@@ -7,6 +7,7 @@ import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
+import PageTitle from '../components/PageTitle'
 
 type EventItem = {
   id: string
@@ -193,6 +194,7 @@ export default function Events() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Campus Events</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Events</h1>

@@ -106,3 +106,10 @@ it('a network error on starring a dish rolls it back with a generic message', as
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not save that favorite. Please try again.')
   expect(await star()).toHaveAttribute('aria-pressed', 'false')
 })
+
+// Issue #367 - signed-in pages title the tab after their heading too.
+it('titles the tab after the page', async () => {
+  renderDining()
+  await star()
+  expect(document.title).toBe('Campus Dining - BoilerIndy')
+})

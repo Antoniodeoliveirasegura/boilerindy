@@ -10,6 +10,7 @@ import { buildingKey, buildingsFromGeoJson, findBuildingByCode, type Building, t
 import MapLayerToggle from '../components/map/MapLayerToggle'
 import ParkingGarageLayer from '../components/map/ParkingGarageLayer'
 import { useMapLayers, type MapLayerId } from '../components/map/mapLayers'
+import PageTitle from '../components/PageTitle'
 
 const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
@@ -246,6 +247,7 @@ export default function Map() {
 
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-[320px_1fr] h-[calc(100dvh-3.5rem)] overflow-hidden bg-[var(--color-bg-1)]">
+      <PageTitle>Campus Map</PageTitle>
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col z-10 border-r border-[var(--color-border-2)] bg-[var(--color-surface)] shadow-md min-h-0">
         <div className="p-4 border-b border-[var(--color-border)] space-y-3 shrink-0">

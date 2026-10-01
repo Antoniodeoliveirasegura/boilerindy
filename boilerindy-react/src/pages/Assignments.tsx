@@ -24,6 +24,7 @@ import {
   userKeys,
   type TaskMeta,
 } from '../lib/queries/userData'
+import PageTitle from '../components/PageTitle'
 
 type Category = { id: string; label?: string; count?: number }
 type CalItem = {
@@ -616,6 +617,7 @@ export default function Assignments() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Assignments</PageTitle>
       <TaskCompleteReward
         origin={rewardOrigin}
         onDone={() => setRewardOrigin(null)}

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
+import PageTitle from '../components/PageTitle'
 
 // Dedicated Free Food feed (issue #46): campus events flagged by the server's
 // keyword matcher (item.freeFood). Reuses the same /api/me/calendar source as
@@ -68,6 +69,7 @@ export default function FreeFood() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Free Food</PageTitle>
       <div className="mb-6 animate-fade-in-up">
         <div className="flex items-center gap-2">
           <span className="text-2xl" aria-hidden="true">🍕</span>

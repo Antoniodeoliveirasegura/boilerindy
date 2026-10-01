@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import PageTitle from '../components/PageTitle'
 
 // Support and contact page (issue #193). Apple needs a support URL and both
 // stores want a published contact for apps with user-generated content. The
@@ -81,6 +82,7 @@ export default function Support() {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+      <PageTitle>Support</PageTitle>
       <div className="max-w-[720px] mx-auto">
         <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
           {back.label}

@@ -42,6 +42,7 @@ import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
+import PageTitle from '../components/PageTitle'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -1511,6 +1512,7 @@ export default function Home() {
 
   return (
     <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <PageTitle>Dashboard</PageTitle>
       {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
       <SourceErrorNotice className="mb-5" />
       <FeaturedDeal />

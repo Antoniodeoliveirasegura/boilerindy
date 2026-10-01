@@ -33,6 +33,7 @@ import {
   type PhotoStep,
   type ReadyPhoto,
 } from '../lib/marketplacePhotos'
+import PageTitle from '../components/PageTitle'
 
 // Student Marketplace (issue #32, Phase 1). No payments / no messaging - contact
 // is the seller's name + Purdue email, shown on the detail panel. Listing photos
@@ -605,6 +606,7 @@ export default function Marketplace() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24">
+      <PageTitle>Marketplace</PageTitle>
       {confirmDialog}
       {moderationUi}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
