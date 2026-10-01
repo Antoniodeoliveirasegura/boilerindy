@@ -4,6 +4,7 @@ import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
+import PageTitle from '../components/PageTitle'
 
 // Friend Matching (issue #17). Privacy is opt-in (discoverable, default off):
 // pre-acceptance only name, interests, and shared-course count are shown.
@@ -150,6 +151,7 @@ export default function Friends() {
 
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
+      <PageTitle>People</PageTitle>
       {moderationUi}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">People</h1>

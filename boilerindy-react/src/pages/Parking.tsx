@@ -11,6 +11,7 @@ import {
   type StatusTone,
 } from '../lib/parking'
 import { errorMessage, useParking } from '../lib/queries/publicData'
+import PageTitle from '../components/PageTitle'
 
 // Live garage availability for the six ST-permit garages (issue #14). Data is
 // IU Parking's public lot-count page, parsed and cached by /api/parking/garages.
@@ -129,6 +130,7 @@ export default function Parking() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <PageTitle>Campus Parking</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--color-txt-3)] mb-1">Purdue Indianapolis</p>

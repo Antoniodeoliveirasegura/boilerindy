@@ -15,6 +15,7 @@ import {
 import { reportReasonLabel } from '../../lib/reportReasons'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
 import { formatDateTime } from './adminHelpers'
+import PageTitle from '../../components/PageTitle'
 
 // The report queue (issue #192): everything students reported, newest first.
 // An admin opens the reported content, takes it down if it breaks the rules
@@ -201,6 +202,7 @@ export default function AdminReports() {
 
   return (
     <div>
+      <PageTitle>Admin reports</PageTitle>
       <PageHeader
         title="Reports"
         description="What students reported on the board, Lost & Found, the guide, study groups, the marketplace and their profiles, newest first. Open the content, take it down if it breaks the rules, then resolve the report; dismiss one that needs nothing. Aim to review each report within a day."

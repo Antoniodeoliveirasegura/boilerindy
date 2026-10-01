@@ -10,6 +10,7 @@ import {
   requestAdvertiserPasswordReset,
 } from '../lib/advertiserApi'
 import SkipLink from '../components/SkipLink'
+import PageTitle from '../components/PageTitle'
 
 // Advertiser portal sign-in - a SEPARATE login from the student /login flow, for
 // businesses and marketers who want to run ads on BoilerIndy. Wired to the
@@ -124,6 +125,7 @@ export default function AdvertiserLogin() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.05fr_0.95fr] bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+      <PageTitle>Advertise</PageTitle>
       <SkipLink />
       {/* ── Brand / value panel ─────────────────────────────────────────── */}
       <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-gradient-to-br from-[var(--color-gold-dark)] via-[#4a3209] to-[#1e1606] dark:from-[#1a1206] dark:via-[#241a08] dark:to-[#100b04]">

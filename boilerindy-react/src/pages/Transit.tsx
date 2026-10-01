@@ -17,6 +17,7 @@ import {
   type TransitRoute,
 } from '../lib/transitShared'
 import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import PageTitle from '../components/PageTitle'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -696,6 +697,7 @@ export default function Transit() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <PageTitle>Campus Transit</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">Campus Transit</h1>

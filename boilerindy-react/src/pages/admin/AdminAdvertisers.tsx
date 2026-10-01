@@ -4,6 +4,7 @@ import Icon from '../../components/Icons'
 import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
 import { formatDateTime, generateTempPassword } from './adminHelpers'
+import PageTitle from '../../components/PageTitle'
 
 type Advertiser = {
   id: string
@@ -111,6 +112,7 @@ export default function AdminAdvertisers() {
 
   return (
     <div>
+      <PageTitle>Admin advertisers</PageTitle>
       <PageHeader
         title="Advertisers"
         description="Invite-only advertiser accounts. Create credentials here, then share them with the business out of band."

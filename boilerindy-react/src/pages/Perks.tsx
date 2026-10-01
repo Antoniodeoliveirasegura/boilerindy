@@ -5,6 +5,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
+import PageTitle from '../components/PageTitle'
 
 // Campus Perks (issue #24): admin-curated local student deals.
 const CATEGORIES = [
@@ -194,6 +195,7 @@ export default function Perks() {
 
   return (
     <div className="max-w-[960px] mx-auto px-6 py-8 pb-24">
+      <PageTitle>Campus Perks</PageTitle>
       {confirmDialog}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>

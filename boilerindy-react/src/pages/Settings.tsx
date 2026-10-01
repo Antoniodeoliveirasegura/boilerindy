@@ -11,6 +11,7 @@ import BlockedUsersCard from '../components/settings/BlockedUsersCard'
 import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import { useConfirm } from '../hooks/useConfirm'
 import StatusBanner from '../components/StatusBanner'
+import PageTitle from '../components/PageTitle'
 
 export default function Settings() {
   const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
@@ -221,6 +222,7 @@ export default function Settings() {
 
   return (
     <div className="max-w-[960px] mx-auto px-6 py-8 pb-24">
+      <PageTitle>Settings</PageTitle>
       {confirmDialog}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Settings</h1>

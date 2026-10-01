@@ -4,6 +4,7 @@ import Icon from '../../components/Icons'
 import { listAdminLeads, updateAdminLead } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader, StatusBadge } from './adminShared'
 import { LEAD_STATUS_META, formatDateTime } from './adminHelpers'
+import PageTitle from '../../components/PageTitle'
 
 const FILTERS = [
   { value: 'all', label: 'All' },
@@ -63,6 +64,7 @@ export default function AdminLeads() {
 
   return (
     <div>
+      <PageTitle>Admin access requests</PageTitle>
       <PageHeader
         title="Access requests"
         description="Businesses requesting advertiser portal access. Review each lead, then create an account from the Advertisers tab."

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icons'
 import { resetAdvertiserPassword } from '../lib/advertiserApi'
+import PageTitle from '../components/PageTitle'
 
 // Landing page for the advertiser reset-password email link
 // (/advertise/reset-password?token=…). Posts the token + new password to the
@@ -48,6 +49,7 @@ export default function AdvertiserResetPassword() {
 
   return (
     <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-0)] text-[var(--color-txt-0)] px-6 py-12">
+      <PageTitle>Reset your advertiser password</PageTitle>
       <div className="w-full max-w-[400px]">
         <Link to="/advertise" className="inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-txt-0)] no-underline mb-8">
           <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>

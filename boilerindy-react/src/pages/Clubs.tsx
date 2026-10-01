@@ -14,6 +14,7 @@ import {
   type ClubSearchResult,
 } from '../lib/clubs'
 import { errorMessage, useClubSearch } from '../lib/queries/publicData'
+import PageTitle from '../components/PageTitle'
 
 // Student organization directory (issue #16). Data is BoilerLink's public
 // organizations API, cached and searched by GET /api/clubs. Indianapolis groups
@@ -162,6 +163,7 @@ export default function Clubs() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <PageTitle>Clubs & Organizations</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--color-txt-3)] mb-1">Purdue Indianapolis</p>
