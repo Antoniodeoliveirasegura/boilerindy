@@ -57,7 +57,8 @@ test.describe('Campus map', () => {
 
     const list = page.locator('aside')
     await expect(list.getByRole('button', { name: /Engineering and Technology/ })).toBeVisible()
-    await expect(list.getByRole('button', { name: new RegExp(STADIUM.replace(/[()&]/g, '\\$&')) })).toHaveCount(1)
+    // A string name matches as a substring; the entry's name also carries its code chip.
+    await expect(list.getByRole('button', { name: STADIUM })).toHaveCount(1)
 
     // The deep link opened the merged entry, and both of its shapes are lit.
     await expect(page.getByRole('heading', { level: 3, name: STADIUM })).toBeVisible()
