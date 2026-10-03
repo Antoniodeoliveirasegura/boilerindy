@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 13 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 14 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -54,7 +54,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/board/posts/:id/replies` | `server.mjs` |
 | POST | `/api/board/posts/:id/reply` | `server.mjs` |
 | POST | `/api/board/posts/:id/upvote` | `server.mjs` |
-| GET | `/api/clubs` | `server.mjs` |
+| GET | `/api/clubs` | `src/routes/campus.mjs` |
 | POST | `/api/connections` | `src/routes/friends.mjs` |
 | PATCH | `/api/connections/:requesterId` | `src/routes/friends.mjs` |
 | GET | `/api/deals` | `src/routes/deals.mjs` |
@@ -128,7 +128,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/me/tasks/manual/:id` | `server.mjs` |
 | DELETE | `/api/me/tasks/manual/:id` | `server.mjs` |
 | GET | `/api/me/tasks/meta` | `server.mjs` |
-| GET | `/api/parking/garages` | `server.mjs` |
+| GET | `/api/parking/garages` | `src/routes/campus.mjs` |
 | POST | `/api/purdue/calendar-link/cancel` | `server.mjs` |
 | POST | `/api/purdue/calendar-link/start` | `server.mjs` |
 | GET | `/api/purdue/calendar-link/status` | `server.mjs` |
@@ -154,9 +154,9 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/study-groups/:id/join` | `src/routes/studyGroups.mjs` |
 | POST | `/api/study-groups/:id/leave` | `src/routes/studyGroups.mjs` |
 | POST | `/api/sync/:sourceId` | `server.mjs` |
-| GET | `/api/transit/routes` | `server.mjs` |
-| GET | `/api/transit/stops` | `server.mjs` |
-| GET | `/api/transit/vehicles` | `server.mjs` |
+| GET | `/api/transit/routes` | `src/routes/campus.mjs` |
+| GET | `/api/transit/stops` | `src/routes/campus.mjs` |
+| GET | `/api/transit/vehicles` | `src/routes/campus.mjs` |
 | POST | `/api/usage/events` | `server.mjs` |
 | GET | `/auth/purdue/callback` | `server.mjs` |
 | GET | `/auth/purdue/connect` | `server.mjs` |
