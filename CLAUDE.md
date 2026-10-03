@@ -127,10 +127,14 @@ rights to the BoilerIndy name or logo.
   `src/routes/`, one router per PR, in the order the issue brief gives. The
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
-  `friends` on 2026-09-27. `dining`, `campus`, `push`, `board`, `assistant`,
-  then `admin`, `advertiser`, `analytics`, then `auth` and `me` remain, each
-  following `createLayoutsRouter`; `getClassItemsForUser` moves with `me` and
-  is injected until then. Each router has `test/routes/<name>.test.mjs`, built
+  `friends` on 2026-09-27, and `dining` on 2026-10-03. `campus`, `push`,
+  `board`, `assistant`, then `admin`, `advertiser`, `analytics`, then `auth`
+  and `me` remain, each following `createLayoutsRouter`. A group with a
+  session-free public read (`dining`, then `campus` and `push`) also exports
+  `createXPublicRouter`, mounted in the public reads block ahead of the
+  session middleware (#250) where its `app.get` line was, while its session
+  routes stay in `createXRouter` at the section banner. `getClassItemsForUser`
+  moves with `me` and is injected until then. Each router has `test/routes/<name>.test.mjs`, built
   on the recording fake in `test/routes/fakeSupabase.mjs`. A router's limiter
   is only seen by the doc guard when it destructures the limiter under the
   name `server.mjs` uses.
