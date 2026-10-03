@@ -29,18 +29,18 @@ function monument(p,{x=32,y=44,h=40}={}){
   </g>${p.sil?'':`<circle cx="${x+2.7*s}" cy="${y-44*s}" r="${.72*s}" fill="${p.acc}"/>`}`
 }
 // keyline: the ground gradient re-expressed in the group's local space, so the outline matches the tile behind it
-const keyGrad=(id,[ga,gb],x,y,s)=>`<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${(0-x)/s}" y1="${(0-y)/s}" x2="${(64-x)/s}" y2="${(64-y)/s}"><stop offset="0" stop-color="${ga}"/><stop offset="1" stop-color="${gb}"/></linearGradient></defs>`
+const keyGrad=(id,[ga,gb],x,y,sx,sy=sx)=>`<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${(0-x)/sx}" y1="${(0-y)/sy}" x2="${(64-x)/sx}" y2="${(64-y)/sy}"><stop offset="0" stop-color="${ga}"/><stop offset="1" stop-color="${gb}"/></linearGradient></defs>`
 // wheelKey: 1 = full keyline on the wheels (floats above the road), 0 = none (sinks into it),
 // a fraction = that share of the body keyline, which lets the wheels sit on the road with a defined edge
-function train(p,{x,y,s,body,detail,keyline,ground,u,tilt=0,wheelKey=.5}){
+function train(p,{x,y,s,body,detail,keyline,ground,u,tilt=0,wheelKey=.5,flip=false}){
   const b=body||p.subj, d=detail||p.acc
   let key=''
   if(keyline&&!p.sil){
     const id=u+'k', paint=`url(#${id})`, w=2.6/s
-    key=keyGrad(id,ground,x,y,s)+trainBodyOnly(paint,{color:paint,w})
+    key=keyGrad(id,ground,x,y,flip?-s:s,s)+trainBodyOnly(paint,{color:paint,w})
       +(wheelKey>0?`<g fill="${paint}" stroke="${paint}" stroke-width="${w*wheelKey}"><circle cx="30" cy="47.5" r="6"/><circle cx="16" cy="48.5" r="4.5"/><circle cx="46" cy="48.5" r="4.5"/></g>`:'')
   }
-  return `<g transform="translate(${x} ${y}) scale(${s}) rotate(${tilt} 31.5 53)">${key}${trainParts(b,d)}</g>`
+  return `<g transform="translate(${x} ${y}) scale(${flip?-s:s} ${s}) rotate(${flip?-tilt:tilt} 31.5 53)">${key}${trainParts(b,d)}</g>`
 }
 // keyline pass for the body only
 function trainBodyOnly(body,stroke){
@@ -77,20 +77,27 @@ export function figure(p,{x,y,s,keyline,ground,u}){
 // Monument Circle: plaza disc + ring in perspective, monument centred, train or figure on the front-right arc.
 // o.ts train scale, o.fs figure scale, o.disc plaza opacity, o.keyline, o.twoTone, o.noTrain, o.figure, o.v1 (old monument)
 export function circleA(o,u){
-  const p=paints(o,u), rk=p.sil?'#000':p.subj, ts=o.ts??.4, disc=o.disc??.14, cx=o.tx??46
-  const band=o.band??6, lift=o.lift??1.2
-  const ry=46+8.5*Math.sqrt(1-Math.pow((cx-32)/24,2))
-  const tx=cx-31.5*ts, ty=ry-53*ts+lift, fs=o.fs??.5, fx=46-13*fs, fy=ry-42*fs+lift*.7
+  const p=paints(o,u), rk=p.sil?'#000':p.subj, disc=o.disc??.14
+  const band=o.band??6, lift=o.lift??1.2, clock=o.clock??1.75
+  // clock face on the ring: 12 is the far point, 3 the right edge, 6 the near point
+  const phi=clock/12*2*Math.PI, px=32+24*Math.sin(phi), py=46-8.5*Math.cos(phi)
+  const vx=24*Math.cos(phi), vy=8.5*Math.sin(phi), ang=Math.atan2(vy,vx)*180/Math.PI
+  const flip=vx>0, back=Math.cos(phi)>0, tangent=flip?ang:ang-180
+  // on the near arc the full tangent tilt reads as coming toward you; on the far arc a flat circle keeps the train level
+  const tilt=o.tilt??(back?Math.max(-6,Math.min(6,tangent*(o.backTilt??0))):tangent)
+  const ts=(o.ts??.4)*(1-(o.depth??.12)*Math.cos(phi))
+  const tx=flip?px+31.5*ts:px-31.5*ts, ty=py-53*ts+lift
+  const fs=o.fs??.5, fx=46-13*fs, ry5=46+8.5*Math.sqrt(1-Math.pow(14/24,2)), fy=ry5-42*fs+lift*.7
   const tr=o.noTrain?'':o.figure?figure(p,{x:fx,y:fy,s:fs,keyline:o.keyline,ground:G[o.ground],u})
-    :train(p,{x:tx,y:ty,s:ts,keyline:o.keyline,ground:G[o.ground],u,tilt:o.tilt??-12,wheelKey:o.wheelKey??.5,body:o.twoTone&&!p.sil?p.acc:undefined,detail:o.twoTone&&!p.sil?p.subj:undefined})
-  const stripe=(o.stripe&&!p.sil)?`<ellipse cx="32" cy="46" rx="24" ry="8.5" fill="none" stroke="${p.ground}" stroke-width=".9" opacity=".55" stroke-dasharray="2.2 2.6"/>`:''
-  const stripeFront=(o.stripe&&!p.sil)?`<path d="M8 46 A24 8.5 0 0 0 56 46" fill="none" stroke="${p.ground}" stroke-width=".9" opacity=".55" stroke-dasharray="2.2 2.6"/>`:''
+    :train(p,{x:tx,y:ty,s:ts,keyline:o.keyline,ground:G[o.ground],u,tilt,flip,wheelKey:o.wheelKey??.5,body:o.twoTone&&!p.sil?p.acc:undefined,detail:o.twoTone&&!p.sil?p.subj:undefined})
+  const mon=o.v1?monumentV1(p,{x:32,y:47,h:42}):monument(p,{x:32,y:47,h:38.5})
   return p.defs+p.tile+p.shadow(32,60,22,2.2)+`
   ${disc&&!p.sil?`<ellipse cx="32" cy="46" rx="24" ry="8.5" fill="${p.subj}" opacity="${disc}"/>`:''}
-  <ellipse cx="32" cy="46" rx="24" ry="8.5" fill="none" stroke="${rk}" stroke-width="${band}"/>${stripe}
-  ${o.v1?monumentV1(p,{x:32,y:47,h:42}):monument(p,{x:32,y:47,h:38.5})}
-  <path d="M8 46 A24 8.5 0 0 0 56 46" fill="none" stroke="${rk}" stroke-width="${band}"/>${stripeFront}
-  ${tr}
+  <ellipse cx="32" cy="46" rx="24" ry="8.5" fill="none" stroke="${rk}" stroke-width="${band}"/>
+  ${back&&!o.figure?tr:''}
+  ${mon}
+  <path d="M8 46 A24 8.5 0 0 0 56 46" fill="none" stroke="${rk}" stroke-width="${band}"/>
+  ${back&&!o.figure?'':tr}
   ${p.hi(30,23,1.3,6,.28)}`
 }
 // the figure alone, as a mascot mark

@@ -6,7 +6,7 @@ const svg=(fn,o,s,l='')=>`<svg viewBox="0 0 64 64" width="${s}" height="${s}"${l
 const MC={ground:'gold',subj:'ink',accent:'white',keyline:true}
 export const MARKS=[
   {key:'f1',tag:'F1',label:'Monument Circle with the train',was:31,fn:circleA,o:MC,og:'gold',
-   why:'Best overall; strongest Boiler and Indy identity.',dev:'Monument redrawn from the real one: broader three-tier base, slimmer shaft, the crown under the sphere, Victory with the torch up. The ring is now a road band, the train is tilted to the road\u2019s tangent and its wheels sit into the band, so it reads as travelling around the monument. A third puff of steam trails it.'},
+   why:'Best overall; strongest Boiler and Indy identity.',dev:'Monument redrawn from the real one: broader three-tier base, slimmer shaft, the crown under the sphere, Victory with the torch up. The ring is a road band and the train rides its far side at about a quarter to two on the clock face, level, facing the direction of travel, a little smaller for distance and drawn behind the monument, so it reads as going around. A third puff of steam trails it.'},
   {key:'f2',tag:'F2',label:'Boilermaker Special',was:28,fn:trainSide,o:{ground:'gold',subj:'ink',accent:'white'},og:'gold',
    why:'Fun, student-focused, and very recognizable.',dev:'Unchanged apart from the trailing puff, so the locomotive is one drawing everywhere.'},
   {key:'f3',tag:'F3',label:'Relief B',was:22,fn:reliefB,o:{ground:'gold',subj:'ink',extr:'#B8720E'},og:'gold',
