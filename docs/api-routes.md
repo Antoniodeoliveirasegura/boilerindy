@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 16 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 17 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -40,8 +40,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/advertiser/reset-password` | `server.mjs` |
 | POST | `/api/advertiser/sign-in` | `server.mjs` |
 | POST | `/api/advertiser/sign-out` | `server.mjs` |
-| POST | `/api/assistant` | `server.mjs` |
-| GET | `/api/assistant/briefing` | `server.mjs` |
+| POST | `/api/assistant` | `src/routes/assistant.mjs` |
+| GET | `/api/assistant/briefing` | `src/routes/assistant.mjs` |
 | GET | `/api/auth-config` | `server.mjs` |
 | POST | `/api/auth/register-supabase` | `server.mjs` |
 | POST | `/api/auth/sign-in` | `server.mjs` |
