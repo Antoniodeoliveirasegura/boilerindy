@@ -90,7 +90,8 @@ export function circleA(o,u){
   const fs=o.fs??.5, fx=46-13*fs, ry5=46+8.5*Math.sqrt(1-Math.pow(14/24,2)), fy=ry5-42*fs+lift*.7
   const tr=o.noTrain?'':o.figure?figure(p,{x:fx,y:fy,s:fs,keyline:o.keyline,ground:G[o.ground],u})
     :train(p,{x:tx,y:ty,s:ts,keyline:o.keyline,ground:G[o.ground],u,tilt,flip,wheelKey:o.wheelKey??.5,body:o.twoTone&&!p.sil?p.acc:undefined,detail:o.twoTone&&!p.sil?p.subj:undefined})
-  const mon=o.v1?monumentV1(p,{x:32,y:47,h:42}):monument(p,{x:32,y:47,h:38.5})
+  // the monument as voted on (v1) is the default; o.v2 opts into the redrawn one
+  const mon=o.v2?monument(p,{x:32,y:47,h:38.5}):monumentV1(p,{x:32,y:47,h:42})
   return p.defs+p.tile+p.shadow(32,60,22,2.2)+`
   ${disc&&!p.sil?`<ellipse cx="32" cy="46" rx="24" ry="8.5" fill="${p.subj}" opacity="${disc}"/>`:''}
   <ellipse cx="32" cy="46" rx="24" ry="8.5" fill="none" stroke="${rk}" stroke-width="${band}"/>
