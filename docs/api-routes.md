@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 14 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 15 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -69,7 +69,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/guide/:id/pin` | `src/routes/guide.mjs` |
 | POST | `/api/guide/:id/upvote` | `src/routes/guide.mjs` |
 | GET | `/api/health` | `server.mjs` |
-| POST | `/api/internal/push/run-reminders` | `server.mjs` |
+| POST | `/api/internal/push/run-reminders` | `src/routes/push.mjs` |
 | POST | `/api/internal/sources/resync` | `server.mjs` |
 | GET | `/api/lost-found` | `src/routes/lostFound.mjs` |
 | POST | `/api/lost-found` | `src/routes/lostFound.mjs` |
@@ -134,12 +134,12 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/purdue/calendar-link/status` | `server.mjs` |
 | POST | `/api/purdue/link-token` | `server.mjs` |
 | POST | `/api/purdue/mock-link` | `server.mjs` |
-| GET | `/api/push/config` | `server.mjs` |
-| GET | `/api/push/settings` | `server.mjs` |
-| PUT | `/api/push/settings` | `server.mjs` |
-| POST | `/api/push/subscriptions` | `server.mjs` |
-| DELETE | `/api/push/subscriptions` | `server.mjs` |
-| POST | `/api/push/test` | `server.mjs` |
+| GET | `/api/push/config` | `src/routes/push.mjs` |
+| GET | `/api/push/settings` | `src/routes/push.mjs` |
+| PUT | `/api/push/settings` | `src/routes/push.mjs` |
+| POST | `/api/push/subscriptions` | `src/routes/push.mjs` |
+| DELETE | `/api/push/subscriptions` | `src/routes/push.mjs` |
+| POST | `/api/push/test` | `src/routes/push.mjs` |
 | POST | `/api/reports` | `src/routes/reports.mjs` |
 | GET | `/api/session` | `server.mjs` |
 | POST | `/api/sign-out` | `server.mjs` |
