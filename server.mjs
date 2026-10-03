@@ -47,8 +47,7 @@ import {
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, isTransientFailure, retryOnceIfTransient, runCronTick } from './src/cronTick.mjs'
-import { clampDiningDate, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
-import { normalizeItemName } from './src/diningFavorites.mjs'
+import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
@@ -68,11 +67,9 @@ import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
 import { toggleUpvote } from './src/upvoteToggle.mjs'
 import {
-  DINING_FAVORITES_CAP_MESSAGE,
   DRAFT_CAMPAIGNS_CAP_MESSAGE,
   GRADES_CAP_MESSAGE,
   MANUAL_TASKS_CAP_MESSAGE,
-  MAX_DINING_FAVORITES,
   MAX_DRAFT_CAMPAIGNS,
   MAX_GRADES,
   MAX_MANUAL_TASKS,
@@ -99,6 +96,7 @@ import { createGuideRouter } from './src/routes/guide.mjs'
 import { createStudyGroupsRouter } from './src/routes/studyGroups.mjs'
 import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
 import { createFriendsRouter } from './src/routes/friends.mjs'
+import { createDiningPublicRouter, createDiningRouter } from './src/routes/dining.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -569,7 +567,7 @@ app.get('/api/transit/routes', publicReadIpRateLimit, publicReadRateLimit, handl
 app.get('/api/parking/garages', publicReadIpRateLimit, publicReadRateLimit, handleParkingGarages)
 app.get('/api/clubs', clubsReadRateLimit, handleClubs)
 app.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
-app.get('/api/dining', publicReadIpRateLimit, publicReadRateLimit, handleDining)
+app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot }))
 
 // Everything below runs behind the cookie session.
 app.use(
@@ -3681,98 +3679,12 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
   }
 })
 
-async function handleDining(req, res) {
-  try {
-    // `refresh` passes through as a hint (the module refetches a date at most
-    // every ten minutes); `date` must be yesterday to today + 14 (issue #208).
-    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true'
-    let date
-    if (req.query.date !== undefined && req.query.date !== '') {
-      const checked = clampDiningDate(req.query.date)
-      if (!checked.ok) return res.status(400).json({ ok: false, error: 'dining_bad_date', locations: [] })
-      date = checked.ymd
-    }
-    const data = await getDiningSnapshot({ forceRefresh, date })
-    // The module refetches a date at most every ten minutes, so two minutes in
-    // the browser and five at the edge never serve a menu the backend would
-    // not have served itself (issue #250). Two answers are never stored: the
-    // module's outage snapshot (a 200 with ok: false and no locations), which
-    // would otherwise pin the outage past its own retry, and a forced refresh,
-    // which has to reach the backend to mean anything.
-    if (data.ok && !forceRefresh) res.set('Cache-Control', 'public, max-age=120, s-maxage=300')
-    else res.set('Cache-Control', 'no-store')
-    res.json(data)
-  } catch (error) {
-    console.error('Nutrislice dining error:', error)
-    res.status(500).json({ ok: false, error: 'dining_internal', locations: [] })
-  }
-}
-
-// ---- Dining favorites (issue #49) ---------------------------------------
-// Per-user favorited menu-item names. The Dining page stars items and shows a
-// "your favorites on today's menu" section by cross-referencing these against
-// the public /api/dining snapshot. Requires db/supabase-dining-favorites.sql.
-
-app.get('/api/me/dining/favorites', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data, error } = await supabase
-      .from('user_dining_favorites')
-      .select('item_name')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true })
-    if (error) throw error
-    res.json({ favorites: (data || []).map((r) => r.item_name) })
-  } catch (e) {
-    // Degrade gracefully so the dining page still renders without favorites.
-    console.error('GET /api/me/dining/favorites:', e?.message || e)
-    res.json({ favorites: [], unavailable: true })
-  }
-})
-
-app.post('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const itemName = normalizeItemName(req.body?.itemName)
-  if (!itemName) return badRequest(res, 'An item name is required')
-  try {
-    // Keyed by (user_id, item_name), no id column. Counting the other favorites
-    // lets a re-save of one the user already has through at the cap.
-    const countResult = await supabase
-      .from('user_dining_favorites')
-      .select('item_name', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .neq('item_name', itemName)
-    const cap = capCheck(countResult, MAX_DINING_FAVORITES)
-    if (cap.failure) console.error('POST /api/me/dining/favorites:', cap.failure, countResult.error)
-    if (cap.blocked) {
-      return res.status(409).json({ error: { message: DINING_FAVORITES_CAP_MESSAGE, status: 409 } })
-    }
-    const { error } = await supabase
-      .from('user_dining_favorites')
-      .upsert({ user_id: userId, item_name: itemName }, { onConflict: 'user_id,item_name' })
-    if (error) throw error
-    res.json({ ok: true, itemName })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'POST /api/me/dining/favorites', fallback: 'Could not save favorite' })
-  }
-})
-
-app.delete('/api/me/dining/favorites', userWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const itemName = normalizeItemName(req.body?.itemName ?? req.query?.itemName)
-  if (!itemName) return badRequest(res, 'An item name is required')
-  try {
-    const { error } = await supabase
-      .from('user_dining_favorites')
-      .delete()
-      .eq('user_id', userId)
-      .eq('item_name', itemName)
-    if (error) throw error
-    res.json({ ok: true })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'DELETE /api/me/dining/favorites', fallback: 'Could not remove favorite' })
-  }
-})
+// ============================================================
+// Dining favorites (issue #49) - per-user starred menu items, in
+// src/routes/dining.mjs (issue #191) with the public /api/dining snapshot,
+// which is mounted in the public reads block above.
+// ============================================================
+app.use(createDiningRouter({ supabase, requireAuth, userWriteRateLimit }))
 
 // ============================================================
 // Board API

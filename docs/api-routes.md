@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 12 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 13 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -62,7 +62,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/deals/:id` | `src/routes/deals.mjs` |
 | DELETE | `/api/deals/:id` | `src/routes/deals.mjs` |
 | GET | `/api/debug/source/:sourceId` | `server.mjs` |
-| GET | `/api/dining` | `server.mjs` |
+| GET | `/api/dining` | `src/routes/dining.mjs` |
 | GET | `/api/guide` | `src/routes/guide.mjs` |
 | POST | `/api/guide` | `src/routes/guide.mjs` |
 | DELETE | `/api/guide/:id` | `src/routes/guide.mjs` |
@@ -99,9 +99,9 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/me/degree` | `server.mjs` |
 | PUT | `/api/me/degree` | `server.mjs` |
 | POST | `/api/me/delete-account` | `server.mjs` |
-| GET | `/api/me/dining/favorites` | `server.mjs` |
-| POST | `/api/me/dining/favorites` | `server.mjs` |
-| DELETE | `/api/me/dining/favorites` | `server.mjs` |
+| GET | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
+| POST | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
+| DELETE | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
 | GET | `/api/me/events` | `server.mjs` |
 | GET | `/api/me/grades` | `server.mjs` |
 | POST | `/api/me/grades` | `server.mjs` |
