@@ -6,13 +6,13 @@ const svg=(fn,o,s,l='')=>`<svg viewBox="0 0 64 64" width="${s}" height="${s}"${l
 const MC={ground:'gold',subj:'ink',accent:'white',keyline:true}
 export const MARKS=[
   {key:'f1',tag:'F1',label:'Monument Circle with the train',was:31,fn:circleA,o:MC,og:'gold',
-   why:'Best overall; strongest Boiler and Indy identity.',dev:'Monument redrawn from the real one: broader three-tier base, slimmer shaft, the crown under the sphere, Victory with the torch up. A third puff of steam trails the train.'},
+   why:'Best overall; strongest Boiler and Indy identity.',dev:'Monument redrawn from the real one: broader three-tier base, slimmer shaft, the crown under the sphere, Victory with the torch up. The ring is now a road band, the train is tilted to the road\u2019s tangent and its wheels sit into the band, so it reads as travelling around the monument. A third puff of steam trails it.'},
   {key:'f2',tag:'F2',label:'Boilermaker Special',was:28,fn:trainSide,o:{ground:'gold',subj:'ink',accent:'white'},og:'gold',
    why:'Fun, student-focused, and very recognizable.',dev:'Unchanged apart from the trailing puff, so the locomotive is one drawing everywhere.'},
   {key:'f3',tag:'F3',label:'Relief B',was:22,fn:reliefB,o:{ground:'gold',subj:'ink',extr:'#B8720E'},og:'gold',
    why:'Cleanest and most professional-looking app icon.',dev:'Unchanged. It is also the favicon that pairs with every other finalist, since none of the pictures survive 16px.'},
   {key:'f4',tag:'F4',label:'Monument Circle with a boilermaker',was:33,fn:circleA,o:{...MC,figure:true,fs:.56},og:'gold',
-   why:'Strong BoilerIndy concept and good mascot potential.',dev:'Same monument as F1. The boilermaker got two dot eyes and a smile that show from about 120px up and vanish below, so the small-size silhouette is unchanged.'},
+   why:'Strong BoilerIndy concept and good mascot potential.',dev:'Same monument as F1. The boilermaker got two dot eyes and a smile that show from about 120px up and vanish below, so the small-size silhouette is unchanged. He stands on the same road band as F1\u2019s train.'},
   {key:'f5',tag:'F5',label:'Boilermaker Special, gold on ink',was:21,fn:flatTrain,o:{ground:'ink',subj:'gold'},og:'ink',
    why:'Simple, bold, and works well at small sizes.',dev:'Kept flat, no shading or shadow, but given the cab window, the wheel hubs and the steam in cream so it matches F2 detail for detail.'},
   {key:'m',tag:'Bonus',label:'The boilermaker on his own',was:null,fn:mascot,o:{ground:'gold',subj:'ink',accent:'white'},og:'gold',
