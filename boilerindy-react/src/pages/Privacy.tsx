@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import PageTitle from '../components/PageTitle'
 
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
 // (account, imported schedule, grades, posts, AI features, analytics, the
@@ -17,9 +18,9 @@ sponsored by Purdue University.`,
   {
     title: 'Account information',
     body: `When you create an account we store your email address, the name you provide, and - if
-you sign in with Google, Apple, GitHub, or Discord - the avatar and provider that service
-returns. Authentication is handled by Supabase. We never see or store your Google/Apple/etc.
-password.`,
+you sign in with a sign-in provider such as Google - the avatar and provider that service
+returns. Authentication is handled by Supabase. We never see or store the password for that
+provider.`,
   },
   {
     title: 'Linking your Purdue account',
@@ -115,6 +116,7 @@ export default function Privacy() {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+      <PageTitle>Privacy policy</PageTitle>
       <div className="max-w-[720px] mx-auto">
         <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
           {back.label}

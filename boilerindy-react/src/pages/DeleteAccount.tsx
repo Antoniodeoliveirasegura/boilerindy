@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import PageTitle from '../components/PageTitle'
 
 // Account and data deletion page (issue #193). Google Play's Data Safety form
 // needs a public URL where someone can ask for deletion without the app, so
@@ -27,8 +28,8 @@ const SECTIONS: { title: string; body: ReactNode }[] = [
         </Link>
         , and use the Delete account card: enter your password, type DELETE, and confirm. Your account
         is deleted right away and you are signed out, and your Purdue link and calendar feed link stop
-        working immediately. This cannot be undone. If you signed up with Google, Apple, GitHub, or
-        Discord and never set a password, use the email option below instead.
+        working immediately. This cannot be undone. If you signed up with a sign-in provider such as
+        Google and never set a password, use the email option below instead.
       </>
     ),
   },
@@ -97,6 +98,7 @@ export default function DeleteAccount() {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+      <PageTitle>Delete your account</PageTitle>
       <div className="max-w-[720px] mx-auto">
         <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
           {back.label}

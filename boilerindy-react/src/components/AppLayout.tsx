@@ -11,8 +11,14 @@ import PageLoader from './PageLoader'
 import SkipLink from './SkipLink'
 
 export default function AppLayout() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const userId = (user?.id as string | undefined) ?? null
+  // The navbar, bottom tab bar, rails and assistant belong to the signed-in
+  // app. Rendering them while auth loads flashed that app at signed-out
+  // visitors before RequireAuth sent them to /login (issue #369). The outlet
+  // still renders, so RequireAuth's "Loading…" shows. Routes stay guarded one
+  // by one so a public preview (#366) can render here for signed-out visitors.
+  const showChrome = !loading && Boolean(user)
 
   // Reconcile this device's schedule edits with the server once the user is
   // known. Every page reads them from localStorage synchronously, so this only
@@ -25,9 +31,13 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen flex flex-col">
       <SkipLink />
-      <Navbar />
-      <SideSpotlightRail side="left" />
-      <SideSpotlightRail side="right" />
+      {showChrome && (
+        <>
+          <Navbar />
+          <SideSpotlightRail side="left" />
+          <SideSpotlightRail side="right" />
+        </>
+      )}
       {/* Block wrapper for the routed page (issue #162). Page roots are
           `max-w-* mx-auto`; as direct children of this flex column their auto
           margins switched off cross-axis stretch, so each page was sized
@@ -46,7 +56,7 @@ export default function AppLayout() {
       </main>
       {/* Extra bottom padding on mobile clears the fixed bottom nav (issue #112). */}
       <SiteDisclaimer className="mt-auto pb-20 md:pb-6" />
-      <CampusAssistant />
+      {showChrome && <CampusAssistant />}
       <SessionExpiryWatcher />
     </div>
   )

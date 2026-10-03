@@ -13,9 +13,11 @@ import {
   haversineMeters,
   getOrderedStopsForRoute,
   isRouteActiveNow,
+  isRouteRunningForDisplay,
   type TransitRoute,
 } from '../lib/transitShared'
 import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import PageTitle from '../components/PageTitle'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -695,6 +697,7 @@ export default function Transit() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <PageTitle>Campus Transit</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">Campus Transit</h1>
@@ -725,14 +728,14 @@ export default function Transit() {
           </button>
           {routes.map((route) => {
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
-            const activeToday = isRouteActiveNow(route)
+            const running = isRouteRunningForDisplay(route, count)
             return (
               <button
                 key={route.id}
                 onClick={() => setSelectedRoute(selectedRoute?.id === route.id ? null : route)}
                 className={`pill whitespace-nowrap flex items-center gap-2 transition-opacity shrink-0 min-h-[40px] sm:min-h-0
                   ${selectedRoute?.id === route.id ? 'pill-active' : ''}
-                  ${!activeToday ? 'opacity-40' : ''}`}
+                  ${!running ? 'opacity-40' : ''}`}
                 title={route.schedule?.label ?? ''}
               >
                 <span
@@ -744,8 +747,8 @@ export default function Transit() {
                 <span className="hidden sm:inline">{route.shortName}</span>
                 <span className="sm:hidden">{route.num}</span>
                 {count > 0 && <span className="text-[var(--color-txt-3)]">({count})</span>}
-                {!activeToday && (
-                  <span className="text-[10px] text-[var(--color-txt-3)] font-normal hidden sm:inline">off</span>
+                {!running && (
+                  <span className="text-[10px] text-[var(--color-txt-3)] font-normal hidden sm:inline">not running now</span>
                 )}
               </button>
             )

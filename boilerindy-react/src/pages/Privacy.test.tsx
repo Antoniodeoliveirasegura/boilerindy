@@ -43,3 +43,33 @@ describe('Privacy contact', () => {
     expect(screen.getByRole('link', { name: 'How to delete your account' })).toHaveAttribute('href', '/delete-account')
   })
 })
+
+// Issue #365 - only email and Google sign-in are enabled, so the policy must
+// not list providers the app does not offer.
+describe('Privacy sign-in providers', () => {
+  test('names Google and no provider the app does not offer', () => {
+    const { container } = renderAt('/privacy')
+    const text = container.textContent || ''
+    expect(text).toMatch(/a sign-in provider such as Google/)
+    expect(text).not.toMatch(/Apple, GitHub|GitHub, or Discord|Google\/Apple/)
+  })
+})
+
+// Issue #367 - every page was titled just "BoilerIndy". A page now renders its
+// own <title>, which React 19 places ahead of index.html's static one and
+// removes when the page unmounts, so the static title comes back.
+describe('Privacy title', () => {
+  test('titles the tab ahead of the static title and gives it back on unmount', () => {
+    const fallback = document.createElement('title')
+    fallback.textContent = 'BoilerIndy - campus app for Purdue Indianapolis students'
+    document.head.appendChild(fallback)
+    try {
+      const { unmount } = renderAt('/privacy')
+      expect(document.title).toBe('Privacy policy - BoilerIndy')
+      unmount()
+      expect(document.title).toBe('BoilerIndy - campus app for Purdue Indianapolis students')
+    } finally {
+      fallback.remove()
+    }
+  })
+})

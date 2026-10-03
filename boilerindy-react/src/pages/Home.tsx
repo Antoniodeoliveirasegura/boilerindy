@@ -42,6 +42,7 @@ import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
+import PageTitle from '../components/PageTitle'
 
 const quickActionTemplates = [
   { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
@@ -559,11 +560,16 @@ export default function Home() {
     return cached?.text.trim() ? cached.text : null
   }
 
+  // With no linked source and no class added by hand there is nothing to
+  // summarize, and the model used to invent a week of classes to fill the gap
+  // (issue #371), so the card asks the student to connect a schedule instead.
+  const hasScheduleData = (onboarding?.linkedSourceCount ?? 0) > 0 || overrides.manual.length > 0
+
   const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
   // Start loading when there is no cached digest: the mount effect will fetch
   // one. Deriving the initial value here means the effect never has to flip the
   // flag synchronously (which trips react-hooks/set-state-in-effect).
-  const [weekAheadLoading, setWeekAheadLoading] = useState(() => !readCachedWeekDigest())
+  const [weekAheadLoading, setWeekAheadLoading] = useState(() => hasScheduleData && !readCachedWeekDigest())
   // A digest that lands after sign-out has unmounted the page must not write the
   // cache back once sign-out has cleared it (issue #219).
   const mountedRef = useRef(true)
@@ -604,7 +610,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!weekAheadText) fetchWeekAheadSummary()
+    if (hasScheduleData && !weekAheadText) fetchWeekAheadSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -841,6 +847,7 @@ export default function Home() {
               </p>
             </div>
           </div>
+          {hasScheduleData && (
           <button
             type="button"
             onClick={generateWeekAheadSummary}
@@ -849,9 +856,17 @@ export default function Home() {
           >
             {weekAheadLoading ? 'Generating…' : 'Refresh'}
           </button>
+          )}
         </div>
         <div className="mt-4">
-          {weekAheadLoading && !weekAheadText ? (
+          {!hasScheduleData ? (
+            <p className="text-[13px] text-[var(--color-txt-2)]">
+              <Link to="/setup" className="text-[var(--color-accent)] hover:underline">
+                Connect your schedule
+              </Link>{' '}
+              to get a weekly briefing.
+            </p>
+          ) : weekAheadLoading && !weekAheadText ? (
             <div className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)]">
               <div className="w-3.5 h-3.5 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin shrink-0" />
               Generating your week summary…
@@ -1497,6 +1512,7 @@ export default function Home() {
 
   return (
     <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <PageTitle>Dashboard</PageTitle>
       {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
       <SourceErrorNotice className="mb-5" />
       <FeaturedDeal />

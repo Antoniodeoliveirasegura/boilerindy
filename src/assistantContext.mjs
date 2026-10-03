@@ -109,3 +109,16 @@ export function startsWithin(rows, now = new Date(), hours = STUDY_HELP_DEADLINE
     return Number.isFinite(t) && t >= from && t <= to
   })
 }
+
+// Said outright when the student has no calendar rows (issue #371). Leaving the
+// section out let the model fill the gap with a made-up week of classes.
+export const NO_CALENDAR_CONTEXT =
+  '=== CALENDAR ===\nThe student has no calendar connected, or nothing on it in this window. Do not describe any classes, assignments or exams, and do not guess at a schedule. Suggest connecting their schedule in Setup instead.'
+
+/**
+ * The calendar section of the prompt: `buildCalendar(rows)` when there are
+ * rows, otherwise NO_CALENDAR_CONTEXT.
+ */
+export function calendarContextFor(rows, buildCalendar) {
+  return rows?.length ? buildCalendar(rows) : NO_CALENDAR_CONTEXT
+}

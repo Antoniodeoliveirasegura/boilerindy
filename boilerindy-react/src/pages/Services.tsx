@@ -8,6 +8,7 @@ import { allowedSizesFor } from '../lib/servicesLayoutStore'
 import DashboardWidget from '../components/dashboard/DashboardWidget'
 import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import ConfirmDialog from '../components/ConfirmDialog'
+import PageTitle from '../components/PageTitle'
 
 type ResourceItem = {
   name: string
@@ -265,6 +266,7 @@ export default function Services() {
 
   return (
     <div className="max-w-[1080px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Student Services</PageTitle>
       <div className="mb-6 animate-fade-in-up">
         <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
           Purdue Indianapolis

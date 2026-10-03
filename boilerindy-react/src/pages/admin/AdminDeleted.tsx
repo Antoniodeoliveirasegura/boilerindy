@@ -14,6 +14,7 @@ import {
 } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
 import { formatDateTime } from './adminHelpers'
+import PageTitle from '../../components/PageTitle'
 
 // Admin moderation for soft-deleted content. Users only ever soft-delete (their
 // item is hidden); admins come here to Restore it or permanently (hard) delete
@@ -257,6 +258,7 @@ export default function AdminDeleted() {
 
   return (
     <div>
+      <PageTitle>Admin deleted content</PageTitle>
       <PageHeader
         title="Deleted content"
         description="Content users delete is hidden but kept here. Restore it to make it visible again, or permanently remove it from the database. The Hidden listings tab holds marketplace listings that reports hid automatically."

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { reportBreadcrumb } from '../lib/errorReporting'
+import PageTitle from '../components/PageTitle'
 
 // Catch-all page for URLs the router does not know (issues #245, #222). It
 // used to be a blank screen with no way onward; it now sits inside
@@ -23,6 +24,7 @@ export default function NotFound() {
 
   return (
     <div className="flex-1 bg-[var(--color-bg-1)] px-6 py-12" data-testid="not-found-page">
+      <PageTitle>Page not found</PageTitle>
       <div className="max-w-[720px] mx-auto">
         <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Page not found</h1>
         <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] mb-6">

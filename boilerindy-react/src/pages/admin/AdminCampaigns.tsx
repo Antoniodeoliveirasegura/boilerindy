@@ -4,6 +4,7 @@ import { listAdminCampaigns, updateAdminCampaign } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader, StatusBadge } from './adminShared'
 import { CAMPAIGN_STATUS_META, formatDateTime } from './adminHelpers'
 import { useConfirm } from '../../hooks/useConfirm'
+import PageTitle from '../../components/PageTitle'
 
 const FILTERS = [
   { value: 'pending_review', label: 'Pending review' },
@@ -85,6 +86,7 @@ export default function AdminCampaigns() {
 
   return (
     <div>
+      <PageTitle>Admin campaigns</PageTitle>
       {confirmDialog}
       <PageHeader
         title="Campaigns"

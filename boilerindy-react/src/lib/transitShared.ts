@@ -58,6 +58,19 @@ export function isRouteActiveNow(
 }
 
 /**
+ * Whether a route pill shows the route as running. A bus reporting on the
+ * route wins over the static schedule (weekend specials and extended service
+ * happen), so the schedule decides only when no bus is live (issue #373).
+ */
+export function isRouteRunningForDisplay(
+  route: { schedule?: RouteSchedule } | null | undefined,
+  liveVehicleCount: number,
+  now: Date = new Date(),
+): boolean {
+  return liveVehicleCount > 0 || isRouteActiveNow(route, now)
+}
+
+/**
  * Offline fallback when /api/transit/routes has not loaded yet (or fails).
  * Merged with live TransLoc route definitions for automatic new-variant support.
  */

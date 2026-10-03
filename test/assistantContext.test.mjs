@@ -9,8 +9,10 @@ import { readFileSync } from 'node:fs'
 
 import {
   DINING_ITEMS_PER_STATION,
+  NO_CALENDAR_CONTEXT,
   STUDY_HELP_DEADLINE_HOURS,
   buildDiningContext,
+  calendarContextFor,
   mealsForPrompt,
   startsWithin,
   wantsStudyHelp,
@@ -241,4 +243,23 @@ test('wantsStudyHelp matches study and help questions only', () => {
   }
   assert.equal(wantsStudyHelp(null), false)
   assert.equal(wantsStudyHelp(undefined), false)
+})
+
+test('a student with no calendar rows gets an explicit no-calendar section, not silence (issue #371)', () => {
+  let rendered = false
+  const ctx = calendarContextFor([], () => {
+    rendered = true
+    return 'rendered'
+  })
+  assert.equal(rendered, false)
+  assert.equal(ctx, NO_CALENDAR_CONTEXT)
+  assert.match(ctx, /^=== CALENDAR ===/)
+  assert.match(ctx, /no calendar connected/i)
+  assert.match(ctx, /Do not describe any classes, assignments or exams/)
+  assert.equal(calendarContextFor(undefined, () => 'rendered'), NO_CALENDAR_CONTEXT)
+})
+
+test('calendar rows are rendered by the calendar builder (issue #371)', () => {
+  const rows = [{ id: '1', title: 'CS 18000', category: 'class' }]
+  assert.equal(calendarContextFor(rows, (r) => `rows:${r.length}`), 'rows:1')
 })

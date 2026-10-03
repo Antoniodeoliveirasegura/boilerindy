@@ -122,7 +122,12 @@ export async function safeFetchIcsText(rawUrl) {
       continue
     }
     if (!res.ok) {
-      throw new Error(`Request failed with status ${res.status}`)
+      // The status rides along so a feed host's 502/503/504 reads as transient
+      // (isTransientFailure in cronTick.mjs). classifyFetchError matches on the
+      // message, so that stays as it was.
+      const error = new Error(`Request failed with status ${res.status}`)
+      error.status = res.status
+      throw error
     }
     return await res.text()
   }

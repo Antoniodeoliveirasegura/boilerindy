@@ -22,6 +22,13 @@ schedule.
   atomic replace of the items). A sync that fails marks its source `error`
   with the classified message and the tick moves on. After 60 seconds no new
   sync is started; the rest are reported as `deferred` and picked up next hour.
+- A feed fetch that fails transiently (a timeout, a dropped or refused
+  connection, a 502/503/504 from the feed host) is retried once after 1.5 s
+  before the source is marked `error`. Before, one hiccup on a feed that had
+  synced every run for a week showed the student "Please check the URL" and
+  parked the source until the daily retry (Sentry BOILERINDY-API-8). A feed
+  that is still down after the retry is logged as a warning, not an error.
+  The Sync buttons do not retry, so a student is never kept waiting twice.
 - A tick already in flight answers `409 resync_in_progress`.
 - A Supabase 5xx or timeout on the candidate listing is retried once after
   1.5 s; a second failure answers `503`, logs a warning and leaves the run to

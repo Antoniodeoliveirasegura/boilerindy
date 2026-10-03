@@ -9,6 +9,7 @@ import Icon from '../components/Icons'
 import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import StatusBanner from '../components/StatusBanner'
 import { invalidateUserQueries } from '../lib/queries/userData'
+import PageTitle from '../components/PageTitle'
 
 type SourceConfig = {
   label: string
@@ -304,6 +305,7 @@ export default function ConnectSchedule() {
   if (needsPurdueConnection) {
     return (
       <div className="max-w-[520px] mx-auto px-4 sm:px-6 py-8 sm:py-12 pb-24">
+        <PageTitle>Setup</PageTitle>
         <div className="text-center mb-6 sm:mb-8">
           <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center mx-auto mb-3 sm:mb-4">
             <Icon name="graduation" size={24} className="sm:hidden" />
@@ -360,6 +362,7 @@ export default function ConnectSchedule() {
   // ────────────────────────────────────────
   return (
     <div className="max-w-[800px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+      <PageTitle>Setup</PageTitle>
       <div className="mb-6 sm:mb-8">
         <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">
           {sources.length > 0 ? 'Manage Calendar Sources' : 'Connect Your Calendars'}

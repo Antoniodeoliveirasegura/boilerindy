@@ -8,6 +8,7 @@ import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import SkipLink from '../components/SkipLink'
 import StatusBanner from '../components/StatusBanner'
+import PageTitle from '../components/PageTitle'
 
 const asideFeatures = [
   ['user', 'Create an account with your email'],
@@ -229,6 +230,7 @@ export default function Login() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-1)] text-[var(--color-txt-2)] text-sm">
+        <PageTitle>{forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}</PageTitle>
         Loading…
       </div>
     )
@@ -236,6 +238,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.05fr_0.95fr] bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+      <PageTitle>{forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}</PageTitle>
       {/* ── Brand / value panel ─────────────────────────────────────────── */}
       <SkipLink />
       <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-gradient-to-br from-[var(--color-gold-dark)] via-[#4a3209] to-[#1e1606] dark:from-[#1a1206] dark:via-[#241a08] dark:to-[#100b04]">
@@ -315,8 +318,8 @@ export default function Login() {
             {forgotMode
               ? 'Enter your account email and we will send you a reset link.'
               : isSignup
-                ? 'Create your account to get started.'
-                : 'Sign in to continue to BoilerIndy.'}
+                ? 'Create your account with Google or your email. Purdue linking comes after sign-up, in setup.'
+                : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
           </p>
 
           <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode ? 'hidden' : ''}`}>

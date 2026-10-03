@@ -20,6 +20,7 @@ import {
   type ScheduleOverrideState,
   type ScheduleSeriesOverride,
 } from '../lib/scheduleOverrideStore'
+import PageTitle from '../components/PageTitle'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_CODES: Record<string, string> = {
@@ -504,6 +505,7 @@ export default function Schedule() {
 
   return (
     <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+      <PageTitle>Class Schedule</PageTitle>
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Class Schedule</h1>
@@ -548,10 +550,15 @@ export default function Schedule() {
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
                 {onboarding?.needsPurdueConnection ? 'Link Purdue to import your schedule' : 'Connect your Purdue timetable feed'}
               </div>
+              {/* needsPurdueConnection is also false when linking is off
+                  (PURDUE_AUTH_MODE=off), so only hasPurdueLinked may claim a
+                  link (issue #372). */}
               <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
                 {onboarding?.needsPurdueConnection
                   ? 'Your BoilerIndy account is ready. Link Purdue first, then attach your timetable iCal export.'
-                  : 'Your Purdue account is linked. Finish setup to sync your recurring class meetings into this page.'}
+                  : onboarding?.hasPurdueLinked
+                    ? 'Your Purdue account is linked. Finish setup to sync your recurring class meetings into this page.'
+                    : 'Connect your timetable feed to sync your recurring class meetings into this page.'}
               </p>
             </div>
             <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">

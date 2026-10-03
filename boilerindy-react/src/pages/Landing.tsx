@@ -23,7 +23,7 @@ const bentoTiles = [
     span: '',
     icon: 'sparkles',
     title: 'Ask anything',
-    desc: '“When’s my next bus?” the assistant answers in plain language.',
+    desc: '“What should I work on tonight?” the assistant answers from your classes, deadlines, and dining.',
     tone: 'accent',
   },
   {
@@ -36,8 +36,8 @@ const bentoTiles = [
   {
     span: 'lg:col-span-2',
     icon: 'bus',
-    title: 'Buses, in human terms',
-    desc: '“3 stops from you - about 6 minutes.” Real-time ETAs from your location, not a raw map dump.',
+    title: 'Buses, live',
+    desc: 'Live bus positions on the map, and a chime when yours pulls up to your stop.',
     tone: 'bus',
   },
   {
@@ -88,8 +88,8 @@ const dayTimeline = [
   { time: '8:05 AM', icon: 'schedule', title: 'Heads up: CS 30200 in 25 min', body: 'Your dashboard greets you with the next class, the room, and the walk time.' },
   { time: '11:15 AM', icon: 'sparkles', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block - and tells you Tower Dining is open until 2.' },
   { time: '12:30 PM', icon: 'dining', title: 'Lunch, sorted', body: 'Live menu shows what’s actually being served. Ask AI for the high-protein pick.' },
-  { time: '2:00 PM', icon: 'bus', title: 'Catch the shuttle', body: '“Gold route is 2 stops away, ~4 minutes.” You leave at exactly the right time.' },
-  { time: '4:30 PM', icon: 'coffee', title: 'Free pizza in ET', body: 'A free-food alert pings before it’s gone. You detour for a slice.' },
+  { time: '2:00 PM', icon: 'bus', title: 'Catch the shuttle', body: 'Your bus moves live on the map, and a chime tells you when it reaches your stop.' },
+  { time: '4:30 PM', icon: 'coffee', title: 'Free pizza in ET', body: 'Campus events that mention free food, in one feed. You detour for a slice.' },
   { time: '9:00 PM', icon: 'message', title: 'Wind down on the board', body: 'Someone answered your “best quiet study spot?” thread. You upvote and bookmark.' },
 ]
 
@@ -252,8 +252,8 @@ export default function Landing() {
                 <Icon name="bus" size={15} />
               </div>
               <div>
-                <div className="text-[11px] font-semibold leading-tight">Gold route</div>
-                <div className="text-[10px] text-[var(--color-txt-2)]">2 stops · ~4 min</div>
+                <div className="text-[11px] font-semibold leading-tight">Your bus</div>
+                <div className="text-[10px] text-[var(--color-txt-2)]">Live on the map</div>
               </div>
             </div>
             <div className="mkt-float mkt-float--slow absolute -right-3 sm:-right-6 bottom-16 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 backdrop-blur-sm shadow-[var(--shadow-lg)] px-3 py-2.5 flex items-center gap-2.5 max-w-[200px]">
@@ -371,15 +371,12 @@ export default function Landing() {
               Your campus is ready when you are.
             </h2>
             <p className="text-[15px] sm:text-[16px] text-[var(--color-gold-dark)]/75 max-w-[460px] mx-auto mb-8">
-              Free for every Purdue Indianapolis student. Sign in with your university account and your dashboard builds itself.
+              Free for every Purdue Indianapolis student. Create an account with Google or your email, link Purdue in setup, and your dashboard builds itself.
             </p>
             <div className="flex flex-wrap gap-3 justify-center">
               <Link to="/login" className="inline-flex items-center gap-2 text-[14px] font-bold bg-[var(--color-gold-dark)] text-[var(--color-gold)] px-7 py-3.5 rounded-xl no-underline hover:-translate-y-0.5 transition-transform">
                 <Icon name="home" size={16} />
                 Get started free
-              </Link>
-              <Link to="/" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] px-7 py-3.5 rounded-xl border border-[var(--color-gold-dark)]/30 hover:bg-[var(--color-gold-dark)]/10 no-underline transition-colors">
-                Explore the app
               </Link>
             </div>
           </div>

@@ -46,13 +46,19 @@ import {
   settingsFromRow,
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
-import { describeFailure, runCronTick } from './src/cronTick.mjs'
+import { describeFailure, isTransientFailure, retryOnceIfTransient, runCronTick } from './src/cronTick.mjs'
 import { clampDiningDate, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
 import { createGroqClient, GroqUpstreamError } from './src/groqClient.mjs'
 import { estimateTokens, tidyAssistantReply } from './src/assistantReply.mjs'
-import { STUDY_HELP_DEADLINE_HOURS, buildDiningContext, startsWithin, wantsStudyHelp } from './src/assistantContext.mjs'
+import {
+  STUDY_HELP_DEADLINE_HOURS,
+  buildDiningContext,
+  calendarContextFor,
+  startsWithin,
+  wantsStudyHelp,
+} from './src/assistantContext.mjs'
 import {
   assertBoardPostTextAllowed,
   boardTextFailsPolicy,
@@ -79,6 +85,7 @@ import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
+import { onboardingFlags } from './src/onboardingFlags.mjs'
 import { createCommunityCounters } from './src/communityCounters.mjs'
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
@@ -798,16 +805,7 @@ async function getUserSummary(userOrId) {
     onboardingSummaryCache.set(userId, counts, gen)
   }
 
-  const hasPurdueLinked = Boolean(user?.purdue_email)
-  return {
-    linkedSourceCount: counts.linkedSourceCount,
-    classCount: counts.classCount,
-    hasPurdueLinked,
-    // When Purdue linking is off, never prompt a link and let users attach
-    // calendar sources directly (no identity link required).
-    needsPurdueConnection: purdueLinkingEnabled ? !hasPurdueLinked : false,
-    needsScheduleSource: (purdueLinkingEnabled ? hasPurdueLinked : true) && counts.linkedSourceCount === 0,
-  }
+  return onboardingFlags({ counts, hasPurdueLinked: Boolean(user?.purdue_email), purdueLinkingEnabled })
 }
 
 async function getCurrentUser(req) {
@@ -925,17 +923,40 @@ const calendarItemStore = createCalendarItemStore(supabase)
 // instead of the read-modify-write that lost updates under concurrent votes.
 const communityCounters = createCommunityCounters(supabase)
 
-async function runScheduleSync(source) {
+// A feed that timed out, dropped the connection or answered a gateway status
+// is the feed host's outage, not a bug here, and the source row already shows
+// the student the failure. console.warn keeps it in the Render log, and
+// captureMessage files one warning-level Sentry issue per failure kind (the
+// console integration forwards console.error only), whose event count shows
+// how often feeds are down. Never the feed URL: it carries the student's token.
+function warnFeedTransient(sourceId, error) {
+  const what = describeFailure(error)
+  console.warn(`[runScheduleSync] Transient feed failure for source=${sourceId}: ${what} (${error?.message || error})`)
+  Sentry.captureMessage(`runScheduleSync: transient calendar feed failure (${what})`, {
+    level: 'warning',
+    fingerprint: ['schedule-feed-transient', what],
+    extra: { message: String(error?.message || error), status: error?.status ?? null, code: error?.code ?? error?.cause?.code ?? null },
+  })
+}
+
+// retryTransient: the background re-sync gives a transient feed failure one
+// more try before marking the source `error` (Sentry BOILERINDY-API-8). The
+// Sync buttons leave it off so a student is not kept waiting on a dead host.
+async function runScheduleSync(source, { retryTransient = false } = {}) {
   const syncedAt = nowIso()
   const sourceId = source.id
 
   let eventsByKey
   try {
-    const icsText = await safeFetchIcsText(source.source_url)
+    const fetchFeed = () => safeFetchIcsText(source.source_url)
+    const icsText = retryTransient
+      ? await retryOnceIfTransient('[runScheduleSync] source=' + sourceId, fetchFeed)
+      : await fetchFeed()
     eventsByKey = await ical.async.parseICS(icsText)
   } catch (fetchError) {
     const classified = classifyFetchError(fetchError)
-    console.error('[runScheduleSync] Fetch failed for source=' + sourceId + ':', fetchError?.message || fetchError)
+    if (isTransientFailure(fetchError)) warnFeedTransient(sourceId, fetchError)
+    else console.error('[runScheduleSync] Fetch failed for source=' + sourceId + ':', fetchError?.message || fetchError)
     await calendarItemStore.setStatus(sourceId, classified.status, classified.message)
     throw new Error(classified.message)
   }
@@ -2713,7 +2734,7 @@ Rules:
 - Be concise and friendly. For simple questions: 2-4 sentences, no bullets. For "what should I do now?", "plan my afternoon", or similar planning questions: a short prioritized list of 3-5 bullets, each one concrete and tied to a real time.
 - Open with the answer. No "Sure!", no "Great question", no restating what they asked.
 - Answer directly from the context data when available - do not hedge or defer.
-- Refer to the student's own data specifically. "You have CS 30200 at 2:30pm in ET 202" beats "you have a class this afternoon".
+- Refer to the student's own data specifically: name the course code, time and room exactly as the context lists them, rather than "you have a class this afternoon". Never name a course, time or room the context does not list.
 - When the student asks what to do *now*, *next*, or how to balance their time: anchor on CURRENT DATE & TIME. Weigh together: (1) anything in HAPPENING NOW, (2) classes or exams starting within the next ~2 hours, (3) homework or projects due in the next 24-48 hours (especially tonight), (4) upcoming exams/quizzes that need prep time, (5) optional campus events. Do **not** push optional events over urgent coursework or tight deadlines unless they are clearly free.
 - If homework is due tonight, say so and suggest when to work on it relative to class, meals, and events already on their calendar.
 - For exam prep or heavy homework blocks, suggest concrete on-campus options from the STUDY & HELP section when it is present (e.g. library quiet floors, ET/SL for STEM, ASC tutoring for support - match to subject when possible).
@@ -3072,7 +3093,7 @@ app.post('/api/assistant', requireAuth, assistantRateLimit, async (req, res) => 
     `=== CURRENT DATE & TIME ===\n${nowLabel} at ${timeLabel} (Eastern)`,
     pageHint,
     buildDiningContext(dining, { now, question: lastUserMessage }),
-    calendarRows.length ? buildAssistantCalendarContext(calendarRows, now, { includeStudyHelp, completedIds }) : '',
+    calendarContextFor(calendarRows, (rows) => buildAssistantCalendarContext(rows, now, { includeStudyHelp, completedIds })),
     buildManualTaskContext(manualTasks, now),
     focusHint ? `=== WHAT THEY ARE ASKING ABOUT ===\n${focusHint}` : '',
   ].filter(Boolean).join('\n\n')
@@ -3628,7 +3649,8 @@ app.post('/api/internal/push/run-reminders', async (req, res, next) => {
 // the pg_cron job in db/supabase-source-resync.sql with the same bearer token
 // as the reminder runner. Sequential per run (one upstream fetch at a time),
 // 15 sources per tick, oldest first; a tick already in flight answers 409.
-// The candidate listing gets one retry on a transient Supabase failure.
+// The candidate listing gets one retry on a transient Supabase failure, and
+// each feed fetch one retry on a transient failure of the feed host.
 let sourceResyncInFlight = false
 app.post('/api/internal/sources/resync', async (req, res, next) => {
   if (!PUSH_CRON_SECRET) return next()
@@ -3640,7 +3662,8 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
   }
   sourceResyncInFlight = true
   try {
-    const outcome = await runCronTick('resync', () => runSourceResync({ client: supabase, sync: runScheduleSync }))
+    const sync = (source) => runScheduleSync(source, { retryTransient: true })
+    const outcome = await runCronTick('resync', () => runSourceResync({ client: supabase, sync }))
     if (outcome.ok) {
       const summary = outcome.summary
       if (summary.due) console.log(`[resync] ${JSON.stringify(summary)}`)

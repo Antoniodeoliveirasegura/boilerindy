@@ -6,28 +6,20 @@ import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
 import { useTheme } from '../context/ThemeContext'
 import { extractBuildingCode } from '../lib/buildingCode'
+import { buildingKey, buildingsFromGeoJson, findBuildingByCode, type Building, type LatLngBounds } from '../lib/campusBuildings'
 import MapLayerToggle from '../components/map/MapLayerToggle'
 import ParkingGarageLayer from '../components/map/ParkingGarageLayer'
 import { useMapLayers, type MapLayerId } from '../components/map/mapLayers'
+import PageTitle from '../components/PageTitle'
 
 const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
 const FLY_ZOOM = 18
 
-type Building = {
-  id: string
-  abbr: string
-  displayCode: string
-  name: string
-  fullName: string
-  address: string
-  section: string
-  lat: number
-  lng: number
-  feature: unknown
-}
-
-type FlyRequest = { lat: number | null; lng: number | null; zoom: number; seq: number }
+// A building is fitted whole (all of its shapes, issue #374); the user's
+// location is a point at a fixed zoom. Each request is a new object, so the
+// same target twice still flies.
+type FlyRequest = { lat: number; lng: number; zoom: number } | { bounds: LatLngBounds } | null
 
 // Basemap: Esri's keyless light/dark gray canvases (issue #160). CARTO's free
 // basemaps started returning "API KEY REQUIRED" watermarks in Sept 2026. The
@@ -47,53 +39,6 @@ const SECTIONS = [
   { key: 'other', label: 'Other', icon: 'mapPin' },
 ]
 
-// Categorize buildings by their abbreviation or name
-function categorizeBuilding(abbr: string | undefined, name: string | undefined) {
-  const abbrUpper = (abbr || '').toUpperCase()
-  const nameUpper = (name || '').toUpperCase()
-  
-  // Parking structures
-  if (nameUpper.includes('PARKING') || nameUpper.includes('GARAGE') || abbrUpper.endsWith('G')) {
-    return 'parking'
-  }
-  
-  // Services, dining, student life
-  if (nameUpper.includes('CAMPUS CENTER') || nameUpper.includes('DINING') || 
-      nameUpper.includes('LIBRARY') || nameUpper.includes('STUDENT')) {
-    return 'services'
-  }
-  
-  // Academic buildings
-  if (nameUpper.includes('HALL') || nameUpper.includes('SCIENCE') || 
-      nameUpper.includes('ENGINEERING') || nameUpper.includes('SCHOOL') ||
-      nameUpper.includes('EDUCATION') || nameUpper.includes('NURSING') ||
-      nameUpper.includes('MEDICINE') || nameUpper.includes('INFORMATICS') ||
-      nameUpper.includes('BUSINESS') || nameUpper.includes('LAB')) {
-    return 'academic'
-  }
-  
-  return 'other'
-}
-
-/** Calculate centroid of a polygon */
-function getPolygonCentroid(coordinates: any): [number, number] | null {
-  let coords = coordinates
-  if (coords[0] && Array.isArray(coords[0][0])) {
-    coords = coords[0]
-  }
-  
-  let sumLat = 0, sumLng = 0, count = 0
-  for (const coord of coords) {
-    if (Array.isArray(coord) && coord.length >= 2) {
-      sumLng += coord[0]
-      sumLat += coord[1]
-      count++
-    }
-  }
-  
-  return count > 0 ? [sumLat / count, sumLng / count] : null
-}
-
 /** Create a custom div icon for building labels */
 function createLabelIcon(label: string, dark: boolean) {
   return L.divIcon({
@@ -102,48 +47,6 @@ function createLabelIcon(label: string, dark: boolean) {
     iconSize: [50, 20],
     iconAnchor: [25, 10],
   })
-}
-
-/** Process GeoJSON to build places list */
-function processBuildings(geoData: any): Building[] {
-  if (!geoData?.features) return []
-
-  const buildings: Building[] = []
-  
-  for (const feature of geoData.features) {
-    const props = feature.properties || {}
-    const name = props.BUILDING_NAME || ''
-    const abbr = props.PU_ABBR || props.BuildingLabels || ''
-    const address = props.add_full || ''
-    
-    if (!name && !abbr) continue
-    
-    const geometry = feature.geometry
-    if (!geometry || geometry.type !== 'Polygon') continue
-    
-    const centroid = getPolygonCentroid(geometry.coordinates)
-    if (!centroid) continue
-    
-    // Use BuildingLabels as the display code (it's what shows on the official map)
-    const displayCode = props.BuildingLabels || abbr
-    
-    const uniqueId = `${abbr || 'bldg'}-${buildings.length}`
-    buildings.push({
-      id: uniqueId,
-      abbr: abbr || '',
-      displayCode,
-      name,
-      fullName: displayCode ? `${name} (${displayCode})` : name,
-      address,
-      section: categorizeBuilding(abbr, name),
-      lat: centroid[0],
-      lng: centroid[1],
-      feature,
-    })
-  }
-  
-  // Sort by name
-  return buildings.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function BuildingLabels({
@@ -178,9 +81,13 @@ function MapController({ flyRequest }: { flyRequest: FlyRequest }) {
   const map = useMap()
 
   useEffect(() => {
-    if (flyRequest.lat == null) return
-    map.flyTo([flyRequest.lat, flyRequest.lng as number], flyRequest.zoom, { duration: 0.85 })
-  }, [flyRequest.seq, flyRequest.lat, flyRequest.lng, flyRequest.zoom, map])
+    if (!flyRequest) return
+    if ('bounds' in flyRequest) {
+      map.flyToBounds(flyRequest.bounds, { maxZoom: FLY_ZOOM, padding: [48, 48], duration: 0.85 })
+    } else {
+      map.flyTo([flyRequest.lat, flyRequest.lng], flyRequest.zoom, { duration: 0.85 })
+    }
+  }, [flyRequest, map])
   
   return null
 }
@@ -191,7 +98,7 @@ export default function Map() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [geoData, setGeoData] = useState<any>(null)
   const [buildings, setBuildings] = useState<Building[]>([])
-  const [flyRequest, setFlyRequest] = useState<FlyRequest>({ lat: null, lng: null, zoom: DEFAULT_ZOOM, seq: 0 })
+  const [flyRequest, setFlyRequest] = useState<FlyRequest>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false) // For mobile
@@ -219,7 +126,7 @@ export default function Map() {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setUserLocation(loc)
         setLocationLoading(false)
-        setFlyRequest(fr => ({ lat: loc.lat, lng: loc.lng, zoom: 17, seq: fr.seq + 1 }))
+        setFlyRequest({ lat: loc.lat, lng: loc.lng, zoom: 17 })
       },
       (err) => {
         setLocationError(err.code === 1 ? 'Location access denied' : 'Could not get location')
@@ -242,7 +149,7 @@ export default function Map() {
       })
       .then(data => {
         setGeoData(data)
-        const processedBuildings = processBuildings(data)
+        const processedBuildings = buildingsFromGeoJson(data)
         setBuildings(processedBuildings)
         setLoading(false)
 
@@ -253,14 +160,10 @@ export default function Map() {
           (room ? extractBuildingCode(room) : null)
         if (!targetCode) return
 
-        const upperCode = targetCode.toUpperCase()
-        const place = processedBuildings.find(b =>
-          b.abbr.toUpperCase() === upperCode ||
-          b.displayCode?.toUpperCase() === upperCode
-        )
+        const place = findBuildingByCode(processedBuildings, targetCode)
         if (place) {
           setSelectedId(place.id)
-          setFlyRequest(fr => ({ lat: place.lat, lng: place.lng, zoom: FLY_ZOOM, seq: fr.seq + 1 }))
+          setFlyRequest({ bounds: place.bounds })
         }
       })
       .catch(err => {
@@ -297,10 +200,11 @@ export default function Map() {
 
   const selectedBuilding = buildings.find(b => b.id === selectedId) ?? null
 
+  // Shapes and list entries share buildingKey, so selecting a building lights
+  // up every one of its shapes. PU_ABBR alone missed the 30 features that have
+  // none (issue #374).
   const geoJsonStyle = (feature: any) => {
-    const props = feature.properties || {}
-    const featureAbbr = props.PU_ABBR || ''
-    const isSelected = selectedBuilding && selectedBuilding.abbr === featureAbbr
+    const isSelected = selectedId != null && buildingKey(feature.properties) === selectedId
     
     return {
       color: isSelected ? '#FFD700' : '#E8C878',
@@ -327,11 +231,9 @@ export default function Map() {
     layer.bindPopup(popupContent)
     
     layer.on('click', () => {
-      const featureAbbr = props.PU_ABBR || ''
-      // Find the building with this abbr
-      const bldg = buildings.find(b => b.abbr === featureAbbr)
-      if (bldg) {
-        setSelectedId(bldg.id)
+      const key = buildingKey(props)
+      if (key && buildings.some(b => b.id === key)) {
+        setSelectedId(key)
       }
     })
   }
@@ -339,12 +241,13 @@ export default function Map() {
   // Close sidebar when a building is selected on mobile
   const handleBuildingSelect = (b: Building) => {
     setSelectedId(b.id)
-    setFlyRequest(fr => ({ lat: b.lat, lng: b.lng, zoom: FLY_ZOOM, seq: fr.seq + 1 }))
+    setFlyRequest({ bounds: b.bounds })
     setSidebarOpen(false) // Close on mobile after selection
   }
 
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-[320px_1fr] h-[calc(100dvh-3.5rem)] overflow-hidden bg-[var(--color-bg-1)]">
+      <PageTitle>Campus Map</PageTitle>
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col z-10 border-r border-[var(--color-border-2)] bg-[var(--color-surface)] shadow-md min-h-0">
         <div className="p-4 border-b border-[var(--color-border)] space-y-3 shrink-0">

@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import PageTitle from '../components/PageTitle'
 
 // Terms of Service page (issue #115). Plain-language, grounded in what the app
 // actually does. Contact is support@boilerindy.app. Have counsel review the
@@ -108,6 +109,7 @@ export default function Terms() {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+      <PageTitle>Terms of Service</PageTitle>
       <div className="max-w-[720px] mx-auto">
         <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
           {back.label}
