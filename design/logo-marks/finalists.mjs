@@ -15,6 +15,9 @@ export const MARKS=[
    why:'Strong BoilerIndy concept and good mascot potential.',dev:'Same monument as F1, as voted on. The boilermaker got two dot eyes and a smile that show from about 120px up and vanish below, so the small-size silhouette is unchanged. He stands on the same road band as F1\u2019s train.'},
   {key:'f5',tag:'F5',label:'Boilermaker Special, gold on ink',was:21,fn:flatTrain,o:{ground:'ink',subj:'gold'},og:'ink',
    why:'Simple, bold, and works well at small sizes.',dev:'Kept flat, no shading or shadow, but given the cab window, the wheel hubs and the steam in cream so it matches F2 detail for detail.'},
+  {key:'f6',tag:'F6',label:'Monument Circle, monument only',was:'35 and #36',fn:circleA,o:{...MC,noTrain:true},og:'gold',
+   alts:[[{ground:'ink',subj:'gold',accent:'white',keyline:true,noTrain:true},'ink, was #36'],[{...MC,noTrain:true,band:3.4,lift:0},'thin ring, exactly as voted'],[{ground:'ink',subj:'gold',accent:'white',keyline:true,noTrain:true,band:3.4,lift:0},'thin ring, ink']],
+   why:'Brought back by request after the vote.',dev:'The monument and the circle road, nothing else. Same road band as F1 so the two read as a family; the thin-ring versions you saw in the gallery are the alternates. Note that without the train the icon says Indy on its own, so Boiler is carried by the B favicon and the wordmark next to it.'},
   {key:'m',tag:'Bonus',label:'The boilermaker on his own',was:null,fn:mascot,o:{ground:'gold',subj:'ink',accent:'white'},og:'gold',
    why:'Not voted on. Here because F4 drew the "mascot potential" comment.',dev:'The F4 figure at full size: a mascot for the splash screen, empty states and merch, with F1 or F4 staying the app icon.'},
 ]
@@ -26,7 +29,7 @@ const kit=(m)=>`<section class="kit" id="${m.key}">
 <p class="why">“${m.why}”</p>
 <p class="dev">${m.dev}</p>
 <div class="kitrow">
-  <div class="big">${svg(m.fn,m.o,200,m.label)}</div>
+  <div class="big">${svg(m.fn,m.o,200,m.label)}${m.alts?`<div class="alts">${m.alts.map(([o,l])=>`<div class="alt">${svg(m.fn,o,64)}<span class="cap">${l}</span></div>`).join('')}</div>`:''}</div>
   <div class="col"><span class="lab">At size</span><div class="sizes">${svg(m.fn,m.o,60)}${svg(m.fn,m.o,32)}${svg(m.fn,m.o,16)}</div>
     <span class="lab">Browser tab pairing</span><div class="sizes">${svg(reliefB,m.og==='ink'?BG:BI,32)}${svg(reliefB,m.og==='ink'?BG:BI,16)}<span class="cap">relief B at 32 and 16</span></div></div>
   <div class="col"><span class="lab">On a phone</span><div class="phones">${phone(m,'dk')}${phone(m,'lt')}</div></div>
@@ -61,6 +64,7 @@ h2 b{height:26px;padding:0 9px;border-radius:13px;background:#F5B324;color:#1A12
 .kitrow2{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px;align-items:flex-start}
 .kitrow2 img{max-width:100%;height:auto;border-radius:14px;display:block}
 .col{display:flex;flex-direction:column;gap:8px}
+.big{display:flex;flex-direction:column;gap:12px}.alts{display:flex;gap:12px;flex-wrap:wrap;max-width:300px}.alt{display:flex;flex-direction:column;gap:4px;align-items:center;width:84px;text-align:center}.alt .cap{font-size:10.5px;line-height:1.25}
 .lab{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#B7A98C}
 .sizes{display:flex;gap:12px;align-items:flex-end;margin-bottom:8px}
 .cap{font-size:12px;color:#B7A98C;align-self:center}
