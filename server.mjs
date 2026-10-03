@@ -35,8 +35,7 @@ import session from 'express-session'
 import ical from 'node-ical'
 import { createClient } from '@supabase/supabase-js'
 import { cancelCalendarCapture, getCalendarCaptureJob, isCalendarAutomationEnabled, startCalendarCapture } from './src/purdueCalendarAutomation.mjs'
-import { fetchParkingStatus } from './src/parkingStatus.mjs'
-import { createClubDirectoryCache, parseClubSearchParams, searchClubDirectory } from './src/boilerlinkClubs.mjs'
+import { createClubDirectoryCache } from './src/boilerlinkClubs.mjs'
 import { isValidSubscription, loadVapidKeys, sendWebPush } from './src/webPush.mjs'
 import {
   buildTestPayload,
@@ -77,7 +76,7 @@ import {
   capCheck,
 } from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
-import { UpstreamError, createStaleCache, fetchUpstream, fetchUpstreamJson, isAbortLike } from './src/upstreamFetch.mjs'
+import { UpstreamError, createStaleCache, fetchUpstream, isAbortLike } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { planSync, classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText } from './src/scheduleSync.mjs'
 import { createCalendarItemStore } from './src/calendarItemStore.mjs'
@@ -97,6 +96,7 @@ import { createStudyGroupsRouter } from './src/routes/studyGroups.mjs'
 import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
 import { createFriendsRouter } from './src/routes/friends.mjs'
 import { createDiningPublicRouter, createDiningRouter } from './src/routes/dining.mjs'
+import { createCampusPublicRouter } from './src/routes/campus.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -552,20 +552,30 @@ const advertiserWriteRateLimit = createRateLimiter({
   message: 'Too many campaign changes. Please wait a few minutes and try again.',
 })
 
+// Club directory (issue #16): BoilerLink's public organizations API, about
+// 1,200 orgs and 1.9 MB upstream. The whole list is fetched in pages, held in
+// memory for hours (src/boilerlinkClubs.mjs owns the cache) and searched here,
+// so a phone downloads one page of results and BoilerLink sees a handful of
+// requests per TTL. The cache serves the last good directory while a refresh
+// runs and never throws; an outage answers `ok: false` with an empty list.
+// See docs/clubs.md. Built here, ahead of the public reads block that hands it
+// to the campus router (src/routes/campus.mjs, issue #191); the startup
+// refresh after listen uses it too.
+const clubDirectoryCache = createClubDirectoryCache({
+  ttlMs: Number(process.env.BOILERLINK_CLUBS_CACHE_MS) || undefined,
+})
+
 // ── Public reads (issue #250) ────────────────────────────────────────────────
 // The session-free upstream proxies are registered here, before the session
 // middleware, so their responses never carry Set-Cookie: with `rolling: true`
 // express-session refreshes the cookie on every response that has a session,
 // and Vercel will not store a response that sets a cookie, which kept the edge
 // cache empty for every signed-in poll. Same precedent as /api/health. The
-// handlers are function declarations further down, next to the caches and
-// constants they use; everything they touch is read at request time, after
-// startup, so the hoisting is safe.
-app.get('/api/transit/vehicles', transitVehiclesIpRateLimit, transitVehiclesRateLimit, handleTransitVehicles)
-app.get('/api/transit/stops', publicReadIpRateLimit, publicReadRateLimit, handleTransitStops)
-app.get('/api/transit/routes', publicReadIpRateLimit, publicReadRateLimit, handleTransitRoutes)
-app.get('/api/parking/garages', publicReadIpRateLimit, publicReadRateLimit, handleParkingGarages)
-app.get('/api/clubs', clubsReadRateLimit, handleClubs)
+// campus and dining reads are routers from src/routes/ (issue #191), and what
+// they are handed is built above this block. handlePushConfig is a function
+// declaration further down; everything it touches is read at request time,
+// after startup, so the hoisting is safe.
+app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot }))
 
@@ -3207,125 +3217,6 @@ app.get('/api/assistant/briefing', requireAuth, async (req, res) => {
 const upstreamCache = createStaleCache()
 async function getCached(key, ttlMs, producer) {
   return upstreamCache.get(key, ttlMs, producer)
-}
-
-// TransLoc API proxy endpoints (to avoid CORS issues)
-const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
-const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY
-const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
-const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
-const TRANSLOC_TIMEOUT_MS = 8000
-
-// A TransLoc failure after the first successful fill is served from the cache
-// (see getCached); this only answers when there is nothing good to serve.
-function respondTranslocError(res, what, error) {
-  if (error instanceof UpstreamError) {
-    console.error(`TransLoc ${what}:`, error.message)
-    return res.status(502).json({ error: { message: 'Transit data is temporarily unavailable.', status: 502 } })
-  }
-  console.error(`TransLoc ${what} error:`, error?.message || error)
-  return res.status(500).json({ error: { message: `Failed to fetch ${what} data.`, status: 500 } })
-}
-
-// Fail closed when the key isn't configured rather than calling TransLoc with an
-// undefined key (and caching the error). Transit requires TRANSLOC_API_KEY to be set.
-function translocReady(res) {
-  if (!TRANSLOC_API_KEY) {
-    res.status(503).json({ error: { message: 'Transit is not configured.', status: 503 } })
-    return false
-  }
-  return true
-}
-
-async function handleTransitVehicles(_req, res) {
-  if (!translocReady(res)) return
-  try {
-    const data = await getCached('transit:vehicles', TRANSLOC_VEHICLES_TTL_MS, () =>
-      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetMapVehiclePoints?apiKey=${TRANSLOC_API_KEY}&isPublicMap=true`, {
-        timeoutMs: TRANSLOC_TIMEOUT_MS,
-      }),
-    )
-    // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
-    // /api rewrite) absorb the 10 s polling so repeats never reach this process.
-    // stale-while-revalidate lets the edge answer a poll from the expired copy
-    // while it refreshes, so a Render cold start does not stall every open map.
-    res.set('Cache-Control', 'public, max-age=10, s-maxage=10, stale-while-revalidate=20')
-    res.json(data)
-  } catch (error) {
-    respondTranslocError(res, 'vehicles', error)
-  }
-}
-
-async function handleTransitStops(_req, res) {
-  if (!translocReady(res)) return
-  try {
-    const data = await getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, () =>
-      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
-    )
-    // Stops and routes change a few times a year: a minute in the browser, ten
-    // at the edge, and the edge may serve the expired copy while it refreshes.
-    res.set('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
-    res.json(data)
-  } catch (error) {
-    respondTranslocError(res, 'stops', error)
-  }
-}
-
-async function handleTransitRoutes(_req, res) {
-  if (!translocReady(res)) return
-  try {
-    const data = await getCached('transit:routes', TRANSLOC_STATIC_TTL_MS, () =>
-      fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetRoutes?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
-    )
-    res.set('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
-    res.json(data)
-  } catch (error) {
-    respondTranslocError(res, 'routes', error)
-  }
-}
-
-// Live garage availability (issue #14): IU Parking's public lot-count page,
-// parsed server-side (src/parkingStatus.mjs) and cached so the upstream sees
-// at most one request per TTL no matter how many students are looking. The
-// module never throws: an unreachable page yields a degraded snapshot with the
-// static garage list and status 'unknown'. See docs/parking-status.md.
-const PARKING_CACHE_MS = Math.max(15_000, Number(process.env.PARKING_STATUS_CACHE_MS) || 60_000)
-
-async function handleParkingGarages(_req, res) {
-  try {
-    const data = await getCached('parking:garages', PARKING_CACHE_MS, () => fetchParkingStatus())
-    // The snapshot is already shared for PARKING_CACHE_MS in this process, so a
-    // short public lifetime costs nothing in freshness and lets the edge absorb
-    // a whole lot of phones refreshing the garage list at once (issue #250).
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30')
-    res.json(data)
-  } catch (error) {
-    console.error('Parking status error:', error)
-    res.status(500).json({ error: 'Failed to fetch parking status' })
-  }
-}
-
-// Club directory (issue #16): BoilerLink's public organizations API, about
-// 1,200 orgs and 1.9 MB upstream. The whole list is fetched in pages, held in
-// memory for hours (src/boilerlinkClubs.mjs owns the cache) and searched here,
-// so a phone downloads one page of results and BoilerLink sees a handful of
-// requests per TTL. The cache serves the last good directory while a refresh
-// runs and never throws; an outage answers `ok: false` with an empty list.
-// See docs/clubs.md.
-const clubDirectoryCache = createClubDirectoryCache({
-  ttlMs: Number(process.env.BOILERLINK_CLUBS_CACHE_MS) || undefined,
-})
-
-async function handleClubs(req, res) {
-  try {
-    const params = parseClubSearchParams(req.query)
-    const { directory, stale } = await clubDirectoryCache.get()
-    res.set('Cache-Control', 'public, max-age=300')
-    res.json(searchClubDirectory(directory, params, { stale }))
-  } catch (error) {
-    console.error('Club directory error:', error)
-    res.status(500).json({ error: 'Failed to load the club directory' })
-  }
 }
 
 // ── Push notifications (issue #9): Web Push subscriptions, settings, reminders ──
