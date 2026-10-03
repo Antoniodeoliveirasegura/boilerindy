@@ -208,6 +208,7 @@ import {
 } from './src/advertiserPasswordReset.mjs'
 import { sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
+import { createFinalErrorHandler } from './src/finalErrorHandler.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -5265,16 +5266,9 @@ if (process.env.SENTRY_DSN) {
 
 // Final safety net: anything that escapes a route handler (e.g. a malformed JSON
 // body throwing in express.json()) returns a generic message - never a stack
-// trace - regardless of NODE_ENV. Must be the last middleware registered.
-app.use((err, _req, res, _next) => {
-  console.error('[unhandled]', err?.message || err)
-  if (res.headersSent) return
-  const isBadRequest = err?.status === 400 || err?.statusCode === 400 || err?.type === 'entity.parse.failed'
-  const status = isBadRequest ? 400 : 500
-  res.status(status).json({
-    error: { message: isBadRequest ? 'Invalid request.' : 'Internal server error.', status },
-  })
-})
+// trace - regardless of NODE_ENV, and is logged without filing a second Sentry
+// event (src/finalErrorHandler.mjs). Must be the last middleware registered.
+app.use(createFinalErrorHandler())
 
 // The callback takes the bind error in Express 5. Without it a port already in
 // use, or a host the container cannot bind, still printed the success banner in

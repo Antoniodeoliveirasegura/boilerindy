@@ -21,8 +21,14 @@ Both `.env.example` files carry the blank entries.
 `captureConsoleIntegration({ levels: ['error'] })`, so every `console.error`
 at the roughly eighty catch-and-log sites becomes an event, plus uncaught
 exceptions and unhandled rejections. `Sentry.setupExpressErrorHandler(app)`
-captures anything that escapes a route handler, ahead of the final
-stack-trace-free 500 handler.
+captures anything that escapes a route handler with a 5xx status (or none),
+ahead of the final stack-trace-free handler in `src/finalErrorHandler.mjs`.
+That handler logs the `[unhandled]` line with `console.warn` when the Express
+handler already captured the error (`res.sentry`) or when a body parser
+rejected the request (a malformed or oversized body answers its own 400 or
+413), so one escaped error is one event. Anything else stays a
+`console.error`, such as an escaped error carrying an upstream's 4xx `status`,
+which the Express handler skips.
 
 **Cron ticks** (`POST /api/internal/push/run-reminders`,
 `POST /api/internal/sources/resync`): a Supabase 5xx, timeout or dropped
@@ -114,16 +120,14 @@ sign in to access this resource." The route is admin-only and answers 400
 without `confirm=1`.
 
 The response is the generic `{"error":{"message":"Internal server error.","status":500}}`.
-Within a minute the Node project shows two new issues for the one error, both
-carrying "Sentry smoke test raised via GET /api/admin/sentry-test at <time>":
+Within a minute the Node project shows one new issue, the error itself from
+the Express error handler (`Error`, marked unhandled), carrying "Sentry smoke
+test raised via GET /api/admin/sentry-test at <time>". The Render log also has
+the final handler's `[unhandled]` line for it, as a warning, which Sentry does
+not forward. A second issue titled `consoleHandler` with the same message
+means that line went out as a `console.error` again.
 
-- the error itself, from the Express error handler (`Error`, marked unhandled);
-- the `[unhandled]` line the final error handler logs with `console.error`,
-  which `captureConsoleIntegration` forwards. Sentry 11 attaches a stack trace
-  to these, so the issue list titles it `consoleHandler`, with the message on
-  the second line.
-
-Resolve both once they arrive.
+Resolve it once it arrives.
 
 **Frontend**: open https://www.boilerindy.app/, wait a couple of seconds for
 Sentry to initialise, then in the DevTools console run
