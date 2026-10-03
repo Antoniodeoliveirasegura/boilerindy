@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 15 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 16 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -46,14 +46,14 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/auth/register-supabase` | `server.mjs` |
 | POST | `/api/auth/sign-in` | `server.mjs` |
 | POST | `/api/auth/supabase-sync` | `server.mjs` |
-| POST | `/api/board/ai-suggestions` | `server.mjs` |
-| GET | `/api/board/posts` | `server.mjs` |
-| POST | `/api/board/posts` | `server.mjs` |
-| PATCH | `/api/board/posts/:id` | `server.mjs` |
-| DELETE | `/api/board/posts/:id` | `server.mjs` |
-| GET | `/api/board/posts/:id/replies` | `server.mjs` |
-| POST | `/api/board/posts/:id/reply` | `server.mjs` |
-| POST | `/api/board/posts/:id/upvote` | `server.mjs` |
+| POST | `/api/board/ai-suggestions` | `src/routes/board.mjs` |
+| GET | `/api/board/posts` | `src/routes/board.mjs` |
+| POST | `/api/board/posts` | `src/routes/board.mjs` |
+| PATCH | `/api/board/posts/:id` | `src/routes/board.mjs` |
+| DELETE | `/api/board/posts/:id` | `src/routes/board.mjs` |
+| GET | `/api/board/posts/:id/replies` | `src/routes/board.mjs` |
+| POST | `/api/board/posts/:id/reply` | `src/routes/board.mjs` |
+| POST | `/api/board/posts/:id/upvote` | `src/routes/board.mjs` |
 | GET | `/api/clubs` | `src/routes/campus.mjs` |
 | POST | `/api/connections` | `src/routes/friends.mjs` |
 | PATCH | `/api/connections/:requesterId` | `src/routes/friends.mjs` |

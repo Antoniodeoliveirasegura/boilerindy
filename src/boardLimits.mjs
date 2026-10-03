@@ -1,8 +1,8 @@
 // Campus board limits (issue #200). The board capped the title at 300 characters
 // and then accepted a body and a reply of any length, and the list route read
 // every live post and every reply attached to them in one go. The caps and the
-// page sizes live here so the routes in server.mjs and the website enforce the
-// same numbers; boilerindy-react imports this module directly.
+// page sizes live here so the routes in src/routes/board.mjs and the website
+// enforce the same numbers; boilerindy-react imports this module directly.
 
 export const MAX_BOARD_TITLE = 300
 export const MAX_BOARD_BODY = 5000
