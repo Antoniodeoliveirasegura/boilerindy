@@ -46,7 +46,7 @@ import {
   settingsFromRow,
 } from './src/pushReminders.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
-import { describeFailure, runCronTick } from './src/cronTick.mjs'
+import { describeFailure, isTransientFailure, retryOnceIfTransient, runCronTick } from './src/cronTick.mjs'
 import { clampDiningDate, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { normalizeItemName } from './src/diningFavorites.mjs'
 import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
@@ -923,17 +923,40 @@ const calendarItemStore = createCalendarItemStore(supabase)
 // instead of the read-modify-write that lost updates under concurrent votes.
 const communityCounters = createCommunityCounters(supabase)
 
-async function runScheduleSync(source) {
+// A feed that timed out, dropped the connection or answered a gateway status
+// is the feed host's outage, not a bug here, and the source row already shows
+// the student the failure. console.warn keeps it in the Render log, and
+// captureMessage files one warning-level Sentry issue per failure kind (the
+// console integration forwards console.error only), whose event count shows
+// how often feeds are down. Never the feed URL: it carries the student's token.
+function warnFeedTransient(sourceId, error) {
+  const what = describeFailure(error)
+  console.warn(`[runScheduleSync] Transient feed failure for source=${sourceId}: ${what} (${error?.message || error})`)
+  Sentry.captureMessage(`runScheduleSync: transient calendar feed failure (${what})`, {
+    level: 'warning',
+    fingerprint: ['schedule-feed-transient', what],
+    extra: { message: String(error?.message || error), status: error?.status ?? null, code: error?.code ?? error?.cause?.code ?? null },
+  })
+}
+
+// retryTransient: the background re-sync gives a transient feed failure one
+// more try before marking the source `error` (Sentry BOILERINDY-API-8). The
+// Sync buttons leave it off so a student is not kept waiting on a dead host.
+async function runScheduleSync(source, { retryTransient = false } = {}) {
   const syncedAt = nowIso()
   const sourceId = source.id
 
   let eventsByKey
   try {
-    const icsText = await safeFetchIcsText(source.source_url)
+    const fetchFeed = () => safeFetchIcsText(source.source_url)
+    const icsText = retryTransient
+      ? await retryOnceIfTransient('[runScheduleSync] source=' + sourceId, fetchFeed)
+      : await fetchFeed()
     eventsByKey = await ical.async.parseICS(icsText)
   } catch (fetchError) {
     const classified = classifyFetchError(fetchError)
-    console.error('[runScheduleSync] Fetch failed for source=' + sourceId + ':', fetchError?.message || fetchError)
+    if (isTransientFailure(fetchError)) warnFeedTransient(sourceId, fetchError)
+    else console.error('[runScheduleSync] Fetch failed for source=' + sourceId + ':', fetchError?.message || fetchError)
     await calendarItemStore.setStatus(sourceId, classified.status, classified.message)
     throw new Error(classified.message)
   }
@@ -3626,7 +3649,8 @@ app.post('/api/internal/push/run-reminders', async (req, res, next) => {
 // the pg_cron job in db/supabase-source-resync.sql with the same bearer token
 // as the reminder runner. Sequential per run (one upstream fetch at a time),
 // 15 sources per tick, oldest first; a tick already in flight answers 409.
-// The candidate listing gets one retry on a transient Supabase failure.
+// The candidate listing gets one retry on a transient Supabase failure, and
+// each feed fetch one retry on a transient failure of the feed host.
 let sourceResyncInFlight = false
 app.post('/api/internal/sources/resync', async (req, res, next) => {
   if (!PUSH_CRON_SECRET) return next()
@@ -3638,7 +3662,8 @@ app.post('/api/internal/sources/resync', async (req, res, next) => {
   }
   sourceResyncInFlight = true
   try {
-    const outcome = await runCronTick('resync', () => runSourceResync({ client: supabase, sync: runScheduleSync }))
+    const sync = (source) => runScheduleSync(source, { retryTransient: true })
+    const outcome = await runCronTick('resync', () => runSourceResync({ client: supabase, sync }))
     if (outcome.ok) {
       const summary = outcome.summary
       if (summary.due) console.log(`[resync] ${JSON.stringify(summary)}`)

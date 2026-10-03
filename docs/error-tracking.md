@@ -35,6 +35,15 @@ whose event count is the trend to watch. If it climbs, look at the Supabase
 project's compute and pooler settings rather than the app. Anything else that
 fails inside a tick stays a `console.error`, one event per tick.
 
+Inside the re-sync tick, each linked source's feed fetch gets the same single
+retry (`retryOnceIfTransient`). A feed host still down after it is a
+`console.warn` plus a warning-level
+`runScheduleSync: transient calendar feed failure (<kind>)` message
+fingerprinted by failure kind, such as `TypeError UND_ERR_CONNECT_TIMEOUT` or
+`HTTP 503`, so one issue per kind counts how often feeds are down. A feed that
+is gone or locked (401, 403, 404), a refused redirect or a feed that will not
+parse stays a `console.error`.
+
 **Assistant busy** (`POST /api/assistant`, issue #253): when Groq answers 429
 on both the main model and the one retry on `GROQ_FALLBACK_MODEL`, the student
 gets the friendly busy reply, the Render log gets a `console.warn` with

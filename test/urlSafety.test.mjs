@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assertSafeHttpUrl, hostMatchesSuffix } from '../src/urlSafety.mjs'
+import { assertSafeHttpUrl, hostMatchesSuffix, safeFetchIcsText } from '../src/urlSafety.mjs'
+import { isTransientFailure } from '../src/cronTick.mjs'
 
 test('assertSafeHttpUrl rejects localhost', async () => {
   await assert.rejects(
@@ -56,4 +57,25 @@ test('hostMatchesSuffix matches host and subdomains at a dot boundary only', () 
   assert.equal(hostMatchesSuffix('selfservice.purdue.edu', ['purdue.edu']), true)
   assert.equal(hostMatchesSuffix('notpurdue.edu', ['purdue.edu']), false)
   assert.equal(hostMatchesSuffix('purdue.edu.evil.com', ['purdue.edu']), false)
+})
+
+test('safeFetchIcsText keeps the status of a non-2xx feed answer, so a gateway status reads as transient', async () => {
+  const realFetch = globalThis.fetch
+  try {
+    for (const [status, transient] of [[503, true], [502, true], [404, false], [401, false]]) {
+      globalThis.fetch = async () => new Response('nope', { status })
+      await assert.rejects(
+        () => safeFetchIcsText('https://203.0.113.10/feed.ics'),
+        (err) => {
+          // classifyFetchError matches on this message, so it must not change.
+          assert.equal(err.message, `Request failed with status ${status}`)
+          assert.equal(err.status, status)
+          assert.equal(isTransientFailure(err), transient)
+          return true
+        },
+      )
+    }
+  } finally {
+    globalThis.fetch = realFetch
+  }
 })

@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { RETRY_DELAY_MS, SupabaseQueryError, describeFailure, isTransientFailure, queryError, runCronTick } from '../src/cronTick.mjs'
+import { RETRY_DELAY_MS, SupabaseQueryError, describeFailure, isTransientFailure, queryError, retryOnceIfTransient, runCronTick } from '../src/cronTick.mjs'
 import { UpstreamError } from '../src/upstreamFetch.mjs'
 
 function fakeLog() {
@@ -178,4 +178,86 @@ test('runCronTick waits for real with the default sleep', async () => {
   )
   assert.equal(outcome.retried, true)
   assert.ok(Date.now() - started >= 15, 'the retry waited for the delay')
+})
+
+// ── One upstream call inside a tick (Sentry BOILERINDY-API-8) ───────────────
+
+// What undici throws when a feed host never accepts the connection: the
+// reason is on the cause, the message is just "fetch failed".
+const connectTimeout = () =>
+  Object.assign(new TypeError('fetch failed'), {
+    cause: Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+  })
+// What safeFetchIcsText throws for a non-2xx feed answer.
+const feedStatus = (status) => Object.assign(new Error(`Request failed with status ${status}`), { status })
+
+test('describeFailure names the reason a fetch failed and the status a feed answered', () => {
+  assert.equal(describeFailure(connectTimeout()), 'TypeError UND_ERR_CONNECT_TIMEOUT')
+  assert.equal(describeFailure(feedStatus(503)), 'HTTP 503')
+  // The error's own code still wins over its cause's.
+  assert.equal(describeFailure(Object.assign(new Error('refused'), { code: 'ECONNREFUSED', cause: { code: 'EPIPE' } })), 'Error ECONNREFUSED')
+})
+
+test('isTransientFailure: a feed host that is down is transient, a feed that is gone or locked is not', () => {
+  assert.equal(isTransientFailure(connectTimeout()), true)
+  assert.equal(isTransientFailure(feedStatus(502)), true)
+  assert.equal(isTransientFailure(feedStatus(503)), true)
+  assert.equal(isTransientFailure(feedStatus(504)), true)
+  assert.equal(isTransientFailure(feedStatus(401)), false)
+  assert.equal(isTransientFailure(feedStatus(403)), false)
+  assert.equal(isTransientFailure(feedStatus(404)), false)
+})
+
+test('retryOnceIfTransient retries a transient failure once, after the delay, and returns the second result', async () => {
+  let calls = 0
+  const sleeps = []
+  const log = fakeLog()
+  const attempt = async () => {
+    calls += 1
+    if (calls === 1) throw connectTimeout()
+    return 'BEGIN:VCALENDAR'
+  }
+  const result = await retryOnceIfTransient('[runScheduleSync] source=s1', attempt, { log, sleep: async (ms) => { sleeps.push(ms) } })
+  assert.equal(result, 'BEGIN:VCALENDAR')
+  assert.equal(calls, 2)
+  assert.deepEqual(sleeps, [RETRY_DELAY_MS])
+  assert.deepEqual(log.lines.log, ['[runScheduleSync] source=s1: TypeError UND_ERR_CONNECT_TIMEOUT (fetch failed); retrying once in 1500 ms'])
+  assert.deepEqual(log.lines.warn, [])
+  assert.deepEqual(log.lines.error, [])
+})
+
+test('retryOnceIfTransient rejects with the second failure, unwrapped, when the first one persists', async () => {
+  let calls = 0
+  const second = feedStatus(503)
+  const attempt = async () => {
+    calls += 1
+    throw calls === 1 ? connectTimeout() : second
+  }
+  await assert.rejects(retryOnceIfTransient('feed', attempt, { log: fakeLog(), sleep: async () => {} }), (err) => err === second)
+  assert.equal(calls, 2)
+})
+
+test('retryOnceIfTransient does not retry a failure that is not transient', async () => {
+  let calls = 0
+  const sleeps = []
+  const log = fakeLog()
+  const gone = feedStatus(404)
+  const attempt = async () => {
+    calls += 1
+    throw gone
+  }
+  await assert.rejects(retryOnceIfTransient('feed', attempt, { log, sleep: async (ms) => { sleeps.push(ms) } }), (err) => err === gone)
+  assert.equal(calls, 1)
+  assert.deepEqual(sleeps, [])
+  assert.deepEqual(log.lines.log, [])
+})
+
+test('retryOnceIfTransient passes a first success straight through', async () => {
+  const result = await retryOnceIfTransient('feed', async () => 'BEGIN:VCALENDAR', {
+    log: fakeLog(),
+    sleep: async () => {
+      throw new Error('should not sleep')
+    },
+  })
+  assert.equal(result, 'BEGIN:VCALENDAR')
 })

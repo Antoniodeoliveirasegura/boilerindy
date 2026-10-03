@@ -13,6 +13,12 @@
 // claims each delivery in push_deliveries before sending, and a source
 // re-sync is an atomic replace.
 //
+// retryOnceIfTransient gives one upstream call inside a tick the same single
+// retry. runCronTick never sees a failure the tick absorbs itself: the source
+// re-sync catches each source's failure and moves on, so before this a
+// calendar feed host's blip marked the source `error` until the daily retry
+// (Sentry BOILERINDY-API-8).
+//
 // queryError turns a failed PostgREST result into an Error that keeps the
 // HTTP status and the PostgREST or Postgres code. The runners throw that
 // instead of the bare { message } object supabase-js hands back when an
@@ -114,6 +120,11 @@ export function describeFailure(err) {
   }
   if (err.name === 'TimeoutError' || err.name === 'AbortError') return 'timeout'
   if (err.code) return `${err.name || 'Error'} ${err.code}`
+  // undici's "TypeError: fetch failed" keeps the reason on its cause
+  // (UND_ERR_CONNECT_TIMEOUT, ECONNRESET, ...); safeFetchIcsText's non-2xx
+  // error carries the feed host's status.
+  if (err.cause?.code) return `${err.name || 'Error'} ${err.cause.code}`
+  if (Number.isInteger(err.status)) return `HTTP ${err.status}`
   return err.name || 'Error'
 }
 
@@ -140,4 +151,21 @@ export async function runCronTick(name, tick, { log = console, retryDelayMs = RE
   } catch (err) {
     return { ok: false, transient: isTransientFailure(err), error: err, retried: true }
   }
+}
+
+/**
+ * Run one upstream call, retrying it once after `retryDelayMs` when the first
+ * failure is transient. Resolves with the call's result or rejects with the
+ * last error, unwrapped, so the caller classifies it as before. `log.log`
+ * gets one line per retry, prefixed with `name`.
+ */
+export async function retryOnceIfTransient(name, attempt, { log = console, retryDelayMs = RETRY_DELAY_MS, sleep = wait } = {}) {
+  try {
+    return await attempt()
+  } catch (err) {
+    if (!isTransientFailure(err)) throw err
+    log.log(`${name}: ${describeFailure(err)} (${err?.message || err}); retrying once in ${retryDelayMs} ms`)
+  }
+  await sleep(retryDelayMs)
+  return attempt()
 }
