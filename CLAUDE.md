@@ -127,8 +127,8 @@ rights to the BoilerIndy name or logo.
   `src/routes/`, one router per PR, in the order the issue brief gives. The
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
-  `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`
-  and `board` on 2026-10-04. `assistant`, then `admin`, `advertiser`,
+  `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
+  `board` and `assistant` on 2026-10-04. `admin`, `advertiser`,
   `analytics`, then `auth` and `me` remain, each following
   `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
@@ -140,11 +140,12 @@ rights to the BoilerIndy name or logo.
   The cron bearer token (`PUSH_CRON_SECRET`, `pushCronSecretMatches`) and
   `warnCronTransient` stay in `server.mjs` and are handed to the push router,
   because the source re-sync cron route still lives there (it moves with
-  `me`). The Groq client (`ai`), the `ai-board` limiter and the auto-tagger's
-  `boardTagWindow` stay in the assistant section of `server.mjs` and are
-  handed to the board router, which asks `ai.enabled` instead of reading
-  `GROQ_API_KEY`. `getClassItemsForUser`
-  moves with `me` and is injected until then. Each router has `test/routes/<name>.test.mjs`, built
+  `me`). The Groq client (`ai`), the AI limiters (`assistantRateLimit`,
+  `boardAiRateLimit`, `boardTagWindow`) and `warnAssistantBusy` stay in
+  `server.mjs` and are handed to the board and assistant routers, which ask
+  `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,
+  `listCalendarItems` and `readScheduleOverrides` move with `me` and are
+  injected until then. Each router has `test/routes/<name>.test.mjs`, built
   on the recording fake in `test/routes/fakeSupabase.mjs`. A router's limiter
   is only seen by the doc guard when it destructures the limiter under the
   name `server.mjs` uses.
