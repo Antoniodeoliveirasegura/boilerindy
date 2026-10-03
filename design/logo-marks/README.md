@@ -9,3 +9,7 @@ Source for the marks on `/logos.html` and `/logos-finalists.html` (review branch
 Render with Playwright from `boilerindy-react/` so the import resolves, for example:
 
     node --input-type=module -e "import { chromium } from 'playwright'; const F = await import('../design/logo-marks/finalists.mjs'); ..."
+
+## Adaptive colourways
+
+`adaptive.js` wraps a builder twice, light and dark, in one SVG with a `prefers-color-scheme` media query. `adaptive/app-icon.svg` (monument only, thin ring: gallery #35 in light, #36 in dark) and `adaptive/favicon.svg` (relief B, ink on gold in light, gold on ink in dark) are the outputs. The switch holds wherever the SVG is evaluated as a document: browser-tab favicons in Chromium and Firefox, inline SVG, and `<img>`. Home-screen icons are PNGs picked once by the OS, so they stay the light version.
