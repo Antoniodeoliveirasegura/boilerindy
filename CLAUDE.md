@@ -128,8 +128,8 @@ rights to the BoilerIndy name or logo.
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
-  `board` and `assistant` on 2026-10-04. `admin`, `advertiser`,
-  `analytics`, then `auth` and `me` remain, each following
+  `board`, `assistant` and `sources` on 2026-10-04. `analytics`, `admin`,
+  `advertiser`, `calendarFeed` and `me`, then `auth`, remain, each following
   `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
@@ -137,10 +137,13 @@ rights to the BoilerIndy name or logo.
   routes stay in `createXRouter` at the section banner (`campus` has none).
   Anything a public router is handed has to be built above that block: a
   `const` declared further down is still uninitialized when the mount runs.
-  The cron bearer token (`PUSH_CRON_SECRET`, `pushCronSecretMatches`) and
-  `warnCronTransient` stay in `server.mjs` and are handed to the push router,
-  because the source re-sync cron route still lives there (it moves with
-  `me`). The Groq client (`ai`), the AI limiters (`assistantRateLimit`,
+  The cron bearer token (`PUSH_CRON_SECRET`, `pushCronSecretMatches`) is read
+  near the top of `server.mjs`, above every mount, and handed with
+  `warnCronTransient` to the push and sources routers, which hold the two
+  cron routes. `warnFeedTransient` stays with the Sentry warnings and
+  `onboardingSummaryCache` stays one instance (the session payload reads it
+  too); the sources router is handed both.
+  The Groq client (`ai`), the AI limiters (`assistantRateLimit`,
   `boardAiRateLimit`, `boardTagWindow`) and `warnAssistantBusy` stay in
   `server.mjs` and are handed to the board and assistant routers, which ask
   `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,

@@ -8,9 +8,9 @@ schedule.
 
 ## How it works
 
-- `POST /api/internal/sources/resync` (server.mjs), bearer-authenticated with
-  `PUSH_CRON_SECRET`, the same token as the reminder runner. With the secret
-  unset the route does not exist.
+- `POST /api/internal/sources/resync` (`src/routes/sources.mjs`),
+  bearer-authenticated with `PUSH_CRON_SECRET`, the same token as the reminder
+  runner. With the secret unset the route does not exist.
 - `src/sourceResync.mjs` lists up to 200 `linked_sources` rows in `ready`,
   `pending` or `error` status, oldest sync first, and picks the ones that are
   due:
