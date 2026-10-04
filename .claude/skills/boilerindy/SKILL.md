@@ -13,7 +13,7 @@ patterns an agent applies most, so it can be loaded on its own.
 
 An Express backend (`server.mjs`, with feature routers moving to
 `src/routes/` under issue #191: layouts, lost and found, deals, guide, study
-groups, marketplace, friends, dining, campus, push, board, assistant and advertiser (with spotlight) so far, each a `createXRouter(deps)`
+groups, marketplace, friends, dining, campus, push, board, assistant, analytics, admin and advertiser (with spotlight) so far, each a `createXRouter(deps)`
 mounted where its routes were, plus a `createXPublicRouter` for a group's
 session-free public read) whose logic lives in `src/*.mjs` modules, each with a `test/<name>.test.mjs`, and whose seven
 session-free public reads sit ahead of the session middleware so the edge can

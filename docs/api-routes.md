@@ -7,29 +7,29 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 18 files: `server.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`.
+151 routes in 20 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
 | GET | `/` | `server.mjs` |
-| GET | `/api/admin/advertisers` | `server.mjs` |
-| POST | `/api/admin/advertisers` | `server.mjs` |
-| GET | `/api/admin/campaigns` | `server.mjs` |
-| PATCH | `/api/admin/campaigns/:id` | `server.mjs` |
-| GET | `/api/admin/content/:type/:id` | `server.mjs` |
-| GET | `/api/admin/deleted/:type` | `server.mjs` |
-| DELETE | `/api/admin/deleted/:type/:id` | `server.mjs` |
-| POST | `/api/admin/deleted/:type/:id/restore` | `server.mjs` |
-| GET | `/api/admin/hidden/marketplace` | `server.mjs` |
-| POST | `/api/admin/hidden/marketplace/:id/takedown` | `server.mjs` |
-| POST | `/api/admin/hidden/marketplace/:id/unhide` | `server.mjs` |
-| GET | `/api/admin/leads` | `server.mjs` |
-| PATCH | `/api/admin/leads/:id` | `server.mjs` |
-| GET | `/api/admin/overview` | `server.mjs` |
-| POST | `/api/admin/purdue-links/clear` | `server.mjs` |
+| GET | `/api/admin/advertisers` | `src/routes/admin.mjs` |
+| POST | `/api/admin/advertisers` | `src/routes/admin.mjs` |
+| GET | `/api/admin/campaigns` | `src/routes/admin.mjs` |
+| PATCH | `/api/admin/campaigns/:id` | `src/routes/admin.mjs` |
+| GET | `/api/admin/content/:type/:id` | `src/routes/admin.mjs` |
+| GET | `/api/admin/deleted/:type` | `src/routes/admin.mjs` |
+| DELETE | `/api/admin/deleted/:type/:id` | `src/routes/admin.mjs` |
+| POST | `/api/admin/deleted/:type/:id/restore` | `src/routes/admin.mjs` |
+| GET | `/api/admin/hidden/marketplace` | `src/routes/admin.mjs` |
+| POST | `/api/admin/hidden/marketplace/:id/takedown` | `src/routes/admin.mjs` |
+| POST | `/api/admin/hidden/marketplace/:id/unhide` | `src/routes/admin.mjs` |
+| GET | `/api/admin/leads` | `src/routes/admin.mjs` |
+| PATCH | `/api/admin/leads/:id` | `src/routes/admin.mjs` |
+| GET | `/api/admin/overview` | `src/routes/admin.mjs` |
+| POST | `/api/admin/purdue-links/clear` | `src/routes/admin.mjs` |
 | GET | `/api/admin/reports` | `src/routes/adminReports.mjs` |
 | PATCH | `/api/admin/reports/:id` | `src/routes/adminReports.mjs` |
-| GET | `/api/admin/sentry-test` | `server.mjs` |
+| GET | `/api/admin/sentry-test` | `src/routes/admin.mjs` |
 | GET | `/api/advertiser/campaigns` | `src/routes/advertiser.mjs` |
 | POST | `/api/advertiser/campaigns` | `src/routes/advertiser.mjs` |
 | PATCH | `/api/advertiser/campaigns/:id` | `src/routes/advertiser.mjs` |
@@ -157,7 +157,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/transit/routes` | `src/routes/campus.mjs` |
 | GET | `/api/transit/stops` | `src/routes/campus.mjs` |
 | GET | `/api/transit/vehicles` | `src/routes/campus.mjs` |
-| POST | `/api/usage/events` | `server.mjs` |
+| POST | `/api/usage/events` | `src/routes/analytics.mjs` |
 | GET | `/auth/purdue/callback` | `server.mjs` |
 | GET | `/auth/purdue/connect` | `server.mjs` |
 | POST | `/auth/purdue/dev/link` | `server.mjs` |
