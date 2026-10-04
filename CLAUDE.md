@@ -128,8 +128,9 @@ rights to the BoilerIndy name or logo.
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
-  `board`, `assistant`, `analytics`, `admin` and `advertiser` (with
-  `createSpotlightRouter`) on 2026-10-04. `auth` and `me` remain, each following
+  `board`, `assistant`, `analytics`, `admin`, `advertiser` (with
+  `createSpotlightRouter`) and `calendarFeed` on 2026-10-04. `me` and
+  `sources`, then `auth`, remain, each following
   `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
@@ -151,7 +152,11 @@ rights to the BoilerIndy name or logo.
   `createAdvertiserRouter`, gated by `req.session.advertiserId` and never
   handed `requireAuth`, with `createSpotlightRouter` for students. The portal
   is handed `sendAdvertiserPasswordResetEmail`, as `purdueEmail` is handed
-  `sendEmail`, so its tests never reach Resend.
+  `sendEmail`, so its tests never reach Resend. `publicBaseUrl` is config the
+  startup log and the Purdue link routes also read, so it stays in
+  `server.mjs` and is handed to the calendar feed router, which stays behind
+  the session middleware although `/feeds/calendar/:file` has no session
+  user: the feed is per-user data, never a public read.
   Each router has `test/routes/<name>.test.mjs`, built
   on the recording fake in `test/routes/fakeSupabase.mjs`. A router's limiter
   is only seen by the doc guard when it destructures the limiter under the

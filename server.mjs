@@ -63,7 +63,6 @@ import { createCommunityCounters } from './src/communityCounters.mjs'
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
 import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
-import { buildCalendarFeed } from './src/icsFeed.mjs'
 import { hasFreeFood } from './src/freeFood.mjs'
 import { createLayoutsRouter } from './src/routes/layouts.mjs'
 import { createLostFoundRouter } from './src/routes/lostFound.mjs'
@@ -78,6 +77,7 @@ import { createPushPublicRouter, createPushRouter } from './src/routes/push.mjs'
 import { createBoardRouter } from './src/routes/board.mjs'
 import { createAssistantRouter } from './src/routes/assistant.mjs'
 import { createAnalyticsRouter } from './src/routes/analytics.mjs'
+import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -2461,106 +2461,11 @@ app.get('/api/me/events', requireAuth, async (req, res) => {
 })
 
 // ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
-// The token IS the only credential on the public feed URL, so it must be a
-// UUID v4, is never logged, and is regenerable (regenerating invalidates the
-// old link). See db/supabase-calendar-feed.sql and docs/RATE_LIMITS.md.
-
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const FEED_HORIZON_MONTHS = 6
-
-function feedUrlForToken(token) {
-  return `${publicBaseUrl}/feeds/calendar/${token}.ics`
-}
-
-app.get('/api/me/calendar-feed', requireAuth, (req, res) => {
-  const token = req.currentUser.calendar_feed_token
-  res.json({ feedUrl: token ? feedUrlForToken(token) : null })
-})
-
-app.post('/api/me/calendar-feed/token', userWriteRateLimit, requireAuth, async (req, res) => {
-  const token = crypto.randomUUID()
-  const { error } = await supabase
-    .from('users')
-    .update({ calendar_feed_token: token })
-    .eq('id', req.currentUser.id)
-  if (error) {
-    console.error('POST /api/me/calendar-feed/token:', error.message)
-    return res.status(500).json({ error: { message: 'Could not generate a calendar feed link. Please try again.', status: 500 } })
-  }
-  res.json({ feedUrl: feedUrlForToken(token) })
-})
-
-app.get('/feeds/calendar/:file', calendarFeedRateLimit, async (req, res) => {
-  const file = String(req.params.file || '')
-  if (!file.toLowerCase().endsWith('.ics')) {
-    return res.status(404).type('text/plain').send('Not found')
-  }
-  const token = file.slice(0, -'.ics'.length)
-  if (!UUID_V4_RE.test(token)) {
-    return res.status(404).type('text/plain').send('Not found')
-  }
-
-  // Look the user up by token only - never logged, never reflected back.
-  const { data: user, error: userErr } = await supabase
-    .from('users')
-    .select('id')
-    .eq('calendar_feed_token', token)
-    .maybeSingle()
-  if (userErr || !user) {
-    return res.status(404).type('text/plain').send('Not found')
-  }
-
-  const now = new Date()
-  const horizon = new Date(now)
-  horizon.setMonth(horizon.getMonth() + FEED_HORIZON_MONTHS)
-
-  const [itemsRes, tasksRes] = await Promise.all([
-    supabase
-      .from('calendar_items')
-      .select('id, title, description, start_time, end_time, location')
-      .eq('user_id', user.id)
-      .gte('start_time', now.toISOString())
-      .lte('start_time', horizon.toISOString())
-      .order('start_time', { ascending: true }),
-    supabase
-      .from('user_manual_tasks')
-      .select('id, title, due_at')
-      .eq('user_id', user.id)
-      .is('completed_at', null)
-      .order('due_at', { ascending: true }),
-  ])
-
-  if (itemsRes.error || tasksRes.error) {
-    console.error('GET /feeds/calendar:', itemsRes.error?.message || tasksRes.error?.message)
-    return res.status(500).type('text/plain').send('Calendar feed temporarily unavailable')
-  }
-
-  const events = []
-  for (const row of itemsRes.data || []) {
-    events.push({
-      uid: row.id,
-      summary: row.title || 'Untitled',
-      description: row.description || undefined,
-      location: row.location || undefined,
-      start: new Date(row.start_time),
-      end: row.end_time ? new Date(row.end_time) : undefined,
-    })
-  }
-  for (const task of tasksRes.data || []) {
-    events.push({
-      uid: `manual-${task.id}`,
-      summary: task.title || 'Task',
-      start: new Date(task.due_at),
-      allDay: true,
-    })
-  }
-
-  const ics = buildCalendarFeed({ events, now })
-  res.setHeader('Content-Type', 'text/calendar; charset=utf-8')
-  res.setHeader('Content-Disposition', 'inline; filename="boilerindy.ics"')
-  res.setHeader('Cache-Control', 'private, max-age=900')
-  res.send(ics)
-})
+// The feed link routes and GET /feeds/calendar/:file are in
+// src/routes/calendarFeed.mjs (issue #191), mounted where they were, behind
+// the session middleware: a calendar app sends no cookie, so the token in the
+// URL is the feed's only credential.
+app.use(createCalendarFeedRouter({ supabase, requireAuth, publicBaseUrl, calendarFeedRateLimit, userWriteRateLimit }))
 
 // ── Lost & Found: standalone feature, independent of the board (issue #47) ────
 // The standalone Lost & Found routes live in src/routes/lostFound.mjs (issue
