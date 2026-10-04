@@ -128,8 +128,8 @@ rights to the BoilerIndy name or logo.
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
-  `board` and `assistant` on 2026-10-04. `admin`, `advertiser`,
-  `analytics`, then `auth` and `me` remain, each following
+  `board`, `assistant`, `analytics` and `admin` on 2026-10-04. `advertiser`,
+  then `auth` and `me` remain, each following
   `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
@@ -145,7 +145,10 @@ rights to the BoilerIndy name or logo.
   `server.mjs` and are handed to the board and assistant routers, which ask
   `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,
   `listCalendarItems` and `readScheduleOverrides` move with `me` and are
-  injected until then. Each router has `test/routes/<name>.test.mjs`, built
+  injected until then. `normalizeEmail` and `clearPurdueLinkOnUser` stay in
+  `server.mjs` for the auth and Purdue link code and are handed to the admin
+  router until `auth` and `me` move them.
+  Each router has `test/routes/<name>.test.mjs`, built
   on the recording fake in `test/routes/fakeSupabase.mjs`. A router's limiter
   is only seen by the doc guard when it destructures the limiter under the
   name `server.mjs` uses.
