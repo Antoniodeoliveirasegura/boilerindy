@@ -1,6 +1,6 @@
 // First-party product analytics (issue #51) - functional core, mirroring
 // advertiserAuth.mjs: pure validation with no I/O so it unit-tests without a
-// live Supabase. server.mjs owns the insert into analytics_events
+// live Supabase. src/routes/analytics.mjs owns the insert into analytics_events
 // (supabase-analytics.sql) and the opt-out/auth gating.
 
 // Only allowlisted event names are ever stored. Add new events here (and

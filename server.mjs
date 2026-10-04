@@ -79,6 +79,7 @@ import { createCampusPublicRouter } from './src/routes/campus.mjs'
 import { createPushPublicRouter, createPushRouter } from './src/routes/push.mjs'
 import { createBoardRouter } from './src/routes/board.mjs'
 import { createAssistantRouter } from './src/routes/assistant.mjs'
+import { createAnalyticsRouter } from './src/routes/analytics.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -109,7 +110,6 @@ import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.m
 import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
 import { createPurdueLinkFlowRateLimit, linkHandoffToken } from './src/purdueLinkThrottle.mjs'
 import { normalizeScheduleOverrides } from './src/scheduleOverrides.mjs'
-import { normalizeAnalyticsBatch } from './src/analytics.mjs'
 import { verifyPassword, hashPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
 import {
@@ -3329,51 +3329,9 @@ app.use(createAdminRouter({ supabase, requireAuth, requireAdmin, adminWriteRateL
 app.use(createAdminReportsRouter({ supabase, requireAuth, requireAdmin, adminWriteRateLimit }))
 
 // ── First-party product analytics (issue #51) ───────────────────────────────
-// Signed-in students only; events live in our own Supabase (analytics_events,
-// service-role only - see db/supabase-analytics.sql). The server re-checks the
-// opt-out so a stale or misbehaving client can never record an opted-out user.
-// Accepts navigator.sendBeacon flushes too (text/plain body), hence the manual
-// JSON parse fallback.
-
-app.post('/api/usage/events', analyticsRateLimit, requireAuth, express.text({ type: 'text/plain' }), async (req, res) => {
-  if (req.currentUser.analytics_opt_out) {
-    return res.status(204).end()
-  }
-
-  let body = req.body
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body)
-    } catch {
-      return res.status(400).json({ error: { message: 'Invalid analytics payload.', status: 400 } })
-    }
-  }
-
-  let rows
-  try {
-    rows = normalizeAnalyticsBatch(body)
-  } catch (error) {
-    return res.status(400).json({ error: { message: error.message, status: 400 } })
-  }
-
-  const timestamp = nowIso()
-  const { error } = await supabase.from('analytics_events').insert(
-    rows.map((row) => ({
-      id: makeId(),
-      user_id: req.currentUser.id,
-      ...row,
-      created_at: timestamp,
-    })),
-  )
-
-  // Best-effort: analytics must never surface errors to students (e.g. table
-  // not created yet). Log and accept.
-  if (error) {
-    console.error('[/api/usage/events] insert failed:', error?.message || error)
-    return res.status(202).json({ ok: false })
-  }
-  res.status(204).end()
-})
+// POST /api/usage/events, the signed-in usage beacon, is in
+// src/routes/analytics.mjs (issue #191).
+app.use(createAnalyticsRouter({ supabase, requireAuth, analyticsRateLimit }))
 
 // Unknown /api/* paths: JSON 404 in the standard error shape instead of
 // Express's HTML "Cannot GET" page (#157). Mounted after every API route (so it
