@@ -47,8 +47,7 @@ async function loadTargets(supabase, reports) {
 }
 
 /**
- * The admin report queue, mounted by server.mjs ahead of the soft-delete
- * moderation routes.
+ * The admin report queue, mounted by server.mjs right after the admin router.
  *
  * @param {object}   deps
  * @param {object}   deps.supabase            the Supabase client

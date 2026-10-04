@@ -129,7 +129,7 @@ per-user duplication this design removes, and would put the rows under a
 `source_id` that the sync sweep will then delete.
 
 Union at the API seam instead. `/api/me/calendar` and `/api/me/events` already
-funnel through `listCalendarItems` (`server.mjs:808`), which is the natural
+funnel through `listCalendarItems` (`src/calendarReads.mjs`), which is the natural
 place to merge a second, unscoped query and sort the combined set by start time.
 Shared rows need a marker in the response (`shared: true`, or
 `source_type: 'campus'`) so clients can style them, and so "mark done" is not

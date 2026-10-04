@@ -12,7 +12,8 @@ export const MAX_MEETING_INFO = 200
 export const MAX_CAPACITY = 100
 
 // Soft delete for groups came later (issue #195) and is a separate migration.
-// Named by the study-groups router and the admin content map in server.mjs.
+// Named by the study-groups router and the admin content map in
+// src/routes/admin.mjs.
 export const STUDY_SOFT_DELETE_SQL_FILE = 'db/supabase-study-groups-soft-delete.sql'
 
 /**

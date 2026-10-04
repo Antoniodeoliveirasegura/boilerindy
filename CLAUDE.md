@@ -128,9 +128,9 @@ rights to the BoilerIndy name or logo.
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
-  `board`, `assistant` and `sources` on 2026-10-04. `analytics`, `admin`,
-  `advertiser`, `calendarFeed` and `me`, then `auth`, remain, each following
-  `createLayoutsRouter`. A group with a session-free public read (`dining`,
+  `board`, `assistant`, `analytics`, `admin`, `advertiser` (with
+  `createSpotlightRouter`), `calendarFeed`, `me` and `sources` on 2026-10-04.
+  `auth` remains, following `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
   session middleware (#250) where its `app.get` lines were, while its session
@@ -147,8 +147,20 @@ rights to the BoilerIndy name or logo.
   `boardAiRateLimit`, `boardTagWindow`) and `warnAssistantBusy` stay in
   `server.mjs` and are handed to the board and assistant routers, which ask
   `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,
-  `listCalendarItems` and `readScheduleOverrides` move with `me` and are
-  injected until then. Each router has `test/routes/<name>.test.mjs`, built
+  `listCalendarItems` and `readScheduleOverrides` live in
+  `src/calendarReads.mjs`; `server.mjs` builds them once and hands them to
+  the me, assistant, study groups and friends routers. `normalizeEmail` and
+  `clearPurdueLinkOnUser` stay in `server.mjs` for the auth and Purdue link
+  code and are handed to the admin router until `auth` moves them. `src/routes/advertiser.mjs` pairs
+  `createAdvertiserRouter`, gated by `req.session.advertiserId` and never
+  handed `requireAuth`, with `createSpotlightRouter` for students. The portal
+  is handed `sendAdvertiserPasswordResetEmail`, as `purdueEmail` is handed
+  `sendEmail`, so its tests never reach Resend. `publicBaseUrl` is config the
+  startup log and the Purdue link routes also read, so it stays in
+  `server.mjs` and is handed to the calendar feed router, which stays behind
+  the session middleware although `/feeds/calendar/:file` has no session
+  user: the feed is per-user data, never a public read.
+  Each router has `test/routes/<name>.test.mjs`, built
   on the recording fake in `test/routes/fakeSupabase.mjs`. A router's limiter
   is only seen by the doc guard when it destructures the limiter under the
   name `server.mjs` uses.
