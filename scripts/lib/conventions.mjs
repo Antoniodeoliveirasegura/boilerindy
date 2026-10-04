@@ -41,7 +41,9 @@ export function findDashes(text) {
 /** Lines of a commit message or PR body (1-based) that credit an AI assistant. */
 export function findAssistantCredits(message) {
   const hits = []
-  message.split('\n').forEach((line, i) => {
+  // A description saved from GitHub's web editor has CRLF line endings, and a
+  // trailing \r would keep TRAILER's $ from matching.
+  message.split(/\r?\n/).forEach((line, i) => {
     const trailer = line.match(TRAILER)
     const flagged = trailer ? ASSISTANT.test(trailer[1]) : FOOTER.test(line)
     if (flagged) hits.push({ line: i + 1, excerpt: line.trim().slice(0, 120) })
