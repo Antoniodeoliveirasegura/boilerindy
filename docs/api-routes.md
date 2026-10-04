@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 21 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+151 routes in 22 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -88,25 +88,25 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/me/blocks/:userId` | `src/routes/blocks.mjs` |
 | DELETE | `/api/me/blocks/:userId` | `src/routes/blocks.mjs` |
 | POST | `/api/me/blocks/content/:targetType/:targetId` | `src/routes/blocks.mjs` |
-| GET | `/api/me/calendar` | `server.mjs` |
+| GET | `/api/me/calendar` | `src/routes/me.mjs` |
 | GET | `/api/me/calendar-feed` | `src/routes/calendarFeed.mjs` |
 | POST | `/api/me/calendar-feed/token` | `src/routes/calendarFeed.mjs` |
-| GET | `/api/me/calendar/categories` | `server.mjs` |
-| GET | `/api/me/classes` | `server.mjs` |
+| GET | `/api/me/calendar/categories` | `src/routes/me.mjs` |
+| GET | `/api/me/classes` | `src/routes/me.mjs` |
 | GET | `/api/me/connections` | `src/routes/friends.mjs` |
 | GET | `/api/me/dashboard` | `src/routes/layouts.mjs` |
 | PUT | `/api/me/dashboard` | `src/routes/layouts.mjs` |
-| GET | `/api/me/degree` | `server.mjs` |
-| PUT | `/api/me/degree` | `server.mjs` |
+| GET | `/api/me/degree` | `src/routes/me.mjs` |
+| PUT | `/api/me/degree` | `src/routes/me.mjs` |
 | POST | `/api/me/delete-account` | `server.mjs` |
 | GET | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
 | POST | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
 | DELETE | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
-| GET | `/api/me/events` | `server.mjs` |
-| GET | `/api/me/grades` | `server.mjs` |
-| POST | `/api/me/grades` | `server.mjs` |
-| PATCH | `/api/me/grades/:id` | `server.mjs` |
-| DELETE | `/api/me/grades/:id` | `server.mjs` |
+| GET | `/api/me/events` | `src/routes/me.mjs` |
+| GET | `/api/me/grades` | `src/routes/me.mjs` |
+| POST | `/api/me/grades` | `src/routes/me.mjs` |
+| PATCH | `/api/me/grades/:id` | `src/routes/me.mjs` |
+| DELETE | `/api/me/grades/:id` | `src/routes/me.mjs` |
 | GET | `/api/me/matches` | `src/routes/friends.mjs` |
 | GET | `/api/me/profile` | `server.mjs` |
 | PATCH | `/api/me/profile` | `server.mjs` |
@@ -115,19 +115,19 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/me/purdue-email/request` | `src/routes/purdueEmail.mjs` |
 | GET | `/api/me/purdue-email/status` | `src/routes/purdueEmail.mjs` |
 | POST | `/api/me/purdue-email/verify` | `src/routes/purdueEmail.mjs` |
-| GET | `/api/me/schedule-overrides` | `server.mjs` |
-| PUT | `/api/me/schedule-overrides` | `server.mjs` |
+| GET | `/api/me/schedule-overrides` | `src/routes/me.mjs` |
+| PUT | `/api/me/schedule-overrides` | `src/routes/me.mjs` |
 | GET | `/api/me/services` | `src/routes/layouts.mjs` |
 | PUT | `/api/me/services` | `src/routes/layouts.mjs` |
 | GET | `/api/me/sources` | `server.mjs` |
 | GET | `/api/me/study-groups` | `src/routes/studyGroups.mjs` |
 | GET | `/api/me/study-groups/courses` | `src/routes/studyGroups.mjs` |
 | PATCH | `/api/me/study-groups/opt-in` | `src/routes/studyGroups.mjs` |
-| POST | `/api/me/tasks/calendar/complete` | `server.mjs` |
-| POST | `/api/me/tasks/manual` | `server.mjs` |
-| PATCH | `/api/me/tasks/manual/:id` | `server.mjs` |
-| DELETE | `/api/me/tasks/manual/:id` | `server.mjs` |
-| GET | `/api/me/tasks/meta` | `server.mjs` |
+| POST | `/api/me/tasks/calendar/complete` | `src/routes/me.mjs` |
+| POST | `/api/me/tasks/manual` | `src/routes/me.mjs` |
+| PATCH | `/api/me/tasks/manual/:id` | `src/routes/me.mjs` |
+| DELETE | `/api/me/tasks/manual/:id` | `src/routes/me.mjs` |
+| GET | `/api/me/tasks/meta` | `src/routes/me.mjs` |
 | GET | `/api/parking/garages` | `src/routes/campus.mjs` |
 | POST | `/api/purdue/calendar-link/cancel` | `server.mjs` |
 | POST | `/api/purdue/calendar-link/start` | `server.mjs` |

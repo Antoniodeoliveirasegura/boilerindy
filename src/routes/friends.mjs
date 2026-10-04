@@ -25,7 +25,7 @@ function respondFriendsDbError(res, err) {
  * @param {object}   deps
  * @param {object}   deps.supabase             the Supabase client
  * @param {Function} deps.requireAuth          loads req.currentUser or answers 401
- * @param {Function} deps.getClassItemsForUser the user's class calendar items (stays in server.mjs until the me router)
+ * @param {Function} deps.getClassItemsForUser the user's class calendar items (from src/calendarReads.mjs, built in server.mjs)
  * @param {Function} deps.boardWriteRateLimit  the community write limiter (profile, connection request)
  * @param {Function} deps.userWriteRateLimit   the shared per-user write limiter (accept or decline)
  */

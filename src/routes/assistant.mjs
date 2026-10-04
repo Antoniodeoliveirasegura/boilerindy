@@ -288,9 +288,12 @@ function buildManualTaskContext(tasks, now) {
  *   ai.enabled is false without GROQ_API_KEY, and the chat then answers offline
  * @param {Function} deps.warnAssistantBusy     server.mjs's warning for a 429 from both Groq models
  * @param {Function} deps.getDiningSnapshot     the cached Nutrislice snapshot (src/nutrisliceDining.mjs)
- * @param {Function} deps.getClassItemsForUser  server.mjs's class reader, for the offline class answers
- * @param {Function} deps.listCalendarItems     server.mjs's calendar reader, for the offline assignments answer
- * @param {Function} deps.readScheduleOverrides server.mjs's reader for the student's schedule edits
+ * @param {Function} deps.getClassItemsForUser  the class reader, for the offline class answers
+ *   (from src/calendarReads.mjs, built in server.mjs)
+ * @param {Function} deps.listCalendarItems     the calendar reader, for the offline assignments answer
+ *   (from src/calendarReads.mjs, built in server.mjs)
+ * @param {Function} deps.readScheduleOverrides the reader for the student's schedule edits
+ *   (from src/calendarReads.mjs, built in server.mjs)
  */
 export function createAssistantRouter({
   supabase,

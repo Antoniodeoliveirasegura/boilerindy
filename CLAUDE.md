@@ -129,8 +129,8 @@ rights to the BoilerIndy name or logo.
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
   `board`, `assistant`, `analytics`, `admin`, `advertiser` (with
-  `createSpotlightRouter`) and `calendarFeed` on 2026-10-04. `me` and
-  `sources`, then `auth`, remain, each following
+  `createSpotlightRouter`), `calendarFeed` and `me` on 2026-10-04. `sources`,
+  then `auth`, remain, each following
   `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
@@ -145,9 +145,10 @@ rights to the BoilerIndy name or logo.
   `boardAiRateLimit`, `boardTagWindow`) and `warnAssistantBusy` stay in
   `server.mjs` and are handed to the board and assistant routers, which ask
   `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,
-  `listCalendarItems` and `readScheduleOverrides` move with `me` and are
-  injected until then. `normalizeEmail` and `clearPurdueLinkOnUser` stay in
-  `server.mjs` for the auth and Purdue link code and are handed to the admin
+  `listCalendarItems` and `readScheduleOverrides` live in
+  `src/calendarReads.mjs`; `server.mjs` builds them once and hands them to
+  the me, assistant, study groups and friends routers. `normalizeEmail` and
+  `clearPurdueLinkOnUser` stay in `server.mjs` for the auth and Purdue link code and are handed to the admin
   router until `auth` and `me` move them. `src/routes/advertiser.mjs` pairs
   `createAdvertiserRouter`, gated by `req.session.advertiserId` and never
   handed `requireAuth`, with `createSpotlightRouter` for students. The portal

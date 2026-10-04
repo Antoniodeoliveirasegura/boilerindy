@@ -56,7 +56,7 @@ function mapStudyGroupRow(row, userId, memberCounts, myGroupIds) {
  * @param {object}   deps.supabase             the Supabase client
  * @param {Function} deps.requireAuth          loads req.currentUser or answers 401
  * @param {Function} deps.isUserAdmin          true for an admin: lets the delete past the creator filter
- * @param {Function} deps.getClassItemsForUser the user's class calendar items (stays in server.mjs until the me router)
+ * @param {Function} deps.getClassItemsForUser the user's class calendar items (from src/calendarReads.mjs, built in server.mjs)
  * @param {Function} deps.boardWriteRateLimit  the community write limiter (create, join, leave)
  * @param {Function} deps.userWriteRateLimit   the shared per-user write limiter (opt-in, delete)
  */
