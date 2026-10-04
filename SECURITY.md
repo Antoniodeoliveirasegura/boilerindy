@@ -52,7 +52,7 @@ we will follow up privately.
   link). Users are told to treat the link like a password (privacy policy).
 - Residual exposure: anyone with the link sees ~6 months of the user's events
   (titles/times/locations). Available knobs if that ever needs tightening: lower
-  `FEED_HORIZON_MONTHS` (`server.mjs`) or add an opt-in auth-gated variant.
+  `FEED_HORIZON_MONTHS` (`src/routes/calendarFeed.mjs`) or add an opt-in auth-gated variant.
 
 ## Marketplace seller contact (`GET /api/marketplace/:id`)
 
