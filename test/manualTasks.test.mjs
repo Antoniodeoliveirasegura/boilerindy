@@ -84,8 +84,8 @@ test('parseTaskTitle caps the title at MAX_TASK_TITLE characters', () => {
   }
 })
 
-// The route bodies: server.mjs and e2e/fixtures/mock-backend.js store and
-// return exactly what these helpers produce.
+// The route bodies: src/routes/me.mjs and e2e/fixtures/mock-backend.js store
+// and return exactly what these helpers produce.
 
 const TITLE_MESSAGE = `Title is required (max ${MAX_TASK_TITLE} characters)`
 const NOW = '2026-09-16T15:00:00.000Z'
