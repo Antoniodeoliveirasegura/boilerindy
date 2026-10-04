@@ -128,8 +128,8 @@ rights to the BoilerIndy name or logo.
   prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
-  `board` and `assistant` on 2026-10-04. `admin`, `advertiser`,
-  `analytics`, then `auth` and `me` remain, each following
+  `board`, `assistant` and `analytics` on 2026-10-04. `admin` and
+  `advertiser`, then `auth` and `me` remain, each following
   `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
