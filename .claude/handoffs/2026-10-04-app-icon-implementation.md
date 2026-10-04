@@ -37,11 +37,11 @@ Fetch a file without checking the branch out:
     git show origin/design/logo-candidates:design/logo-marks/adaptive/app-icon.svg > boilerindy-react/public/app-icon.svg
     git show origin/design/logo-candidates:design/logo-marks/adaptive/favicon.svg  > boilerindy-react/public/favicon.svg
 
-Branch `feat/app-icon-system` (worktree `~/code/boilerindy-icon`) is an older wiring attempt with the train
-icon. It is 55+ commits behind develop; do not rebase it. Its `boilerindy-react/scripts/render-icons.mjs` is
-the right starting point for the script changes below:
+`design/logo-marks/render-icons.reference.mjs` on the same branch is the reworked render script from the
+earlier (never pushed) wiring attempt: gold-gradient ground, 'gold' and 'ink' pixel checks, the subject point
+`INK_AT`, full-bleed and bare variants derived from the source SVG. Start from it for the script changes below:
 
-    git show origin/feat/app-icon-system:boilerindy-react/scripts/render-icons.mjs
+    git show origin/design/logo-candidates:design/logo-marks/render-icons.reference.mjs
 
 ## The PR (one, into develop)
 
@@ -49,7 +49,7 @@ the right starting point for the script changes below:
    sessions use it; git stash is shared across worktrees).
 2. `boilerindy-react/public/favicon.svg`: replace with the adaptive B.
    `boilerindy-react/public/app-icon.svg`: new, the adaptive monument.
-3. `boilerindy-react/scripts/render-icons.mjs`: port the feat/app-icon-system version, then:
+3. `boilerindy-react/scripts/render-icons.mjs`: port the reference version, then:
    - the ground-rect regex must be global: the adaptive SVG has two ground rects
      (`fill="url(#L_g)"` and `fill="url(#D_g)"`), so derive the full-bleed and bare variants with
      `replaceAll` / a `g` regex, not a single replace;
