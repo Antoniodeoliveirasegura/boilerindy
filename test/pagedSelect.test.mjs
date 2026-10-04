@@ -108,8 +108,9 @@ test('a failed page fails the whole read instead of returning a partial prefix',
   assert.equal(table.calls.length, 2)
 })
 
-// selectUpTo is what listCalendarItems (server.mjs) calls, so these cover the
-// branch that decides between one query and paging for the class scan.
+// selectUpTo is what listCalendarItems (src/calendarReads.mjs) calls, so these
+// cover the branch that decides between one query and paging for the class
+// scan.
 
 test('selectUpTo pages a 5000-row class scan past a 1000-row cap', async () => {
   const table = makeTable(1200)

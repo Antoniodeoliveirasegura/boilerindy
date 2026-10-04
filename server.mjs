@@ -40,18 +40,10 @@ import { loadVapidKeys } from './src/webPush.mjs'
 import { runSourceResync } from './src/sourceResync.mjs'
 import { describeFailure, isTransientFailure, retryOnceIfTransient, runCronTick } from './src/cronTick.mjs'
 import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
-import { mapManualTaskRow, parseManualTaskCreate, parseManualTaskUpdate } from './src/manualTasks.mjs'
 import { createGroqClient } from './src/groqClient.mjs'
 import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
-import {
-  GRADES_CAP_MESSAGE,
-  MANUAL_TASKS_CAP_MESSAGE,
-  MAX_GRADES,
-  MAX_MANUAL_TASKS,
-  advertiserWriteBucketKey,
-  capCheck,
-} from './src/userWriteCaps.mjs'
+import { advertiserWriteBucketKey } from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream, isAbortLike } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
@@ -60,10 +52,7 @@ import { createCalendarItemStore } from './src/calendarItemStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
 import { onboardingFlags } from './src/onboardingFlags.mjs'
 import { createCommunityCounters } from './src/communityCounters.mjs'
-import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './src/academicTerms.mjs'
-import { DEFAULT_MAX_ROWS, selectUpTo } from './src/pagedSelect.mjs'
-import { categoryListFromCounts, loadCalendarCategoryCounts } from './src/calendarCategoryCounts.mjs'
-import { hasFreeFood } from './src/freeFood.mjs'
+import { createCalendarReads } from './src/calendarReads.mjs'
 import { createLayoutsRouter } from './src/routes/layouts.mjs'
 import { createLostFoundRouter } from './src/routes/lostFound.mjs'
 import { createDealsRouter } from './src/routes/deals.mjs'
@@ -78,6 +67,7 @@ import { createBoardRouter } from './src/routes/board.mjs'
 import { createAssistantRouter } from './src/routes/assistant.mjs'
 import { createAnalyticsRouter } from './src/routes/analytics.mjs'
 import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
+import { createMeRouter } from './src/routes/me.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -85,28 +75,17 @@ import { createPurdueEmailRouter } from './src/routes/purdueEmail.mjs'
 import { createAdminRouter } from './src/routes/admin.mjs'
 import { createAdvertiserRouter, createSpotlightRouter } from './src/routes/advertiser.mjs'
 import { LINKED_TO_ANOTHER_PURDUE_ACCOUNT_MESSAGE } from './src/purdueEmailVerification.mjs'
-import {
-  LETTER_GRADES,
-  MAX_COURSE_NAME,
-  MAX_TERM_NAME,
-  MAX_CREDIT_HOURS,
-  DEFAULT_CREDIT_HOURS,
-  DEFAULT_TERM,
-} from './src/gradeTracker.mjs'
-import { getProgram } from './src/degreePrograms.mjs'
 import { requireIdParam } from './src/httpGuards.mjs'
 import {
   badRequest,
   DB_FEATURES,
   isSchemaMissingError,
   logRouteError,
-  respondRouteError,
 } from './src/dbErrors.mjs'
 import { createMarketplacePhotos } from './src/marketplacePhotos.mjs'
 import { createPurdueLinkHandoff, HandoffError } from './src/purdueLinkHandoff.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from './src/casLinkState.mjs'
 import { createPurdueLinkFlowRateLimit, linkHandoffToken } from './src/purdueLinkThrottle.mjs'
-import { normalizeScheduleOverrides } from './src/scheduleOverrides.mjs'
 import { verifyPassword } from './src/passwordHash.mjs'
 import { hasLegacyHash, resolveSignIn, applyPasswordChange, verifyCurrentPassword } from './src/studentPasswordAuth.mjs'
 import {
@@ -702,17 +681,6 @@ async function deleteUserAccount(userRow, { password, confirmation }) {
   onboardingSummaryCache.invalidate(userId)
 }
 
-function orderClassItemsForDisplay(items) {
-  const now = new Date()
-  const upcoming = items
-    .filter((item) => new Date(item.end_time || item.start_time) >= now)
-    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-
-  if (upcoming.length) return upcoming
-
-  return [...items].sort((a, b) => new Date(b.start_time) - new Date(a.start_time))
-}
-
 // Accepts either a userId or an already-loaded user row. Callers that already
 // have the user (e.g. the session endpoint) pass the object to avoid a
 // redundant re-fetch, and the two independent counts run in parallel - turning
@@ -798,6 +766,10 @@ function requireAdmin(req, res, next) {
   }
   next()
 }
+
+// The per-user calendar reads the me, assistant, study groups and friends
+// routers share (src/calendarReads.mjs, issue #191), built once.
+const { listCalendarItems, getClassItemsForUser, readScheduleOverrides } = createCalendarReads(supabase)
 
 function requirePurdueLinked(req, res, next) {
   // Linking off: calendar sources don't require a linked Purdue identity.
@@ -965,104 +937,6 @@ async function createScheduleSource(userId, { icsUrl, label, sourceType = 'purdu
   if (error) throw new Error(error.message)
   onboardingSummaryCache.invalidate(userId)
   return data
-}
-
-async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null } = {}) {
-  const ascending = order === 'asc'
-  const rowLimit = Number(limit) || 100
-
-  const buildQuery = () => {
-    let query = supabase
-      .from('calendar_items')
-      .select('id, source_id, title, description, start_time, end_time, location, category, external_uid, source_type, all_day')
-      .eq('user_id', userId)
-
-    if (category) {
-      query = query.eq('category', category)
-    } else if (categories && categories.length > 0) {
-      query = query.in('category', categories)
-    }
-
-    if (from) {
-      query = query.gte('start_time', from)
-    }
-
-    return query.order('start_time', { ascending })
-  }
-
-  // PostgREST truncates every response to max-rows (1000) whatever .limit()
-  // asks for, so selectUpTo pages a larger read with .range() up to
-  // DEFAULT_MAX_ROWS (issue #198). The id tiebreak keeps rows that share a
-  // start_time from repeating or vanishing across page boundaries.
-  const { data, error } = await selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit)
-
-  if (error) return []
-  return data.map(row => ({
-    id: row.id,
-    sourceId: row.source_id,
-    title: row.title,
-    description: row.description,
-    startTime: row.start_time,
-    endTime: row.end_time,
-    location: row.location,
-    category: row.category,
-    externalUid: row.external_uid,
-    sourceType: row.source_type,
-    // DATE-only feed items (no clock time). The client hides the time for these
-    // instead of rendering a meaningless midnight (issue #121).
-    allDay: Boolean(row.all_day),
-    // Flag events that advertise free food (issue #46). Cheap per-row regex;
-    // only meaningful for event categories but harmless elsewhere.
-    freeFood: hasFreeFood(row.title, row.description),
-  }))
-}
-
-async function getClassItemsForUser(userId, { limit = 20, term = 'auto', mode = 'display' } = {}) {
-  // Windowed to the last CLASS_SCAN_LOOKBACK_MONTHS and paged past max-rows: an
-  // unbounded ascending read returned only the oldest 1000 meetings, so students
-  // with a few synced semesters lost the current term entirely (issue #198).
-  const allItems = await listCalendarItems(userId, {
-    category: 'class',
-    limit: DEFAULT_MAX_ROWS,
-    order: 'asc',
-    from: classScanFrom(term),
-  })
-  if (!allItems.length) {
-    return {
-      items: [],
-      meta: {
-        selectedTermKey: null,
-        selectedTermLabel: null,
-        totalInTerm: 0,
-      },
-    }
-  }
-
-  // Convert camelCase to snake_case for term processing
-  const itemsForTermProcessing = allItems.map(item => ({
-    ...item,
-    start_time: item.startTime,
-    end_time: item.endTime
-  }))
-
-  const preferredTerm = term === 'all' ? null : (term && term !== 'auto' ? parseTermKey(term) : getPreferredClassTerm(itemsForTermProcessing))
-  const termItems = preferredTerm
-    ? allItems.filter((item) => getAcademicTerm(item.startTime)?.key === preferredTerm.key)
-    : allItems
-
-  const orderedItems = mode === 'display'
-    ? orderClassItemsForDisplay(termItems.map(item => ({ ...item, start_time: item.startTime, end_time: item.endTime })))
-        .map(item => ({ ...item, startTime: item.start_time, endTime: item.end_time }))
-    : [...termItems].sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
-
-  return {
-    items: orderedItems.slice(0, Number(limit) || 20),
-    meta: {
-      selectedTermKey: preferredTerm?.key || null,
-      selectedTermLabel: preferredTerm?.label || null,
-      totalInTerm: termItems.length,
-    },
-  }
 }
 
 async function authUserExists(userId) {
@@ -2051,414 +1925,12 @@ app.delete('/api/sources/:sourceId', userWriteRateLimit, requireIdParam('sourceI
   }
 })
 
-// Ascending order plus a row limit means an unbounded read returns the OLDEST
-// rows, so once a user accumulates more than `limit` historical items the
-// upcoming ones fall off the end and the page renders empty. Both of these
-// routes serve forward-looking views, so they default to a recent window; a
-// client that wants deeper history passes an explicit ?from=.
-const CALENDAR_DEFAULT_LOOKBACK_DAYS = 14
-function defaultCalendarFrom() {
-  return new Date(Date.now() - CALENDAR_DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
-}
-
-app.get('/api/me/calendar', requireAuth, async (req, res) => {
-  const category = typeof req.query.category === 'string' ? req.query.category : null
-  const categories = typeof req.query.categories === 'string' ? req.query.categories.split(',').filter(Boolean) : null
-  const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 100
-  const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
-  res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from }) })
-})
-
-// Counted in Postgres by calendar_category_counts (db/supabase-calendar-category-counts.sql)
-// instead of streaming every row to count in JS (issue #198); until that
-// migration runs, loadCalendarCategoryCounts falls back to the JS count.
-app.get('/api/me/calendar/categories', requireAuth, async (req, res) => {
-  const { counts, error } = await loadCalendarCategoryCounts(supabase, req.currentUser.id)
-
-  if (error) {
-    return res.json({ categories: [] })
-  }
-
-  res.json({ categories: categoryListFromCounts(counts) })
-})
-
-// ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
-// Manual task rows are parsed and mapped by src/manualTasks.mjs (issue #216).
-
-// Runs on every Assignments and dashboard load, so both reads are bounded
-// (issue #198) instead of returning every row the user ever wrote:
-// - completions from the last TASK_COMPLETIONS_LOOKBACK_DAYS only. Older ones
-//   belong to calendar items that are no longer shown (Assignments lists items
-//   from 14 days back), so dropping them changes nothing on screen.
-// - manual tasks that are still open, or were completed in the last
-//   MANUAL_TASKS_DONE_LOOKBACK_DAYS.
-// Each read also caps at TASK_META_ROW_LIMIT, the PostgREST max-rows, so the
-// bound is explicit rather than a silent truncation.
-const TASK_COMPLETIONS_LOOKBACK_DAYS = 120
-const MANUAL_TASKS_DONE_LOOKBACK_DAYS = 60
-const TASK_META_ROW_LIMIT = 1000
-
-function daysAgoIso(days) {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-}
-
-app.get('/api/me/tasks/meta', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const [compRes, manualRes] = await Promise.all([
-      supabase
-        .from('user_task_completions')
-        .select('calendar_item_id, completed_at')
-        .eq('user_id', userId)
-        .gte('completed_at', daysAgoIso(TASK_COMPLETIONS_LOOKBACK_DAYS))
-        .order('completed_at', { ascending: false })
-        .limit(TASK_META_ROW_LIMIT),
-      supabase
-        .from('user_manual_tasks')
-        .select('*')
-        .eq('user_id', userId)
-        .or(`completed_at.is.null,completed_at.gte.${daysAgoIso(MANUAL_TASKS_DONE_LOOKBACK_DAYS)}`)
-        .order('due_at', { ascending: true })
-        .limit(TASK_META_ROW_LIMIT),
-    ])
-    if (compRes.error) throw compRes.error
-    if (manualRes.error) throw manualRes.error
-    res.json({
-      completions: compRes.data || [],
-      manualTasks: (manualRes.data || []).map(mapManualTaskRow),
-    })
-  } catch (e) {
-    console.error('GET /api/me/tasks/meta:', e?.message || e)
-    res.json({ completions: [], manualTasks: [], unavailable: true })
-  }
-})
-
-app.post('/api/me/tasks/calendar/complete', userWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { calendarItemId, completed } = req.body || {}
-  if (!calendarItemId || typeof completed !== 'boolean') {
-    return badRequest(res, 'calendarItemId and completed (boolean) required')
-  }
-  const { data: row, error: findErr } = await supabase
-    .from('calendar_items')
-    .select('id')
-    .eq('id', calendarItemId)
-    .eq('user_id', userId)
-    .maybeSingle()
-  if (findErr || !row) {
-    return res.status(404).json({ error: { message: 'Calendar item not found' } })
-  }
-  try {
-    if (completed) {
-      const { error: insErr } = await supabase.from('user_task_completions').insert({
-        user_id: userId,
-        calendar_item_id: calendarItemId,
-        completed_at: nowIso(),
-      })
-      if (insErr) {
-        if (insErr.code === '23505') {
-          const { error: updErr } = await supabase
-            .from('user_task_completions')
-            .update({ completed_at: nowIso() })
-            .eq('user_id', userId)
-            .eq('calendar_item_id', calendarItemId)
-          if (updErr) throw updErr
-        } else {
-          throw insErr
-        }
-      }
-    } else {
-      const { error } = await supabase
-        .from('user_task_completions')
-        .delete()
-        .eq('user_id', userId)
-        .eq('calendar_item_id', calendarItemId)
-      if (error) throw error
-    }
-    res.json({ ok: true })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'POST /api/me/tasks/calendar/complete', fallback: 'Could not update completion' })
-  }
-})
-
-app.post('/api/me/tasks/manual', userWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  // dueAt is optional (db/supabase-manual-task-due-optional.sql drops the NOT NULL). The mobile
-  // client creates undated to-dos from a title alone, which this used to reject outright. A
-  // dueAt that IS supplied still has to be a parseable timestamp, so a malformed date is a 400
-  // rather than being silently stored as no deadline at all.
-  const parsed = parseManualTaskCreate(req.body)
-  if (!parsed.ok) return badRequest(res, parsed.message)
-  try {
-    const countResult = await supabase
-      .from('user_manual_tasks')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-    const cap = capCheck(countResult, MAX_MANUAL_TASKS)
-    if (cap.failure) console.error('POST /api/me/tasks/manual:', cap.failure, countResult.error)
-    if (cap.blocked) {
-      return res.status(409).json({ error: { message: MANUAL_TASKS_CAP_MESSAGE, status: 409 } })
-    }
-    const { data, error } = await supabase
-      .from('user_manual_tasks')
-      .insert({
-        user_id: userId,
-        title: parsed.row.title,
-        due_at: parsed.row.due_at,
-      })
-      .select()
-      .single()
-    if (error) throw error
-    res.json({ task: mapManualTaskRow(data) })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'POST /api/me/tasks/manual', fallback: 'Could not create task' })
-  }
-})
-
-app.patch('/api/me/tasks/manual/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { id } = req.params
-  // An absent dueAt leaves the deadline alone; null or '' clears it (issue #216). A malformed
-  // value is a 400 like POST instead of being dropped while the other fields save.
-  const parsed = parseManualTaskUpdate(req.body, { now: nowIso() })
-  if (!parsed.ok) return badRequest(res, parsed.message)
-  try {
-    const { data, error } = await supabase
-      .from('user_manual_tasks')
-      .update(parsed.updates)
-      .eq('id', id)
-      .eq('user_id', userId)
-      .select()
-      // maybeSingle: .single() answers PGRST116 for zero rows, which made the
-      // 404 below unreachable and sent someone else's id down the 500 path (#196).
-      .maybeSingle()
-    if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Task not found.', status: 404 } })
-    res.json({ task: mapManualTaskRow(data) })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'PATCH /api/me/tasks/manual', fallback: 'Could not update task' })
-  }
-})
-
-app.delete('/api/me/tasks/manual/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { id } = req.params
-  try {
-    const { error } = await supabase.from('user_manual_tasks').delete().eq('id', id).eq('user_id', userId)
-    if (error) throw error
-    res.json({ ok: true })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'DELETE /api/me/tasks/manual', fallback: 'Could not delete task' })
-  }
-})
-
-// ---- Grade tracker (issue #10) -------------------------------------------
-const LETTER_GRADE_SET = new Set(LETTER_GRADES)
-
-function mapGradeRow(row) {
-  return {
-    id: row.id,
-    courseName: row.course_name,
-    term: row.term,
-    creditHours: typeof row.credit_hours === 'string' ? Number(row.credit_hours) : row.credit_hours,
-    letterGrade: row.letter_grade,
-  }
-}
-
-// Validate + coerce a request body into DB columns. Returns { value } on success
-// or { error } with a user-facing message. `partial` allows missing fields
-// (PATCH); a full insert requires courseName + letterGrade.
-function parseGradeBody(body, { partial } = {}) {
-  const updates = {}
-  const has = (k) => body && Object.prototype.hasOwnProperty.call(body, k)
-
-  if (has('courseName') || !partial) {
-    const name = String(body?.courseName ?? '').trim()
-    if (!name || name.length > MAX_COURSE_NAME) {
-      return { error: `Course name is required (max ${MAX_COURSE_NAME} characters)` }
-    }
-    updates.course_name = name
-  }
-  if (has('letterGrade') || !partial) {
-    const letter = String(body?.letterGrade ?? '').trim()
-    if (!LETTER_GRADE_SET.has(letter)) {
-      return { error: 'A valid letter grade is required' }
-    }
-    updates.letter_grade = letter
-  }
-  if (has('term') || !partial) {
-    const term = String(body?.term ?? '').trim().slice(0, MAX_TERM_NAME) || DEFAULT_TERM
-    updates.term = term
-  }
-  if (has('creditHours') || !partial) {
-    const n = Number(body?.creditHours ?? DEFAULT_CREDIT_HOURS)
-    if (!Number.isFinite(n) || n < 0 || n > MAX_CREDIT_HOURS) {
-      return { error: `Credit hours must be between 0 and ${MAX_CREDIT_HOURS}` }
-    }
-    updates.credit_hours = Math.round(n * 100) / 100
-  }
-  return { value: updates }
-}
-
-app.get('/api/me/grades', requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  try {
-    const { data, error } = await supabase
-      .from('user_grades')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true })
-    if (error) throw error
-    res.json({ grades: (data || []).map(mapGradeRow) })
-  } catch (e) {
-    console.error('GET /api/me/grades:', e?.message || e)
-    res.json({ grades: [], unavailable: true })
-  }
-})
-
-app.post('/api/me/grades', userWriteRateLimit, requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: false })
-  if (invalid) return badRequest(res, invalid)
-  try {
-    const countResult = await supabase
-      .from('user_grades')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-    const cap = capCheck(countResult, MAX_GRADES)
-    if (cap.failure) console.error('POST /api/me/grades:', cap.failure, countResult.error)
-    if (cap.blocked) {
-      return res.status(409).json({ error: { message: GRADES_CAP_MESSAGE, status: 409 } })
-    }
-    const { data, error } = await supabase
-      .from('user_grades')
-      .insert({ user_id: userId, ...value })
-      .select()
-      .single()
-    if (error) throw error
-    res.json({ grade: mapGradeRow(data) })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'POST /api/me/grades', fallback: 'Could not save course' })
-  }
-})
-
-app.patch('/api/me/grades/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { id } = req.params
-  const { value, error: invalid } = parseGradeBody(req.body || {}, { partial: true })
-  if (invalid) return badRequest(res, invalid)
-  if (Object.keys(value).length === 0) {
-    return badRequest(res, 'No valid fields to update')
-  }
-  try {
-    const { data, error } = await supabase
-      .from('user_grades')
-      .update(value)
-      .eq('id', id)
-      .eq('user_id', userId)
-      .select()
-      .maybeSingle()
-    if (error) throw error
-    if (!data) return res.status(404).json({ error: { message: 'Course not found.', status: 404 } })
-    res.json({ grade: mapGradeRow(data) })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'PATCH /api/me/grades/:id', fallback: 'Could not update course' })
-  }
-})
-
-app.delete('/api/me/grades/:id', userWriteRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
-  const userId = req.currentUser.id
-  const { id } = req.params
-  try {
-    const { error } = await supabase.from('user_grades').delete().eq('id', id).eq('user_id', userId)
-    if (error) throw error
-    res.json({ ok: true })
-  } catch (e) {
-    respondRouteError(res, e, { label: 'DELETE /api/me/grades/:id', fallback: 'Could not delete course' })
-  }
-})
-
-// Selected major for the degree planner (issue #18). Validated against the
-// degreePrograms catalogue; null clears it.
-app.get('/api/me/degree', requireAuth, async (req, res) => {
-  res.json({ major: req.currentUser.major ?? null })
-})
-
-app.put('/api/me/degree', userWriteRateLimit, requireAuth, async (req, res) => {
-  const raw = req.body?.major
-  const major = raw == null || raw === '' ? null : String(raw)
-  if (major !== null && !getProgram(major)) {
-    return badRequest(res, 'Unknown major')
-  }
-  const { error } = await supabase.from('users').update({ major }).eq('id', req.currentUser.id)
-  if (error) {
-    console.error('PUT /api/me/degree:', error.message)
-    return res.status(500).json({ error: { message: 'Could not save your major.' } })
-  }
-  res.json({ major })
-})
-
-// ---- Schedule overrides --------------------------------------------------
-// Hidden / edited / manually added class meetings. Previously localStorage only,
-// so they were lost on a new device and invisible to the campus assistant.
-// Stored as one JSONB document because the client always reads and writes the
-// whole state at once.
-async function readScheduleOverrides(userId) {
-  const { data, error } = await supabase
-    .from('user_schedule_overrides')
-    .select('series, manual')
-    .eq('user_id', userId)
-    .maybeSingle()
-  if (error || !data) return { series: {}, manual: [] }
-  return normalizeScheduleOverrides(data)
-}
-
-app.get('/api/me/schedule-overrides', requireAuth, async (req, res) => {
-  try {
-    res.json({ overrides: await readScheduleOverrides(req.currentUser.id) })
-  } catch (e) {
-    console.error('GET /api/me/schedule-overrides:', e?.message || e)
-    // The client keeps a local copy, so an unavailable table degrades to
-    // "no server state yet" rather than wiping the student's edits.
-    res.json({ overrides: { series: {}, manual: [] }, unavailable: true })
-  }
-})
-
-app.put('/api/me/schedule-overrides', userWriteRateLimit, requireAuth, async (req, res) => {
-  const overrides = normalizeScheduleOverrides(req.body?.overrides)
-  try {
-    const { error } = await supabase
-      .from('user_schedule_overrides')
-      .upsert(
-        {
-          user_id: req.currentUser.id,
-          series: overrides.series,
-          manual: overrides.manual,
-          updated_at: nowIso(),
-        },
-        { onConflict: 'user_id' },
-      )
-    if (error) throw error
-    res.json({ overrides })
-  } catch (e) {
-    console.error('PUT /api/me/schedule-overrides:', e?.message || e)
-    res.status(500).json({ error: { message: 'Could not save schedule changes.' } })
-  }
-})
-
-app.get('/api/me/classes', requireAuth, async (req, res) => {
-  const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
-  const term = typeof req.query.term === 'string' ? req.query.term : 'auto'
-  const mode = typeof req.query.mode === 'string' ? req.query.mode : 'display'
-  const data = await getClassItemsForUser(req.currentUser.id, { limit, term, mode })
-  res.json(data)
-})
-
-app.get('/api/me/events', requireAuth, async (req, res) => {
-  const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
-  const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
-  res.json({ items: await listCalendarItems(req.currentUser.id, { category: 'event', limit, order: 'asc', from }) })
-})
+// ── The student's calendar, classes, tasks, grades, degree and schedule edits ──
+// GET /api/me/calendar, /calendar/categories, /classes and /events, the task
+// and grade routes, /api/me/degree and /api/me/schedule-overrides are in
+// src/routes/me.mjs (issue #191). The readers it shares with the assistant,
+// study groups and friends routers come from src/calendarReads.mjs.
+app.use(createMeRouter({ supabase, requireAuth, userWriteRateLimit, listCalendarItems, getClassItemsForUser, readScheduleOverrides }))
 
 // ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
 // The feed link routes and GET /feeds/calendar/:file are in
@@ -2552,8 +2024,8 @@ const boardTagWindow = createRateWindow({ name: 'ai-board-tags', windowMs: 60 * 
 // and the offline answers, in src/routes/assistant.mjs (issue #191). The Groq
 // client and the limiters above stay here because the board router shares the
 // client, and warnAssistantBusy stays with the other Sentry warnings further
-// down. getClassItemsForUser, listCalendarItems and readScheduleOverrides move
-// with `me` and are handed in until then.
+// down. getClassItemsForUser, listCalendarItems and readScheduleOverrides come
+// from src/calendarReads.mjs, built once near the top of this file.
 app.use(createAssistantRouter({ supabase, requireAuth, assistantRateLimit, ai, warnAssistantBusy, getDiningSnapshot, getClassItemsForUser, listCalendarItems, readScheduleOverrides }))
 
 // ── Tiny in-memory TTL cache for quasi-static upstream/DB reads (perf) ──────
