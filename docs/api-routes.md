@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 19 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+151 routes in 20 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -30,16 +30,16 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/admin/reports` | `src/routes/adminReports.mjs` |
 | PATCH | `/api/admin/reports/:id` | `src/routes/adminReports.mjs` |
 | GET | `/api/admin/sentry-test` | `src/routes/admin.mjs` |
-| GET | `/api/advertiser/campaigns` | `server.mjs` |
-| POST | `/api/advertiser/campaigns` | `server.mjs` |
-| PATCH | `/api/advertiser/campaigns/:id` | `server.mjs` |
-| GET | `/api/advertiser/campaigns/:id/stats` | `server.mjs` |
-| POST | `/api/advertiser/forgot-password` | `server.mjs` |
-| GET | `/api/advertiser/me` | `server.mjs` |
-| POST | `/api/advertiser/request-access` | `server.mjs` |
-| POST | `/api/advertiser/reset-password` | `server.mjs` |
-| POST | `/api/advertiser/sign-in` | `server.mjs` |
-| POST | `/api/advertiser/sign-out` | `server.mjs` |
+| GET | `/api/advertiser/campaigns` | `src/routes/advertiser.mjs` |
+| POST | `/api/advertiser/campaigns` | `src/routes/advertiser.mjs` |
+| PATCH | `/api/advertiser/campaigns/:id` | `src/routes/advertiser.mjs` |
+| GET | `/api/advertiser/campaigns/:id/stats` | `src/routes/advertiser.mjs` |
+| POST | `/api/advertiser/forgot-password` | `src/routes/advertiser.mjs` |
+| GET | `/api/advertiser/me` | `src/routes/advertiser.mjs` |
+| POST | `/api/advertiser/request-access` | `src/routes/advertiser.mjs` |
+| POST | `/api/advertiser/reset-password` | `src/routes/advertiser.mjs` |
+| POST | `/api/advertiser/sign-in` | `src/routes/advertiser.mjs` |
+| POST | `/api/advertiser/sign-out` | `src/routes/advertiser.mjs` |
 | POST | `/api/assistant` | `src/routes/assistant.mjs` |
 | GET | `/api/assistant/briefing` | `src/routes/assistant.mjs` |
 | GET | `/api/auth-config` | `server.mjs` |
@@ -146,8 +146,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | DELETE | `/api/sources/:sourceId` | `server.mjs` |
 | POST | `/api/sources/brightspace/schedule` | `server.mjs` |
 | POST | `/api/sources/purdue/schedule` | `server.mjs` |
-| POST | `/api/spotlight/:campaignId/event` | `server.mjs` |
-| GET | `/api/spotlight/active` | `server.mjs` |
+| POST | `/api/spotlight/:campaignId/event` | `src/routes/advertiser.mjs` |
+| GET | `/api/spotlight/active` | `src/routes/advertiser.mjs` |
 | GET | `/api/study-groups` | `src/routes/studyGroups.mjs` |
 | POST | `/api/study-groups` | `src/routes/studyGroups.mjs` |
 | DELETE | `/api/study-groups/:id` | `src/routes/studyGroups.mjs` |
