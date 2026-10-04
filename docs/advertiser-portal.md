@@ -112,7 +112,7 @@ code, matching the existing `users`/`linked_sources` pattern).
 
 ---
 
-## 4. API surface (Express, server.mjs)
+## 4. API surface (Express, src/routes/advertiser.mjs)
 
 Auth (separate from student auth):
 - `POST /api/advertiser/sign-in` - verify against `advertisers`, regenerate session,
