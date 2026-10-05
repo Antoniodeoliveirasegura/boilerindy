@@ -6,8 +6,9 @@
 // clock, and generates no randomness, so the same feed always yields the same
 // plan. That determinism is what makes `planSync` testable by value.
 //
-// The imperative shell (runScheduleSync in server.mjs) owns the fetch, the
-// database writes, and stamping item identity (id / created_at / updated_at).
+// The imperative shell (runScheduleSync in src/routes/sources.mjs) owns the
+// fetch, the database writes, and stamping item identity (id / created_at /
+// updated_at).
 
 const DEFAULT_TZ = 'America/Indiana/Indianapolis'
 

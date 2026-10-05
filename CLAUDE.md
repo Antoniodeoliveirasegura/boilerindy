@@ -129,27 +129,29 @@ rights to the BoilerIndy name or logo.
   and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
   `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
   `board`, `assistant`, `analytics`, `admin`, `advertiser` (with
-  `createSpotlightRouter`), `calendarFeed` and `me` on 2026-10-04. `sources`,
-  then `auth`, remain, each following
-  `createLayoutsRouter`. A group with a session-free public read (`dining`,
+  `createSpotlightRouter`), `calendarFeed`, `me` and `sources` on 2026-10-04.
+  `auth` remains, following `createLayoutsRouter`. A group with a session-free public read (`dining`,
   `campus`, `push`) exports
   `createXPublicRouter`, mounted in the public reads block ahead of the
   session middleware (#250) where its `app.get` lines were, while its session
   routes stay in `createXRouter` at the section banner (`campus` has none).
   Anything a public router is handed has to be built above that block: a
   `const` declared further down is still uninitialized when the mount runs.
-  The cron bearer token (`PUSH_CRON_SECRET`, `pushCronSecretMatches`) and
-  `warnCronTransient` stay in `server.mjs` and are handed to the push router,
-  because the source re-sync cron route still lives there (it moves with
-  `me`). The Groq client (`ai`), the AI limiters (`assistantRateLimit`,
+  The cron bearer token (`PUSH_CRON_SECRET`, `pushCronSecretMatches`) is read
+  near the top of `server.mjs`, above every mount, and handed with
+  `warnCronTransient` to the push and sources routers, which hold the two
+  cron routes. `warnFeedTransient` stays with the Sentry warnings and
+  `onboardingSummaryCache` stays one instance (the session payload reads it
+  too); the sources router is handed both.
+  The Groq client (`ai`), the AI limiters (`assistantRateLimit`,
   `boardAiRateLimit`, `boardTagWindow`) and `warnAssistantBusy` stay in
   `server.mjs` and are handed to the board and assistant routers, which ask
   `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,
   `listCalendarItems` and `readScheduleOverrides` live in
   `src/calendarReads.mjs`; `server.mjs` builds them once and hands them to
   the me, assistant, study groups and friends routers. `normalizeEmail` and
-  `clearPurdueLinkOnUser` stay in `server.mjs` for the auth and Purdue link code and are handed to the admin
-  router until `auth` and `me` move them. `src/routes/advertiser.mjs` pairs
+  `clearPurdueLinkOnUser` stay in `server.mjs` for the auth and Purdue link
+  code and are handed to the admin router until `auth` moves them. `src/routes/advertiser.mjs` pairs
   `createAdvertiserRouter`, gated by `req.session.advertiserId` and never
   handed `requireAuth`, with `createSpotlightRouter` for students. The portal
   is handed `sendAdvertiserPasswordResetEmail`, as `purdueEmail` is handed
