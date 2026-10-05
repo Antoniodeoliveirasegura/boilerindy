@@ -484,7 +484,9 @@ footer that credits an AI assistant (Claude, Copilot, Codex, ChatGPT, Gemini,
 Cursor). GitHub turns such a trailer into a contributor badge on the repo.
 Crediting a person is fine. The `conventions` job scans every commit in a pull
 request, every push to `develop` and `main`, and the PR description; remove the
-line with `git commit --amend` or a rebase and push again.
+line with `git commit --amend` or a rebase and push again. A commit that has
+already landed on `develop` is not rewritten; it goes on the short exemption
+list in `scripts/lib/conventions.mjs`, by full SHA with the reason.
 
 **pnpm only.** Both `package.json` files refuse `npm install` and `yarn` through
 an `only-allow` preinstall script, so a foreign lockfile or a differently

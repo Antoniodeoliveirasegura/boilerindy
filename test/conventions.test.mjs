@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { findAssistantCredits, findDashes, isDashExempt } from '../scripts/lib/conventions.mjs'
+import { findAssistantCredits, findDashes, isCreditExemptCommit, isDashExempt } from '../scripts/lib/conventions.mjs'
 
 // README "Conventions". The rules apply to every contributor, with or without
 // an AI assistant, so they live in one place (scripts/lib/conventions.mjs) and
@@ -60,6 +60,15 @@ test('findAssistantCredits flags AI trailers and footers, not people', () => {
   assert.deepEqual(findAssistantCredits('feat: plain message'), [])
   const hits = findAssistantCredits('a\nb\nCo-Authored-By: Claude <noreply@anthropic.com>')
   assert.equal(hits[0].line, 3)
+})
+
+test('isCreditExemptCommit skips only the listed landed commit, by full SHA', () => {
+  assert.equal(isCreditExemptCommit('871a87a82305a723915d46a375832b97697d26c2'), true)
+  assert.equal(isCreditExemptCommit('871a87a82305a723915d46a375832b97697d26c2\n'), true)
+  assert.equal(isCreditExemptCommit('871a87a'), false, 'a short SHA is not enough')
+  assert.equal(isCreditExemptCommit('529ade628c936943c2c59065bb9c96317665d7fe'), false)
+  assert.equal(isCreditExemptCommit(''), false)
+  assert.equal(isCreditExemptCommit(undefined), false)
 })
 
 test('the committed hooks are executable in git and call the checker', () => {
