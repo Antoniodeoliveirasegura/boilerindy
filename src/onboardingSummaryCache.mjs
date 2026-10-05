@@ -9,9 +9,10 @@
 // linking or unlinking Purdue needs no cache handling here.
 //
 // Correctness rests on invalidating a user's entry whenever those counts change.
-// Every such write funnels through a small set of choke points in server.mjs
-// (createScheduleSource, runScheduleSync, source delete, account delete), each
-// calling invalidate(). The TTL is a backstop that bounds staleness for anything
+// Every such write funnels through a small set of choke points
+// (createScheduleSource, runScheduleSync and the source delete in
+// src/routes/sources.mjs, and the account delete in server.mjs), each calling
+// invalidate(). The TTL is a backstop that bounds staleness for anything
 // not explicitly invalidated: a future write path someone forgets to hook, or a
 // multi-instance deployment where one process cannot see another's writes.
 //

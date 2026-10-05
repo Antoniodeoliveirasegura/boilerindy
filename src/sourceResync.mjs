@@ -3,8 +3,8 @@
 // A student connects a Brightspace or Purdue feed once; until now the imported
 // items only changed when they pressed Sync or "Sync all", so a due date moved
 // in Brightspace stayed stale here. A cron job now calls
-// POST /api/internal/sources/resync (server.mjs) and this module decides which
-// sources are due and runs them one at a time.
+// POST /api/internal/sources/resync (src/routes/sources.mjs) and this module
+// decides which sources are due and runs them one at a time.
 //
 // Pure core: pickSourcesToResync(rows, opts) -> the rows to sync, oldest first.
 // Shell: runSourceResync({ client, sync }) reads candidates through the
