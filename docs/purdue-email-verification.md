@@ -9,7 +9,7 @@ email can then post to the Marketplace, which needs a linked Purdue address.
 
 Mailbox ownership, and nothing else. A verified code writes the same link a CAS
 link writes (`purdue_email`, `purdue_username`, `purdue_linked_at` on the
-student's `users` row) through the same `linkPurdueIdentity` in `server.mjs`,
+student's `users` row) through the same `linkPurdueIdentity` in `src/purdueIdentity.mjs`,
 so every rule of a CAS link applies unchanged: a profile holds one Purdue
 address, an address belongs to one profile (`users.purdue_email` is unique),
 and the account-recovery and orphan-row cases resolve as they do for CAS. The

@@ -88,8 +88,8 @@ function respondModerationDbError(res, error, cfg, logLabel, message) {
  * @param {Function} deps.requireAuth           loads req.currentUser or answers 401
  * @param {Function} deps.requireAdmin          answers 403 unless req.currentUser is an admin
  * @param {Function} deps.adminWriteRateLimit   the `admin-write` limiter
- * @param {Function} deps.normalizeEmail        trims and lowercases an address; server.mjs keeps it for the auth code
- * @param {Function} deps.clearPurdueLinkOnUser clears a user's Purdue link columns; server.mjs keeps it for linkPurdueIdentity
+ * @param {Function} deps.normalizeEmail        trims and lowercases an address (src/userFields.mjs)
+ * @param {Function} deps.clearPurdueLinkOnUser clears a user's Purdue link columns (src/purdueIdentity.mjs)
  */
 export function createAdminRouter({ supabase, requireAuth, requireAdmin, adminWriteRateLimit, normalizeEmail, clearPurdueLinkOnUser }) {
   const router = express.Router()

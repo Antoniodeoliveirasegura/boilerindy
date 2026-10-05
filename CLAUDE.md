@@ -20,9 +20,8 @@ rights to the BoilerIndy name or logo.
 ## Layout
 
 - `server.mjs`: the Express app. It starts listening on import, so it is never
-  imported by a test. Routes are registered as `app.<verb>('/api/...')`; the
-  feature routers under `src/routes/` (issue #191, in progress; `layouts.mjs`
-  is the first and the shape to copy) export `createXRouter(deps)` and are
+  imported by a test. Every route is in a feature router under `src/routes/`
+  (issue #191); they export `createXRouter(deps)` and are
   mounted where their routes used to be, with absolute paths inside.
   `docs/api-routes.md` is the generated inventory of every route and the file
   it lives in (`pnpm run docs:routes`; `test/apiRoutesDoc.test.mjs` fails when
@@ -32,7 +31,7 @@ rights to the BoilerIndy name or logo.
   pins that block.
 - `src/*.mjs`: backend modules, camelCase, named exports. Anything that needs a
   test lives here with a matching `test/<name>.test.mjs` (node:test, run with
-  `pnpm test:backend`), and the route handler in `server.mjs` stays thin. The
+  `pnpm test:backend`), and the route handler stays thin. The
   shared modules the frontend also imports (`dashboardLayout.mjs`,
   `servicesLayout.mjs`, `boardLimits.mjs`, `contentReports.mjs`,
   `degreePrograms.mjs`, `purdueMajors.mjs`, `gradeTracker.mjs`) keep the browser
@@ -123,50 +122,15 @@ rights to the BoilerIndy name or logo.
 
 ## In flight
 
-- Issue #191: `server.mjs` is being split into feature routers under
-  `src/routes/`, one router per PR, in the order the issue brief gives. The
-  prerequisites (#349) and the `layouts` router (#350) landed on 2026-09-25,
-  and `lostFound`, `deals`, `guide`, `studyGroups`, `marketplace` and
-  `friends` on 2026-09-27, `dining` and `campus` on 2026-10-03, and `push`,
-  `board`, `assistant`, `analytics`, `admin`, `advertiser` (with
-  `createSpotlightRouter`), `calendarFeed`, `me` and `sources` on 2026-10-04.
-  `auth` remains, following `createLayoutsRouter`. A group with a session-free public read (`dining`,
-  `campus`, `push`) exports
-  `createXPublicRouter`, mounted in the public reads block ahead of the
-  session middleware (#250) where its `app.get` lines were, while its session
-  routes stay in `createXRouter` at the section banner (`campus` has none).
-  Anything a public router is handed has to be built above that block: a
-  `const` declared further down is still uninitialized when the mount runs.
-  The cron bearer token (`PUSH_CRON_SECRET`, `pushCronSecretMatches`) is read
-  near the top of `server.mjs`, above every mount, and handed with
-  `warnCronTransient` to the push and sources routers, which hold the two
-  cron routes. `warnFeedTransient` stays with the Sentry warnings and
-  `onboardingSummaryCache` stays one instance (the session payload reads it
-  too); the sources router is handed both.
-  The Groq client (`ai`), the AI limiters (`assistantRateLimit`,
-  `boardAiRateLimit`, `boardTagWindow`) and `warnAssistantBusy` stay in
-  `server.mjs` and are handed to the board and assistant routers, which ask
-  `ai.enabled` instead of reading `GROQ_API_KEY`. `getClassItemsForUser`,
-  `listCalendarItems` and `readScheduleOverrides` live in
-  `src/calendarReads.mjs`; `server.mjs` builds them once and hands them to
-  the me, assistant, study groups and friends routers. `normalizeEmail` and
-  `clearPurdueLinkOnUser` stay in `server.mjs` for the auth and Purdue link
-  code and are handed to the admin router until `auth` moves them. `src/routes/advertiser.mjs` pairs
-  `createAdvertiserRouter`, gated by `req.session.advertiserId` and never
-  handed `requireAuth`, with `createSpotlightRouter` for students. The portal
-  is handed `sendAdvertiserPasswordResetEmail`, as `purdueEmail` is handed
-  `sendEmail`, so its tests never reach Resend. `publicBaseUrl` is config the
-  startup log and the Purdue link routes also read, so it stays in
-  `server.mjs` and is handed to the calendar feed router, which stays behind
-  the session middleware although `/feeds/calendar/:file` has no session
-  user: the feed is per-user data, never a public read.
-  Each router has `test/routes/<name>.test.mjs`, built
-  on the recording fake in `test/routes/fakeSupabase.mjs`. A router's limiter
-  is only seen by the doc guard when it destructures the limiter under the
-  name `server.mjs` uses.
+Nothing at the moment.
 
 ## Landed recently
 
+- Issue #191 (done 2026-10-05): every route is in a router under
+  `src/routes/`, and `server.mjs` is wiring that serves only `GET /api/health`
+  and `GET /`. A new route goes in a router handed its deps at its mount line
+  (a `const` declared below it is not yet initialized), limiters under their
+  `server.mjs` names, tested in `test/routes/<name>.test.mjs`.
 - The client data cache (issues #251 and #327, 2026-09-25). Public reads
   (`lib/queries/publicData.ts`, persisted to localStorage) and per-user reads
   (`lib/queries/userData.ts`, keyed by the user id, never persisted, dropped

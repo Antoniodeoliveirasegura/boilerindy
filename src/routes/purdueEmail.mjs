@@ -18,9 +18,9 @@ import {
 
 // Purdue email-code verification (issue #181): request a code for a
 // @purdue.edu address, verify it, and read where the student stands. A
-// verified code links the address through linkPurdueIdentity, injected from
-// server.mjs, so every uniqueness, recovery and orphan rule of a CAS link
-// applies unchanged. The rules live in src/purdueEmailVerification.mjs; the
+// verified code links the address through linkPurdueIdentity
+// (src/purdueIdentity.mjs), injected from server.mjs, so every uniqueness,
+// recovery and orphan rule of a CAS link applies unchanged. The rules live in src/purdueEmailVerification.mjs; the
 // contracts are in docs/purdue-email-verification.md.
 //
 // Codes are never logged in production and never sent back in an answer. The

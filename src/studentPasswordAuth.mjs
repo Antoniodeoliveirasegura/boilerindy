@@ -5,7 +5,7 @@
 //
 // Like advertiserAuth.mjs, this module is the functional core: all Supabase
 // calls are injected so the security-critical ordering can be unit-tested
-// (see studentPasswordAuth.test.mjs). server.mjs supplies the real deps.
+// (see studentPasswordAuth.test.mjs). src/routes/auth.mjs supplies the real deps.
 
 import { verifyPassword } from './passwordHash.mjs'
 
