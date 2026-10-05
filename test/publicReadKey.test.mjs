@@ -62,6 +62,10 @@ const PUBLIC_READS = [
 test('the session middleware uses the exported cookie name', () => {
   assert.match(server, /session\(\{\n\s+name: SESSION_COOKIE_NAME,/)
   assert.ok(!server.includes(`'${SESSION_COOKIE_NAME}'`), 'server.mjs spells the cookie name through the constant')
+  // The routers that clear the cookie (auth, advertiser) import the constant too.
+  for (const { file, source } of routers) {
+    assert.ok(!source.includes(`'${SESSION_COOKIE_NAME}'`), `${file} spells the cookie name through the constant`)
+  }
 })
 
 // Where a public read is registered: an app.get line in server.mjs, or a

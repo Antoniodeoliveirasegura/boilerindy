@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 23 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+151 routes in 24 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -42,10 +42,10 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/advertiser/sign-out` | `src/routes/advertiser.mjs` |
 | POST | `/api/assistant` | `src/routes/assistant.mjs` |
 | GET | `/api/assistant/briefing` | `src/routes/assistant.mjs` |
-| GET | `/api/auth-config` | `server.mjs` |
-| POST | `/api/auth/register-supabase` | `server.mjs` |
-| POST | `/api/auth/sign-in` | `server.mjs` |
-| POST | `/api/auth/supabase-sync` | `server.mjs` |
+| GET | `/api/auth-config` | `src/routes/auth.mjs` |
+| POST | `/api/auth/register-supabase` | `src/routes/auth.mjs` |
+| POST | `/api/auth/sign-in` | `src/routes/auth.mjs` |
+| POST | `/api/auth/supabase-sync` | `src/routes/auth.mjs` |
 | POST | `/api/board/ai-suggestions` | `src/routes/board.mjs` |
 | GET | `/api/board/posts` | `src/routes/board.mjs` |
 | POST | `/api/board/posts` | `src/routes/board.mjs` |
@@ -98,7 +98,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PUT | `/api/me/dashboard` | `src/routes/layouts.mjs` |
 | GET | `/api/me/degree` | `src/routes/me.mjs` |
 | PUT | `/api/me/degree` | `src/routes/me.mjs` |
-| POST | `/api/me/delete-account` | `server.mjs` |
+| POST | `/api/me/delete-account` | `src/routes/auth.mjs` |
 | GET | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
 | POST | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
 | DELETE | `/api/me/dining/favorites` | `src/routes/dining.mjs` |
@@ -108,8 +108,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/me/grades/:id` | `src/routes/me.mjs` |
 | DELETE | `/api/me/grades/:id` | `src/routes/me.mjs` |
 | GET | `/api/me/matches` | `src/routes/friends.mjs` |
-| GET | `/api/me/profile` | `server.mjs` |
-| PATCH | `/api/me/profile` | `server.mjs` |
+| GET | `/api/me/profile` | `src/routes/auth.mjs` |
+| PATCH | `/api/me/profile` | `src/routes/auth.mjs` |
 | GET | `/api/me/profile-card` | `src/routes/friends.mjs` |
 | PUT | `/api/me/profile-card` | `src/routes/friends.mjs` |
 | POST | `/api/me/purdue-email/request` | `src/routes/purdueEmail.mjs` |
@@ -132,8 +132,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/purdue/calendar-link/cancel` | `src/routes/sources.mjs` |
 | POST | `/api/purdue/calendar-link/start` | `src/routes/sources.mjs` |
 | GET | `/api/purdue/calendar-link/status` | `src/routes/sources.mjs` |
-| POST | `/api/purdue/link-token` | `server.mjs` |
-| POST | `/api/purdue/mock-link` | `server.mjs` |
+| POST | `/api/purdue/link-token` | `src/routes/auth.mjs` |
+| POST | `/api/purdue/mock-link` | `src/routes/auth.mjs` |
 | GET | `/api/push/config` | `src/routes/push.mjs` |
 | GET | `/api/push/settings` | `src/routes/push.mjs` |
 | PUT | `/api/push/settings` | `src/routes/push.mjs` |
@@ -141,8 +141,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | DELETE | `/api/push/subscriptions` | `src/routes/push.mjs` |
 | POST | `/api/push/test` | `src/routes/push.mjs` |
 | POST | `/api/reports` | `src/routes/reports.mjs` |
-| GET | `/api/session` | `server.mjs` |
-| POST | `/api/sign-out` | `server.mjs` |
+| GET | `/api/session` | `src/routes/auth.mjs` |
+| POST | `/api/sign-out` | `src/routes/auth.mjs` |
 | DELETE | `/api/sources/:sourceId` | `src/routes/sources.mjs` |
 | POST | `/api/sources/brightspace/schedule` | `src/routes/sources.mjs` |
 | POST | `/api/sources/purdue/schedule` | `src/routes/sources.mjs` |
@@ -158,7 +158,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/transit/stops` | `src/routes/campus.mjs` |
 | GET | `/api/transit/vehicles` | `src/routes/campus.mjs` |
 | POST | `/api/usage/events` | `src/routes/analytics.mjs` |
-| GET | `/auth/purdue/callback` | `server.mjs` |
-| GET | `/auth/purdue/connect` | `server.mjs` |
-| POST | `/auth/purdue/dev/link` | `server.mjs` |
+| GET | `/auth/purdue/callback` | `src/routes/auth.mjs` |
+| GET | `/auth/purdue/connect` | `src/routes/auth.mjs` |
+| POST | `/auth/purdue/dev/link` | `src/routes/auth.mjs` |
 | GET | `/feeds/calendar/:file` | `src/routes/calendarFeed.mjs` |
