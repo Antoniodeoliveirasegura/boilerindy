@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 
 // Purdue email-code verification (issue #181): a student proves they own a
 // @purdue.edu mailbox by typing a six-digit code mailed to it, and the address
-// is then linked through linkPurdueIdentity (server.mjs), the same function
+// is then linked through linkPurdueIdentity (src/purdueIdentity.mjs), the same function
 // the CAS callback and the dev mock use. Pure, so every rule is unit-tested
 // without the database or an email provider; the three routes are in
 // src/routes/purdueEmail.mjs, the table in db/supabase-purdue-email-verification.sql.

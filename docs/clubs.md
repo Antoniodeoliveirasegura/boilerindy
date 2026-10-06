@@ -48,10 +48,10 @@ failing.
   - `fetchClubDirectory()` pages through the API (first page for the count,
     the rest in parallel, 300 per page, 15 s timeout) and never throws.
   - `createClubDirectoryCache()` keeps the last good directory in memory.
-- `server.mjs` serves `GET /api/clubs` through the `clubs-read` rate limiter
-  (300 requests per 15 minutes per IP, its own bucket so search-as-you-type
-  does not eat the live transit / dining budget) and warms the cache five
-  seconds after boot.
+- `src/routes/campus.mjs` serves `GET /api/clubs` through the `clubs-read`
+  rate limiter (300 requests per 15 minutes per IP, its own bucket so
+  search-as-you-type does not eat the live transit / dining budget);
+  `server.mjs` builds the cache and warms it five seconds after boot.
 - `boilerindy-react/src/lib/clubs.ts` holds the client types and helpers;
   `pages/Clubs.tsx` is the page. Services links to it from the Campus Life
   card and the In-App Shortcuts tile.

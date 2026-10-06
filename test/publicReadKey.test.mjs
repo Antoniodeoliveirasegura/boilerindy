@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { SESSION_COOKIE_NAME, publicReadBucketKey, readCookie } from '../src/publicReadKey.mjs'
 
@@ -42,8 +42,13 @@ test('different cookies land in different buckets and the raw value never leaks 
 })
 
 // server.mjs starts listening on import, so the ordering it must keep is
-// checked as text, the way test/rateLimitDocs.test.mjs reads it.
+// checked as text, the way test/rateLimitDocs.test.mjs reads it, across
+// server.mjs and the feature routers under src/routes/ (issue #191).
 const server = readFileSync(fileURLToPath(new URL('../server.mjs', import.meta.url)), 'utf8')
+const routesDir = new URL('../src/routes/', import.meta.url)
+const routers = readdirSync(fileURLToPath(routesDir))
+  .filter((name) => name.endsWith('.mjs'))
+  .map((name) => ({ file: `src/routes/${name}`, source: readFileSync(new URL(name, routesDir), 'utf8') }))
 const PUBLIC_READS = [
   '/api/transit/vehicles',
   '/api/transit/stops',
@@ -57,18 +62,55 @@ const PUBLIC_READS = [
 test('the session middleware uses the exported cookie name', () => {
   assert.match(server, /session\(\{\n\s+name: SESSION_COOKIE_NAME,/)
   assert.ok(!server.includes(`'${SESSION_COOKIE_NAME}'`), 'server.mjs spells the cookie name through the constant')
+  // The routers that clear the cookie (auth, advertiser) import the constant too.
+  for (const { file, source } of routers) {
+    assert.ok(!source.includes(`'${SESSION_COOKIE_NAME}'`), `${file} spells the cookie name through the constant`)
+  }
 })
+
+// Where a public read is registered: an app.get line in server.mjs, or a
+// router.get line inside a router factory, in which case what has to come
+// before the session middleware is the line in server.mjs that mounts it.
+function publicReadRegistrations(path) {
+  const found = []
+  for (let at = server.indexOf(`app.get('${path}',`); at >= 0; at = server.indexOf(`app.get('${path}',`, at + 1)) {
+    found.push({ where: 'server.mjs', at })
+  }
+  for (const { file, source } of routers) {
+    for (let at = source.indexOf(`router.get('${path}',`); at >= 0; at = source.indexOf(`router.get('${path}',`, at + 1)) {
+      const factory = [...source.slice(0, at).matchAll(/export function (create\w+Router)\(/g)].pop()?.[1]
+      found.push({ where: `${file} ${factory}`, factory, at: server.indexOf(`app.use(${factory}(`) })
+    }
+  }
+  return found
+}
 
 test('every public read is registered before the session middleware', () => {
   const sessionAt = server.indexOf('app.use(\n  session({')
   assert.ok(sessionAt > 0, 'session middleware not found')
   for (const path of PUBLIC_READS) {
-    const at = server.indexOf(`app.get('${path}',`)
-    assert.ok(at > 0, `${path} is not registered with app.get`)
-    assert.ok(at < sessionAt, `${path} is registered after the session middleware, so its responses would set the cookie`)
-    assert.equal(server.indexOf(`app.get('${path}',`, at + 1), -1, `${path} is registered twice`)
+    const found = publicReadRegistrations(path)
+    assert.equal(found.length, 1, `${path} is registered ${found.length} times (${found.map((f) => f.where).join(', ')})`)
+    const [{ where, factory, at }] = found
+    if (factory) {
+      assert.ok(at > 0, `${where} is never mounted with app.use(${factory}(...))`)
+      assert.equal(server.indexOf(`app.use(${factory}(`, at + 1), -1, `${factory} is mounted twice`)
+    }
+    assert.ok(at < sessionAt, `${path} (${where}) is registered after the session middleware, so its responses would set the cookie`)
   }
 })
+
+// A handler's source, from server.mjs or a router, up to its closing brace at
+// the indentation it was declared with.
+function handlerSource(name) {
+  for (const source of [server, ...routers.map((r) => r.source)]) {
+    const start = source.indexOf(`function ${name}(`)
+    if (start < 0) continue
+    const indent = source.slice(source.lastIndexOf('\n', start) + 1, start).match(/^\s*/)[0]
+    return source.slice(start, source.indexOf(`\n${indent}}\n`, start))
+  }
+  return null
+}
 
 test('every public read answers with the cache header the edge needs', () => {
   const expected = {
@@ -81,18 +123,15 @@ test('every public read answers with the cache header the edge needs', () => {
     handleDining: "'public, max-age=120, s-maxage=300'",
   }
   for (const [handler, header] of Object.entries(expected)) {
-    const start = server.indexOf(`function ${handler}(`)
-    assert.ok(start > 0, `${handler} not found`)
-    const end = server.indexOf('\n}\n', start)
-    const body = server.slice(start, end)
+    const body = handlerSource(handler)
+    assert.ok(body, `${handler} not found`)
     assert.ok(body.includes(`res.set('Cache-Control', ${header})`), `${handler} does not set Cache-Control ${header}`)
   }
 })
 
 test('a dining outage answer and a forced refresh are never stored', () => {
-  const start = server.indexOf('function handleDining(')
-  assert.ok(start > 0, 'handleDining not found')
-  const body = server.slice(start, server.indexOf('\n}\n', start))
+  const body = handlerSource('handleDining')
+  assert.ok(body, 'handleDining not found')
   assert.ok(
     body.includes("if (data.ok && !forceRefresh) res.set('Cache-Control', 'public, max-age=120, s-maxage=300')"),
     'the public header is not limited to a good, unforced snapshot',

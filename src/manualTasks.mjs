@@ -2,9 +2,10 @@
 // /api/me/tasks/manual/:id share these parsers so create and update agree on
 // what a title and a due date may be. Before this, PATCH ignored `dueAt: null`
 // (so a deadline could never be removed) and silently dropped a malformed date.
-// server.mjs and the e2e mock backend both build their rows and responses from
-// parseManualTaskCreate, parseManualTaskUpdate and mapManualTaskRow, so the route
-// handlers stay thin and the tests here cover what they store and return.
+// src/routes/me.mjs and the e2e mock backend both build their rows and
+// responses from parseManualTaskCreate, parseManualTaskUpdate and
+// mapManualTaskRow, so the route handlers stay thin and the tests here cover
+// what they store and return.
 
 export const MAX_TASK_TITLE = 500
 

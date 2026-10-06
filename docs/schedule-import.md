@@ -28,8 +28,8 @@ box when it is wrong:
 - the Personal Schedule page itself pasted instead of its export link.
 
 The server remains the real gate: `assertSafeHttpUrl` (SSRF checks, redirect
-re-validation) plus `SCHEDULE_SOURCE_HOSTS` in `server.mjs`. The client list
-must be kept identical to it.
+re-validation) plus `SCHEDULE_SOURCE_HOSTS` in `src/routes/sources.mjs`. The
+client list must be kept identical to it.
 
 This was the recommended option in #120 because it works in production
 today, needs no new infrastructure, and keeps Purdue credentials entirely on

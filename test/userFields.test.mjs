@@ -9,6 +9,7 @@ import {
   deriveDisplayName,
   normalizeAvatarUrl,
   normalizeDisplayName,
+  normalizeEmail,
   normalizeProfileName,
   normalizeProvider,
 } from '../src/userFields.mjs'
@@ -138,4 +139,12 @@ test('normalizeProvider keeps allowlisted providers and falls back otherwise', (
   assert.equal(normalizeProvider('', 'email'), 'email')
   assert.equal(normalizeProvider(undefined, 'email'), 'email')
   assert.equal(normalizeProvider({ provider: 'google' }, 'local'), 'local')
+})
+
+test('normalizeEmail trims and lowercases, and turns a missing address into an empty string', () => {
+  assert.equal(normalizeEmail('  Pete@Purdue.EDU \n'), 'pete@purdue.edu')
+  assert.equal(normalizeEmail('pete@example.com'), 'pete@example.com')
+  assert.equal(normalizeEmail(''), '')
+  assert.equal(normalizeEmail(undefined), '')
+  assert.equal(normalizeEmail(null), '')
 })
