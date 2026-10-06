@@ -32,9 +32,10 @@ The static garage table and the permit rules come from
   (`Lockefield Student Garage` -> `lockefield`), normalizes the counts, and
   sorts known garages by available spaces with unknown ones last.
   `fetchParkingStatus()` is the thin shell around `fetch` with a 10 s timeout.
-- `server.mjs` serves `GET /api/parking/garages` through the `public-read`
-  rate limiter and the in-memory TTL cache (`PARKING_STATUS_CACHE_MS`,
-  default 60 s, floor 15 s), so IU sees at most one request per TTL.
+- `src/routes/campus.mjs` serves `GET /api/parking/garages` through the
+  `public-read` rate limiter and `server.mjs`'s in-memory TTL cache
+  (`PARKING_STATUS_CACHE_MS`, default 60 s, floor 15 s), so IU sees at most
+  one request per TTL.
 - `boilerindy-react/src/lib/parking.ts` holds the client types and formatting
   helpers; `pages/Parking.tsx` is the page; `components/map/ParkingGarageLayer.tsx`
   draws the pins, switched by the shared layer toggle (`components/map/mapLayers.ts`,

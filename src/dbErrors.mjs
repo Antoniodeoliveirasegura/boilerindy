@@ -132,8 +132,9 @@ export const DB_FEATURES = Object.freeze({
     ['db/supabase-advertiser-portal.sql', 'db/supabase-advertiser-campaigns.sql'],
     'Something went wrong. Please try again.',
   ),
-  // Admin soft-delete moderation. server.mjs overrides label and sqlFile per
-  // content type, since each table's deleted_at column comes from its own file.
+  // Admin soft-delete moderation. src/routes/admin.mjs overrides label and
+  // sqlFile per content type, since each table's deleted_at column comes from
+  // its own file.
   moderation: dbFeature(
     'moderation',
     'Moderation',

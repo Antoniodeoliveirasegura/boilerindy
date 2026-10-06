@@ -1,6 +1,6 @@
 // Marketplace database helpers (issue #191), shared by src/routes/marketplace.mjs
-// and the admin hidden-listing routes in server.mjs. The two readers take the
-// Supabase client first, so both callers pass the one they hold.
+// and the admin hidden-listing routes in src/routes/admin.mjs. The two readers
+// take the Supabase client first, so both callers pass the one they hold.
 
 import { DB_FEATURES, respondSchemaMissing, respondSoftDeleteFeatureDbError } from './dbErrors.mjs'
 import { isMissingGalleryPricingColumn, MARKETPLACE_GALLERY_PRICING_SQL_FILE } from './marketplace.mjs'

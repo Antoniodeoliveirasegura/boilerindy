@@ -17,7 +17,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { findAssistantCredits, findDashes, isDashExempt } from './lib/conventions.mjs'
+import { findAssistantCredits, findDashes, isCreditExemptCommit, isDashExempt } from './lib/conventions.mjs'
 
 const NULL_SHA = /^0+$/
 
@@ -86,6 +86,7 @@ function checkCommits(range) {
   const bad = []
   for (const entry of commits) {
     const [sha, subject, body] = entry.split('\x1f')
+    if (isCreditExemptCommit(sha)) continue
     for (const hit of findAssistantCredits(body || '')) {
       bad.push(`${sha.slice(0, 7)} (${subject}): ${hit.excerpt}`)
     }
