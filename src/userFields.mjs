@@ -5,6 +5,10 @@
 // marketplace and connections, so an unbounded or non-string name either
 // inflates every list response or throws a TypeError from `.trim`. Avatar URLs
 // and the auth provider were stored exactly as the client sent them.
+//
+// normalizeEmail (issue #191) is the one email normalizer the auth router, the
+// Purdue identity link (src/purdueIdentity.mjs) and the admin link release
+// share; it moved here from server.mjs unchanged.
 
 export const MAX_DISPLAY_NAME = 80
 export const MAX_AVATAR_URL = 2048
@@ -12,6 +16,10 @@ export const ALLOWED_AUTH_PROVIDERS = Object.freeze(['email', 'google', 'apple',
 
 export const DISPLAY_NAME_MESSAGE = `Display name must be text up to ${MAX_DISPLAY_NAME} characters.`
 export const AVATAR_URL_MESSAGE = `Avatar URL must be an https link up to ${MAX_AVATAR_URL} characters.`
+
+export function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase()
+}
 
 function collapseWhitespace(text) {
   return text.replace(/\s+/g, ' ').trim()

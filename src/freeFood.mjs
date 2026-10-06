@@ -3,7 +3,8 @@
 // Pure keyword matcher for the Free Food feature (issue #46). Given an event's
 // title and description, decide whether it advertises free food. Kept I/O-free
 // so the keyword rules are unit-testable, and exported as a single function so
-// server.mjs can flag calendar items without duplicating the word list.
+// the calendar reads (src/calendarReads.mjs) can flag calendar items without
+// duplicating the word list.
 
 // Multi-word phrases and single words that reliably signal free food at a
 // campus event. Matched case-insensitively on word boundaries (see below).

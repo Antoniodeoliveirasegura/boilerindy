@@ -24,6 +24,21 @@ const ASSISTANT = /\b(claude|copilot|codex|chatgpt|gemini)\b|anthropic\.com|open
 // puts in its footers, in Claude-Session trailers and in PR descriptions.
 const FOOTER = /generated (?:with|by)[\s*_[]*claude|claude\.ai\/code\b/i
 
+// Commits already on develop whose message the commit scan skips. History on
+// a shared branch is not rewritten, so a commit that slipped through is listed
+// here by full SHA with the reason, and the scan stays strict for every other
+// commit. Add to this list only for a commit that has already landed.
+const CREDIT_EXEMPT_COMMITS = new Map([
+  // #409 squash-merged with GitHub's default message, which added an AI
+  // co-author trailer (2026-10-04, issue #191).
+  ['871a87a82305a723915d46a375832b97697d26c2', 'issue #191: #409 squash trailer'],
+])
+
+/** True for a landed commit whose message the AI-credit scan skips. */
+export function isCreditExemptCommit(sha) {
+  return CREDIT_EXEMPT_COMMITS.has(String(sha || '').trim())
+}
+
 /** True for paths the dash scan does not read (lockfiles, images, fonts). */
 export function isDashExempt(path) {
   return DASH_EXEMPT.test(path)

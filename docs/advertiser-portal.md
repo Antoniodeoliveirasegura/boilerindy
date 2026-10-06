@@ -40,8 +40,8 @@ real, served ads.
 
 The student app's auth is the template to mirror (but **not** entangle):
 - Express session cookie `pih.sid`; `req.session.userId` identifies the principal.
-- `requireAuth` (server.mjs ~L427) → `getCurrentUser` → `getUserById(req.session.userId)`.
-- Sign-in (`POST /api/auth/sign-in`, ~L912) regenerates the session, sets `userId`.
+- `requireAuth` (server.mjs) → `getCurrentUser` → `getUserById(req.session.userId)`.
+- Sign-in (`POST /api/auth/sign-in`, `src/routes/auth.mjs`) regenerates the session, sets `userId`.
 - Server uses a single service-role Supabase client (`supabase`, server-side only).
 - Migrations are plain `.sql` files run once in the Supabase SQL editor
   (e.g. `db/supabase-dashboard-layout.sql`).
@@ -112,7 +112,7 @@ code, matching the existing `users`/`linked_sources` pattern).
 
 ---
 
-## 4. API surface (Express, server.mjs)
+## 4. API surface (Express, src/routes/advertiser.mjs)
 
 Auth (separate from student auth):
 - `POST /api/advertiser/sign-in` - verify against `advertisers`, regenerate session,
