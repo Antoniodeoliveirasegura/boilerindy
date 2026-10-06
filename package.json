@@ -22,9 +22,9 @@
     "vapid:generate": "node scripts/generate-vapid-keys.mjs"
   },
   "dependencies": {
-    "@sentry/node": "^11.0.0",
+    "@sentry/node": "^11.2.0",
     "@supabase/supabase-js": "^2.117.2",
-    "dotenv": "^18.0.4",
+    "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "node-ical": "^0.27.2"
