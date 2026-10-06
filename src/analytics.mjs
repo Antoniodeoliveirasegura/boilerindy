@@ -16,6 +16,10 @@ export const ANALYTICS_EVENTS = [
   'task_completed',
   'deal_viewed',
   'deal_clicked',
+  'guide_viewed',
+  'marketplace_viewed',
+  'friends_viewed',
+  'study_groups_viewed',
 ]
 
 export const ANALYTICS_BATCH_MAX = 20
