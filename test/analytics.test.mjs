@@ -1,10 +1,36 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   ANALYTICS_EVENTS,
   ANALYTICS_BATCH_MAX,
   normalizeAnalyticsBatch,
 } from '../src/analytics.mjs'
+
+const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url))
+const WEB_SRC = join(REPO_ROOT, 'boilerindy-react', 'src')
+const SOURCE_FILE = /\.(js|jsx|ts|tsx)$/
+const TEST_FILE = /\.test\.(js|jsx|ts|tsx)$/
+const TRACK_CALL = /\btrack\(\s*['"`]([a-z0-9_]+)['"`]/g
+
+// Every event name the website passes to track(), mapped to the first file
+// that sends it. Test files are skipped: they may send names on purpose.
+function trackedEventNames(dir = WEB_SRC, names = new Map()) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      trackedEventNames(path, names)
+    } else if (SOURCE_FILE.test(entry.name) && !TEST_FILE.test(entry.name)) {
+      for (const [, name] of readFileSync(path, 'utf8').matchAll(TRACK_CALL)) {
+        if (!names.has(name)) names.set(name, relative(REPO_ROOT, path))
+      }
+    }
+  }
+  return names
+}
 
 test('allowlist contains the issue #51 starter events', () => {
   for (const name of [
@@ -17,6 +43,17 @@ test('allowlist contains the issue #51 starter events', () => {
     'task_completed',
   ]) {
     assert.ok(ANALYTICS_EVENTS.includes(name), `${name} missing from allowlist`)
+  }
+})
+
+// One unknown name makes normalizeAnalyticsBatch reject the whole batch, and
+// usageStats.ts has already taken the batch off its queue, so a page that
+// tracks an unlisted name silently loses its page_view too (#421).
+test('every track() call in the website names an allowlisted event', () => {
+  const names = trackedEventNames()
+  assert.ok(names.has('page_view'), 'found no track("page_view") call: did the website source move?')
+  for (const [name, file] of names) {
+    assert.ok(ANALYTICS_EVENTS.includes(name), `${name} is tracked in ${file} but missing from ANALYTICS_EVENTS`)
   }
 })
 

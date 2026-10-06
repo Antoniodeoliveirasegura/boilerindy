@@ -20,6 +20,9 @@ accurate data disclosure required for app-store listing (issue #26).
 
 Only these names are accepted (`ANALYTICS_EVENTS` in `analytics.mjs`); anything
 else is rejected with a 400. Add new events to the constant **and** this table.
+One unknown name rejects the whole batch, and the client has already taken the
+batch off its queue, so `test/analytics.test.mjs` fails CI when a `track()` call
+in `boilerindy-react/src/` names an event the constant lacks (#421).
 
 | Event | Fired when |
 |---|---|
@@ -32,6 +35,10 @@ else is rejected with a 400. Add new events to the constant **and** this table.
 | `task_completed` | A task is marked complete |
 | `deal_viewed` | Perks page opened |
 | `deal_clicked` | A deal's address link (to Google Maps) on the Perks page, or the featured-perk banner on Home, is clicked (`page` tells the two apart) |
+| `guide_viewed` | Guide page opened |
+| `marketplace_viewed` | Marketplace page opened |
+| `friends_viewed` | Friends page opened |
+| `study_groups_viewed` | Study groups page opened |
 
 ## Privacy guarantees
 
