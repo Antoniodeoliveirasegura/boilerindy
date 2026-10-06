@@ -140,6 +140,49 @@ test('a keyBy returning adv:<id> buckets separately from the IP bucket on the sa
   }
 })
 
+// ── The blocked-request log line (#422) ──────────────────────────────────────
+
+/** Run the middleware until it blocks; return the console.warn lines it wrote. */
+function blockedLogLines(limiter, ctx) {
+  const lines = []
+  const warn = console.warn
+  console.warn = (...args) => lines.push(args.join(' '))
+  try {
+    assert.equal(pass(limiter, ctx), true)
+    assert.equal(pass(limiter, ctx), false)
+  } finally {
+    console.warn = warn
+  }
+  return lines
+}
+
+test('the blocked log names the route pattern, never a path that carries the feed token (#422)', () => {
+  const limiter = createRateLimiter({ name: 'test-log-route', windowMs: 60_000, max: 1, keyBy: 'ip' })
+  const token = '9b2f6c1e-3d4a-4c5b-8e7f-0a1b2c3d4e5f'
+  const feed = mockReqRes({ ip: '10.0.0.40' })
+  Object.assign(feed.req, { method: 'GET', path: `/feeds/calendar/${token}.ics`, baseUrl: '', route: { path: '/feeds/calendar/:file' } })
+
+  const lines = blockedLogLines(limiter, feed)
+  assert.equal(lines.length, 1)
+  assert.match(lines[0], /^\[rate-limit\] test-log-route: blocked ip:10\.0\.0\.40 on GET \/feeds\/calendar\/:file \(2 requests, limit 1\/60s\)$/)
+  assert.ok(!lines[0].includes(token), 'the feed token must not reach the log')
+})
+
+test('the blocked log keeps the mount prefix of a router mounted under a path', () => {
+  const limiter = createRateLimiter({ name: 'test-log-prefix', windowMs: 60_000, max: 1, keyBy: 'ip' })
+  const ctx = mockReqRes({ ip: '10.0.0.41' })
+  Object.assign(ctx.req, { path: '/items/42', baseUrl: '/api/things', route: { path: '/items/:id' } })
+
+  assert.match(blockedLogLines(limiter, ctx)[0], / on POST \/api\/things\/items\/:id /)
+})
+
+test('without a matched route the blocked log falls back to the path', () => {
+  const limiter = createRateLimiter({ name: 'test-log-path', windowMs: 60_000, max: 1, keyBy: 'ip' })
+  const ctx = mockReqRes({ ip: '10.0.0.42' })
+
+  assert.match(blockedLogLines(limiter, ctx)[0], / on POST \/api\/test /)
+})
+
 // ── onLimit (#293) ───────────────────────────────────────────────────────────
 
 test('onLimit answers a blocked request in place of the JSON 429', () => {

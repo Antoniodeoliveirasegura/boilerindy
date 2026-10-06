@@ -7,7 +7,9 @@ the signed-in user id when a session exists, otherwise by client IP.
 When a limit is hit the API responds `429` with a user-friendly message,
 standard `RateLimit-*` headers, and a `Retry-After` header. The first blocked
 request per window is logged to the server console with the offending key,
-method, and path for abuse review.
+method, and route pattern for abuse review. It names the pattern
+(`/feeds/calendar/:file`) rather than the concrete path, because a path can carry
+a credential such as the calendar feed token (#422).
 
 ## Endpoint coverage
 
