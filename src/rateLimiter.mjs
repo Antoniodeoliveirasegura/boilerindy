@@ -90,6 +90,15 @@ export function createRateWindow({ name, windowMs, max }) {
   return { name, limit, windowMs: window, hit }
 }
 
+// What the blocked-request log names: the matched route pattern, not the
+// concrete path, because a path can carry a credential (the calendar feed's
+// token is its file name, issue #422). Every limiter runs as route middleware,
+// where Express has set req.route; anything else logs the path as before.
+function routeForLog(req) {
+  const pattern = req.route?.path
+  return typeof pattern === 'string' ? `${req.baseUrl || ''}${pattern}` : req.path
+}
+
 /**
  * Build an Express middleware enforcing `max` requests per `windowMs`.
  *
@@ -133,7 +142,7 @@ export function createRateLimiter({ name, windowMs, max, keyBy = 'userOrIp', mes
     if (!entry.logged) {
       entry.logged = true
       console.warn(
-        `[rate-limit] ${name}: blocked ${key} on ${req.method} ${req.path} ` +
+        `[rate-limit] ${name}: blocked ${key} on ${req.method} ${routeForLog(req)} ` +
           `(${count} requests, limit ${limit}/${Math.round(window / 1000)}s)`,
       )
     }
