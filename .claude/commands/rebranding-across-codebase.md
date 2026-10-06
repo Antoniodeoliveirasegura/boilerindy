@@ -17,6 +17,7 @@ Systematically update all references to a product or brand name throughout the e
 - `**/package.json`
 - `**/pnpm-lock.yaml`
 - `**/public/favicon.svg`
+- `**/public/app-icon.svg`
 - `**/public/icons.svg`
 - `**/src/components/**/*.tsx`
 - `**/src/pages/**/*.tsx`
