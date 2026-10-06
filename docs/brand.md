@@ -14,7 +14,7 @@ that (issue #112) so the posture does not drift.
 | Name | BoilerIndy | Own wordmark, plain text, no logo lockup with Purdue's. |
 | Gold (light theme) | `#D4A84B` | `--color-gold` in `boilerindy-react/src/index.css`. |
 | Gold (dark theme) | `#E8C878` | `--color-gold` under `[data-theme="dark"]`. |
-| Icons | `boilerindy-react/public/favicon.svg` and the PNGs rendered from it | Self-drawn. |
+| Icons | `boilerindy-react/public/app-icon.svg` (Monument Circle), `favicon.svg` (the relief B) and the PNGs rendered from the app icon | Self-drawn. Both SVGs switch from ink on gold to gold on ink under `prefers-color-scheme: dark`; the PNGs use the gold (light) colourway. |
 
 The gold is deliberately not Purdue's official `#CFB991` (Boilerexams, a peer
 student project, made the same call with `#D0BA92`). `test/brandGold.test.mjs`
