@@ -21,7 +21,7 @@ coding conventions live in the root [README.md](../README.md).
 - [parking-status.md](parking-status.md) - live garage availability for Purdue Indianapolis students, behind the `/parking` page, the campus map layer and `GET /api/parking/garages` (issue #14).
 - [purdue-email-verification.md](purdue-email-verification.md) - how a student links a `@purdue.edu` address to their BoilerIndy account by typing a six-digit code mailed to it, with no Purdue CAS round trip and no admin or database step (issue #181).
 - [purdue-link.md](purdue-link.md) - the short-lived, single-use token that lets the native app link a Purdue identity without the `pih.sid` session cookie (issue #214).
-- [push-notifications.md](push-notifications.md) - Web Push deadline reminders: the `/settings` card, the `/api/push/` routes behind it, and the reminder runner the Supabase scheduler triggers every 5 minutes (issue #9).
+- [push-notifications.md](push-notifications.md) - Web Push deadline reminders: the `/settings` card, the `/api/push/` routes behind it, and the reminder runner the Supabase scheduler triggers every 5 minutes (issue #9); the native app's Expo push tokens and their delivery (issue #194).
 - [RATE_LIMITS.md](RATE_LIMITS.md) - the configurable, in-memory rate limiting that protects the backend, keyed by the signed-in user id when a session exists and otherwise by client IP.
 - [schedule-import.md](schedule-import.md) - how a student gets their classes and due dates into BoilerIndy, and why the production path is a pasted link (issue #120).
 - [shared-campus-events.md](shared-campus-events.md) - a design note, proposed and not implemented, for campus events that are shared rather than owned by one student's feed.

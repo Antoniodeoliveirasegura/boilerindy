@@ -33,8 +33,8 @@ Not every route has moved to this envelope yet, so a client should read
 | `blocked_users_schema_missing` | 503 | `/api/me/blocks*` | `blocked_users` is missing: README step 38, `db/supabase-report-and-block.sql`, has not run (see [moderation.md](moderation.md)). The lists that hide blocked users keep working and hide nobody. | Tell the student blocking is not available yet. |
 | `advertiser_schema_missing` | 503 | `/api/advertiser/*`, and the portal admin routes `/api/admin/leads*`, `/api/admin/campaigns*`, `/api/admin/advertisers` | Advertiser portal tables (portal, campaigns or password resets) are missing. Count-only reads cannot see a missing table: `/api/admin/overview` and the impression and tap counts of `/api/advertiser/campaigns/:id/stats` answer `200` with zeros instead. | Show the portal as unavailable. |
 | `moderation_schema_missing` | 503 | `/api/admin/deleted/:type*`, `/api/admin/content/:type/:id` | That content type has no `deleted_at` column yet: `db/supabase-study-groups-soft-delete.sql` for `study-groups`, `db/supabase-soft-delete.sql` for every other type. | Admin view: show the message for that type. Retrying does not help until the migration runs; the message does not name the file (see below). |
-| `push_not_configured` | 503 | `/api/push/*` | Push tables are missing (`db/supabase-push.sql`). Its message still names that file. | Show notifications as not set up (the website Settings card does). |
-| `push_disabled` | 503 | `/api/push/*` | The server has no VAPID keys. | Treat push as switched off. |
+| `push_not_configured` | 503 | `/api/push/*`, `/api/me/push-token` | Push tables are missing (`db/supabase-push.sql`), or on `/api/me/push-token` the `push_devices` table is (`db/supabase-push-devices.sql`, issue #194). The message still names the file. `GET /api/push/settings` does not answer it for a missing `push_devices`: it lists no devices instead. | Show notifications as not set up (the website Settings card does). |
+| `push_disabled` | 503 | `/api/push/*`, `POST /api/me/push-token` | The server has no VAPID keys. They switch off the native app's push too. | Treat push as switched off. |
 | `purdue_email_verification_schema_missing` | 503 | `/api/me/purdue-email/*` | `purdue_email_challenges` is missing: README step 39, `db/supabase-purdue-email-verification.sql`, has not run (see [purdue-email-verification.md](purdue-email-verification.md)). Linking through CAS or the mock is unaffected. | Show email verification as not available yet. |
 | `purdue_linking_disabled` | 400 | `POST /api/purdue/link-token` | `PURDUE_AUTH_MODE=off`. | Hide the Purdue link option. See [purdue-link.md](purdue-link.md). |
 | `purdue_link_unconfigured` | 503 | `POST /api/purdue/link-token` | `SESSION_SECRET` is shorter than 32 characters. | Show linking as unavailable. |
@@ -107,7 +107,8 @@ table. Show the message and let the student retry later.
 These routes predate the envelope rules above. Until they move over, a client
 must not assume `error` is an object or that its `message` is safe to show.
 
-- `push_not_configured`: the message names `db/supabase-push.sql`.
+- `push_not_configured`: the message names `db/supabase-push.sql`, or
+  `db/supabase-push-devices.sql` on `/api/me/push-token`.
 - Manual tasks (`/api/me/tasks/calendar/complete`, `/api/me/tasks/manual*`),
   grades (`/api/me/grades*`) and dining favorites (`/api/me/dining/favorites`)
   answer `500 { error: { message } }` with the raw database message and no
