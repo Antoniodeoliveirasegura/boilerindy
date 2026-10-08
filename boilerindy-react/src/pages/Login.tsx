@@ -4,6 +4,7 @@ import { useAuth, type BackendSession } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { parseNextPath, registerSupabaseUser, resolvePostLoginPath } from '../lib/authApi'
 import { sendPasswordResetEmail, signInWithEmail, signInWithGoogle, supabase } from '../lib/supabase'
+import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import SkipLink from '../components/SkipLink'
@@ -248,7 +249,7 @@ export default function Login() {
         </div>
 
         <Link to="/" className="relative inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-gold-light)] no-underline w-fit">
-          <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>
+          <BrandMark />
           BoilerIndy
         </Link>
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import BrandMark from './BrandMark'
 import Icon from './Icons'
 
 const navItems = [
@@ -50,12 +51,10 @@ export default function Navbar() {
             className="flex items-center gap-2.5 group"
           >
             <div className="relative">
-              <span className="bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-lg tracking-wider shadow-sm group-hover:shadow-md transition-shadow duration-300">
-                BI
-</span>
+              <BrandMark className="rounded-[22%] shadow-sm group-hover:shadow-md transition-shadow duration-300" />
               <div className="absolute inset-0 bg-[var(--color-gold)] rounded-lg opacity-0 group-hover:opacity-20 blur-md transition-opacity duration-300" />
             </div>
-            <span className="text-[15px] font-semibold text-[var(--color-txt-0)] tracking-tight hidden sm:block">
+            <span className="text-[15px] font-semibold text-[var(--color-txt-0)] tracking-tight sr-only sm:not-sr-only">
               BoilerIndy
             </span>
           </Link>
