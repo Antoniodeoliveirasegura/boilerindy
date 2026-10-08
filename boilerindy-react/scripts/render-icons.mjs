@@ -60,10 +60,9 @@ const appIconBare = appIcon.replace(GROUND_RECT, '')
 // alpha and paints the shape in its own colour. The bare subject's elements drawn
 // at partial opacity (the blurred ground shadow, the 14% plaza disc inside the
 // ring and the shaft's highlight) would come out as faint grey shapes, the shadow
-// a smudge under the ring at 48px, so this one render drops them; the rest is
-// drawn black by `filter: brightness(0)`.
-const PARTIAL_OPACITY = /<[a-z]+\b[^>]*\sopacity="([\d.]+)"[^>]*\/>/g
-const appIconSilhouette = appIconBare.replace(PARTIAL_OPACITY, (m, opacity) => (Number(opacity) < 1 ? '' : m))
+// a smudge under the ring at 48px, so this one render hides them (an opacity
+// attribute below 1 starts with "0" or ".") and draws the rest black.
+const SILHOUETTE_CSS = 'svg { filter: brightness(0); } svg [opacity^="0"], svg [opacity^="."] { display: none; }'
 
 const baseStyle = `
   html, body { margin: 0; padding: 0; }
@@ -71,12 +70,13 @@ const baseStyle = `
   svg { display: block; }
 `
 
-// A square page with `svg` centred at `glyph` px on `background`, through `filter`.
-function iconPage({ size, glyph, background, svg, filter = 'none' }) {
+// A square page with `svg` centred at `glyph` px on `background`, plus any `css`.
+function iconPage({ size, glyph, background, svg, css = '' }) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>${baseStyle}
     body { width: ${size}px; height: ${size}px; background: ${background};
            display: flex; align-items: center; justify-content: center; }
-    svg { width: ${glyph}px; height: ${glyph}px; filter: ${filter}; }
+    svg { width: ${glyph}px; height: ${glyph}px; }
+    ${css}
   </style></head><body>${svg}</body></html>`
 }
 
@@ -158,7 +158,7 @@ const ASSETS = [
     file: 'icons/icon-512-monochrome.png',
     width: 512,
     height: 512,
-    html: iconPage({ size: 512, glyph: maskableGlyph, background: 'transparent', svg: appIconSilhouette, filter: 'brightness(0)' }),
+    html: iconPage({ size: 512, glyph: maskableGlyph, background: 'transparent', svg: appIconBare, css: SILHOUETTE_CSS }),
     omitBackground: true,
     // Same inset as the maskable icon, with nothing but the subject drawn.
     checks: [[0, 0, 'transparent'], [511, 511, 'transparent'], [50, 256, 'transparent'], inkAt(512, maskableGlyph, 'opaque')],
