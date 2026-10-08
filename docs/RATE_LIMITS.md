@@ -43,8 +43,8 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals the seller's email, so enumeration-sensitive, #114) | 100 | 15 min | user, falls back to IP |
 | `marketplace-photo` | `POST /api/marketplace/photos/authorize` (see [photo setup and lifecycle](marketplace-photos.md)) | 20 | 1 hour | user, falls back to IP |
 | `calendar-feed` | `GET /feeds/calendar/:file` (the signed feed URL a calendar app polls; no session, so the token is the only credential) | 60 | 15 min | IP |
-| `push-write` | `PUT /api/push/settings`, `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions` | 30 | 15 min | user, falls back to IP |
-| `push-test` | `POST /api/push/test` (sends a real notification to every registered device) | 10 | 1 hour | user, falls back to IP |
+| `push-write` | `PUT /api/push/settings`, `POST /api/push/subscriptions`, `DELETE /api/push/subscriptions`, `POST /api/me/push-token`, `DELETE /api/me/push-token` (the native app's Expo push token, issue #194) | 30 | 15 min | user, falls back to IP |
+| `push-test` | `POST /api/push/test` (sends a real notification to every registered browser and phone) | 10 | 1 hour | user, falls back to IP |
 | `ad-event` | `POST /api/spotlight/:campaignId/event` (impression and click beacons from the spotlight rails, one per ad shown) | 200 | 5 min | user, falls back to IP |
 | `analytics` | `POST /api/usage/events` (the first-party usage beacon, batched by the client, #51) | 60 | 5 min | user, falls back to IP |
 | `admin-write` | `PATCH /api/admin/leads/:id`, `PATCH /api/admin/campaigns/:id`, `POST /api/admin/advertisers`, `POST /api/admin/purdue-links/clear`, `POST /api/admin/deleted/:type/:id/restore`, `DELETE /api/admin/deleted/:type/:id`, `POST /api/admin/hidden/marketplace/:id/unhide`, `POST /api/admin/hidden/marketplace/:id/takedown`, `PATCH /api/admin/reports/:id` | 60 | 15 min | user, falls back to IP |

@@ -715,7 +715,8 @@ async function getCached(key, ttlMs, producer) {
 
 // ============================================================
 // Push notifications (issue #9) - subscriptions, settings, test sends and the
-// reminder cron route, in src/routes/push.mjs (issue #191). GET
+// reminder cron route, plus the native app's /api/me/push-token (issue #194),
+// in src/routes/push.mjs (issue #191). GET
 // /api/push/config is mounted in the public reads block above, which is also
 // where the VAPID keys are loaded. The cron bearer token and its check are
 // read near the top of this file, and warnCronTransient sits with the Sentry

@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-151 routes in 24 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+153 routes in 24 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -115,6 +115,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/me/purdue-email/request` | `src/routes/purdueEmail.mjs` |
 | GET | `/api/me/purdue-email/status` | `src/routes/purdueEmail.mjs` |
 | POST | `/api/me/purdue-email/verify` | `src/routes/purdueEmail.mjs` |
+| POST | `/api/me/push-token` | `src/routes/push.mjs` |
+| DELETE | `/api/me/push-token` | `src/routes/push.mjs` |
 | GET | `/api/me/schedule-overrides` | `src/routes/me.mjs` |
 | PUT | `/api/me/schedule-overrides` | `src/routes/me.mjs` |
 | GET | `/api/me/services` | `src/routes/layouts.mjs` |
