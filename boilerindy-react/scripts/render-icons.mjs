@@ -18,7 +18,8 @@
 //   icons/icon-192.png            192x192, rounded tile on transparent, manifest purpose "any"
 //   icons/icon-512.png            512x512, rounded tile on transparent, manifest purpose "any"
 //   icons/icon-512-maskable.png   512x512, subject inset 20% on the full-bleed gold ground, purpose "maskable"
-//   og-image.png                  1200x630 social preview card (Open Graph / Twitter)
+//   icons/icon-512-monochrome.png 512x512, the subject's silhouette in black, inset 20% on transparent, purpose "monochrome"
+//   og-image.png                 1200x630 social preview card (Open Graph / Twitter)
 //
 // Headless Chromium (Playwright, already a workspace dev dependency for e2e) is
 // launched exactly once, in a light colour-scheme context; every asset is
@@ -55,18 +56,27 @@ if (groundRects.length !== 2) {
 const appIconFullBleed = appIcon.replace(GROUND_RECT, (m) => m.replace('rx="14"', 'rx="0"'))
 const appIconBare = appIcon.replace(GROUND_RECT, '')
 
+// The monochrome icon (issue #432) is a silhouette: the system keeps only its
+// alpha and paints the shape in its own colour. The bare subject's elements drawn
+// at partial opacity (the blurred ground shadow, the 14% plaza disc inside the
+// ring and the shaft's highlight) would come out as faint grey shapes, the shadow
+// a smudge under the ring at 48px, so this one render drops them; the rest is
+// drawn black by `filter: brightness(0)`.
+const PARTIAL_OPACITY = /<[a-z]+\b[^>]*\sopacity="([\d.]+)"[^>]*\/>/g
+const appIconSilhouette = appIconBare.replace(PARTIAL_OPACITY, (m, opacity) => (Number(opacity) < 1 ? '' : m))
+
 const baseStyle = `
   html, body { margin: 0; padding: 0; }
   body { overflow: hidden; }
   svg { display: block; }
 `
 
-// A square page with `svg` centred at `glyph` px on `background`.
-function iconPage({ size, glyph, background, svg }) {
+// A square page with `svg` centred at `glyph` px on `background`, through `filter`.
+function iconPage({ size, glyph, background, svg, filter = 'none' }) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>${baseStyle}
     body { width: ${size}px; height: ${size}px; background: ${background};
            display: flex; align-items: center; justify-content: center; }
-    svg { width: ${glyph}px; height: ${glyph}px; }
+    svg { width: ${glyph}px; height: ${glyph}px; filter: ${filter}; }
   </style></head><body>${svg}</body></html>`
 }
 
@@ -100,9 +110,9 @@ const maskableGlyph = Math.round(512 * (1 - 2 * MASKABLE_SAFE_PADDING))
 // One point, in the source's 64-unit tile, that the subject must cover however
 // the tile is placed: the monument's shaft.
 const INK_AT = [32, 30]
-const inkAt = (size, glyph) => {
+const inkAt = (size, glyph, expected = 'ink') => {
   const off = (size - glyph) / 2
-  return [Math.round(off + (INK_AT[0] / 64) * glyph), Math.round(off + (INK_AT[1] / 64) * glyph), 'ink']
+  return [Math.round(off + (INK_AT[0] / 64) * glyph), Math.round(off + (INK_AT[1] / 64) * glyph), expected]
 }
 const OG_GLYPH = 340 // .glyph in ogPage(), left at the card's 88px padding, centred vertically
 const ogInkAt = [88 + Math.round((INK_AT[0] / 64) * OG_GLYPH), Math.round((630 - OG_GLYPH) / 2 + (INK_AT[1] / 64) * OG_GLYPH), 'ink']
@@ -143,6 +153,15 @@ const ASSETS = [
     omitBackground: false,
     // Corners and the safe-padding band must be plain ground; the subject sits mid-tile.
     checks: [[0, 0, 'gold'], [511, 511, 'gold'], [50, 256, 'gold'], inkAt(512, maskableGlyph)],
+  },
+  {
+    file: 'icons/icon-512-monochrome.png',
+    width: 512,
+    height: 512,
+    html: iconPage({ size: 512, glyph: maskableGlyph, background: 'transparent', svg: appIconSilhouette, filter: 'brightness(0)' }),
+    omitBackground: true,
+    // Same inset as the maskable icon, with nothing but the subject drawn.
+    checks: [[0, 0, 'transparent'], [511, 511, 'transparent'], [50, 256, 'transparent'], inkAt(512, maskableGlyph, 'opaque')],
   },
   {
     file: 'og-image.png',
