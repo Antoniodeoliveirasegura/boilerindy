@@ -1,12 +1,12 @@
-// The relief B brand mark beside the "BoilerIndy" name (issues #408, #433).
+// The Monument Circle brand mark beside the "BoilerIndy" name (issues #408, #433).
 //
-// Two single-colourway copies of public/favicon.svg, split out by
+// Two single-colourway copies of public/app-icon.svg, split out by
 // scripts/render-icons.mjs, switched by the `dark` class that theme-init.js and
 // the in-app toggle put on <html>, so the mark changes with the app's theme and
 // not the device's. Two things that look simpler would not:
-// - the adaptive favicon.svg as an <img> follows the device setting, and inlined
-//   its <style> (.dark{display:none}) would match <html class="dark"> and hide
-//   the whole app;
+// - the adaptive app-icon.svg as an <img> follows the device setting, and
+//   inlined its <style> (.dark{display:none}) would match <html class="dark">
+//   and hide the whole app;
 // - Tailwind's `dark:` variant is the device setting too here (it compiles to
 //   prefers-color-scheme), hence `in-[.dark]:`, which matches the class on an
 //   ancestor.

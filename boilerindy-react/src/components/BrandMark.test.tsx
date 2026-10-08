@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import BrandMark from './BrandMark'
-import favicon from '../../public/favicon.svg?raw'
+import appIcon from '../../public/app-icon.svg?raw'
 import markLight from '../../public/brand/mark-light.svg?raw'
 import markDark from '../../public/brand/mark-dark.svg?raw'
 
-// Issue #433: the relief B replaced the "BI" text badges. The mark must follow
+// Issue #433: Monument Circle replaced the "BI" text badges. The mark must follow
 // the app's own `dark` class on <html>, not the device setting, and stay
 // decorative so the "BoilerIndy" text beside it names the link.
 
@@ -48,17 +48,17 @@ describe('BrandMark', () => {
   })
 })
 
-// The copies are written by scripts/render-icons.mjs; this catches favicon.svg
+// The copies are written by scripts/render-icons.mjs; this catches app-icon.svg
 // changing without a re-run, or a copy edited by hand. An XML parse here, string
 // slicing there, so the two cannot share a bug.
-describe('public/brand copies of favicon.svg', () => {
+describe('public/brand copies of app-icon.svg', () => {
   const parse = (svg: string) => new DOMParser().parseFromString(svg, 'image/svg+xml')
-  const source = parse(favicon)
+  const source = parse(appIcon)
 
   test.each([
     ['light', markLight],
     ['dark', markDark],
-  ])('mark-%s.svg is the favicon group of that name, without the switch', (name, copyText) => {
+  ])('mark-%s.svg is the app icon group of that name, without the switch', (name, copyText) => {
     const copy = parse(copyText)
     expect(copy.getElementsByTagName('parsererror')).toHaveLength(0)
     expect(copy.getElementsByTagName('style')).toHaveLength(0)

@@ -1,5 +1,5 @@
 // Renders the PNG launch assets from public/app-icon.svg (issues #155, #408) and
-// splits the in-app brand mark out of public/favicon.svg (#433).
+// splits the in-app brand mark out of it (#433).
 //
 //   node scripts/render-icons.mjs        (run from boilerindy-react/)
 //   pnpm run render-icons
@@ -8,17 +8,17 @@
 // colourway and shows the dark one under @media (prefers-color-scheme: dark).
 //   app-icon.svg    Monument Circle: the monument on its thin ring, ink on a gold
 //                   tile in light mode and gold on an ink tile in dark mode; the app
-//                   icon at 60px and up
+//                   icon at 60px and up, and the in-app brand mark (below)
 //   favicon.svg     the relief B in the same two colourways; browser tabs and 16 to
-//                   32px contexts (served directly by index.html) and the in-app
-//                   brand mark (below)
+//                   32px contexts (served directly by index.html, nothing is rendered
+//                   from it)
 //
-// The brand mark is split, not rendered: each colourway group of favicon.svg is
+// The brand mark is split, not rendered: each colourway group of app-icon.svg is
 // copied out byte for byte, without the <style> that switches them, so
 // components/BrandMark.tsx can follow the app's own theme class instead of the
 // device setting. Both copies are drawn and pixel-checked like the PNGs.
-//   brand/mark-light.svg          the light group: ink B on the gold tile
-//   brand/mark-dark.svg           the dark group: gold B on the ink tile
+//   brand/mark-light.svg          the light group: the ink monument on the gold tile
+//   brand/mark-dark.svg           the dark group: the gold monument on the ink tile
 //
 // Outputs, all under public/, rendered from the light colourway: a home-screen
 // tile is one PNG that cannot follow the device's appearance, and gold is canonical.
@@ -63,17 +63,17 @@ if (groundRects.length !== 2) {
 const appIconFullBleed = appIcon.replace(GROUND_RECT, (m) => m.replace('rx="14"', 'rx="0"'))
 const appIconBare = appIcon.replace(GROUND_RECT, '')
 
-// favicon.svg's two colourway groups (issue #433). A group holds nested <g>s, so
-// its end is found by counting tags rather than by a lazy match.
-const favicon = await readFile(path.join(PUBLIC_DIR, 'favicon.svg'), 'utf8')
-const faviconSvgTag = favicon.match(/^<svg\b[^>]*>/)?.[0]
-if (!faviconSvgTag) throw new Error('favicon.svg: expected to start with an <svg> tag')
+// app-icon.svg's two colourway groups, for the brand mark (issue #433). A group
+// holds nested <g>s, so its end is found by counting tags rather than by a lazy
+// match.
+const appIconSvgTag = appIcon.match(/^<svg\b[^>]*>/)?.[0]
+if (!appIconSvgTag) throw new Error('app-icon.svg: expected to start with an <svg> tag')
 
 function colourwayGroup(svg, name) {
   const open = `<g class="${name}">`
   const start = svg.indexOf(open)
   if (start === -1 || svg.includes(open, start + 1)) {
-    throw new Error(`favicon.svg: expected exactly one ${open} group`)
+    throw new Error(`app-icon.svg: expected exactly one ${open} group`)
   }
   const tags = /<g[\s>]|<\/g>/g
   tags.lastIndex = start
@@ -82,16 +82,8 @@ function colourwayGroup(svg, name) {
     depth += tag[0] === '</g>' ? -1 : 1
     if (depth === 0) return svg.slice(start + open.length, tag.index)
   }
-  throw new Error(`favicon.svg: ${open} is never closed`)
+  throw new Error(`app-icon.svg: ${open} is never closed`)
 }
-
-// `checks` as for ASSETS below, in tile units (a copy is drawn at 64px): outside
-// the rounded corner, the ground at the left edge, the B's stem. Gold and ink
-// trade places between the two colourways.
-const BRAND_MARKS = [
-  { file: 'brand/mark-light.svg', group: 'light', checks: [[0, 0, 'transparent'], [6, 32, 'gold'], [20, 32, 'ink']] },
-  { file: 'brand/mark-dark.svg', group: 'dark', checks: [[0, 0, 'transparent'], [6, 32, 'ink'], [20, 32, 'gold']] },
-].map((mark) => ({ ...mark, svg: `${faviconSvgTag}\n<g>${colourwayGroup(favicon, mark.group)}</g>\n</svg>\n` }))
 
 const baseStyle = `
   html, body { margin: 0; padding: 0; }
@@ -144,6 +136,14 @@ const inkAt = (size, glyph) => {
 }
 const OG_GLYPH = 340 // .glyph in ogPage(), left at the card's 88px padding, centred vertically
 const ogInkAt = [88 + Math.round((INK_AT[0] / 64) * OG_GLYPH), Math.round((630 - OG_GLYPH) / 2 + (INK_AT[1] / 64) * OG_GLYPH), 'ink']
+
+// `checks` as for ASSETS below, in tile units (a copy is drawn at 64px): outside
+// the rounded corner, the ground at the left edge, INK_AT on the shaft. Gold and
+// ink trade places between the two colourways.
+const BRAND_MARKS = [
+  { file: 'brand/mark-light.svg', group: 'light', checks: [[0, 0, 'transparent'], [6, 32, 'gold'], [...INK_AT, 'ink']] },
+  { file: 'brand/mark-dark.svg', group: 'dark', checks: [[0, 0, 'transparent'], [6, 32, 'ink'], [...INK_AT, 'gold']] },
+].map((mark) => ({ ...mark, svg: `${appIconSvgTag}\n<g>${colourwayGroup(appIcon, mark.group)}</g>\n</svg>\n` }))
 
 // `checks` sample the written PNG: [x, y, expected] where expected is
 // 'transparent', 'gold' (any pixel of the gold ground, no subject there),
