@@ -2,3 +2,7 @@ BoilerIndy
 Copyright 2026 Antonio de Oliveira Segura and the BoilerIndy contributors
 
 Licensed under the Apache License, Version 2.0; the full text is in the LICENSE file.
+
+This repository also carries Plus Jakarta Sans (boilerindy-react/scripts/fonts/),
+Copyright 2020 The Plus Jakarta Sans Project Authors, under the SIL Open Font
+License, Version 1.1, whose text is in boilerindy-react/scripts/fonts/OFL.txt.

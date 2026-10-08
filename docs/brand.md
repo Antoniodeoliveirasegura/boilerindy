@@ -12,6 +12,7 @@ that (issue #112) so the posture does not drift.
 | Asset | Value | Notes |
 | --- | --- | --- |
 | Name | BoilerIndy | Own wordmark, plain text, no logo lockup with Purdue's. |
+| Wordmark face | Plus Jakarta Sans ExtraBold, "Indy" set apart | Open source (SIL OFL 1.1), not a Purdue font. Bundled for the link preview card only, in `boilerindy-react/scripts/fonts/` (issue #434); the site itself uses the system font stack. |
 | Gold (light theme) | `#D4A84B` | `--color-gold` in `boilerindy-react/src/index.css`. |
 | Gold (dark theme) | `#E8C878` | `--color-gold` under `[data-theme="dark"]`. |
 | Icons | `boilerindy-react/public/app-icon.svg` (Monument Circle), `favicon.svg` (the relief B) and the PNGs rendered from the app icon | Self-drawn. Both SVGs switch from ink on gold to gold on ink under `prefers-color-scheme: dark`; the PNGs use the gold (light) colourway, except the Android monochrome icon, the monument's silhouette in black (issue #432). |
