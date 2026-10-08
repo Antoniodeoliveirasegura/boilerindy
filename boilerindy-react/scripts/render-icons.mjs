@@ -1,4 +1,5 @@
-// Renders the PNG launch assets from public/app-icon.svg (issues #155, #408).
+// Renders the PNG launch assets from public/app-icon.svg (issues #155, #408) and
+// splits the in-app brand mark out of it (#433).
 //
 //   node scripts/render-icons.mjs        (run from boilerindy-react/)
 //   pnpm run render-icons
@@ -7,10 +8,17 @@
 // colourway and shows the dark one under @media (prefers-color-scheme: dark).
 //   app-icon.svg    Monument Circle: the monument on its thin ring, ink on a gold
 //                   tile in light mode and gold on an ink tile in dark mode; the app
-//                   icon at 60px and up
+//                   icon at 60px and up, and the in-app brand mark (below)
 //   favicon.svg     the relief B in the same two colourways; browser tabs and 16 to
 //                   32px contexts (served directly by index.html, nothing is rendered
 //                   from it)
+//
+// The brand mark is split, not rendered: each colourway group of app-icon.svg is
+// copied out byte for byte, without the <style> that switches them, so
+// components/BrandMark.tsx can follow the app's own theme class instead of the
+// device setting. Both copies are drawn and pixel-checked like the PNGs.
+//   brand/mark-light.svg          the light group: the ink monument on the gold tile
+//   brand/mark-dark.svg           the dark group: the gold monument on the ink tile
 //
 // Outputs, all under public/, rendered from the light colourway: a home-screen
 // tile is one PNG that cannot follow the device's appearance, and gold is canonical.
@@ -26,7 +34,7 @@
 // No external fonts: the card uses the platform's system sans, so the exact glyph
 // shapes vary slightly by OS.
 
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
@@ -54,6 +62,28 @@ if (groundRects.length !== 2) {
 }
 const appIconFullBleed = appIcon.replace(GROUND_RECT, (m) => m.replace('rx="14"', 'rx="0"'))
 const appIconBare = appIcon.replace(GROUND_RECT, '')
+
+// app-icon.svg's two colourway groups, for the brand mark (issue #433). A group
+// holds nested <g>s, so its end is found by counting tags rather than by a lazy
+// match.
+const appIconSvgTag = appIcon.match(/^<svg\b[^>]*>/)?.[0]
+if (!appIconSvgTag) throw new Error('app-icon.svg: expected to start with an <svg> tag')
+
+function colourwayGroup(svg, name) {
+  const open = `<g class="${name}">`
+  const start = svg.indexOf(open)
+  if (start === -1 || svg.includes(open, start + 1)) {
+    throw new Error(`app-icon.svg: expected exactly one ${open} group`)
+  }
+  const tags = /<g[\s>]|<\/g>/g
+  tags.lastIndex = start
+  let depth = 0
+  for (let tag = tags.exec(svg); tag; tag = tags.exec(svg)) {
+    depth += tag[0] === '</g>' ? -1 : 1
+    if (depth === 0) return svg.slice(start + open.length, tag.index)
+  }
+  throw new Error(`app-icon.svg: ${open} is never closed`)
+}
 
 const baseStyle = `
   html, body { margin: 0; padding: 0; }
@@ -106,6 +136,14 @@ const inkAt = (size, glyph) => {
 }
 const OG_GLYPH = 340 // .glyph in ogPage(), left at the card's 88px padding, centred vertically
 const ogInkAt = [88 + Math.round((INK_AT[0] / 64) * OG_GLYPH), Math.round((630 - OG_GLYPH) / 2 + (INK_AT[1] / 64) * OG_GLYPH), 'ink']
+
+// `checks` as for ASSETS below, in tile units (a copy is drawn at 64px): outside
+// the rounded corner, the ground at the left edge, INK_AT on the shaft. Gold and
+// ink trade places between the two colourways.
+const BRAND_MARKS = [
+  { file: 'brand/mark-light.svg', group: 'light', checks: [[0, 0, 'transparent'], [6, 32, 'gold'], [...INK_AT, 'ink']] },
+  { file: 'brand/mark-dark.svg', group: 'dark', checks: [[0, 0, 'transparent'], [6, 32, 'ink'], [...INK_AT, 'gold']] },
+].map((mark) => ({ ...mark, svg: `${appIconSvgTag}\n<g>${colourwayGroup(appIcon, mark.group)}</g>\n</svg>\n` }))
 
 // `checks` sample the written PNG: [x, y, expected] where expected is
 // 'transparent', 'gold' (any pixel of the gold ground, no subject there),
@@ -238,6 +276,32 @@ async function main() {
         failures.push(`${asset.file}: ${p}`)
       }
     }
+
+    // The brand mark copies ship as SVG text: each is written, read back and
+    // drawn as an <img> at 64px on transparent, and that screenshot is sampled.
+    for (const mark of BRAND_MARKS) {
+      const outPath = path.join(PUBLIC_DIR, mark.file)
+      await mkdir(path.dirname(outPath), { recursive: true })
+      await writeFile(outPath, mark.svg)
+
+      const written = await readFile(outPath)
+      const src = `data:image/svg+xml;base64,${written.toString('base64')}`
+      await page.setViewportSize({ width: 64, height: 64 })
+      await page.setContent(
+        iconPage({ size: 64, glyph: 64, background: 'transparent', svg: `<img src="${src}" width="64" height="64" alt="">` }),
+        { waitUntil: 'load' },
+      )
+      const shot = await page.screenshot({ omitBackground: true, type: 'png' })
+      const samples = await samplePixels(page, shot, mark.checks.map(([x, y]) => [x, y]))
+      const problems = mark.checks.flatMap(([x, y, expected], i) =>
+        matchesExpectation(expected, samples[i]) ? [] : [`pixel (${x},${y}) expected ${expected}, got rgba(${samples[i].join(',')})`],
+      )
+      console.log(`${(problems.length ? 'FAIL' : 'ok').padEnd(4)} ${mark.file.padEnd(28)} drawn at 64x64 ${(written.length / 1024).toFixed(1)} KiB`)
+      for (const p of problems) {
+        console.log(`     - ${p}`)
+        failures.push(`${mark.file}: ${p}`)
+      }
+    }
   } finally {
     await browser.close()
   }
@@ -246,7 +310,7 @@ async function main() {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)
   }
-  console.log(`\nRendered ${ASSETS.length} assets into ${PUBLIC_DIR}`)
+  console.log(`\nRendered ${ASSETS.length} assets and split ${BRAND_MARKS.length} brand marks into ${PUBLIC_DIR}`)
 }
 
 await main()

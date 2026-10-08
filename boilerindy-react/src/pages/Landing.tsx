@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
+import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import './marketing.css'
@@ -136,7 +137,7 @@ export default function Landing() {
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 h-14 px-5 sm:px-8 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 backdrop-blur-md">
         <Link to="/" className="flex items-center gap-2.5 text-[15px] font-semibold no-underline text-[var(--color-txt-0)]">
-          <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>
+          <BrandMark />
           BoilerIndy
         </Link>
         <div className="hidden md:flex items-center gap-0.5 absolute left-1/2 -translate-x-1/2">
@@ -386,7 +387,7 @@ export default function Landing() {
       {/* ── Footer ──────────────────────────────────────────────────────── */}
       <footer className="border-t border-[var(--color-border)] py-10 px-5 text-center">
         <div className="inline-flex items-center gap-2 text-[14px] font-semibold mb-2">
-          <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md">BI</span>
+          <BrandMark />
           BoilerIndy
         </div>
         <div className="text-[12px] mb-2.5">
