@@ -77,7 +77,7 @@ import { createPurdueLinkHandoff } from './src/purdueLinkHandoff.mjs'
 import { createPurdueLinkFlowRateLimit } from './src/purdueLinkThrottle.mjs'
 import { normalizeEmail } from './src/userFields.mjs'
 import { isSessionStale } from './src/sessionFreshness.mjs'
-import { sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
+import { isEmailConfigured, sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
 import { createFinalErrorHandler } from './src/finalErrorHandler.mjs'
 
@@ -108,6 +108,14 @@ const purdueAuthMode = (process.env.PURDUE_AUTH_MODE || 'mock').toLowerCase()
 // sources (Brightspace / Purdue timetable iCal) no longer require a linked
 // Purdue identity. 'mock' = dev email-link; 'cas' = real Purdue CAS.
 const purdueLinkingEnabled = purdueAuthMode !== 'off'
+// Two-step sign-in (src/twoFactor.mjs): an email + password sign-in or sign-up
+// waits on a code mailed to the account. Google sign-in skips it.
+const envSwitch = (name, fallback) => !['off', '0', 'false'].includes(String(process.env[name] || fallback).toLowerCase())
+const loginTwoFactorEnabled = envSwitch('LOGIN_TWO_FACTOR', 'on')
+// Off until the native app has a code screen: it signs in with a password
+// through supabase-sync, which the gate refuses. Without it, a password-only
+// Supabase token still skips the code, so turn it on as soon as the app ships.
+const loginTwoFactorSyncGate = envSwitch('LOGIN_TWO_FACTOR_SYNC_GATE', 'off')
 const adminEmails = new Set(
   (process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -153,6 +161,9 @@ if (isProduction) {
   if (!['cas', 'off'].includes(purdueAuthMode)) {
     console.error(`ERROR: PURDUE_AUTH_MODE must be 'cas' or 'off' in production (got ${JSON.stringify(purdueAuthMode)})`)
     process.exit(1)
+  }
+  if (loginTwoFactorEnabled && !isEmailConfigured()) {
+    console.error('WARNING: LOGIN_TWO_FACTOR is on but RESEND_API_KEY / RESEND_FROM are not set: email + password sign-in will fail until they are (or set LOGIN_TWO_FACTOR=off).')
   }
 }
 
@@ -265,6 +276,22 @@ const purdueVerifyRateLimit = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 10,
   message: 'Too many verification attempts. Please try again in an hour.',
+})
+// Two-step sign-in codes. Each code allows five guesses (src/twoFactor.mjs);
+// these cap guessing across restarted sign-ins and mail sent by resends.
+const loginCodeRateLimit = createRateLimiter({
+  name: 'login-code',
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  keyBy: 'ip',
+  message: 'Too many verification attempts. Please wait a few minutes and try again.',
+})
+const loginCodeSendRateLimit = createRateLimiter({
+  name: 'login-code-send',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyBy: 'ip',
+  message: 'Too many sign-in codes requested. Please try again later.',
 })
 // One handoff token per native Purdue link attempt (#214); tokens live 10 min.
 const purdueLinkTokenRateLimit = createRateLimiter({
@@ -589,7 +616,7 @@ async function verifySupabasePassword(email, password) {
 // deletion and the Purdue link (CAS, mock, native handoff) are in
 // src/routes/auth.mjs (issue #191); the session core and
 // verifySupabasePassword stay here and are handed in.
-app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit }))
+app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeSendRateLimit, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isProduction }))
 
 // ── Linked calendar sources (issues #12 and #120) ───────────────────────────
 // Connecting, syncing and deleting Brightspace and Purdue feeds, the dev-only

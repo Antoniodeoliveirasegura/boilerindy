@@ -2,12 +2,24 @@ import crypto from 'node:crypto'
 import express from 'express'
 import { buildCasServiceUrl, createCasState, spendCasState } from '../casLinkState.mjs'
 import { badRequest, logRouteError } from '../dbErrors.mjs'
+import { loginCodeEmail, maskEmail } from '../email.mjs'
 import { onboardingFlags } from '../onboardingFlags.mjs'
 import { verifyPassword } from '../passwordHash.mjs'
 import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
 import { applyPasswordChange, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
+import {
+  TRUSTED_DEVICE_TTL_MS,
+  challengeErrorMessage,
+  createChallenge,
+  createTrustedDeviceToken,
+  parseCookies,
+  resendChallenge,
+  tokenNeedsLoginCode,
+  verifyChallenge,
+  verifyTrustedDeviceToken,
+} from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
   deriveDisplayName,
@@ -33,6 +45,8 @@ import {
 // limiter verifies with the same instance), and hands them in.
 
 const defaultNextPath = '/setup'
+const TRUSTED_DEVICE_COOKIE = 'pih.td'
+const REMEMBER_ME_MS = 1000 * 60 * 60 * 24 * 30
 
 function sanitizeNext(next) {
   // Must be a site-relative path. Reject protocol-relative (//host) and backslash
@@ -146,6 +160,15 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', tok
  * @param {Function} deps.purdueLinkFlowRateLimit  the three link flow routes, ahead of the user lookup
  *   (purdue-link-flow)
  * @param {Function} deps.userWriteRateLimit       the JSON mock link (user-write)
+ * @param {Function} deps.loginCodeRateLimit       two-step code checks (login-code)
+ * @param {Function} deps.loginCodeSendRateLimit   two-step code resends (login-code-send)
+ * @param {boolean}  [deps.loginTwoFactorEnabled]  password sign-in and sign-up wait on an emailed code
+ * @param {boolean}  [deps.loginTwoFactorSyncGate] supabase-sync refuses a password-only Supabase token
+ *   unless this session already passed the code or the device is trusted. Off until every client
+ *   (the native app signs in through supabase-sync) has a code screen.
+ * @param {string}   [deps.twoFactorSecret]        HMAC key for codes and trusted-device cookies
+ * @param {Function} [deps.sendEmail]              ({ to, subject, html }) => { sent } or { sent: false, skipped: true }
+ * @param {boolean}  [deps.isProduction]           an unsent code fails the request; cookies are Secure
  */
 export function createAuthRouter({
   supabase,
@@ -168,8 +191,95 @@ export function createAuthRouter({
   purdueLinkTokenRateLimit,
   purdueLinkFlowRateLimit,
   userWriteRateLimit,
+  loginCodeRateLimit,
+  loginCodeSendRateLimit,
+  loginTwoFactorEnabled = false,
+  loginTwoFactorSyncGate = false,
+  twoFactorSecret,
+  sendEmail,
+  isProduction = false,
 }) {
   const router = express.Router()
+
+  // ── Two-step sign-in ──────────────────────────────────────────────────────
+
+  function hasTrustedDevice(req, user) {
+    return verifyTrustedDeviceToken(twoFactorSecret, parseCookies(req.headers.cookie)[TRUSTED_DEVICE_COOKIE], {
+      userId: user.id,
+      passwordChangedAt: user.password_changed_at,
+    })
+  }
+
+  function needsLoginCode(req, user) {
+    return loginTwoFactorEnabled && !hasTrustedDevice(req, user)
+  }
+
+  // false when the code could not be sent and the caller must answer 503.
+  async function deliverLoginCode(to, code) {
+    let delivery
+    try {
+      delivery = await sendEmail({ to, ...loginCodeEmail({ code }) })
+    } catch (error) {
+      logRouteError('[login-code] send failed', error)
+      return false
+    }
+    if (delivery?.skipped) {
+      if (isProduction) {
+        console.error('[login-code] RESEND_API_KEY or RESEND_FROM is not set; no code was sent')
+        return false
+      }
+      console.log('[login-code] dev code for %s: %s', maskEmail(to), code)
+    }
+    return true
+  }
+
+  const UNSENT_LOGIN_CODE = {
+    error: { message: 'We could not send your sign-in code right now. Please try again in a moment.', status: 503 },
+  }
+
+  function challengeError(res, result) {
+    return res.status(400).json({
+      error: {
+        message: challengeErrorMessage(result),
+        status: 400,
+        code: result.reason,
+        // The pending sign-in is gone: the client starts over from the password.
+        restart: !result.challenge,
+      },
+    })
+  }
+
+  function regenerate(req) {
+    return new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())))
+  }
+
+  function save(req) {
+    return new Promise((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())))
+  }
+
+  // Swaps in a session that holds only the pending code, never a userId.
+  // Answers the response itself: the code-pending body, or 503 when unsent.
+  // A sign-up has already created the account, so an unsent code still answers
+  // the code-pending body (codeSent: false) and the client offers a resend;
+  // a 503 there would strand the address on "account already exists".
+  async function startLoginChallenge(req, res, user, { rememberMe, status = 200, keepOnUnsent = false }) {
+    const { code, challenge } = createChallenge(twoFactorSecret, {
+      purpose: 'login',
+      subject: user.id,
+      extra: { email: user.email, rememberMe },
+    })
+    const codeSent = await deliverLoginCode(user.email, code)
+    if (!codeSent && !keepOnUnsent) return res.status(503).json(UNSENT_LOGIN_CODE)
+    await regenerate(req)
+    req.session.pendingLogin = challenge
+    await save(req)
+    return res.status(status).json({
+      twoFactorRequired: true,
+      email: maskEmail(user.email),
+      expiresAt: new Date(challenge.expiresAt).toISOString(),
+      ...(codeSent ? {} : { codeSent: false }),
+    })
+  }
 
   async function getUserByEmail(email) {
     const { data, error } = await supabase
@@ -459,6 +569,9 @@ export function createAuthRouter({
         })
       }
 
+      // The first sign-in proves the address is the student's own.
+      if (loginTwoFactorEnabled) return await startLoginChallenge(req, res, row, { rememberMe, status: 201, keepOnUnsent: true })
+
       req.session.regenerate((err) => {
         if (err) {
           return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
@@ -584,6 +697,8 @@ export function createAuthRouter({
       const user = result.user
       await clearLegacyPasswordHash(user)
 
+      if (needsLoginCode(req, user)) return await startLoginChallenge(req, res, user, { rememberMe })
+
       req.session.regenerate(async (err) => {
         if (err) {
           return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
@@ -604,6 +719,57 @@ export function createAuthRouter({
       }
       console.error('[sign-in] failed:', error?.message || error)
       res.status(401).json({ error: { message: 'Could not sign in.', status: 401 } })
+    }
+  })
+
+  router.post('/api/auth/sign-in/verify', loginCodeRateLimit, async (req, res) => {
+    try {
+      const pending = req.session.pendingLogin
+      const result = verifyChallenge(twoFactorSecret, pending, { purpose: 'login', code: req.body.code })
+      if (!result.ok) {
+        if (result.challenge) req.session.pendingLogin = result.challenge
+        else delete req.session.pendingLogin
+        await save(req)
+        return challengeError(res, result)
+      }
+
+      const user = await getUserById(pending.subject)
+      if (!user) {
+        delete req.session.pendingLogin
+        await save(req)
+        return res.status(401).json({ error: { message: 'This account no longer exists.', status: 401 } })
+      }
+
+      await regenerate(req)
+      req.session.cookie.maxAge = pending.rememberMe ? REMEMBER_ME_MS : undefined
+      req.session.userId = user.id
+      req.session.authAt = new Date().toISOString()
+      await save(req)
+      if (req.body.trustDevice === true) {
+        res.cookie(TRUSTED_DEVICE_COOKIE, createTrustedDeviceToken(twoFactorSecret, {
+          userId: user.id,
+          passwordChangedAt: user.password_changed_at,
+        }), { httpOnly: true, sameSite: 'lax', secure: isProduction, maxAge: TRUSTED_DEVICE_TTL_MS, path: '/' })
+      }
+      res.json({ session: await buildSessionPayload(user, req) })
+    } catch (error) {
+      logRouteError('[sign-in/verify] failed', error)
+      res.status(500).json({ error: { message: 'Could not verify the code. Please try again.', status: 500 } })
+    }
+  })
+
+  router.post('/api/auth/sign-in/resend', loginCodeSendRateLimit, async (req, res) => {
+    try {
+      const pending = req.session.pendingLogin
+      const result = resendChallenge(twoFactorSecret, pending)
+      if (!result.ok) return challengeError(res, result)
+      if (!(await deliverLoginCode(pending.email, result.code))) return res.status(503).json(UNSENT_LOGIN_CODE)
+      req.session.pendingLogin = result.challenge
+      await save(req)
+      res.json({ ok: true, expiresAt: new Date(result.challenge.expiresAt).toISOString() })
+    } catch (error) {
+      logRouteError('[sign-in/resend] failed', error)
+      res.status(500).json({ error: { message: 'Could not send a new code. Please try again.', status: 500 } })
     }
   })
 
@@ -658,6 +824,18 @@ export function createAuthRouter({
       const syncAvatarUrl = avatarResult.value
 
       let user = await getUserByEmail(normalizedEmail)
+
+      // Anyone holding the password can mint a password-only Supabase token
+      // directly, so with the gate on such a token may only refresh the session
+      // that already passed the emailed code, or sign in a trusted device.
+      if (loginTwoFactorEnabled && loginTwoFactorSyncGate && tokenNeedsLoginCode(accessToken)) {
+        const resumesSession = Boolean(user) && req.session?.userId === user.id
+        if (!user || !(resumesSession || hasTrustedDevice(req, user))) {
+          return res.status(401).json({
+            error: { message: 'Enter the code we emailed you to finish signing in.', status: 401, code: 'two-factor-required' },
+          })
+        }
+      }
 
       if (!user) {
         const timestamp = new Date().toISOString()

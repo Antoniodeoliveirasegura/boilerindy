@@ -147,6 +147,10 @@ async function withApp(options, run) {
     block = [],
     cas = null,
     adminEmails = [],
+    twoFactor = false,
+    syncGate = false,
+    production = false,
+    emailConfigured = true,
   } = options
   const purdueLinkingEnabled = purdueAuthMode !== 'off'
   const db = Object.fromEntries(TABLES.map((name) => [name, structuredClone(seed[name] ?? [])]))
@@ -249,6 +253,16 @@ async function withApp(options, run) {
     res.status(429).json({ error: { message: 'Too many requests.', status: 429 } })
   }
 
+  // Mail the router sends; `codes` holds each two-step code it carried.
+  const mail = []
+  const codes = []
+  const sendEmail = async (message) => {
+    mail.push(message)
+    const code = />(\d{6})</.exec(message.html)?.[1]
+    if (code) codes.push(code)
+    return emailConfigured ? { sent: true } : { sent: false, skipped: true }
+  }
+
   const savedEnv = { login: process.env.PURDUE_CAS_LOGIN_URL, validate: process.env.PURDUE_CAS_VALIDATE_URL, dev: process.env.DEV_PURDUE_EMAIL }
   delete process.env.DEV_PURDUE_EMAIL
   let casStub = null
@@ -308,6 +322,13 @@ async function withApp(options, run) {
       purdueLinkTokenRateLimit: limiter('purdue-link-token'),
       purdueLinkFlowRateLimit: limiter('purdue-link-flow'),
       userWriteRateLimit: limiter('user-write'),
+      loginCodeRateLimit: limiter('login-code'),
+      loginCodeSendRateLimit: limiter('login-code-send'),
+      loginTwoFactorEnabled: twoFactor,
+      loginTwoFactorSyncGate: syncGate,
+      twoFactorSecret: 'auth-router-test-two-factor-secret',
+      sendEmail,
+      isProduction: production,
     }),
   )
   const server = app.listen(0, '127.0.0.1')
@@ -360,7 +381,7 @@ async function withApp(options, run) {
   try {
     await run({
       call, sessionFor, sessions, sidOf, db, failures, supabase, gotrue, authCalls, verifyCalls, lookups,
-      linkCalls, invalidated, onboardingSummaryCache, purdueLinkHandoff, limiterHits, cas: casStub,
+      linkCalls, invalidated, onboardingSummaryCache, purdueLinkHandoff, limiterHits, cas: casStub, mail, codes,
     })
   } finally {
     await new Promise((resolve) => server.close(resolve))
@@ -789,6 +810,168 @@ test('supabase-sync reuses the session the same user already holds, and regenera
     assert.notEqual(sidOf(other.cookie), sidOf(cookie))
     all = await sessions()
     assert.deepEqual(all.map((s) => [s.sid, s.userId]), [[sidOf(other.cookie), U2]])
+  })
+})
+
+// ── Two-step sign-in ────────────────────────────────────────────────────────
+
+const PETE_AUTH = { 'pete@example.com': { id: U1, password: PASSWORD } }
+const trustedCookieOf = (res) => res.setCookies.map((c) => c.split(';')[0]).find((p) => p.startsWith('pih.td=')) ?? null
+function fakeJwt(methods) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  return `${encode({ alg: 'HS256' })}.${encode({ amr: methods.map((method) => ({ method, timestamp: 1 })) })}.sig`
+}
+
+test('two-step: a correct password mails a code and holds a session with no user until it is entered', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, sessions, mail, codes, limiterHits }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD, rememberMe: true } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(Object.keys(res.body).sort(), ['email', 'expiresAt', 'twoFactorRequired'])
+    assert.equal(res.body.twoFactorRequired, true)
+    assert.equal(res.body.email, 'p***@example.com')
+    assert.equal(mail.length, 1)
+    assert.equal(mail[0].to, 'pete@example.com')
+    assert.equal(mail[0].subject, 'Your BoilerIndy sign-in code')
+    const [stored] = await sessions()
+    assert.equal(stored.userId, undefined)
+    assert.equal(stored.pendingLogin.subject, U1)
+    assert.ok(!JSON.stringify(stored).includes(codes[0]), 'only a hash of the code is stored')
+
+    // Signed out until the code is entered.
+    assert.equal((await call('GET', '/api/me/profile', { cookie: res.cookie })).status, 401)
+
+    const wrong = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] === '000000' ? '111111' : '000000' } })
+    assert.equal(wrong.status, 400)
+    assert.equal(wrong.body.error.code, 'invalid')
+    assert.equal(wrong.body.error.restart, false)
+
+    const right = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(right.status, 200)
+    assert.equal(right.body.session.user.id, U1)
+    assert.notEqual(right.cookie, res.cookie, 'the session id is regenerated on success')
+    assert.equal(maxAgeOf(right.sessionCookie), 30 * DAY / 1000, 'rememberMe survives the code step')
+    assert.equal(trustedCookieOf(right), null, 'no trusted device unless asked')
+    const all = await sessions()
+    assert.deepEqual(all.map((s) => [s.userId, s.pendingLogin]), [[U1, undefined]])
+
+    // The code was spent with the pending sign-in.
+    const replay = await call('POST', '/api/auth/sign-in/verify', { cookie: right.cookie, body: { code: codes[0] } })
+    assert.equal(replay.body.error.code, 'missing')
+    assert.ok(limiterHits.includes('login-code POST /api/auth/sign-in/verify'))
+  })
+})
+
+test('two-step: five wrong codes end the pending sign-in', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const bad = codes[0] === '000000' ? '111111' : '000000'
+    let last
+    for (let i = 0; i < 5; i += 1) last = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: bad } })
+    assert.equal(last.body.error.code, 'too-many-attempts')
+    assert.equal(last.body.error.restart, true)
+    const late = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(late.status, 400)
+    assert.equal(late.body.error.code, 'missing')
+  })
+})
+
+test('two-step: "trust this device" lets the next sign-in skip the code, until the password changes', async () => {
+  const seed = { users: [STUDENT] }
+  await withApp({ seed, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, mail, db }) => {
+    const first = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const verified = await call('POST', '/api/auth/sign-in/verify', { cookie: first.cookie, body: { code: codes[0], trustDevice: true } })
+    const trusted = trustedCookieOf(verified)
+    assert.ok(trusted)
+    const setCookie = verified.setCookies.find((c) => c.startsWith('pih.td='))
+    assert.match(setCookie, /HttpOnly/)
+    assert.equal(maxAgeOf(setCookie), 30 * DAY / 1000)
+
+    const again = await call('POST', '/api/auth/sign-in', { cookie: trusted, body: { email: 'pete@example.com', password: PASSWORD } })
+    assert.equal(again.body.session.user.id, U1)
+    assert.equal(mail.length, 1, 'no second code was mailed')
+
+    db.users[0].password_changed_at = new Date().toISOString()
+    const afterChange = await call('POST', '/api/auth/sign-in', { cookie: trusted, body: { email: 'pete@example.com', password: PASSWORD } })
+    assert.equal(afterChange.body.twoFactorRequired, true)
+  })
+})
+
+test('two-step: sign-up confirms the address with a code before any session', async () => {
+  await withApp({ twoFactor: true }, async ({ call, sessions, mail, codes }) => {
+    const res = await call('POST', '/api/auth/register-supabase', { body: { email: 'new@example.com', password: PASSWORD, name: 'New' } })
+    assert.equal(res.status, 201)
+    assert.equal(res.body.twoFactorRequired, true)
+    assert.equal(mail[0].to, 'new@example.com')
+    assert.equal((await sessions())[0].userId, undefined)
+    const verified = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(verified.body.session.user.id, U3)
+  })
+})
+
+test('two-step: an unsent code answers 503 in production and starts nothing; dev logs it instead', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, production: true, emailConfigured: false }, async ({ call, sessions }) => {
+    await quietly(async () => {
+      const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+      assert.equal(res.status, 503)
+      assert.deepEqual(await sessions(), [])
+    })
+  })
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, emailConfigured: false }, async ({ call, codes }) => {
+    const lines = await quietly(async () => {
+      const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+      assert.equal(res.body.twoFactorRequired, true)
+    })
+    assert.ok(lines.some((line) => line.includes(`dev code for p***@example.com: ${codes[0]}`)))
+  })
+})
+
+test('two-step: a sign-up whose code went unsent still lands on the code step, so a resend can finish it', async () => {
+  await withApp({ twoFactor: true, production: true, emailConfigured: false }, async ({ call, sessions }) => {
+    await quietly(async () => {
+      const res = await call('POST', '/api/auth/register-supabase', { body: { email: 'new@example.com', password: PASSWORD } })
+      assert.equal(res.status, 201)
+      assert.equal(res.body.twoFactorRequired, true)
+      assert.equal(res.body.codeSent, false)
+      const [stored] = await sessions()
+      assert.equal(stored.userId, undefined)
+      assert.equal(stored.pendingLogin.subject, U3)
+    })
+  })
+})
+
+test('two-step: resend waits out the cooldown and refuses without a pending sign-in', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, mail, limiterHits }) => {
+    const none = await call('POST', '/api/auth/sign-in/resend')
+    assert.equal(none.body.error.code, 'missing')
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const early = await call('POST', '/api/auth/sign-in/resend', { cookie: res.cookie })
+    assert.equal(early.body.error.code, 'cooldown')
+    assert.equal(mail.length, 1)
+    assert.ok(limiterHits.includes('login-code-send POST /api/auth/sign-in/resend'))
+  })
+})
+
+test('sync gate: off, a password token still signs in; on, it is refused unless resuming or trusted', async () => {
+  const password = fakeJwt(['password'])
+  const google = fakeJwt(['oauth'])
+  const tokens = { [password]: TOKEN_USER, [google]: TOKEN_USER }
+  const body = { supabaseUserId: U1, email: 'pete@example.com' }
+  await withApp({ seed: { users: [STUDENT] }, tokens, twoFactor: true }, async ({ call }) => {
+    const res = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${password}` } })
+    assert.equal(res.status, 200)
+  })
+  await withApp({ seed: { users: [STUDENT] }, tokens, twoFactor: true, syncGate: true }, async ({ call, sessionFor, supabase }) => {
+    const refused = await call('POST', '/api/auth/supabase-sync', { body: { ...body, name: 'Renamed' }, headers: { Authorization: `Bearer ${password}` } })
+    assert.equal(refused.status, 401)
+    assert.equal(refused.body.error.code, 'two-factor-required')
+    assert.ok(!supabase.queriesOf('users').some((q) => operation(q.chain) === 'update'), 'a refused sync changes nothing')
+
+    const viaGoogle = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${google}` } })
+    assert.equal(viaGoogle.status, 200)
+
+    const cookie = await sessionFor({ userId: U1, authAt: new Date().toISOString() })
+    const resumed = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${password}` } })
+    assert.equal(resumed.body.reused, true)
   })
 })
 
