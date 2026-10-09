@@ -126,7 +126,9 @@ code starts reading a name that file does not list (issue #210).
 | `ADMIN_EMAILS` | Comma-separated addresses that get the admin pages and the moderation routes |
 | `BOARD_BLOCKED_WORDS` | Extra comma-separated blocked words for the board and guide filter, added to the built-in list. Read once at first use |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_<NAME>_MAX`, `RATE_LIMIT_<NAME>_WINDOW_MS` | Master switch and per-bucket tuning. See [docs/RATE_LIMITS.md](docs/RATE_LIMITS.md) for the bucket names |
-| `RESEND_API_KEY`, `RESEND_FROM`, `MAIL_REPLY_TO`, `MAIL_POSTAL_ADDRESS` | Outbound email: advertiser password resets and the Purdue email verification codes (issue #181), on the same sender; blank keeps email off, and a production code request then answers 503 |
+| `RESEND_API_KEY`, `RESEND_FROM`, `MAIL_REPLY_TO`, `MAIL_POSTAL_ADDRESS` | Outbound email: advertiser password resets, the Purdue email verification codes (issue #181) and the two-step sign-in codes, on the same sender; blank keeps email off, and a production code request then answers 503 |
+| `LOGIN_TWO_FACTOR` | `on` (default): email + password sign-in and sign-up wait on an emailed 6-digit code; "Trust this device" skips it for 30 days; Google sign-in skips it. Locally without `RESEND_*`, the code prints to the server console |
+| `LOGIN_TWO_FACTOR_SYNC_GATE` | `off` (default) until the native app has a code screen. When `on`, `POST /api/auth/supabase-sync` refuses password-only Supabase tokens, so the code cannot be skipped |
 | `TRANSLOC_API_KEY` | Live transit feed; blank falls back to the cached snapshot |
 | `NUTRISLICE_API_BASE`, `NUTRISLICE_CACHE_MS` | Dining menu upstream and how long its answers are cached |
 | `PARKING_STATUS_URL`, `PARKING_STATUS_CACHE_MS` | Garage occupancy upstream and its cache window |
