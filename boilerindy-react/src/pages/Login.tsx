@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, type BackendSession } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { parseNextPath, registerSupabaseUser, resolvePostLoginPath } from '../lib/authApi'
+import {
+  authRequest,
+  parseNextPath,
+  registerSupabaseUser,
+  resolvePostLoginPath,
+  type ApiRequestError,
+  type SignInResponse,
+} from '../lib/authApi'
 import { sendPasswordResetEmail, signInWithEmail, signInWithGoogle, supabase } from '../lib/supabase'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
@@ -17,6 +24,8 @@ const asideFeatures = [
   ['calendar', 'Import class data from sources you connect'],
   ['sparkles', 'Secure authentication powered by Supabase'],
 ]
+
+type PendingCode = { email: string; flow: 'signin' | 'signup' }
 
 export default function Login() {
   const { user, loading, onboarding, establishSession, applySession } = useAuth()
@@ -61,6 +70,11 @@ export default function Login() {
     return allowed[message] || ''
   })
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({})
+  // Set once the password checks out and the server has emailed a code.
+  const [pendingCode, setPendingCode] = useState<PendingCode | null>(null)
+  const [code, setCode] = useState('')
+  const [trustDevice, setTrustDevice] = useState(true)
+  const [resending, setResending] = useState(false)
 
   useEffect(() => {
     if (loading) return
@@ -163,7 +177,14 @@ export default function Login() {
         // cannot leave another user's session on a shared device. Local scope
         // avoids a network round-trip.
         await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
-        await registerSupabaseUser(email.trim(), password, name.trim(), rememberMe)
+        const registered = await registerSupabaseUser(email.trim(), password, name.trim(), rememberMe)
+        if (registered.twoFactorRequired) {
+          setPendingCode({ email: registered.email || email.trim(), flow: 'signup' })
+          if (registered.codeSent === false) {
+            setBanner('Your account is ready, but we could not send the code. Tap "Send a new code" in about 30 seconds.')
+          }
+          return
+        }
         try {
           await signInWithEmail(email.trim(), password)
         } catch {
@@ -189,38 +210,99 @@ export default function Login() {
           )
         }
 
-        // The backend sign-in is authoritative: it set the session cookie AND
-        // returned the full payload. Apply it directly so the app is usable after
-        // a single round-trip - no client re-sign-in + refreshSession waterfall
-        // (issue #111).
-        const signedIn = (data as { session?: BackendSession | null } | null)?.session ?? null
-        applySession(signedIn)
-
-        // Establish the client Supabase session in the background - only needed
-        // for OAuth and silent re-hydration after a backend restart. Its
-        // onAuthStateChange listener reconciles the context session. On failure,
-        // clear a stale local session so it can't re-hydrate as another user,
-        // but only when one is actually there: signOut() broadcasts SIGNED_OUT
-        // with nothing to sign out of, and that tore down the backend session
-        // applied above, bouncing a valid sign-in back to /login every time
-        // Supabase was unreachable (issue #298).
-        void signInWithEmail(email.trim(), password).catch(async () => {
-          try {
-            const {
-              data: { session: stale },
-            } = await supabase.auth.getSession()
-            if (stale) await supabase.auth.signOut({ scope: 'local' })
-          } catch {
-            // No readable local session, so there is nothing to clear.
-          }
-        })
-
-        navigate(resolvePostLoginPath(window.location.search, signedIn?.onboarding), { replace: true })
+        const result = (data ?? {}) as SignInResponse
+        if (result.twoFactorRequired) {
+          setPendingCode({ email: result.email || email.trim(), flow: 'signin' })
+          return
+        }
+        finishSignIn(result.session ?? null, 'signin')
       }
     } catch (error) {
       setBanner(error instanceof Error ? error.message : 'Authentication failed. Please try again.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // The backend session is authoritative: it set the session cookie AND
+  // returned the full payload. Apply it directly so the app is usable after
+  // a single round-trip - no client re-sign-in + refreshSession waterfall
+  // (issue #111).
+  function finishSignIn(signedIn: BackendSession | null, flow: PendingCode['flow']) {
+    applySession(signedIn)
+
+    // Establish the client Supabase session in the background - only needed
+    // for OAuth and silent re-hydration after a backend restart. Its
+    // onAuthStateChange listener reconciles the context session. On failure,
+    // clear a stale local session so it can't re-hydrate as another user,
+    // but only when one is actually there: signOut() broadcasts SIGNED_OUT
+    // with nothing to sign out of, and that tore down the backend session
+    // applied above, bouncing a valid sign-in back to /login every time
+    // Supabase was unreachable (issue #298).
+    void signInWithEmail(email.trim(), password).catch(async () => {
+      try {
+        const {
+          data: { session: stale },
+        } = await supabase.auth.getSession()
+        if (stale) await supabase.auth.signOut({ scope: 'local' })
+      } catch {
+        // No readable local session, so there is nothing to clear.
+      }
+    })
+
+    navigate(
+      flow === 'signup'
+        ? parseNextPath(window.location.search)
+        : resolvePostLoginPath(window.location.search, signedIn?.onboarding),
+      { replace: true },
+    )
+  }
+
+  function leaveCodeStep() {
+    setPendingCode(null)
+    setCode('')
+    clearErrors()
+  }
+
+  async function handleVerifyCode(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!pendingCode) return
+    clearErrors()
+    if (!/^\d{6}$/.test(code)) {
+      setFieldErr({ code: 'Enter the 6-digit code from the email.' })
+      return
+    }
+    setSubmitting(true)
+    try {
+      const data = (await authRequest('/api/auth/sign-in/verify', {
+        method: 'POST',
+        body: JSON.stringify({ code, trustDevice }),
+      })) as SignInResponse
+      finishSignIn(data.session ?? null, pendingCode.flow)
+    } catch (error) {
+      const restart = Boolean(
+        (error as ApiRequestError & { payload?: { error?: { restart?: boolean } } })?.payload?.error?.restart,
+      )
+      if (restart) {
+        setPendingCode(null)
+        setCode('')
+      }
+      setBanner(error instanceof Error ? error.message : 'Could not verify the code. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleResendCode() {
+    clearErrors()
+    setResending(true)
+    try {
+      await authRequest('/api/auth/sign-in/resend', { method: 'POST' })
+      setSuccessBanner('A new code is on the way.')
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'Could not send a new code.')
+    } finally {
+      setResending(false)
     }
   }
 
@@ -313,17 +395,19 @@ export default function Login() {
           </div>
 
           <h1 className="text-[1.6rem] font-bold tracking-tight mb-1.5">
-            {forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}
+            {pendingCode ? 'Check your email' : forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}
           </h1>
           <p className="text-[13px] text-[var(--color-txt-2)] mb-6">
-            {forgotMode
-              ? 'Enter your account email and we will send you a reset link.'
-              : isSignup
-                ? 'Create your account with Google or your email. Purdue linking comes after sign-up, in setup.'
-                : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
+            {pendingCode
+              ? `We sent a 6-digit code to ${pendingCode.email}. Enter it to ${pendingCode.flow === 'signup' ? 'confirm your email' : 'finish signing in'}.`
+              : forgotMode
+                ? 'Enter your account email and we will send you a reset link.'
+                : isSignup
+                  ? 'Create your account with Google or your email. Purdue linking comes after sign-up, in setup.'
+                  : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
           </p>
 
-          <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode ? 'hidden' : ''}`}>
+          <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
             <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${!isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-sm' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
               Sign in
             </button>
@@ -344,7 +428,7 @@ export default function Login() {
             </StatusBanner>
           )}
 
-          {!forgotMode && (
+          {!forgotMode && !pendingCode && (
             <>
               <button
                 type="button"
@@ -364,7 +448,59 @@ export default function Login() {
             </>
           )}
 
-          {forgotMode ? (
+          {pendingCode ? (
+            <form onSubmit={handleVerifyCode} className="space-y-4">
+              <div>
+                <label htmlFor="code" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Verification code</label>
+                <input
+                  id="code"
+                  className={`${inputBase} text-center text-lg tracking-[0.5em] font-semibold ${fieldErr.code ? 'border-[var(--color-error)]' : ''}`}
+                  value={code}
+                  onChange={(ev) => setCode(ev.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  autoFocus
+                />
+                {fieldErr.code && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.code}</p>}
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={trustDevice}
+                  onChange={(e) => setTrustDevice(e.target.checked)}
+                  className="w-4 h-4 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
+                />
+                <span className="text-[13px] text-[var(--color-txt-1)]">Trust this device for 30 days</span>
+              </label>
+              <button
+                type="submit"
+                disabled={submitting || code.length !== 6}
+                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60"
+              >
+                <Icon name="check" size={16} />
+                {submitting ? 'Verifying…' : 'Verify and continue'}
+              </button>
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={resending}
+                  className="text-[13px] text-[var(--color-accent)] hover:underline bg-transparent border-0 cursor-pointer disabled:opacity-60"
+                >
+                  {resending ? 'Sending…' : 'Send a new code'}
+                </button>
+                <button
+                  type="button"
+                  onClick={leaveCodeStep}
+                  className="text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] bg-transparent border-0 cursor-pointer"
+                >
+                  Use a different account
+                </button>
+              </div>
+            </form>
+          ) : forgotMode ? (
             <form onSubmit={handleForgotSubmit} className="space-y-4">
               <div>
                 <label htmlFor="email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Email address</label>
