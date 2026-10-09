@@ -181,6 +181,38 @@ export function purdueVerificationEmail({ code }) {
   return { subject, html }
 }
 
+/**
+ * The two-step sign-in code (src/twoFactor.mjs). Pure - returns the subject +
+ * HTML body. Like the Purdue code email: the code once, no link to click.
+ */
+export function loginCodeEmail({ code }) {
+  const safeCode = escapeHtml(code)
+  const subject = 'Your BoilerIndy sign-in code'
+  const html = `
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f4f4f5;padding:32px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <tr><td align="center">
+    <table width="480" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7;">
+      <tr><td style="background:#000000;padding:24px 32px;">
+        <span style="color:#D4A84B;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Boiler<span style="color:#ffffff;">Indy</span></span>
+      </td></tr>
+      <tr><td style="padding:32px;">
+        <h1 style="margin:0 0 12px;font-size:20px;color:#18181b;">Finish signing in</h1>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#52525b;">
+          Your password was just entered on BoilerIndy. Enter this code to finish signing in.
+        </p>
+        <p style="margin:0 0 20px;font-size:34px;font-weight:700;letter-spacing:10px;color:#18181b;font-family:'SFMono-Regular',Menlo,Consolas,monospace;">${safeCode}</p>
+        <p style="margin:0;font-size:15px;line-height:1.6;color:#52525b;">It expires in 10 minutes. Never share it with anyone.</p>
+      </td></tr>
+      <tr><td style="padding:20px 32px;border-top:1px solid #f4f4f5;">
+        <p style="margin:0;font-size:12px;line-height:1.5;color:#a1a1aa;">If this wasn't you, someone may know your password: change it in Settings.</p>
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0;font-size:11px;color:#a1a1aa;">BoilerIndy</p>
+  </td></tr>
+</table>`.trim()
+  return { subject, html }
+}
+
 /** Convenience: build + send the advertiser reset email in one call. */
 export function sendAdvertiserPasswordResetEmail({ to, resetUrl, companyName }) {
   const { subject, html } = advertiserPasswordResetEmail({ resetUrl, companyName })
