@@ -38,6 +38,7 @@ Not every route has moved to this envelope yet, so a client should read
 | `purdue_email_verification_schema_missing` | 503 | `/api/me/purdue-email/*` | `purdue_email_challenges` is missing: README step 39, `db/supabase-purdue-email-verification.sql`, has not run (see [purdue-email-verification.md](purdue-email-verification.md)). Linking through CAS or the mock is unaffected. | Show email verification as not available yet. |
 | `purdue_linking_disabled` | 400 | `POST /api/purdue/link-token` | `PURDUE_AUTH_MODE=off`. | Hide the Purdue link option. See [purdue-link.md](purdue-link.md). |
 | `purdue_link_unconfigured` | 503 | `POST /api/purdue/link-token` | `SESSION_SECRET` is shorter than 32 characters. | Show linking as unavailable. |
+| `sign_in_codes_schema_missing` | 503 | `POST /api/auth/sign-in`, `POST /api/auth/register-supabase`, `POST /api/auth/sign-in/verify`, `POST /api/auth/sign-in/resend` | `LOGIN_TWO_FACTOR` is on but `sign_in_challenges` is missing: README step 41, `db/supabase-sign-in-challenges.sql`, has not run. A sign-up answering it has already created the account. | Show the message; email + password sign-in waits on the migration, Google sign-in is unaffected. |
 | `purdue_link_unauthorized` | 401 | `POST /api/purdue/link-token` | The session has no valid student id. | Send the student to sign in again. |
 
 Every `*_schema_missing` code ends in `_schema_missing`, so a client can match

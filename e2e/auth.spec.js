@@ -109,6 +109,8 @@ test.describe('Authentication', () => {
 
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
     await expect(page).toHaveURL(/\/login/)
+    // Opt-in, for a student's own device: lab and library computers are shared.
+    await expect(page.getByLabel(/Trust this device/)).not.toBeChecked()
 
     await page.getByLabel('Verification code').fill('111111')
     await page.getByRole('button', { name: 'Verify and continue' }).click()

@@ -73,7 +73,9 @@ export default function Login() {
   // Set once the password checks out and the server has emailed a code.
   const [pendingCode, setPendingCode] = useState<PendingCode | null>(null)
   const [code, setCode] = useState('')
-  const [trustDevice, setTrustDevice] = useState(true)
+  // Off by default, like Remember me: students sign in on shared lab and
+  // library computers, where a trusted device would skip the code for a month.
+  const [trustDevice, setTrustDevice] = useState(false)
   const [resending, setResending] = useState(false)
 
   useEffect(() => {
@@ -472,7 +474,7 @@ export default function Login() {
                   onChange={(e) => setTrustDevice(e.target.checked)}
                   className="w-4 h-4 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
                 />
-                <span className="text-[13px] text-[var(--color-txt-1)]">Trust this device for 30 days</span>
+                <span className="text-[13px] text-[var(--color-txt-1)]">Trust this device for 30 days (only on your own device)</span>
               </label>
               <button
                 type="submit"

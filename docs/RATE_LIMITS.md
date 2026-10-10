@@ -14,7 +14,7 @@ a credential such as the calendar feed token (#422).
 ## Endpoint coverage
 
 Every bucket below is a `createRateLimiter` call in `server.mjs`, except the two
-AI limits and `purdue-link-flow`, which are noted as such.
+AI limits, `login-code-mail` and `purdue-link-flow`, which are noted as such.
 [`rateLimitDocs.test.mjs`](../test/rateLimitDocs.test.mjs) fails the build when a
 limiter or one of its routes is missing from this table, or when the table names
 a route the server does not serve, so it cannot drift from the code again (#201).
@@ -27,8 +27,10 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `session-sync` | `POST /api/auth/supabase-sync` (the inner per-user cap) | 120 | 15 min | Supabase user (`sub` of the request's token, or `supabaseUserId`), falls back to IP (#217) |
 | `session-sync-ip` | `POST /api/auth/supabase-sync` (outer cap so one address cannot mint unlimited user buckets) | 600 | 15 min | IP |
 | `purdue-link-token` | `POST /api/purdue/link-token` (native app Purdue link handoff, issue #214) | 20 | 15 min | user, falls back to IP |
-| `login-code` | `POST /api/auth/sign-in/verify` (two-step sign-in code checks; each code also allows only five guesses) | 30 | 15 min | IP |
+| `login-code` | `POST /api/auth/sign-in/verify` (two-step sign-in code checks, the outer cap; each code also allows only five guesses, counted in `sign_in_challenges` so parallel requests cannot share one count) | 30 | 15 min | IP |
+| `login-code-account` | `POST /api/auth/sign-in/verify` (the inner per-account cap, across addresses and restarted sign-ins) | 10 | 1 hour | the pending sign-in's user (only a correct password sets it), falls back to IP |
 | `login-code-send` | `POST /api/auth/sign-in/resend` (each mails a new sign-in code) | 10 | 1 hour | IP |
+| `login-code-mail` (a `createRateWindow`, not a middleware: the account is known only after the password checks out, so the route answers the 429 itself) | `POST /api/auth/sign-in`, `POST /api/auth/register-supabase`, `POST /api/auth/sign-in/resend` (every sign-in code mailed to one account) | 10 | 1 hour | user |
 | `purdue-verify` | `POST /api/me/purdue-email/request`, `POST /api/me/purdue-email/verify` (Purdue email-code verification, issue #181: bounds the codes mailed to any one address and the guesses at a code; see [purdue-email-verification.md](purdue-email-verification.md)) | 10 | 1 hour | user, falls back to IP |
 | `purdue-link-flow` | `GET /auth/purdue/connect`, `POST /auth/purdue/dev/link`, `GET /auth/purdue/callback` (the steps that spend a link attempt, checked before the student is loaded; a blocked caller is redirected, to the app with `reason=rate-limited` or to `/settings?error=purdue-link-throttled`, rather than answered with a JSON 429; issue #293) | 30 | 15 min | handoff token (only a validly signed, unexpired, unspent one), then user, then IP |
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id`, `POST /api/guide`, `POST /api/guide/:id/upvote`, `POST /api/study-groups`, `POST /api/study-groups/:id/join`, `POST /api/study-groups/:id/leave`, `POST /api/marketplace`, `PATCH /api/marketplace/:id`, `POST /api/marketplace/:id/report`, `PUT /api/me/profile-card`, `POST /api/connections` | 30 | 10 min | user, falls back to IP |

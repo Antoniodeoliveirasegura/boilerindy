@@ -5,98 +5,114 @@ import {
   DEVICE_TRUST_TTL_MS,
   MAX_ATTEMPTS,
   MAX_SENDS,
+  PENDING_TTL_MS,
   RESEND_COOLDOWN_MS,
-  checkChallenge,
+  challengeErrorMessage,
+  challengeStatus,
   checkDeviceTrustToken,
-  createChallenge,
+  codeMatches,
   createDeviceTrustToken,
   generateCode,
+  hashSignInCode,
   parseCookies,
-  resendChallenge,
+  resendStatus,
   tokenAuthMethods,
   tokenNeedsSignInCode,
 } from '../src/twoFactor.mjs'
 
 const SECRET = 'test-secret-that-is-long-enough-for-hmac'
 const NOW = Date.parse('2026-10-09T12:00:00.000Z')
+const iso = (ms) => new Date(ms).toISOString()
 
-function loginChallenge(code = '123456') {
-  return createChallenge(SECRET, { purpose: 'login', subject: 'user-1', code, now: NOW }).challenge
+// A sign_in_challenges row as the routes write it, for `code`, created at NOW.
+function row(code = '123456', fields = {}) {
+  const id = 'challenge-1'
+  const userId = 'user-1'
+  return {
+    id,
+    user_id: userId,
+    code_hash: hashSignInCode(SECRET, { challengeId: id, subject: userId, code }),
+    expires_at: iso(NOW + CODE_TTL_MS),
+    attempts: 0,
+    sends: 1,
+    sent_at: iso(NOW),
+    created_at: iso(NOW),
+    ...fields,
+  }
 }
 
 test('generated codes are six digits', () => {
   for (let i = 0; i < 50; i += 1) assert.match(generateCode(), /^\d{6}$/)
 })
 
-test('the challenge stores a hash, never the code', () => {
-  const challenge = loginChallenge('123456')
-  assert.ok(!JSON.stringify(challenge).includes('123456'))
-  assert.equal(challenge.expiresAt, NOW + CODE_TTL_MS)
+test('the row stores a hash, never the code', () => {
+  assert.ok(!JSON.stringify(row('123456')).includes('123456'))
 })
 
-test('the right code verifies, tolerating spaces and dashes', () => {
-  const challenge = loginChallenge('123456')
-  assert.equal(checkChallenge(SECRET, challenge, { purpose: 'login', code: '123456', now: NOW }).ok, true)
-  assert.equal(checkChallenge(SECRET, challenge, { purpose: 'login', code: ' 123-456 ', now: NOW }).ok, true)
-})
-
-test('a wrong code counts an attempt and keeps the challenge', () => {
-  const result = checkChallenge(SECRET, loginChallenge('123456'), { purpose: 'login', code: '000000', now: NOW })
-  assert.equal(result.ok, false)
-  assert.equal(result.reason, 'invalid')
-  assert.equal(result.remaining, MAX_ATTEMPTS - 1)
-  assert.equal(result.challenge.attempts, 1)
-})
-
-test('the last allowed wrong attempt discards the challenge', () => {
-  let challenge = loginChallenge('123456')
-  let result
-  for (let i = 0; i < MAX_ATTEMPTS; i += 1) {
-    result = checkChallenge(SECRET, challenge, { purpose: 'login', code: '000000', now: NOW })
-    challenge = result.challenge
+test('the right code matches, tolerating spaces and dashes; anything else does not', () => {
+  const challenge = row('123456')
+  assert.equal(codeMatches(SECRET, challenge, '123456'), true)
+  assert.equal(codeMatches(SECRET, challenge, ' 123-456 '), true)
+  assert.equal(codeMatches(SECRET, challenge, 123456), true, 'a client may send the digits as a JSON number')
+  for (const wrong of ['000000', '12345', '1234567', 'abcdef', '', null, undefined, 1234567]) {
+    assert.equal(codeMatches(SECRET, challenge, wrong), false, String(wrong))
   }
-  assert.equal(result.reason, 'too-many-attempts')
-  assert.equal(result.challenge, null)
 })
 
-test('an expired code is rejected even if correct', () => {
-  const result = checkChallenge(SECRET, loginChallenge('123456'), {
-    purpose: 'login',
-    code: '123456',
-    now: NOW + CODE_TTL_MS + 1,
-  })
-  assert.equal(result.reason, 'expired')
+test('a code is bound to its row, its user and the secret', () => {
+  const challenge = row('123456')
+  assert.equal(codeMatches(SECRET, { ...challenge, id: 'challenge-2' }, '123456'), false)
+  assert.equal(codeMatches(SECRET, { ...challenge, user_id: 'user-2' }, '123456'), false)
+  assert.equal(codeMatches('another-secret', challenge, '123456'), false)
 })
 
-test('a code cannot cross purposes, subjects, or secrets', () => {
-  const challenge = loginChallenge('123456')
-  assert.equal(checkChallenge(SECRET, challenge, { purpose: 'purdue-link', code: '123456', now: NOW }).reason, 'missing')
-  const otherUser = { ...challenge, subject: 'user-2' }
-  assert.equal(checkChallenge(SECRET, otherUser, { purpose: 'login', code: '123456', now: NOW }).ok, false)
-  assert.equal(checkChallenge('another-secret', challenge, { purpose: 'login', code: '123456', now: NOW }).ok, false)
+test('challengeStatus: missing, timed out, exhausted, expired, live', () => {
+  assert.equal(challengeStatus(null, NOW), 'missing')
+  assert.equal(challengeStatus(row(), NOW), 'live')
+  assert.equal(challengeStatus(row('123456', { attempts: MAX_ATTEMPTS - 1 }), NOW), 'live')
+  assert.equal(challengeStatus(row('123456', { attempts: MAX_ATTEMPTS }), NOW), 'exhausted')
+  assert.equal(challengeStatus(row(), NOW + CODE_TTL_MS), 'expired')
+  assert.equal(challengeStatus(row(), NOW + PENDING_TTL_MS), 'timed-out')
+  // Postgres hands timestamps back in its own format.
+  assert.equal(challengeStatus(row('123456', { created_at: '2026-10-09T12:00:00.000000+00:00' }), NOW), 'live')
 })
 
-test('no pending challenge reports missing', () => {
-  assert.equal(checkChallenge(SECRET, undefined, { purpose: 'login', code: '123456', now: NOW }).reason, 'missing')
+test('challengeStatus: the whole sign-in times out even when a resend renewed the code', () => {
+  const renewed = row('123456', { expires_at: iso(NOW + PENDING_TTL_MS + CODE_TTL_MS) })
+  assert.equal(challengeStatus(renewed, NOW + PENDING_TTL_MS - 1), 'live')
+  assert.equal(challengeStatus(renewed, NOW + PENDING_TTL_MS), 'timed-out')
 })
 
-test('resend enforces a cooldown, then rotates the code', () => {
-  const challenge = loginChallenge('123456')
-  const early = resendChallenge(SECRET, challenge, { now: NOW + 1000, code: '654321' })
-  assert.equal(early.reason, 'cooldown')
-
-  const later = resendChallenge(SECRET, { ...challenge, attempts: 3 }, { now: NOW + RESEND_COOLDOWN_MS, code: '654321' })
-  assert.equal(later.ok, true)
-  assert.equal(later.challenge.attempts, 0)
-  assert.equal(later.challenge.sends, 2)
-  const at = NOW + RESEND_COOLDOWN_MS
-  assert.equal(checkChallenge(SECRET, later.challenge, { purpose: 'login', code: '123456', now: at }).ok, false)
-  assert.equal(checkChallenge(SECRET, later.challenge, { purpose: 'login', code: '654321', now: at }).ok, true)
+test('challengeStatus: an unreadable timestamp fails closed', () => {
+  assert.equal(challengeStatus(row('123456', { created_at: 'garbage' }), NOW), 'timed-out')
+  assert.equal(challengeStatus(row('123456', { expires_at: null }), NOW), 'expired')
 })
 
-test('resend stops after the send budget', () => {
-  const challenge = { ...loginChallenge(), sends: MAX_SENDS }
-  assert.equal(resendChallenge(SECRET, challenge, { now: NOW + RESEND_COOLDOWN_MS }).reason, 'too-many-sends')
+test('resendStatus: a cooldown, then a new code, until the send budget is spent', () => {
+  assert.deepEqual(resendStatus(row(), NOW + 1000), { reason: 'cooldown', retryAfterMs: RESEND_COOLDOWN_MS - 1000 })
+  assert.deepEqual(resendStatus(row(), NOW + RESEND_COOLDOWN_MS), { reason: 'ok' })
+  assert.deepEqual(resendStatus(row('123456', { sends: MAX_SENDS }), NOW + RESEND_COOLDOWN_MS), { reason: 'too-many-sends' })
+})
+
+test('resendStatus: an expired code can be replaced; a timed-out or exhausted sign-in cannot', () => {
+  assert.deepEqual(resendStatus(row(), NOW + CODE_TTL_MS), { reason: 'ok' })
+  assert.deepEqual(resendStatus(row(), NOW + PENDING_TTL_MS), { reason: 'timed-out' })
+  assert.deepEqual(resendStatus(row('123456', { attempts: MAX_ATTEMPTS }), NOW + RESEND_COOLDOWN_MS), { reason: 'exhausted' })
+  assert.deepEqual(resendStatus(null, NOW), { reason: 'missing' })
+})
+
+test('resendStatus: a sent_at in the future never asks for more than the cooldown', () => {
+  const skewed = row('123456', { sent_at: iso(NOW + 60 * 60 * 1000) })
+  assert.deepEqual(resendStatus(skewed, NOW), { reason: 'cooldown', retryAfterMs: RESEND_COOLDOWN_MS })
+})
+
+test('every reason has its own words', () => {
+  assert.equal(challengeErrorMessage({ reason: 'invalid', remaining: 1 }), 'That code is not right. 1 try left.')
+  assert.equal(challengeErrorMessage({ reason: 'invalid', remaining: 3 }), 'That code is not right. 3 tries left.')
+  assert.equal(challengeErrorMessage({ reason: 'cooldown', retryAfterMs: 12_001 }), 'Please wait 13 seconds before requesting another code.')
+  const reasons = ['expired', 'too-many-attempts', 'too-many-sends', 'timed-out', 'password-changed', 'missing']
+  const messages = reasons.map((reason) => challengeErrorMessage({ reason }))
+  assert.equal(new Set(messages).size, reasons.length)
 })
 
 test('a trusted-device token is valid only for its user, before expiry', () => {

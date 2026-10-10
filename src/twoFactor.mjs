@@ -3,10 +3,15 @@
 // account (Google sign-in skips it). Purdue inbox verification has its own
 // module, src/purdueEmailVerification.mjs.
 //
-// A challenge lives in the server session (never sent to the client) and stores
-// only an HMAC of the code, bound to its purpose and subject, so a code minted
-// for one purpose or user can never satisfy another. Everything here is pure so
-// the policy is unit-testable without Express or Supabase.
+// A challenge is a row of sign_in_challenges (db/supabase-sign-in-challenges.sql)
+// and the pending session holds only its id. The row stores an HMAC of the
+// code, bound to the row and its user, so a code or a leaked row can never
+// satisfy another challenge. The counters live in the row rather than the
+// session so they hold under parallel requests: src/routes/auth.mjs counts a
+// guess with a compare-and-swap on `attempts` before it compares the code, and
+// spends a right code by deleting the row, which only one request can do.
+// Everything here is pure so the policy is unit-testable without Express or
+// Supabase.
 //
 // Names say "sign-in", "check" and "device trust" on purpose. CodeQL reads any
 // call named like "login", "auth" or "verify" as an authorization check, and it
@@ -17,9 +22,16 @@
 import crypto from 'node:crypto'
 
 export const CODE_LENGTH = 6
+/** One code works for 10 minutes; a resend issues a new one. */
 export const CODE_TTL_MS = 10 * 60 * 1000
+/** A pending sign-in, resends included, ends 30 minutes after the password. */
+export const PENDING_TTL_MS = 30 * 60 * 1000
+/** The pending session's cookie; the server's sessions roll, so each step renews it. */
+export const PENDING_COOKIE_MS = 15 * 60 * 1000
+/** Guesses per code; the last wrong one ends the pending sign-in. */
 export const MAX_ATTEMPTS = 5
 export const RESEND_COOLDOWN_MS = 30 * 1000
+/** Codes mailed per pending sign-in, the first one included. */
 export const MAX_SENDS = 5
 export const DEVICE_TRUST_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -41,76 +53,70 @@ export function normalizeCode(input) {
   return String(input ?? '').replace(/[\s-]/g, '')
 }
 
-function hashCode(secret, { purpose, subject, code }) {
-  return hmac(secret, `code|${purpose}|${subject}|${code}`)
+/** What a challenge row stores for `code`: bound to the row id and its user. */
+export function hashSignInCode(secret, { challengeId, subject, code }) {
+  return hmac(secret, `sign-in-code|${challengeId}|${subject}|${code}`)
 }
 
 /**
- * Start a challenge. `extra` is stored alongside (e.g. rememberMe, the email
- * being verified) and carried through resends.
- * @returns {{ code: string, challenge: object }}
+ * Whether `code` is the one `row` was issued for. Spaces and dashes are
+ * dropped first, since the email shows the code spaced out.
+ * @param {string} secret
+ * @param {{ id: string, user_id: string, code_hash: string }} row
+ * @param {unknown} code
  */
-export function createChallenge(secret, { purpose, subject, extra = {}, now = Date.now(), code = generateCode() }) {
-  return {
-    code,
-    challenge: {
-      ...extra,
-      purpose,
-      subject,
-      codeHash: hashCode(secret, { purpose, subject, code }),
-      expiresAt: now + CODE_TTL_MS,
-      attempts: 0,
-      sends: 1,
-      sentAt: now,
-    },
-  }
-}
-
-/**
- * Check a submitted code. Never mutates the input; the caller persists the
- * returned `challenge` (null means discard it - the user must start over).
- * @returns {{ ok: boolean, reason?: 'missing'|'expired'|'too-many-attempts'|'invalid', remaining?: number, challenge: object|null }}
- */
-export function checkChallenge(secret, challenge, { purpose, code, now = Date.now() }) {
-  if (!challenge || challenge.purpose !== purpose) return { ok: false, reason: 'missing', challenge: null }
-  if (now > challenge.expiresAt) return { ok: false, reason: 'expired', challenge: null }
-  if (challenge.attempts >= MAX_ATTEMPTS) return { ok: false, reason: 'too-many-attempts', challenge: null }
-
+export function codeMatches(secret, row, code) {
   const submitted = normalizeCode(code)
-  const matches = /^\d+$/.test(submitted)
-    && submitted.length === CODE_LENGTH
-    && safeEqual(hashCode(secret, { purpose, subject: challenge.subject, code: submitted }), challenge.codeHash)
-  if (matches) return { ok: true, challenge: null }
+  if (!/^\d+$/.test(submitted) || submitted.length !== CODE_LENGTH) return false
+  return safeEqual(hashSignInCode(secret, { challengeId: row.id, subject: row.user_id, code: submitted }), row.code_hash)
+}
 
-  const attempts = challenge.attempts + 1
-  if (attempts >= MAX_ATTEMPTS) return { ok: false, reason: 'too-many-attempts', challenge: null }
-  return { ok: false, reason: 'invalid', remaining: MAX_ATTEMPTS - attempts, challenge: { ...challenge, attempts } }
+// A stored timestamp in milliseconds, or NaN, which every check below reads as
+// "already passed" so an unreadable row fails closed.
+const msOf = (value) => new Date(value ?? NaN).getTime()
+
+function timedOut(row, now) {
+  const created = msOf(row.created_at)
+  return Number.isNaN(created) || now >= created + PENDING_TTL_MS
 }
 
 /**
- * Issue a fresh code for an existing challenge (new expiry, attempts reset).
- * @returns {{ ok: boolean, reason?: 'missing'|'cooldown'|'too-many-sends', retryAfterMs?: number, code?: string, challenge: object|null }}
+ * Where a challenge row stands for a submitted code, checked in this order:
+ * 'missing' (no row), 'timed-out' (the pending sign-in is over 30 minutes old),
+ * 'exhausted' (MAX_ATTEMPTS guesses used), 'expired' (this code is over 10
+ * minutes old; a resend can replace it), 'live'.
+ * @param {{ attempts?: number, expires_at: string, created_at: string } | null | undefined} row
+ * @param {number} [now]
+ * @returns {'missing' | 'timed-out' | 'exhausted' | 'expired' | 'live'}
  */
-export function resendChallenge(secret, challenge, { now = Date.now(), code = generateCode() } = {}) {
-  if (!challenge) return { ok: false, reason: 'missing', challenge: null }
-  if (challenge.sends >= MAX_SENDS) return { ok: false, reason: 'too-many-sends', challenge }
-  const wait = challenge.sentAt + RESEND_COOLDOWN_MS - now
-  if (wait > 0) return { ok: false, reason: 'cooldown', retryAfterMs: wait, challenge }
-  const { purpose, subject } = challenge
-  return {
-    ok: true,
-    code,
-    challenge: {
-      ...challenge,
-      codeHash: hashCode(secret, { purpose, subject, code }),
-      expiresAt: now + CODE_TTL_MS,
-      attempts: 0,
-      sends: challenge.sends + 1,
-      sentAt: now,
-    },
-  }
+export function challengeStatus(row, now = Date.now()) {
+  if (!row) return 'missing'
+  if (timedOut(row, now)) return 'timed-out'
+  if ((Number(row.attempts) || 0) >= MAX_ATTEMPTS) return 'exhausted'
+  const expires = msOf(row.expires_at)
+  if (Number.isNaN(expires) || now >= expires) return 'expired'
+  return 'live'
 }
 
+/**
+ * Whether a new code may be mailed for `row`. A code that merely expired can
+ * be replaced; a timed-out or exhausted sign-in has to start over.
+ * @returns {{ reason: 'ok' | 'missing' | 'timed-out' | 'exhausted' | 'too-many-sends' | 'cooldown', retryAfterMs?: number }}
+ */
+export function resendStatus(row, now = Date.now()) {
+  const status = challengeStatus(row, now)
+  if (status === 'missing' || status === 'timed-out' || status === 'exhausted') return { reason: status }
+  if ((Number(row.sends) || 0) >= MAX_SENDS) return { reason: 'too-many-sends' }
+  const sent = msOf(row.sent_at)
+  const wait = Number.isNaN(sent) ? RESEND_COOLDOWN_MS : Math.min(RESEND_COOLDOWN_MS, sent + RESEND_COOLDOWN_MS - now)
+  if (wait > 0) return { reason: 'cooldown', retryAfterMs: wait }
+  return { reason: 'ok' }
+}
+
+/**
+ * The student-facing words for a failed check or resend.
+ * @param {{ reason: string, remaining?: number, retryAfterMs?: number }} result
+ */
 export function challengeErrorMessage(result) {
   switch (result.reason) {
     case 'invalid':
@@ -123,6 +129,10 @@ export function challengeErrorMessage(result) {
       return `Please wait ${Math.ceil((result.retryAfterMs || 0) / 1000)} seconds before requesting another code.`
     case 'too-many-sends':
       return 'Too many codes requested. Start over in a few minutes.'
+    case 'timed-out':
+      return 'This sign-in timed out. Start over to get a new code.'
+    case 'password-changed':
+      return 'Your password changed after this code was sent. Sign in again with the new one.'
     default:
       return 'No verification is in progress. Start over to get a new code.'
   }
