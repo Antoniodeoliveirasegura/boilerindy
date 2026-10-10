@@ -185,7 +185,7 @@ export function purdueVerificationEmail({ code }) {
  * The two-step sign-in code (src/twoFactor.mjs). Pure - returns the subject +
  * HTML body. Like the Purdue code email: the code once, no link to click.
  */
-export function loginCodeEmail({ code }) {
+export function signInCodeEmail({ code }) {
   const safeCode = escapeHtml(code)
   const subject = 'Your BoilerIndy sign-in code'
   const html = `

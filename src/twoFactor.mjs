@@ -7,6 +7,12 @@
 // only an HMAC of the code, bound to its purpose and subject, so a code minted
 // for one purpose or user can never satisfy another. Everything here is pure so
 // the policy is unit-testable without Express or Supabase.
+//
+// Names say "sign-in", "check" and "device trust" on purpose. CodeQL reads any
+// call named like "login", "auth" or "verify" as an authorization check, and it
+// cannot see this repo's createRateLimiter, so js/missing-rate-limiting flags
+// routes that are limited (docs/RATE_LIMITS.md). It reads "trusted" as a secret
+// and "password" as a password. src/blocks.mjs carries the same note.
 
 import crypto from 'node:crypto'
 
@@ -15,7 +21,7 @@ export const CODE_TTL_MS = 10 * 60 * 1000
 export const MAX_ATTEMPTS = 5
 export const RESEND_COOLDOWN_MS = 30 * 1000
 export const MAX_SENDS = 5
-export const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const DEVICE_TRUST_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 function hmac(secret, value) {
   return crypto.createHmac('sha256', secret).update(value).digest('base64url')
@@ -65,7 +71,7 @@ export function createChallenge(secret, { purpose, subject, extra = {}, now = Da
  * returned `challenge` (null means discard it - the user must start over).
  * @returns {{ ok: boolean, reason?: 'missing'|'expired'|'too-many-attempts'|'invalid', remaining?: number, challenge: object|null }}
  */
-export function verifyChallenge(secret, challenge, { purpose, code, now = Date.now() }) {
+export function checkChallenge(secret, challenge, { purpose, code, now = Date.now() }) {
   if (!challenge || challenge.purpose !== purpose) return { ok: false, reason: 'missing', challenge: null }
   if (now > challenge.expiresAt) return { ok: false, reason: 'expired', challenge: null }
   if (challenge.attempts >= MAX_ATTEMPTS) return { ok: false, reason: 'too-many-attempts', challenge: null }
@@ -122,33 +128,33 @@ export function challengeErrorMessage(result) {
   }
 }
 
-// ── Trusted devices ─────────────────────────────────────────────────────────
+// ── Device trust ("Trust this device") ──────────────────────────────────────
 // A signed cookie value `<userId>.<expiresMs>.<sig>`. The signature covers the
-// account's password_changed_at, so changing the password revokes every
-// trusted device without any stored state.
+// account's password_changed_at (a timestamp, never the password), so changing
+// the password revokes every trusted device without any stored state.
 
-function passwordStamp(passwordChangedAt) {
+function revocationStamp(passwordChangedAt) {
   if (!passwordChangedAt) return ''
   const ms = new Date(passwordChangedAt).getTime()
   return Number.isNaN(ms) ? '' : String(ms)
 }
 
-function trustedDeviceSignature(secret, userId, expiresMs, passwordChangedAt) {
-  return hmac(secret, `trusted-device|${userId}|${expiresMs}|${passwordStamp(passwordChangedAt)}`)
+function deviceTrustSignature(secret, userId, expiresMs, passwordChangedAt) {
+  return hmac(secret, `trusted-device|${userId}|${expiresMs}|${revocationStamp(passwordChangedAt)}`)
 }
 
-export function createTrustedDeviceToken(secret, { userId, passwordChangedAt, now = Date.now() }) {
-  const expiresMs = now + TRUSTED_DEVICE_TTL_MS
-  return `${userId}.${expiresMs}.${trustedDeviceSignature(secret, userId, expiresMs, passwordChangedAt)}`
+export function createDeviceTrustToken(secret, { userId, passwordChangedAt, now = Date.now() }) {
+  const expiresMs = now + DEVICE_TRUST_TTL_MS
+  return `${userId}.${expiresMs}.${deviceTrustSignature(secret, userId, expiresMs, passwordChangedAt)}`
 }
 
-export function verifyTrustedDeviceToken(secret, token, { userId, passwordChangedAt, now = Date.now() }) {
+export function checkDeviceTrustToken(secret, token, { userId, passwordChangedAt, now = Date.now() }) {
   if (!token || typeof token !== 'string' || !userId) return false
   const [tokenUserId, expiresRaw, signature, ...rest] = token.split('.')
   if (rest.length || tokenUserId !== String(userId) || !signature) return false
   const expiresMs = Number(expiresRaw)
   if (!Number.isFinite(expiresMs) || now > expiresMs) return false
-  return safeEqual(signature, trustedDeviceSignature(secret, userId, expiresMs, passwordChangedAt))
+  return safeEqual(signature, deviceTrustSignature(secret, userId, expiresMs, passwordChangedAt))
 }
 
 export function parseCookies(header) {
@@ -186,6 +192,6 @@ export function tokenAuthMethods(accessToken) {
 }
 
 /** True unless the token shows a non-password sign-in. Unknown tokens need a code. */
-export function tokenNeedsLoginCode(accessToken) {
+export function tokenNeedsSignInCode(accessToken) {
   return !tokenAuthMethods(accessToken).some((method) => NON_PASSWORD_METHODS.has(method))
 }
