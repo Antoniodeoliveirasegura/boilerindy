@@ -1,6 +1,7 @@
 // Authenticated fetch wrapper + small user/display helpers shared across the app.
 // Migrated to TypeScript (issue #20).
 
+import type { BackendSession } from '../context/AuthContext'
 import { retryAfterMsFromHeader } from './queries/publicData'
 
 type UserLike = { name?: string | null; email?: string | null } | null | undefined
@@ -8,16 +9,27 @@ type UserLike = { name?: string | null; email?: string | null } | null | undefin
 /** What authRequest throws for a non-2xx answer. `code` is the API's error.code when it sent one. */
 export type ApiRequestError = Error & { status?: number; payload?: unknown; code?: string; retryAfterMs?: number }
 
+// Sign-in and sign-up either return a session, or (two-step sign-in)
+// `twoFactorRequired` with the masked address the code was emailed to.
+// `codeSent: false` means a sign-up's account exists but its code email failed.
+export type SignInResponse = {
+  session?: BackendSession | null
+  twoFactorRequired?: boolean
+  email?: string
+  expiresAt?: string
+  codeSent?: boolean
+}
+
 export async function registerSupabaseUser(
   email: string,
   password: string,
   name: string,
   rememberMe = false,
-): Promise<unknown> {
+): Promise<SignInResponse> {
   return authRequest('/api/auth/register-supabase', {
     method: 'POST',
     body: JSON.stringify({ email, password, name, rememberMe }),
-  })
+  }) as Promise<SignInResponse>
 }
 
 export async function authRequest(url: string, options: RequestInit = {}): Promise<unknown> {

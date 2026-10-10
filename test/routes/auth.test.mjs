@@ -74,7 +74,7 @@ const ROUTES = [
   ['POST', '/api/me/delete-account', {}],
 ]
 
-const TABLES = ['users', 'linked_sources', 'calendar_items']
+const TABLES = ['users', 'linked_sources', 'calendar_items', 'sign_in_challenges']
 
 // One table of the in-memory database, answering a recorded chain the way
 // PostgREST would: eq, neq and is filters, a head count, insert, update and
@@ -147,6 +147,20 @@ async function withApp(options, run) {
     block = [],
     cas = null,
     adminEmails = [],
+    twoFactor = false,
+    syncGate = false,
+    production = false,
+    emailConfigured = true,
+    // Sends that throw, as a Resend outage would, before the rest go through.
+    failedSends = 0,
+    // Milliseconds each session read and write waits, so parallel requests each
+    // load the session before any of them saves, as on a remote store.
+    storeDelayMs = 0,
+    // Milliseconds each query waits before it runs, so the queries of parallel
+    // requests interleave. Each still runs whole when its turn comes, as one SQL
+    // statement does, which is what makes a compare-and-swap hold. A function
+    // (table, chain) => ms slows one kind of query more than the rest.
+    dbDelayMs = 0,
   } = options
   const purdueLinkingEnabled = purdueAuthMode !== 'off'
   const db = Object.fromEntries(TABLES.map((name) => [name, structuredClone(seed[name] ?? [])]))
@@ -156,8 +170,12 @@ async function withApp(options, run) {
       TABLES.map((name) => [
         name,
         (chain) => {
-          const error = failures[name]?.(chain)
-          return error ? { data: null, count: null, error } : answer(db[name], chain)
+          const run = () => {
+            const error = failures[name]?.(chain)
+            return error ? { data: null, count: null, error } : answer(db[name], chain)
+          }
+          const delay = typeof dbDelayMs === 'function' ? dbDelayMs(name, chain) : dbDelayMs
+          return delay ? new Promise((resolve) => setTimeout(() => resolve(run()), delay)) : run()
         },
       ]),
     ),
@@ -249,6 +267,30 @@ async function withApp(options, run) {
     res.status(429).json({ error: { message: 'Too many requests.', status: 429 } })
   }
 
+  // Mail the router sends; `codes` holds each two-step code it carried.
+  const mail = []
+  const codes = []
+  let sendsToFail = failedSends
+  const sendEmail = async (message) => {
+    if (sendsToFail > 0) {
+      sendsToFail -= 1
+      throw new Error('Resend send failed (500): outage')
+    }
+    mail.push(message)
+    const code = />(\d{6})</.exec(message.html)?.[1]
+    if (code) codes.push(code)
+    return emailConfigured ? { sent: true } : { sent: false, skipped: true }
+  }
+  // The login-code-mail window: records the account each code email is
+  // counted against, and is over its cap when the test blocks it.
+  const mailWindowHits = []
+  const signInCodeMailWindow = {
+    hit(key) {
+      mailWindowHits.push(key)
+      return { allowed: !block.includes('login-code-mail'), resetAt: Date.now() + 60 * 60 * 1000 }
+    },
+  }
+
   const savedEnv = { login: process.env.PURDUE_CAS_LOGIN_URL, validate: process.env.PURDUE_CAS_VALIDATE_URL, dev: process.env.DEV_PURDUE_EMAIL }
   delete process.env.DEV_PURDUE_EMAIL
   let casStub = null
@@ -262,6 +304,12 @@ async function withApp(options, run) {
   }
 
   const store = new session.MemoryStore()
+  if (storeDelayMs) {
+    for (const method of ['get', 'set']) {
+      const original = store[method].bind(store)
+      store[method] = (...args) => setTimeout(() => original(...args), storeDelayMs)
+    }
+  }
   const app = express()
   app.use(express.json())
   app.use(express.urlencoded({ extended: true }))
@@ -308,6 +356,16 @@ async function withApp(options, run) {
       purdueLinkTokenRateLimit: limiter('purdue-link-token'),
       purdueLinkFlowRateLimit: limiter('purdue-link-flow'),
       userWriteRateLimit: limiter('user-write'),
+      loginCodeRateLimit: limiter('login-code'),
+      loginCodeAccountRateLimit: limiter('login-code-account'),
+      loginCodeSendRateLimit: limiter('login-code-send'),
+      signInCodeMailWindow,
+      loginTwoFactorEnabled: twoFactor,
+      loginTwoFactorSyncGate: syncGate,
+      twoFactorSecret: 'auth-router-test-two-factor-secret',
+      sendEmail,
+      isEmailConfigured: () => emailConfigured,
+      isProduction: production,
     }),
   )
   const server = app.listen(0, '127.0.0.1')
@@ -360,7 +418,8 @@ async function withApp(options, run) {
   try {
     await run({
       call, sessionFor, sessions, sidOf, db, failures, supabase, gotrue, authCalls, verifyCalls, lookups,
-      linkCalls, invalidated, onboardingSummaryCache, purdueLinkHandoff, limiterHits, cas: casStub,
+      linkCalls, invalidated, onboardingSummaryCache, purdueLinkHandoff, limiterHits, cas: casStub, mail, codes,
+      mailWindowHits,
     })
   } finally {
     await new Promise((resolve) => server.close(resolve))
@@ -390,6 +449,11 @@ const isRecent = (iso) => Math.abs(Date.parse(iso) - Date.now()) < 60 * 1000
 const maxAgeOf = (setCookie) => {
   const expires = /Expires=([^;]+)/i.exec(setCookie || '')?.[1]
   return expires ? Math.round((Date.parse(expires) - Date.now()) / DAY) * DAY / 1000 : NaN
+}
+// The same, in whole minutes, for a cookie that lives less than a day.
+const minutesLeftOf = (setCookie) => {
+  const expires = /Expires=([^;]+)/i.exec(setCookie || '')?.[1]
+  return expires ? Math.round((Date.parse(expires) - Date.now()) / 60000) : NaN
 }
 
 // ── Signed out, limiters and the session read ───────────────────────────────
@@ -789,6 +853,348 @@ test('supabase-sync reuses the session the same user already holds, and regenera
     assert.notEqual(sidOf(other.cookie), sidOf(cookie))
     all = await sessions()
     assert.deepEqual(all.map((s) => [s.sid, s.userId]), [[sidOf(other.cookie), U2]])
+  })
+})
+
+// ── Two-step sign-in ────────────────────────────────────────────────────────
+
+const PETE_AUTH = { 'pete@example.com': { id: U1, password: PASSWORD } }
+const trustedCookieOf = (res) => res.setCookies.map((c) => c.split(';')[0]).find((p) => p.startsWith('pih.td=')) ?? null
+function fakeJwt(methods) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  return `${encode({ alg: 'HS256' })}.${encode({ amr: methods.map((method) => ({ method, timestamp: 1 })) })}.sig`
+}
+
+// The pending sign-in's row, as the router left it, and a code that is not the one mailed.
+const challengeRow = (db) => db.sign_in_challenges[0]
+const wrongFor = (code) => (code === '000000' ? '111111' : '000000')
+const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60 * 1000).toISOString()
+
+test('two-step: a correct password mails a code and holds a short session with no user until it is entered', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, db, sessions, mail, codes, limiterHits, mailWindowHits }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD, rememberMe: true } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(Object.keys(res.body).sort(), ['email', 'expiresAt', 'twoFactorRequired'])
+    assert.equal(res.body.twoFactorRequired, true)
+    assert.equal(res.body.email, 'p***@example.com')
+    assert.equal(mail.length, 1)
+    assert.equal(mail[0].to, 'pete@example.com')
+    assert.equal(mail[0].subject, 'Your BoilerIndy sign-in code')
+    assert.deepEqual(mailWindowHits, [U1])
+    assert.equal(minutesLeftOf(res.sessionCookie), 15, 'the pending session gets a short cookie')
+
+    const [stored] = await sessions()
+    assert.equal(stored.userId, undefined)
+    assert.deepEqual(Object.keys(stored.pendingLogin).sort(), ['challengeId', 'rememberMe', 'subject'])
+    assert.equal(stored.pendingLogin.subject, U1)
+    assert.equal(db.sign_in_challenges.length, 1)
+    assert.equal(challengeRow(db).id, stored.pendingLogin.challengeId)
+    assert.equal(challengeRow(db).user_id, U1)
+    assert.ok(!JSON.stringify([stored, db.sign_in_challenges]).includes(codes[0]), 'only a hash of the code is stored')
+
+    // Signed out until the code is entered.
+    assert.equal((await call('GET', '/api/me/profile', { cookie: res.cookie })).status, 401)
+
+    const wrong = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: wrongFor(codes[0]) } })
+    assert.equal(wrong.status, 400)
+    assert.equal(wrong.body.error.code, 'invalid')
+    assert.equal(wrong.body.error.restart, false)
+    assert.equal(wrong.body.error.message, 'That code is not right. 4 tries left.')
+    assert.equal(challengeRow(db).attempts, 1)
+
+    const right = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(right.status, 200)
+    assert.equal(right.body.session.user.id, U1)
+    assert.notEqual(right.cookie, res.cookie, 'the session id is regenerated on success')
+    assert.equal(maxAgeOf(right.sessionCookie), 30 * DAY / 1000, 'rememberMe survives the code step')
+    assert.equal(trustedCookieOf(right), null, 'no trusted device unless asked')
+    assert.deepEqual((await sessions()).map((s) => [s.userId, s.pendingLogin]), [[U1, undefined]])
+    assert.deepEqual(db.sign_in_challenges, [], 'the right code spent the row')
+
+    // The code was spent with the pending sign-in.
+    const replay = await call('POST', '/api/auth/sign-in/verify', { cookie: right.cookie, body: { code: codes[0] } })
+    assert.equal(replay.body.error.code, 'missing')
+    const ipHit = limiterHits.indexOf('login-code POST /api/auth/sign-in/verify')
+    const accountHit = limiterHits.indexOf('login-code-account POST /api/auth/sign-in/verify')
+    assert.ok(ipHit >= 0 && accountHit > ipHit, 'the IP bucket runs first, as the outer cap, then the account bucket')
+  })
+})
+
+test('two-step: the fifth wrong code ends the pending sign-in and removes its row', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, db }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const answers = []
+    for (let i = 0; i < 5; i += 1) {
+      answers.push((await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: wrongFor(codes[0]) } })).body.error)
+    }
+    assert.deepEqual(answers.map((e) => [e.code, e.restart]), [
+      ['invalid', false],
+      ['invalid', false],
+      ['invalid', false],
+      ['invalid', false],
+      ['too-many-attempts', true],
+    ])
+    assert.deepEqual(db.sign_in_challenges, [])
+    const late = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(late.status, 400)
+    assert.equal(late.body.error.code, 'missing')
+  })
+})
+
+test('two-step: forty wrong codes at once share the five guesses, and the right code then fails', async () => {
+  // A slow session store, so every request loads the pending session before
+  // any of them saves (the copy each one holds says no guess was used yet), and
+  // a slow database, so their reads and counts interleave.
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, storeDelayMs: 30, dbDelayMs: 10 }, async ({ call, codes, db }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const burst = await Promise.all(
+      Array.from({ length: 40 }, () => call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: wrongFor(codes[0]) } })),
+    )
+    // Four guesses were told "not right" with 4, 3, 2 and 1 tries left, the
+    // fifth ended the sign-in, and the other 35 found no guess left to count.
+    const notRight = burst.filter((answer) => answer.body.error.code === 'invalid').map((answer) => answer.body.error.message)
+    assert.deepEqual(notRight.sort(), [1, 2, 3, 4].map((n) => `That code is not right. ${n} ${n === 1 ? 'try' : 'tries'} left.`))
+    assert.ok(burst.every((answer) => answer.body.error.code === 'invalid' || answer.body.error.restart === true))
+    assert.deepEqual(db.sign_in_challenges, [])
+
+    const right = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(right.status, 400)
+    assert.equal(right.body.error.restart, true)
+  })
+})
+
+test('two-step: the right code sent three times at once signs in one session', async () => {
+  // Spending is slow here, so all three count a guess and match the code
+  // before the first spend lands: only the spend can tell them apart.
+  const dbDelayMs = (table, chain) => (table === 'sign_in_challenges' && operation(chain) === 'delete' ? 60 : 10)
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, storeDelayMs: 30, dbDelayMs }, async ({ call, codes, sessions }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const burst = await Promise.all(
+      Array.from({ length: 3 }, () => call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })),
+    )
+    assert.deepEqual(burst.map((answer) => answer.status).sort(), [200, 400, 400])
+    assert.ok(burst.filter((answer) => answer.status === 400).every((answer) => answer.body.error.restart === true))
+    assert.equal((await sessions()).filter((s) => s.userId === U1).length, 1)
+  })
+})
+
+test('two-step: a code with no pending sign-in is refused without writing a session', async () => {
+  await withApp({ twoFactor: true }, async ({ call, sessions, supabase }) => {
+    const res = await call('POST', '/api/auth/sign-in/verify', { body: { code: '123456' } })
+    assert.equal(res.status, 400)
+    assert.equal(res.body.error.code, 'missing')
+    assert.equal(res.body.error.restart, true)
+    assert.equal(res.sessionCookie, null)
+    assert.deepEqual(await sessions(), [])
+    assert.equal(supabase.queriesOf('sign_in_challenges').length, 0)
+  })
+})
+
+test('two-step: a pending sign-in ends 30 minutes after the password, and a resend cannot revive it', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, db, mail }) => {
+    const first = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    Object.assign(challengeRow(db), { created_at: minutesAgo(31), sent_at: minutesAgo(31) })
+    const resend = await call('POST', '/api/auth/sign-in/resend', { cookie: first.cookie })
+    assert.equal(resend.body.error.code, 'timed-out')
+    assert.equal(resend.body.error.restart, true)
+    assert.equal(mail.length, 1, 'no new code went out')
+    assert.deepEqual(db.sign_in_challenges, [])
+    assert.equal((await call('POST', '/api/auth/sign-in/verify', { cookie: first.cookie, body: { code: codes[0] } })).body.error.code, 'missing')
+
+    const second = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    // A resend renews the code, never the sign-in around it.
+    Object.assign(challengeRow(db), { created_at: minutesAgo(31), expires_at: new Date(Date.now() + 60 * 1000).toISOString() })
+    const verify = await call('POST', '/api/auth/sign-in/verify', { cookie: second.cookie, body: { code: codes[1] } })
+    assert.equal(verify.body.error.code, 'timed-out')
+    assert.equal(verify.body.error.restart, true)
+    assert.deepEqual(db.sign_in_challenges, [])
+  })
+})
+
+test('two-step: an expired code keeps the sign-in, and a resend after the cooldown replaces it', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, db, mail, limiterHits, mailWindowHits }) => {
+    const none = await call('POST', '/api/auth/sign-in/resend')
+    assert.equal(none.body.error.code, 'missing')
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const early = await call('POST', '/api/auth/sign-in/resend', { cookie: res.cookie })
+    assert.equal(early.body.error.code, 'cooldown')
+    assert.equal(early.body.error.restart, false)
+    assert.equal(mail.length, 1)
+    assert.ok(limiterHits.includes('login-code-send POST /api/auth/sign-in/resend'))
+
+    Object.assign(challengeRow(db), { sent_at: minutesAgo(11), expires_at: minutesAgo(1), attempts: 2 })
+    const expired = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(expired.body.error.code, 'expired')
+    assert.equal(expired.body.error.restart, false)
+    assert.equal(challengeRow(db).attempts, 2, 'an expired code costs no guess')
+
+    const resent = await call('POST', '/api/auth/sign-in/resend', { cookie: res.cookie })
+    assert.equal(resent.status, 200)
+    assert.ok(Date.parse(resent.body.expiresAt) > Date.now() + 9 * 60 * 1000, 'the new code gets its own 10 minutes')
+    assert.equal(mail.length, 2)
+    assert.equal(mail[1].to, 'pete@example.com')
+    assert.deepEqual(mailWindowHits, [U1, U1])
+    assert.deepEqual([challengeRow(db).sends, challengeRow(db).attempts], [2, 0])
+
+    if (codes[0] !== codes[1]) {
+      const old = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+      assert.equal(old.body.error.code, 'invalid', 'the resend voided the first code')
+    }
+    const fresh = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[1] } })
+    assert.equal(fresh.status, 200)
+    assert.equal(fresh.body.session.user.id, U1)
+  })
+})
+
+test('two-step: a password change between the two steps voids the code', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, db, sessions }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    db.users[0].password_changed_at = new Date(Date.now() + 1000).toISOString()
+    const verify = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(verify.status, 400)
+    assert.equal(verify.body.error.code, 'password-changed')
+    assert.equal(verify.body.error.restart, true)
+    assert.ok((await sessions()).every((s) => !s.userId))
+  })
+})
+
+test('two-step: the account\'s mail cap counts only after the password, and over it no code goes out', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, block: ['login-code-mail'] }, async ({ call, mail, db, sessions, mailWindowHits }) => {
+    const wrongPassword = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: 'not the password' } })
+    assert.equal(wrongPassword.status, 401)
+    assert.deepEqual(mailWindowHits, [], 'a wrong password costs the account nothing')
+
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    assert.equal(res.status, 429)
+    assert.ok(res.body.error.retryAfterSeconds > 0)
+    assert.deepEqual(mailWindowHits, [U1])
+    assert.equal(mail.length, 0)
+    assert.deepEqual(db.sign_in_challenges, [])
+    assert.deepEqual(await sessions(), [])
+  })
+})
+
+test('two-step: "trust this device" lets the next sign-in skip the code, until the password changes', async () => {
+  const seed = { users: [STUDENT] }
+  await withApp({ seed, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, mail, db }) => {
+    const first = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    const verified = await call('POST', '/api/auth/sign-in/verify', { cookie: first.cookie, body: { code: codes[0], trustDevice: true } })
+    const trusted = trustedCookieOf(verified)
+    assert.ok(trusted)
+    const setCookie = verified.setCookies.find((c) => c.startsWith('pih.td='))
+    assert.match(setCookie, /HttpOnly/)
+    assert.equal(maxAgeOf(setCookie), 30 * DAY / 1000)
+
+    const again = await call('POST', '/api/auth/sign-in', { cookie: trusted, body: { email: 'pete@example.com', password: PASSWORD } })
+    assert.equal(again.body.session.user.id, U1)
+    assert.equal(mail.length, 1, 'no second code was mailed')
+
+    db.users[0].password_changed_at = new Date().toISOString()
+    const afterChange = await call('POST', '/api/auth/sign-in', { cookie: trusted, body: { email: 'pete@example.com', password: PASSWORD } })
+    assert.equal(afterChange.body.twoFactorRequired, true)
+  })
+})
+
+test('two-step: sign-up confirms the address with a code before any session', async () => {
+  await withApp({ twoFactor: true }, async ({ call, sessions, mail, codes }) => {
+    const res = await call('POST', '/api/auth/register-supabase', { body: { email: 'new@example.com', password: PASSWORD, name: 'New' } })
+    assert.equal(res.status, 201)
+    assert.equal(res.body.twoFactorRequired, true)
+    assert.equal(mail[0].to, 'new@example.com')
+    assert.equal((await sessions())[0].userId, undefined)
+    const verified = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(verified.body.session.user.id, U3)
+  })
+})
+
+test('two-step: production without Resend refuses a sign-up before the account exists and a sign-in before any row; dev logs the code', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, production: true, emailConfigured: false }, async ({ call, sessions, authCalls, db, gotrue, mail }) => {
+    await quietly(async () => {
+      const signUp = await call('POST', '/api/auth/register-supabase', { body: { email: 'new@example.com', password: PASSWORD, name: 'New' } })
+      assert.equal(signUp.status, 503)
+      assert.ok(!authCalls.some(([name]) => name === 'createUser'), 'no Auth user was created')
+      assert.equal(gotrue['new@example.com'], undefined)
+      assert.deepEqual(db.users.map((u) => u.email), ['pete@example.com'])
+
+      const signIn = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+      assert.equal(signIn.status, 503)
+      assert.equal(mail.length, 0)
+      assert.deepEqual(db.sign_in_challenges, [])
+      assert.deepEqual(await sessions(), [])
+    })
+  })
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, emailConfigured: false }, async ({ call, codes }) => {
+    const lines = await quietly(async () => {
+      const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+      assert.equal(res.body.twoFactorRequired, true)
+    })
+    assert.ok(lines.some((line) => line.includes(`dev code for p***@example.com: ${codes[0]}`)))
+  })
+})
+
+test('two-step: a sign-up whose code email failed still lands on the code step, and a resend finishes it', async () => {
+  await withApp({ twoFactor: true, production: true, failedSends: 1 }, async ({ call, db, codes }) => {
+    await quietly(async () => {
+      const res = await call('POST', '/api/auth/register-supabase', { body: { email: 'new@example.com', password: PASSWORD, name: 'New' } })
+      assert.equal(res.status, 201)
+      assert.equal(res.body.twoFactorRequired, true)
+      assert.equal(res.body.codeSent, false)
+      assert.equal(challengeRow(db).user_id, U3)
+
+      challengeRow(db).sent_at = minutesAgo(1)
+      const resent = await call('POST', '/api/auth/sign-in/resend', { cookie: res.cookie })
+      assert.equal(resent.status, 200)
+      const verified = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+      assert.equal(verified.body.session.user.id, U3)
+    })
+  })
+})
+
+test('two-step: an unsent sign-in code answers 503 and leaves nothing pending', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, production: true, failedSends: 1 }, async ({ call, db, sessions }) => {
+    await quietly(async () => {
+      const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+      assert.equal(res.status, 503)
+    })
+    assert.deepEqual(db.sign_in_challenges, [])
+    assert.deepEqual(await sessions(), [])
+  })
+})
+
+test('two-step: sign_in_codes_schema_missing until README step 41 has run', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, failures, sessions, mail }) => {
+    failures.sign_in_challenges = () => ({ code: 'PGRST205', message: "Could not find the table 'public.sign_in_challenges' in the schema cache" })
+    await quietly(async () => {
+      const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+      assert.equal(res.status, 503)
+      assert.equal(res.body.error.code, 'sign_in_codes_schema_missing')
+    })
+    assert.equal(mail.length, 0)
+    assert.deepEqual(await sessions(), [])
+  })
+})
+
+test('sync gate: off, a password token still signs in; on, it is refused unless resuming or trusted', async () => {
+  const password = fakeJwt(['password'])
+  const google = fakeJwt(['oauth'])
+  const tokens = { [password]: TOKEN_USER, [google]: TOKEN_USER }
+  const body = { supabaseUserId: U1, email: 'pete@example.com' }
+  await withApp({ seed: { users: [STUDENT] }, tokens, twoFactor: true }, async ({ call }) => {
+    const res = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${password}` } })
+    assert.equal(res.status, 200)
+  })
+  await withApp({ seed: { users: [STUDENT] }, tokens, twoFactor: true, syncGate: true }, async ({ call, sessionFor, supabase }) => {
+    const refused = await call('POST', '/api/auth/supabase-sync', { body: { ...body, name: 'Renamed' }, headers: { Authorization: `Bearer ${password}` } })
+    assert.equal(refused.status, 401)
+    assert.equal(refused.body.error.code, 'two-factor-required')
+    assert.ok(!supabase.queriesOf('users').some((q) => operation(q.chain) === 'update'), 'a refused sync changes nothing')
+
+    const viaGoogle = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${google}` } })
+    assert.equal(viaGoogle.status, 200)
+
+    const cookie = await sessionFor({ userId: U1, authAt: new Date().toISOString() })
+    const resumed = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${password}` } })
+    assert.equal(resumed.body.reused, true)
   })
 })
 

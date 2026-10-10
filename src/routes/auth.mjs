@@ -1,13 +1,32 @@
 import crypto from 'node:crypto'
 import express from 'express'
 import { buildCasServiceUrl, createCasState, spendCasState } from '../casLinkState.mjs'
-import { badRequest, logRouteError } from '../dbErrors.mjs'
+import { DB_FEATURES, badRequest, logRouteError, respondDbError } from '../dbErrors.mjs'
+import { maskEmail, signInCodeEmail } from '../email.mjs'
 import { onboardingFlags } from '../onboardingFlags.mjs'
 import { verifyPassword } from '../passwordHash.mjs'
 import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
+import { isSessionStale } from '../sessionFreshness.mjs'
 import { applyPasswordChange, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
+import {
+  CODE_TTL_MS,
+  DEVICE_TRUST_TTL_MS,
+  MAX_ATTEMPTS,
+  PENDING_COOKIE_MS,
+  RESEND_COOLDOWN_MS,
+  challengeErrorMessage,
+  challengeStatus,
+  checkDeviceTrustToken,
+  codeMatches,
+  createDeviceTrustToken,
+  generateCode,
+  hashSignInCode,
+  parseCookies,
+  resendStatus,
+  tokenNeedsSignInCode,
+} from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
   deriveDisplayName,
@@ -33,6 +52,8 @@ import {
 // limiter verifies with the same instance), and hands them in.
 
 const defaultNextPath = '/setup'
+const DEVICE_TRUST_COOKIE = 'pih.td'
+const REMEMBER_ME_MS = 1000 * 60 * 60 * 24 * 30
 
 function sanitizeNext(next) {
   // Must be a site-relative path. Reject protocol-relative (//host) and backslash
@@ -146,6 +167,22 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', tok
  * @param {Function} deps.purdueLinkFlowRateLimit  the three link flow routes, ahead of the user lookup
  *   (purdue-link-flow)
  * @param {Function} deps.userWriteRateLimit       the JSON mock link (user-write)
+ * @param {Function} deps.loginCodeRateLimit       two-step code checks, per IP (login-code)
+ * @param {Function} deps.loginCodeAccountRateLimit two-step code checks, per pending account
+ *   (login-code-account), inside the IP bucket
+ * @param {Function} deps.loginCodeSendRateLimit   two-step code resends, per IP (login-code-send)
+ * @param {{ hit: (key: string) => { allowed: boolean, resetAt: number } }} [deps.signInCodeMailWindow]
+ *   the createRateWindow (login-code-mail) hit once per code mailed to an account, from sign-in,
+ *   sign-up or a resend
+ * @param {boolean}  [deps.loginTwoFactorEnabled]  password sign-in and sign-up wait on an emailed code
+ * @param {boolean}  [deps.loginTwoFactorSyncGate] supabase-sync refuses a password-only Supabase token
+ *   unless this session already passed the code or the device is trusted. Off until every client
+ *   (the native app signs in through supabase-sync) has a code screen.
+ * @param {string}   [deps.twoFactorSecret]        HMAC key for codes and trusted-device cookies
+ * @param {Function} [deps.sendEmail]              ({ to, subject, html }) => { sent } or { sent: false, skipped: true }
+ * @param {Function} [deps.isEmailConfigured]      () => whether Resend is set up; in production a
+ *   sign-up is refused before the account exists when it is not
+ * @param {boolean}  [deps.isProduction]           an unsent code fails the request; cookies are Secure
  */
 export function createAuthRouter({
   supabase,
@@ -168,8 +205,200 @@ export function createAuthRouter({
   purdueLinkTokenRateLimit,
   purdueLinkFlowRateLimit,
   userWriteRateLimit,
+  loginCodeRateLimit,
+  loginCodeAccountRateLimit,
+  loginCodeSendRateLimit,
+  signInCodeMailWindow,
+  loginTwoFactorEnabled = false,
+  loginTwoFactorSyncGate = false,
+  twoFactorSecret,
+  sendEmail,
+  isEmailConfigured = () => true,
+  isProduction = false,
 }) {
   const router = express.Router()
+
+  // ── Two-step sign-in ──────────────────────────────────────────────────────
+
+  function hasDeviceTrust(req, user) {
+    return checkDeviceTrustToken(twoFactorSecret, parseCookies(req.headers.cookie)[DEVICE_TRUST_COOKIE], {
+      userId: user.id,
+      passwordChangedAt: user.password_changed_at,
+    })
+  }
+
+  function needsSignInCode(req, user) {
+    return loginTwoFactorEnabled && !hasDeviceTrust(req, user)
+  }
+
+  // false when the code could not be sent and the caller must answer 503.
+  async function deliverSignInCode(to, code) {
+    let delivery
+    try {
+      delivery = await sendEmail({ to, ...signInCodeEmail({ code }) })
+    } catch (error) {
+      logRouteError('[login-code] send failed', error)
+      return false
+    }
+    if (delivery?.skipped) {
+      if (isProduction) {
+        console.error('[login-code] RESEND_API_KEY or RESEND_FROM is not set; no code was sent')
+        return false
+      }
+      console.log('[login-code] dev code for %s: %s', maskEmail(to), code)
+    }
+    return true
+  }
+
+  const UNSENT_LOGIN_CODE = {
+    error: { message: 'We could not send your sign-in code right now. Please try again in a moment.', status: 503 },
+  }
+
+  // The pending sign-ins (db/supabase-sign-in-challenges.sql). The session
+  // holds only { challengeId, subject, rememberMe }; the code's hash and its
+  // counters live in the row, where parallel requests cannot each keep a copy.
+  const CHALLENGES = 'sign_in_challenges'
+  const CHALLENGE_COLUMNS = 'id, user_id, code_hash, expires_at, attempts, sends, sent_at, created_at'
+  // The answers that end the pending sign-in: the client starts over from the password.
+  const RESTART_REASONS = new Set(['missing', 'timed-out', 'too-many-attempts', 'password-changed'])
+
+  function challengeError(res, result) {
+    return res.status(400).json({
+      error: {
+        message: challengeErrorMessage(result),
+        status: 400,
+        code: result.reason,
+        restart: RESTART_REASONS.has(result.reason),
+      },
+    })
+  }
+
+  function regenerate(req) {
+    return new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())))
+  }
+
+  function save(req) {
+    return new Promise((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())))
+  }
+
+  // Ends this session's pending sign-in; the row, if any, is the caller's to remove.
+  async function dropPending(req) {
+    delete req.session.pendingLogin
+    await save(req)
+  }
+
+  async function readChallenge(pending) {
+    const { data, error } = await supabase
+      .from(CHALLENGES)
+      .select(CHALLENGE_COLUMNS)
+      .eq('id', pending.challengeId)
+      .eq('user_id', pending.subject)
+    if (error) throw error
+    return data?.[0] ?? null
+  }
+
+  // Deleting the row spends a right code, and of two requests only one gets the
+  // row back, so a code signs in one session. Also clears a finished row.
+  async function removeChallenge(id) {
+    const { data, error } = await supabase.from(CHALLENGES).delete().eq('id', id).select('id')
+    if (error) throw error
+    return Boolean(data?.length)
+  }
+
+  // Counts one guess with a compare-and-swap on `attempts` before any code is
+  // compared, and answers the row as the count left it. Each guess in flight
+  // needs its own count, so no more than MAX_ATTEMPTS codes are compared per code
+  // mailed, however many arrive at once. A lost swap means another request
+  // counted first (or a resend reset the count), so it reads again; past the
+  // loop's bound it answers 'exhausted', closed rather than open.
+  async function claimGuess(pending, row) {
+    let current = row
+    for (let i = 0; i <= MAX_ATTEMPTS; i += 1) {
+      const status = challengeStatus(current)
+      if (status !== 'live') return { status }
+      const attempts = Number(current.attempts) || 0
+      const { data, error } = await supabase
+        .from(CHALLENGES)
+        .update({ attempts: attempts + 1 })
+        .eq('id', current.id)
+        .eq('attempts', attempts)
+        .select(CHALLENGE_COLUMNS)
+      if (error) throw error
+      if (data?.length) return { status: 'claimed', row: data[0] }
+      current = await readChallenge(pending)
+    }
+    return { status: 'exhausted' }
+  }
+
+  // The per-account cap on code emails (login-code-mail) across sign-in,
+  // sign-up and resend, which the per-IP buckets cannot see. Answers the 429
+  // itself and returns true when the account is over it.
+  function codeMailRefused(res, userId) {
+    const result = signInCodeMailWindow?.hit(userId)
+    if (!result || result.allowed) return false
+    const retryAfterSeconds = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))
+    res.setHeader('Retry-After', String(retryAfterSeconds))
+    res.status(429).json({
+      error: { message: 'Too many sign-in codes were sent to this account. Please try again later.', status: 429, retryAfterSeconds },
+    })
+    return true
+  }
+
+  // Swaps in a session that holds only the pending challenge, never a userId,
+  // on a short cookie. Answers the response itself: the code-pending body, a 429
+  // over the account's mail cap, or 503 when the code went unsent. A sign-up has
+  // already created the account, so an unsent code still answers the
+  // code-pending body (codeSent: false) and the client offers a resend; a 503
+  // there would strand the address on "account already exists".
+  async function startSignInChallenge(req, res, user, { rememberMe, status = 200, keepOnUnsent = false }) {
+    if (isProduction && !isEmailConfigured()) {
+      console.error('[login-code] RESEND_API_KEY or RESEND_FROM is not set; no code was sent')
+      return res.status(503).json(UNSENT_LOGIN_CODE)
+    }
+    if (codeMailRefused(res, user.id)) return res
+    const now = Date.now()
+    const id = crypto.randomUUID()
+    const code = generateCode()
+    const expiresAt = new Date(now + CODE_TTL_MS).toISOString()
+    try {
+      // One pending sign-in per account: a new one voids any earlier code.
+      const { error: clearErr } = await supabase.from(CHALLENGES).delete().eq('user_id', user.id)
+      if (clearErr) throw clearErr
+      const { error: insertErr } = await supabase.from(CHALLENGES).insert({
+        id,
+        user_id: user.id,
+        code_hash: hashSignInCode(twoFactorSecret, { challengeId: id, subject: user.id, code }),
+        expires_at: expiresAt,
+        attempts: 0,
+        sends: 1,
+        sent_at: new Date(now).toISOString(),
+        created_at: new Date(now).toISOString(),
+      })
+      if (insertErr) throw insertErr
+    } catch (error) {
+      return respondDbError(res, error, DB_FEATURES.sign_in_codes)
+    }
+    const codeSent = await deliverSignInCode(user.email, code)
+    if (!codeSent && !keepOnUnsent) {
+      // Nothing was delivered, so nothing is pending.
+      try {
+        await removeChallenge(id)
+      } catch (error) {
+        logRouteError('[login-code] could not remove an unsent code', error)
+      }
+      return res.status(503).json(UNSENT_LOGIN_CODE)
+    }
+    await regenerate(req)
+    req.session.cookie.maxAge = PENDING_COOKIE_MS
+    req.session.pendingLogin = { challengeId: id, subject: user.id, rememberMe }
+    await save(req)
+    return res.status(status).json({
+      twoFactorRequired: true,
+      email: maskEmail(user.email),
+      expiresAt,
+      ...(codeSent ? {} : { codeSent: false }),
+    })
+  }
 
   async function getUserByEmail(email) {
     const { data, error } = await supabase
@@ -406,6 +635,16 @@ export function createAuthRouter({
       }
       const displayName = nameResult.value
 
+      // With two-step on, a sign-up finishes with a mailed code. Refuse before
+      // the account exists when production cannot mail one, or the address is
+      // stranded: no code arrives, and signing up again says it is taken.
+      if (loginTwoFactorEnabled && isProduction && !isEmailConfigured()) {
+        console.error('[login-code] RESEND_API_KEY or RESEND_FROM is not set; refused a sign-up before creating the account')
+        return res.status(503).json({
+          error: { message: 'Email sign-up is unavailable right now. Please try again later, or continue with Google.', status: 503 },
+        })
+      }
+
       const existingRow = await getUserByEmail(normalizedEmail)
       if (existingRow) {
         return res.status(400).json({ error: { message: 'An account with that email already exists.', status: 400 } })
@@ -458,6 +697,9 @@ export function createAuthRouter({
           error: { message: 'Could not create your profile.', status: 500 },
         })
       }
+
+      // The first sign-in proves the address is the student's own.
+      if (loginTwoFactorEnabled) return await startSignInChallenge(req, res, row, { rememberMe, status: 201, keepOnUnsent: true })
 
       req.session.regenerate((err) => {
         if (err) {
@@ -584,6 +826,8 @@ export function createAuthRouter({
       const user = result.user
       await clearLegacyPasswordHash(user)
 
+      if (needsSignInCode(req, user)) return await startSignInChallenge(req, res, user, { rememberMe })
+
       req.session.regenerate(async (err) => {
         if (err) {
           return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
@@ -604,6 +848,120 @@ export function createAuthRouter({
       }
       console.error('[sign-in] failed:', error?.message || error)
       res.status(401).json({ error: { message: 'Could not sign in.', status: 401 } })
+    }
+  })
+
+  // Why a claim found no guess to count, as the answer's reason. An expired
+  // code keeps the pending sign-in (a resend replaces it); the rest end it.
+  const UNCLAIMED_REASONS = { missing: 'missing', 'timed-out': 'timed-out', exhausted: 'too-many-attempts', expired: 'expired' }
+
+  router.post('/api/auth/sign-in/verify', loginCodeRateLimit, loginCodeAccountRateLimit, async (req, res) => {
+    const pending = req.session.pendingLogin
+    // Nothing to check and nothing to save, so a stray request writes no session.
+    if (!pending?.challengeId) return challengeError(res, { reason: 'missing' })
+    try {
+      const row = await readChallenge(pending)
+      const claim = await claimGuess(pending, row)
+      if (claim.status !== 'claimed') {
+        const reason = UNCLAIMED_REASONS[claim.status]
+        if (RESTART_REASONS.has(reason)) {
+          if (row) await removeChallenge(row.id)
+          await dropPending(req)
+        }
+        return challengeError(res, { reason })
+      }
+
+      const claimed = claim.row
+      if (!codeMatches(twoFactorSecret, claimed, req.body.code)) {
+        const remaining = MAX_ATTEMPTS - (Number(claimed.attempts) || 0)
+        if (remaining > 0) return challengeError(res, { reason: 'invalid', remaining })
+        await removeChallenge(claimed.id)
+        await dropPending(req)
+        return challengeError(res, { reason: 'too-many-attempts' })
+      }
+
+      // Of two right answers in flight, one signs in and the other starts over.
+      if (!(await removeChallenge(claimed.id))) {
+        await dropPending(req)
+        return challengeError(res, { reason: 'missing' })
+      }
+
+      const user = await getUserById(pending.subject)
+      if (!user) {
+        await dropPending(req)
+        return res.status(401).json({ error: { message: 'This account no longer exists.', status: 401 } })
+      }
+      // The password changed after the code was sent (in Settings, on another
+      // device): whoever typed the old one has to start over with the new one.
+      if (isSessionStale(user.password_changed_at, claimed.created_at)) {
+        await dropPending(req)
+        return challengeError(res, { reason: 'password-changed' })
+      }
+
+      await regenerate(req)
+      req.session.cookie.maxAge = pending.rememberMe ? REMEMBER_ME_MS : undefined
+      req.session.userId = user.id
+      req.session.authAt = new Date().toISOString()
+      await save(req)
+      if (req.body.trustDevice === true) {
+        res.cookie(DEVICE_TRUST_COOKIE, createDeviceTrustToken(twoFactorSecret, {
+          userId: user.id,
+          passwordChangedAt: user.password_changed_at,
+        }), { httpOnly: true, sameSite: 'lax', secure: isProduction, maxAge: DEVICE_TRUST_TTL_MS, path: '/' })
+      }
+      res.json({ session: await buildSessionPayload(user, req) })
+    } catch (error) {
+      return respondDbError(res, error, DB_FEATURES.sign_in_codes)
+    }
+  })
+
+  router.post('/api/auth/sign-in/resend', loginCodeSendRateLimit, async (req, res) => {
+    const pending = req.session.pendingLogin
+    if (!pending?.challengeId) return challengeError(res, { reason: 'missing' })
+    try {
+      const now = Date.now()
+      const row = await readChallenge(pending)
+      const status = resendStatus(row, now)
+      if (status.reason === 'missing' || status.reason === 'timed-out' || status.reason === 'exhausted') {
+        if (row) await removeChallenge(row.id)
+        await dropPending(req)
+        return challengeError(res, { reason: UNCLAIMED_REASONS[status.reason] })
+      }
+      // Too many sends, or the cooldown: the code already mailed still works.
+      if (status.reason !== 'ok') return challengeError(res, status)
+
+      const user = await getUserById(pending.subject)
+      if (!user) {
+        await removeChallenge(row.id)
+        await dropPending(req)
+        return challengeError(res, { reason: 'missing' })
+      }
+      if (codeMailRefused(res, user.id)) return
+
+      // The swap on `sends` lets one of two resends in flight mail a code; the
+      // other is told to wait, as if it had arrived inside the cooldown.
+      const code = generateCode()
+      const expiresAt = new Date(now + CODE_TTL_MS).toISOString()
+      const sends = Number(row.sends) || 0
+      const { data: swapped, error: swapErr } = await supabase
+        .from(CHALLENGES)
+        .update({
+          code_hash: hashSignInCode(twoFactorSecret, { challengeId: row.id, subject: row.user_id, code }),
+          expires_at: expiresAt,
+          attempts: 0,
+          sends: sends + 1,
+          sent_at: new Date(now).toISOString(),
+        })
+        .eq('id', row.id)
+        .eq('sends', sends)
+        .select('id')
+      if (swapErr) throw swapErr
+      if (!swapped?.length) return challengeError(res, { reason: 'cooldown', retryAfterMs: RESEND_COOLDOWN_MS })
+
+      if (!(await deliverSignInCode(user.email, code))) return res.status(503).json(UNSENT_LOGIN_CODE)
+      res.json({ ok: true, expiresAt })
+    } catch (error) {
+      return respondDbError(res, error, { ...DB_FEATURES.sign_in_codes, fallback: 'Could not send a new code. Please try again.' })
     }
   })
 
@@ -658,6 +1016,18 @@ export function createAuthRouter({
       const syncAvatarUrl = avatarResult.value
 
       let user = await getUserByEmail(normalizedEmail)
+
+      // Anyone holding the password can mint a password-only Supabase token
+      // directly, so with the gate on such a token may only refresh the session
+      // that already passed the emailed code, or sign in a trusted device.
+      if (loginTwoFactorEnabled && loginTwoFactorSyncGate && tokenNeedsSignInCode(accessToken)) {
+        const resumesSession = Boolean(user) && req.session?.userId === user.id
+        if (!user || !(resumesSession || hasDeviceTrust(req, user))) {
+          return res.status(401).json({
+            error: { message: 'Enter the code we emailed you to finish signing in.', status: 401, code: 'two-factor-required' },
+          })
+        }
+      }
 
       if (!user) {
         const timestamp = new Date().toISOString()

@@ -25,6 +25,7 @@ const DEFAULT_USER = {
 }
 
 const DEFAULT_CREDENTIALS = { email: 'student@purdue.edu', password: 'correct-horse-battery' }
+export const LOGIN_CODE = '246810'
 
 function defaultOnboarding(overrides = {}) {
   return {
@@ -524,6 +525,9 @@ export const test = base.extend({
       user: { ...DEFAULT_USER },
       onboarding: defaultOnboarding(),
       credentials: { ...DEFAULT_CREDENTIALS },
+      // Off by default so existing specs sign in in one step (a trusted device).
+      requireLoginCode: false,
+      pendingLoginCode: false,
       classes: [],
       classesMeta: { selectedTermKey: null, selectedTermLabel: '', totalInTerm: 0 },
       calendarItems: [],
@@ -621,10 +625,30 @@ export const test = base.extend({
       if (pathname === '/api/auth/sign-in' && method === 'POST') {
         const { email, password } = bodyOf()
         if (email === state.credentials.email && password === state.credentials.password) {
+          if (state.requireLoginCode) {
+            state.pendingLoginCode = true
+            return json(route, 200, { twoFactorRequired: true, email: 's***@purdue.edu' })
+          }
           state.loggedIn = true
           return json(route, 200, { session: sessionPayload(state) })
         }
         return json(route, 401, { error: { message: 'Invalid email or password.', status: 401 } })
+      }
+
+      if (pathname === '/api/auth/sign-in/verify' && method === 'POST') {
+        const { code } = bodyOf()
+        if (state.pendingLoginCode && code === LOGIN_CODE) {
+          state.pendingLoginCode = false
+          state.loggedIn = true
+          return json(route, 200, { session: sessionPayload(state) })
+        }
+        return json(route, 400, {
+          error: { message: 'That code is not right. 4 tries left.', status: 400, code: 'invalid', restart: false },
+        })
+      }
+
+      if (pathname === '/api/auth/sign-in/resend' && method === 'POST') {
+        return json(route, 200, { ok: true })
       }
 
       if (pathname === '/api/auth/register-supabase' && method === 'POST') {
@@ -1116,6 +1140,9 @@ export const test = base.extend({
       },
       logout() {
         state.loggedIn = false
+      },
+      requireLoginCode(required = true) {
+        state.requireLoginCode = required
       },
       setOnboarding(overrides) {
         state.onboarding = defaultOnboarding(overrides)
