@@ -26,8 +26,14 @@ export const CODE_LENGTH = 6
 export const CODE_TTL_MS = 10 * 60 * 1000
 /** A pending sign-in, resends included, ends 30 minutes after the password. */
 export const PENDING_TTL_MS = 30 * 60 * 1000
-/** The pending session's cookie; the server's sessions roll, so each step renews it. */
-export const PENDING_COOKIE_MS = 15 * 60 * 1000
+/**
+ * The pending session's lifetime, the whole of PENDING_TTL_MS. The session
+ * store (src/sessionStore.mjs) writes a row's expiry only when the session is
+ * saved and persists a rolling touch at most once an hour, and the code step
+ * never saves the pending session again, so a shorter lifetime here would end
+ * the sign-in early however recently the student resent or typed a code.
+ */
+export const PENDING_COOKIE_MS = PENDING_TTL_MS
 /** Guesses per code; the last wrong one ends the pending sign-in. */
 export const MAX_ATTEMPTS = 5
 export const RESEND_COOLDOWN_MS = 30 * 1000
@@ -111,6 +117,23 @@ export function resendStatus(row, now = Date.now()) {
   const wait = Number.isNaN(sent) ? RESEND_COOLDOWN_MS : Math.min(RESEND_COOLDOWN_MS, sent + RESEND_COOLDOWN_MS - now)
   if (wait > 0) return { reason: 'cooldown', retryAfterMs: wait }
   return { reason: 'ok' }
+}
+
+// ── Rate limit keys (server.mjs) ────────────────────────────────────────────
+
+/** The pending sign-in's user, which only a correct password puts in the session. */
+export function pendingSignInSubject(req) {
+  return req.session?.pendingLogin?.challengeId ? req.session.pendingLogin.subject || null : null
+}
+
+/**
+ * Whether a code check or resend has anything to work on. Requests without a
+ * pending sign-in skip the code limiters: the route answers `missing` with no
+ * database or mail work, so counting them would only let a stray client on a
+ * shared address (a campus network) use up everyone's bucket.
+ */
+export function hasPendingSignIn(req) {
+  return Boolean(pendingSignInSubject(req))
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   DEVICE_TRUST_TTL_MS,
   MAX_ATTEMPTS,
   MAX_SENDS,
+  PENDING_COOKIE_MS,
   PENDING_TTL_MS,
   RESEND_COOLDOWN_MS,
   challengeErrorMessage,
@@ -13,8 +14,10 @@ import {
   codeMatches,
   createDeviceTrustToken,
   generateCode,
+  hasPendingSignIn,
   hashSignInCode,
   parseCookies,
+  pendingSignInSubject,
   resendStatus,
   tokenAuthMethods,
   tokenNeedsSignInCode,
@@ -104,6 +107,23 @@ test('resendStatus: an expired code can be replaced; a timed-out or exhausted si
 test('resendStatus: a sent_at in the future never asks for more than the cooldown', () => {
   const skewed = row('123456', { sent_at: iso(NOW + 60 * 60 * 1000) })
   assert.deepEqual(resendStatus(skewed, NOW), { reason: 'cooldown', retryAfterMs: RESEND_COOLDOWN_MS })
+})
+
+test('the pending session lives as long as the pending sign-in', () => {
+  // The session store persists a rolling touch at most once an hour and the
+  // code step never saves the pending session again, so a shorter cookie ends
+  // the sign-in early whatever the student does in between.
+  assert.equal(PENDING_COOKIE_MS, PENDING_TTL_MS)
+})
+
+test('the code limiters key on the pending sign-in, and skip requests without one', () => {
+  const pending = { session: { pendingLogin: { challengeId: 'challenge-1', subject: 'user-1', rememberMe: false } } }
+  assert.equal(pendingSignInSubject(pending), 'user-1')
+  assert.equal(hasPendingSignIn(pending), true)
+  for (const stray of [{}, { session: {} }, { session: { pendingLogin: { subject: 'user-1' } } }, { session: { userId: 'user-1' } }]) {
+    assert.equal(pendingSignInSubject(stray), null)
+    assert.equal(hasPendingSignIn(stray), false)
+  }
 })
 
 test('every reason has its own words', () => {
