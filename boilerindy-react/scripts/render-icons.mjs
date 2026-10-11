@@ -9,16 +9,18 @@
 //   app-icon.svg    Monument Circle: the monument on its thin ring, ink on a gold
 //                   tile in light mode and gold on an ink tile in dark mode; the app
 //                   icon at 60px and up, and the in-app brand mark (below)
-//   favicon.svg     the relief B in the same two colourways; browser tabs and 16 to
-//                   32px contexts (served directly by index.html, nothing is rendered
-//                   from it)
+//   favicon.svg     the monument alone, no tile and no ring, scaled to the full
+//                   height so it reads at 16px: ink in light mode, gold in dark;
+//                   browser tabs and 16 to 32px contexts (served directly by
+//                   index.html, nothing is rendered from it)
 //
 // The brand mark is split, not rendered: each colourway group of app-icon.svg is
-// copied out byte for byte, without the <style> that switches them, so
+// copied out without the tile, the shadow the tile casts and the <style> that
+// switches them, so the monument on its ring sits straight on the page and
 // components/BrandMark.tsx can follow the app's own theme class instead of the
 // device setting. Both copies are drawn and pixel-checked like the PNGs.
-//   brand/mark-light.svg          the light group: the ink monument on the gold tile
-//   brand/mark-dark.svg           the dark group: the gold monument on the ink tile
+//   brand/mark-light.svg          the light group: the ink monument on its ring, for light pages
+//   brand/mark-dark.svg           the dark group: the gold monument on its ring, for dark pages
 //
 // Outputs, all under public/, rendered from the light colourway: a home-screen
 // tile is one PNG that cannot follow the device's appearance, and gold is canonical.
@@ -86,6 +88,17 @@ if (groundRects.length !== 2) {
 }
 const appIconFullBleed = appIcon.replace(GROUND_RECT, (m) => m.replace('rx="14"', 'rx="0"'))
 const appIconBare = appIcon.replace(GROUND_RECT, '')
+
+// The in-app mark sits straight on the page (the header, the sign-in panel), so
+// it also drops the soft shadow the tile casts at its foot, which on a light
+// page would read as a smudge under the ring. The plaza disc and the shaft's
+// highlight belong to the monument and stay.
+const GROUND_SHADOW = /<ellipse cx="32" cy="60" rx="22" ry="2\.2" fill="#000" opacity="\.26" filter="url\(#[^"]+\)"\/>/g
+const groundShadows = appIconBare.match(GROUND_SHADOW) ?? []
+if (groundShadows.length !== 2) {
+  throw new Error(`app-icon.svg: expected 2 ground shadows (light and dark), found ${groundShadows.length}`)
+}
+const appIconOnPage = appIconBare.replace(GROUND_SHADOW, '')
 
 // The monochrome icon (issue #432) is a silhouette: the system keeps only its
 // alpha and paints the shape in its own colour. The bare subject's elements drawn
@@ -171,13 +184,14 @@ const inkAt = (size, glyph, expected = 'ink') => {
 const OG_GLYPH = 340 // .glyph in ogPage(), left at the card's 88px padding, centred vertically
 const ogInkAt = [88 + Math.round((INK_AT[0] / 64) * OG_GLYPH), Math.round((630 - OG_GLYPH) / 2 + (INK_AT[1] / 64) * OG_GLYPH), 'ink']
 
-// `checks` as for ASSETS below, in tile units (a copy is drawn at 64px): outside
-// the rounded corner, the ground at the left edge, INK_AT on the shaft. Gold and
-// ink trade places between the two colourways.
+// `checks` as for ASSETS below, in tile units (a copy is drawn at 64px): the
+// corner, the left edge where the tile was and the spot under the ring where its
+// shadow was are all bare page now, and INK_AT on the shaft is ink on the light
+// copy and gold on the dark one.
 const BRAND_MARKS = [
-  { file: 'brand/mark-light.svg', group: 'light', checks: [[0, 0, 'transparent'], [6, 32, 'gold'], [...INK_AT, 'ink']] },
-  { file: 'brand/mark-dark.svg', group: 'dark', checks: [[0, 0, 'transparent'], [6, 32, 'ink'], [...INK_AT, 'gold']] },
-].map((mark) => ({ ...mark, svg: `${appIconSvgTag}\n<g>${colourwayGroup(appIcon, mark.group)}</g>\n</svg>\n` }))
+  { file: 'brand/mark-light.svg', group: 'light', checks: [[0, 0, 'transparent'], [6, 32, 'transparent'], [32, 61, 'transparent'], [...INK_AT, 'ink']] },
+  { file: 'brand/mark-dark.svg', group: 'dark', checks: [[0, 0, 'transparent'], [6, 32, 'transparent'], [32, 61, 'transparent'], [...INK_AT, 'gold']] },
+].map((mark) => ({ ...mark, svg: `${appIconSvgTag}\n<g>${colourwayGroup(appIconOnPage, mark.group)}</g>\n</svg>\n` }))
 
 // `checks` sample the written PNG: [x, y, expected] where expected is
 // 'transparent', 'gold' (any pixel of the gold ground, no subject there),

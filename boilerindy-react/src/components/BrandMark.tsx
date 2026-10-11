@@ -1,7 +1,8 @@
 // The Monument Circle brand mark beside the "BoilerIndy" name (issues #408, #433).
 //
-// Two single-colourway copies of public/app-icon.svg, split out by
-// scripts/render-icons.mjs, switched by the `dark` class that theme-init.js and
+// Two single-colourway copies of public/app-icon.svg without its tile, so the
+// monument on its ring sits straight on the page, split out by
+// scripts/render-icons.mjs and switched by the `dark` class that theme-init.js and
 // the in-app toggle put on <html>, so the mark changes with the app's theme and
 // not the device's. Two things that look simpler would not:
 // - the adaptive app-icon.svg as an <img> follows the device setting, and
