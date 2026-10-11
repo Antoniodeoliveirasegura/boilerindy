@@ -50,15 +50,18 @@ describe('BrandMark', () => {
 
 // The copies are written by scripts/render-icons.mjs; this catches app-icon.svg
 // changing without a re-run, or a copy edited by hand. An XML parse here, string
-// slicing there, so the two cannot share a bug.
+// slicing there, so the two cannot share a bug. The mark sits straight on the
+// page, so each copy leaves out the tile (the rounded rect that fills the whole
+// icon) and the blurred shadow the tile casts at its foot.
 describe('public/brand copies of app-icon.svg', () => {
   const parse = (svg: string) => new DOMParser().parseFromString(svg, 'image/svg+xml')
   const source = parse(appIcon)
+  const tileParts = 'rect[width="64"][height="64"], ellipse[fill="#000"][filter]'
 
   test.each([
     ['light', markLight],
     ['dark', markDark],
-  ])('mark-%s.svg is the app icon group of that name, without the switch', (name, copyText) => {
+  ])('mark-%s.svg is the app icon group of that name, without the tile or the switch', (name, copyText) => {
     const copy = parse(copyText)
     expect(copy.getElementsByTagName('parsererror')).toHaveLength(0)
     expect(copy.getElementsByTagName('style')).toHaveLength(0)
@@ -66,9 +69,12 @@ describe('public/brand copies of app-icon.svg', () => {
 
     const group = source.querySelector(`svg > g[class="${name}"]`)
     expect(group).not.toBeNull()
+    expect(group!.querySelectorAll(tileParts)).toHaveLength(2)
     const expected = group!.cloneNode(true) as Element
     expected.removeAttribute('class')
+    for (const part of [...expected.querySelectorAll(tileParts)]) part.remove()
     expect(copy.documentElement.children).toHaveLength(1)
     expect(copy.documentElement.children[0].isEqualNode(expected)).toBe(true)
+    expect(copy.querySelectorAll(tileParts)).toHaveLength(0)
   })
 })
