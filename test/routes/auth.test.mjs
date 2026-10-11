@@ -281,6 +281,10 @@ async function withApp(options, run) {
     if (code) codes.push(code)
     return emailConfigured ? { sent: true } : { sent: false, skipped: true }
   }
+  // Mid-test outage: the next `n` sends throw.
+  const failNextSends = (n) => {
+    sendsToFail = n
+  }
   // The login-code-mail window: records the account each code email is
   // counted against, and is over its cap when the test blocks it.
   const mailWindowHits = []
@@ -419,7 +423,7 @@ async function withApp(options, run) {
     await run({
       call, sessionFor, sessions, sidOf, db, failures, supabase, gotrue, authCalls, verifyCalls, lookups,
       linkCalls, invalidated, onboardingSummaryCache, purdueLinkHandoff, limiterHits, cas: casStub, mail, codes,
-      mailWindowHits,
+      mailWindowHits, failNextSends,
     })
   } finally {
     await new Promise((resolve) => server.close(resolve))
@@ -881,7 +885,7 @@ test('two-step: a correct password mails a code and holds a short session with n
     assert.equal(mail[0].to, 'pete@example.com')
     assert.equal(mail[0].subject, 'Your BoilerIndy sign-in code')
     assert.deepEqual(mailWindowHits, [U1])
-    assert.equal(minutesLeftOf(res.sessionCookie), 15, 'the pending session gets a short cookie')
+    assert.equal(minutesLeftOf(res.sessionCookie), 30, 'the pending session lives exactly as long as the pending sign-in')
 
     const [stored] = await sessions()
     assert.equal(stored.userId, undefined)
@@ -978,6 +982,53 @@ test('two-step: the right code sent three times at once signs in one session', a
   })
 })
 
+test('two-step: a right code read before the last guess is counted is never compared', async () => {
+  // One guess left. A wrong code takes it, and the right code reads the row
+  // while that count is still landing (counts are slow here, reads are not), so
+  // the row it read still shows a guess left. Only a guess counted before its
+  // code is compared keeps it from signing in.
+  const dbDelayMs = (table, chain) => (table === 'sign_in_challenges' && operation(chain) === 'update' ? 40 : 1)
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, dbDelayMs }, async ({ call, codes, db, sessions }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    challengeRow(db).attempts = 4
+    const wrong = call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: wrongFor(codes[0]) } })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const right = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal((await wrong).body.error.code, 'too-many-attempts')
+    assert.equal(right.status, 400)
+    assert.equal(right.body.error.restart, true)
+    assert.ok((await sessions()).every((s) => !s.userId), 'nobody was signed in')
+  })
+})
+
+test('two-step: two resends at once mail one new code', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true, dbDelayMs: 10 }, async ({ call, db, mail }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    challengeRow(db).sent_at = minutesAgo(1)
+    const both = await Promise.all([1, 2].map(() => call('POST', '/api/auth/sign-in/resend', { cookie: res.cookie })))
+    assert.deepEqual(both.map((answer) => answer.status).sort(), [200, 400])
+    assert.equal(both.find((answer) => answer.status === 400).body.error.code, 'cooldown')
+    assert.equal(mail.length, 2, 'the first code and one resend')
+    assert.equal(challengeRow(db).sends, 2)
+  })
+})
+
+test('two-step: a resend whose email fails leaves the code already mailed working', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, db, codes, failNextSends }) => {
+    const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
+    challengeRow(db).sent_at = minutesAgo(1)
+    failNextSends(1)
+    await quietly(async () => {
+      const resend = await call('POST', '/api/auth/sign-in/resend', { cookie: res.cookie })
+      assert.equal(resend.status, 503)
+    })
+    assert.equal(challengeRow(db).sends, 2, 'the failed send still counts toward the cap')
+    const verified = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
+    assert.equal(verified.status, 200)
+    assert.equal(verified.body.session.user.id, U1)
+  })
+})
+
 test('two-step: a code with no pending sign-in is refused without writing a session', async () => {
   await withApp({ twoFactor: true }, async ({ call, sessions, supabase }) => {
     const res = await call('POST', '/api/auth/sign-in/verify', { body: { code: '123456' } })
@@ -1049,7 +1100,11 @@ test('two-step: an expired code keeps the sign-in, and a resend after the cooldo
 test('two-step: a password change between the two steps voids the code', async () => {
   await withApp({ seed: { users: [STUDENT] }, gotrue: PETE_AUTH, twoFactor: true }, async ({ call, codes, db, sessions }) => {
     const res = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD } })
-    db.users[0].password_changed_at = new Date(Date.now() + 1000).toISOString()
+    // The code went out two minutes ago and the password changed one minute
+    // ago: after the code, before this verify. Only a check against the code's
+    // time catches it.
+    challengeRow(db).created_at = minutesAgo(2)
+    db.users[0].password_changed_at = minutesAgo(1)
     const verify = await call('POST', '/api/auth/sign-in/verify', { cookie: res.cookie, body: { code: codes[0] } })
     assert.equal(verify.status, 400)
     assert.equal(verify.body.error.code, 'password-changed')

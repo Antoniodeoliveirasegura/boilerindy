@@ -528,6 +528,8 @@ export const test = base.extend({
       // Off by default so existing specs sign in in one step (a trusted device).
       requireLoginCode: false,
       pendingLoginCode: false,
+      // The next resend answers that the pending sign-in timed out.
+      loginCodeTimedOut: false,
       classes: [],
       classesMeta: { selectedTermKey: null, selectedTermLabel: '', totalInTerm: 0 },
       calendarItems: [],
@@ -648,6 +650,12 @@ export const test = base.extend({
       }
 
       if (pathname === '/api/auth/sign-in/resend' && method === 'POST') {
+        if (state.loginCodeTimedOut) {
+          state.pendingLoginCode = false
+          return json(route, 400, {
+            error: { message: 'This sign-in timed out. Start over to get a new code.', status: 400, code: 'timed-out', restart: true },
+          })
+        }
         return json(route, 200, { ok: true })
       }
 
@@ -1143,6 +1151,9 @@ export const test = base.extend({
       },
       requireLoginCode(required = true) {
         state.requireLoginCode = required
+      },
+      timeOutLoginCode() {
+        state.loginCodeTimedOut = true
       },
       setOnboarding(overrides) {
         state.onboarding = defaultOnboarding(overrides)

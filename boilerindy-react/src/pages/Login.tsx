@@ -282,16 +282,23 @@ export default function Login() {
       })) as SignInResponse
       finishSignIn(data.session ?? null, pendingCode.flow)
     } catch (error) {
-      const restart = Boolean(
-        (error as ApiRequestError & { payload?: { error?: { restart?: boolean } } })?.payload?.error?.restart,
-      )
-      if (restart) {
-        setPendingCode(null)
-        setCode('')
-      }
+      closeCodeStepIfOver(error)
       setBanner(error instanceof Error ? error.message : 'Could not verify the code. Please try again.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // The API flags `restart` when the pending sign-in is over (timed out, too
+  // many codes, password changed): back to the password form, from verify or
+  // from resend alike.
+  function closeCodeStepIfOver(error: unknown) {
+    const restart = Boolean(
+      (error as ApiRequestError & { payload?: { error?: { restart?: boolean } } })?.payload?.error?.restart,
+    )
+    if (restart) {
+      setPendingCode(null)
+      setCode('')
     }
   }
 
@@ -302,6 +309,7 @@ export default function Login() {
       await authRequest('/api/auth/sign-in/resend', { method: 'POST' })
       setSuccessBanner('A new code is on the way.')
     } catch (error) {
+      closeCodeStepIfOver(error)
       setBanner(error instanceof Error ? error.message : 'Could not send a new code.')
     } finally {
       setResending(false)

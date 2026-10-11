@@ -77,6 +77,7 @@ import { createPurdueLinkHandoff } from './src/purdueLinkHandoff.mjs'
 import { createPurdueLinkFlowRateLimit } from './src/purdueLinkThrottle.mjs'
 import { normalizeEmail } from './src/userFields.mjs'
 import { isSessionStale } from './src/sessionFreshness.mjs'
+import { hasPendingSignIn, pendingSignInSubject } from './src/twoFactor.mjs'
 import { isEmailConfigured, sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
 import { createFinalErrorHandler } from './src/finalErrorHandler.mjs'
@@ -280,22 +281,27 @@ const purdueVerifyRateLimit = createRateLimiter({
   message: 'Too many verification attempts. Please try again in an hour.',
 })
 // Two-step sign-in codes. Each code allows five guesses (src/twoFactor.mjs);
-// these cap guessing across restarted sign-ins and mail sent by resends.
+// these cap guessing across restarted sign-ins and mail sent by resends. A
+// request with no pending sign-in skips all three: the route answers it
+// without touching the database or the mail, and counting it would let one
+// stray client use up the bucket of everyone behind the same address.
 const loginCodeRateLimit = createRateLimiter({
   name: 'login-code',
   windowMs: 15 * 60 * 1000,
   max: 30,
   keyBy: 'ip',
+  skip: (req) => !hasPendingSignIn(req),
   message: 'Too many verification attempts. Please wait a few minutes and try again.',
 })
 // The same guesses per account, keyed by the pending sign-in's user, so
 // spreading them over many addresses or restarted sign-ins buys nothing. Only a
-// correct password creates that key; without one the bucket falls back to IP.
+// correct password creates that key.
 const loginCodeAccountRateLimit = createRateLimiter({
   name: 'login-code-account',
   windowMs: 60 * 60 * 1000,
   max: 10,
-  keyBy: (req) => req.session?.pendingLogin?.subject || null,
+  keyBy: pendingSignInSubject,
+  skip: (req) => !hasPendingSignIn(req),
   message: 'Too many verification attempts for this account. Please try again later.',
 })
 const loginCodeSendRateLimit = createRateLimiter({
@@ -303,6 +309,7 @@ const loginCodeSendRateLimit = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 10,
   keyBy: 'ip',
+  skip: (req) => !hasPendingSignIn(req),
   message: 'Too many sign-in codes requested. Please try again later.',
 })
 // Code emails per account, from sign-in, sign-up and resend together: a
