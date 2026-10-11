@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/mock-backend.js'
+import { test, expect, LOGIN_CODE } from './fixtures/mock-backend.js'
 
 // Authentication flows: route guarding, failed sign-in, and successful sign-in.
 
@@ -96,6 +96,30 @@ test.describe('Authentication', () => {
     // no ?next lands on the dashboard rather than the setup screen.
     await expect(page).toHaveURL(/\/dashboard/)
     await expect(page).not.toHaveURL(/\/login/)
+  })
+
+  test('asks for the emailed code after the password, and rejects a wrong one', async ({ page, mockApi }) => {
+    mockApi.logout()
+    mockApi.requireLoginCode()
+    await page.goto('/login')
+
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
+    await expect(page).toHaveURL(/\/login/)
+    // Opt-in, for a student's own device: lab and library computers are shared.
+    await expect(page.getByLabel(/Trust this device/)).not.toBeChecked()
+
+    await page.getByLabel('Verification code').fill('111111')
+    await page.getByRole('button', { name: 'Verify and continue' }).click()
+    await expect(page.getByText('That code is not right.', { exact: false })).toBeVisible()
+    await expect(page).toHaveURL(/\/login/)
+
+    await page.getByLabel('Verification code').fill(LOGIN_CODE)
+    await page.getByRole('button', { name: 'Verify and continue' }).click()
+    await expect(page).toHaveURL(/\/dashboard/)
   })
 
   test('a fresh sign-in without a schedule source still lands on setup', async ({ page, mockApi }) => {

@@ -1,4 +1,5 @@
-// Deadline reminders over Web Push (issue #9).
+// Deadline reminders over Web Push (issue #9) and to the native app's Expo
+// push tokens (issue #194).
 //
 // Pure pieces (selection, copy, settings validation) live here next to the
 // runner so test/pushReminders.test.mjs can cover the decisions without a
@@ -10,8 +11,16 @@
 // One reminder per item, ever: push_deliveries (user_id, item_key) is claimed
 // with an INSERT before sending, so two overlapping runs cannot both notify.
 // If the send then fails there is no retry in v1; the item simply stays quiet.
+// The claim covers every device the student has: the browsers in
+// push_subscriptions and the phones in push_devices. The VAPID keys stay the
+// master switch for both, so unsetting them still pauses everything.
+//
+// loadPushDevices and deliverToPushDevices are the Expo half, shared with the
+// test send in src/routes/push.mjs. A missing push_devices table (before
+// db/supabase-push-devices.sql runs) reads as no phones, so Web Push carries on.
 
 import { sendWebPush } from './webPush.mjs'
+import { MAX_DEVICE_STRIKES, buildExpoMessages, sendExpoPush } from './expoPush.mjs'
 import { queryError } from './cronTick.mjs'
 
 export const DEADLINE_CATEGORIES = ['assignment', 'quiz', 'exam', 'project', 'deadline']
@@ -201,6 +210,75 @@ export function isMissingTableError(error) {
   return /does not exist|schema cache/i.test(String(error.message || ''))
 }
 
+/**
+ * The phones to send to for these students: push_devices rows as
+ * { id, user_id, token, failure_count }. A device that has reached
+ * MAX_DEVICE_STRIKES is deleted here and left out, which is how a device with
+ * five strikes is "skipped and deleted on the next run". A missing table reads
+ * as no devices; any other database error throws a SupabaseQueryError, so the
+ * cron route can tell a Supabase hiccup from a bug. Returns { devices, removed }.
+ */
+export async function loadPushDevices(client, userIds, { log = console } = {}) {
+  if (!userIds.length) return { devices: [], removed: 0 }
+  const res = await client.from('push_devices').select('id, user_id, token, failure_count').in('user_id', userIds)
+  if (res.error) {
+    if (isMissingTableError(res.error)) return { devices: [], removed: 0 }
+    throw queryError(res, 'push_devices select')
+  }
+  const rows = res.data || []
+  const struckOut = rows.filter((row) => (row.failure_count || 0) >= MAX_DEVICE_STRIKES)
+  let removed = 0
+  if (struckOut.length) {
+    const del = await client.from('push_devices').delete().in('id', struckOut.map((row) => row.id))
+    if (del.error) {
+      log.warn(`[push] could not drop ${struckOut.length} native device(s) after ${MAX_DEVICE_STRIKES} failed deliveries: ${del.error.message || del.error}`)
+    } else {
+      removed = struckOut.length
+    }
+  }
+  return { devices: rows.filter((row) => (row.failure_count || 0) < MAX_DEVICE_STRIKES), removed }
+}
+
+/**
+ * Send one payload to a student's phones through Expo and keep the books on
+ * each row: a success clears the strikes, DeviceNotRegistered deletes the
+ * row, and a strike adds one to failure_count (see src/expoPush.mjs for which
+ * errors are strikes). Returns { sent, failed, removed, devices }, where
+ * `devices` is what is left to send the next item to, with the updated counts.
+ */
+export async function deliverToPushDevices({ client, devices, payload, send = sendExpoPush, log = console }) {
+  const outcome = { sent: 0, failed: 0, removed: 0, devices: [] }
+  const live = devices.filter((row) => (row.failure_count || 0) < MAX_DEVICE_STRIKES)
+  if (live.length === 0) return outcome
+  const results = await send({ messages: buildExpoMessages(live, payload) })
+  for (const [i, row] of live.entries()) {
+    const result = results[i] || { ok: false, error: 'no_ticket', gone: false, strike: false }
+    if (result.ok) {
+      outcome.sent += 1
+      if (row.failure_count) {
+        await client.from('push_devices').update({ failure_count: 0 }).eq('id', row.id)
+      }
+      outcome.devices.push({ ...row, failure_count: 0 })
+      continue
+    }
+    outcome.failed += 1
+    if (result.gone) {
+      const del = await client.from('push_devices').delete().eq('id', row.id)
+      if (!del.error) outcome.removed += 1
+      continue
+    }
+    log.warn(`[push] native delivery failed (${result.error})`)
+    if (result.strike) {
+      const strikes = (row.failure_count || 0) + 1
+      await client.from('push_devices').update({ failure_count: strikes }).eq('id', row.id)
+      outcome.devices.push({ ...row, failure_count: strikes })
+    } else {
+      outcome.devices.push(row)
+    }
+  }
+  return outcome
+}
+
 async function loadDueCandidates(client, userId, { now, leadMinutes }) {
   // Date-only rows sit at 00:00 of their date and are due at 23:59 campus
   // time, so the query window reaches a day back; selectDueItems applies the
@@ -276,6 +354,7 @@ export async function runDeadlineReminders({
   keys,
   now = new Date(),
   send = sendWebPush,
+  sendExpo = sendExpoPush,
   maxUsers = 200,
   maxSends = 300,
   log = console,
@@ -295,20 +374,29 @@ export async function runDeadlineReminders({
   const settingsRows = settingsRes.data || []
   if (settingsRows.length === 0) return summary
 
+  const userIds = settingsRows.map((r) => r.user_id)
   const subsRes = await client
     .from('push_subscriptions')
     .select('id, user_id, endpoint, p256dh, auth')
-    .in('user_id', settingsRows.map((r) => r.user_id))
+    .in('user_id', userIds)
   if (subsRes.error) throw queryError(subsRes, 'push_subscriptions select')
   const subsByUser = new Map()
   for (const sub of subsRes.data || []) {
     if (!subsByUser.has(sub.user_id)) subsByUser.set(sub.user_id, [])
     subsByUser.get(sub.user_id).push(sub)
   }
+  const loaded = await loadPushDevices(client, userIds, { log })
+  summary.removed += loaded.removed
+  const devicesByUser = new Map()
+  for (const device of loaded.devices) {
+    if (!devicesByUser.has(device.user_id)) devicesByUser.set(device.user_id, [])
+    devicesByUser.get(device.user_id).push(device)
+  }
 
   for (const row of settingsRows) {
     let subs = subsByUser.get(row.user_id) || []
-    if (subs.length === 0) {
+    let devices = devicesByUser.get(row.user_id) || []
+    if (subs.length === 0 && devices.length === 0) {
       summary.skipped += 1
       continue
     }
@@ -350,6 +438,13 @@ export async function runDeadlineReminders({
         } else {
           log.warn(`[push] reminder delivery failed (${result.status}): ${result.error}`)
         }
+      }
+      if (devices.length) {
+        const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log })
+        summary.sent += native.sent
+        summary.failed += native.failed
+        summary.removed += native.removed
+        devices = native.devices
       }
     }
   }

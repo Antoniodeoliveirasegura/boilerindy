@@ -4,11 +4,13 @@ import {
   DEFAULT_LEAD_MINUTES,
   buildDeadlinePayload,
   buildTestPayload,
+  deliverToPushDevices,
   describeDueIn,
   dueMomentOf,
   endOfDayInZone,
   formatDueTime,
   isMissingTableError,
+  loadPushDevices,
   normalizeLeadMinutes,
   parseSettingsPatch,
   runDeadlineReminders,
@@ -168,6 +170,7 @@ test('runDeadlineReminders claims, sends, and prunes gone subscriptions', async 
     if (op.table === 'user_task_completions') return { data: [], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'select') return { data: [{ item_key: 'calendar:e' }], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'insert') return { data: null, error: null }
+    if (op.table === 'push_devices' && op.kind === 'select') return { data: [], error: null }
     throw new Error(`unexpected query ${op.table} ${op.kind}`)
   })
   const send = async ({ subscription, payload, topic }) => {
@@ -250,4 +253,208 @@ test('a transient 504 on the settings query is retried once through runCronTick,
   assert.equal(settingsCalls, 2)
   assert.deepEqual(sends, ['Assignment due in 30 min'])
   assert.equal(outcome.summary.sent, 1)
+})
+
+// ── Native devices (issue #194) ─────────────────────────────────────────────
+
+const PHONE = 'ExponentPushToken[phone000000000000000001]'
+const HW_DUE = { id: 'a', title: 'HW 3', start_time: '2026-09-08T14:45:00Z', category: 'assignment', all_day: false }
+
+// One student with reminders on, one HW due in 45 minutes, nothing delivered
+// yet; `subs` and `devices` are what the push tables hold for them.
+function reminderClient({ subs = [], devices = [], devicesError = null } = {}) {
+  return makeClient((op) => {
+    if (op.table === 'push_settings') return { data: [{ user_id: 'u1', lead_minutes: 60 }], error: null }
+    if (op.table === 'push_subscriptions' && op.kind === 'select') return { data: subs, error: null }
+    if (op.table === 'push_devices' && op.kind === 'select') return devicesError ? { data: null, error: devicesError } : { data: devices, error: null }
+    if (op.table === 'push_devices') return { data: null, error: null }
+    if (op.table === 'calendar_items') return { data: [HW_DUE], error: null }
+    if (op.table === 'user_manual_tasks') return { data: [], error: null }
+    if (op.table === 'user_task_completions') return { data: [], error: null }
+    if (op.table === 'push_deliveries' && op.kind === 'select') return { data: [], error: null }
+    if (op.table === 'push_deliveries' && op.kind === 'insert') return { data: null, error: null }
+    throw new Error(`unexpected query ${op.table} ${op.kind}`)
+  })
+}
+
+const ok = (messages) => messages.map((m) => ({ token: m.to, ok: true, ticketId: `t-${m.to}` }))
+
+test('a student with one browser and one phone gets the reminder on both, claimed once', async () => {
+  const client = reminderClient({
+    subs: [{ id: 's1', user_id: 'u1', endpoint: 'https://push.example/1', p256dh: 'k1', auth: 'a1' }],
+    devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0 }],
+  })
+  const webSends = []
+  const expoSends = []
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    send: async ({ subscription, payload }) => {
+      webSends.push({ endpoint: subscription.endpoint, title: payload.title })
+      return { ok: true, status: 201 }
+    },
+    sendExpo: async ({ messages }) => {
+      expoSends.push(messages)
+      return ok(messages)
+    },
+    log: { warn() {} },
+  })
+
+  assert.deepEqual(webSends, [{ endpoint: 'https://push.example/1', title: 'Assignment due in 45 min' }])
+  assert.equal(expoSends.length, 1, 'one Expo request for the item')
+  assert.deepEqual(
+    expoSends[0].map((m) => ({ to: m.to, title: m.title, body: m.body, data: m.data })),
+    [{ to: PHONE, title: 'Assignment due in 45 min', body: 'HW 3 is due at 10:45 AM.', data: { url: '/assignments', kind: 'deadline', tag: 'deadline-calendar-a' } }],
+  )
+  const claims = client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert')
+  assert.equal(claims.length, 1, 'the delivery row is written once for both devices')
+  assert.deepEqual(claims[0].payload, { user_id: 'u1', item_key: 'calendar:a', kind: 'deadline', sent_at: NOW.toISOString() })
+  assert.deepEqual(summary, { ok: true, ranAt: NOW.toISOString(), users: 1, checked: 1, sent: 2, failed: 0, removed: 0, skipped: 0 })
+  const deviceQuery = client.calls.find((c) => c.table === 'push_devices' && c.kind === 'select')
+  assert.deepEqual(deviceQuery.filters, [['in', 'user_id', ['u1']]])
+  assert.equal(client.calls.filter((c) => c.table === 'push_devices' && c.kind !== 'select').length, 0, 'a clean success writes nothing back')
+})
+
+test('a student with only a phone is not skipped', async () => {
+  const client = reminderClient({ devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0 }] })
+  let webCalls = 0
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    send: async () => {
+      webCalls += 1
+      return { ok: true }
+    },
+    sendExpo: async ({ messages }) => ok(messages),
+  })
+  assert.equal(webCalls, 0)
+  assert.equal(summary.users, 1)
+  assert.equal(summary.skipped, 0)
+  assert.equal(summary.sent, 1)
+})
+
+test('before db/supabase-push-devices.sql runs, Web Push reminders carry on', async () => {
+  const client = reminderClient({
+    subs: [{ id: 's1', user_id: 'u1', endpoint: 'https://push.example/1', p256dh: 'k1', auth: 'a1' }],
+    devicesError: { code: 'PGRST205', message: "Could not find the table 'public.push_devices' in the schema cache" },
+  })
+  let expoCalls = 0
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    send: async () => ({ ok: true, status: 201 }),
+    sendExpo: async () => {
+      expoCalls += 1
+      return []
+    },
+  })
+  assert.equal(summary.ok, true)
+  assert.equal(summary.sent, 1)
+  assert.equal(expoCalls, 0)
+})
+
+test('any other push_devices error stops the run with the status kept, for the cron retry', async () => {
+  const client = reminderClient({ devicesError: { code: 'PGRST003', message: 'Gateway Timeout' } })
+  await assert.rejects(
+    () => runDeadlineReminders({ client, keys: { publicKey: 'x' }, now: NOW, sendExpo: async () => [] }),
+    (err) => err.name === 'SupabaseQueryError' && err.code === 'PGRST003' && /^push_devices select: Gateway Timeout/.test(err.message),
+  )
+})
+
+test('Expo answers keep the books: gone is deleted, a strike counts, a success clears, five strikes are dropped', async () => {
+  const devices = [
+    { id: 'd-gone', user_id: 'u1', token: 'ExponentPushToken[gone]', failure_count: 0 },
+    { id: 'd-flaky', user_id: 'u1', token: 'ExponentPushToken[flaky]', failure_count: 2 },
+    { id: 'd-back', user_id: 'u1', token: 'ExponentPushToken[back]', failure_count: 3 },
+    { id: 'd-creds', user_id: 'u1', token: 'ExponentPushToken[creds]', failure_count: 1 },
+    { id: 'd-out', user_id: 'u1', token: 'ExponentPushToken[out]', failure_count: 5 },
+  ]
+  const client = reminderClient({ devices })
+  const sentTo = []
+  const warnings = []
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    sendExpo: async ({ messages }) => {
+      sentTo.push(...messages.map((m) => m.to))
+      return messages.map((m) => {
+        if (m.to.includes('gone')) return { token: m.to, ok: false, error: 'DeviceNotRegistered', gone: true, strike: false }
+        if (m.to.includes('flaky')) return { token: m.to, ok: false, error: 'MessageRateExceeded', gone: false, strike: true }
+        if (m.to.includes('creds')) return { token: m.to, ok: false, error: 'InvalidCredentials', gone: false, strike: false }
+        return { token: m.to, ok: true, ticketId: 't' }
+      })
+    },
+    log: { warn: (line) => warnings.push(line) },
+  })
+
+  assert.ok(!sentTo.includes('ExponentPushToken[out]'), 'a phone with five strikes is not sent to')
+  assert.deepEqual(sentTo, ['ExponentPushToken[gone]', 'ExponentPushToken[flaky]', 'ExponentPushToken[back]', 'ExponentPushToken[creds]'])
+  const writes = client.calls.filter((c) => c.table === 'push_devices' && c.kind !== 'select').map((c) => [c.kind, c.payload ?? null, c.filters])
+  assert.deepEqual(writes, [
+    ['delete', null, [['in', 'id', ['d-out']]]],
+    ['delete', null, [['eq', 'id', 'd-gone']]],
+    ['update', { failure_count: 3 }, [['eq', 'id', 'd-flaky']]],
+    ['update', { failure_count: 0 }, [['eq', 'id', 'd-back']]],
+  ])
+  assert.deepEqual({ sent: summary.sent, failed: summary.failed, removed: summary.removed }, { sent: 1, failed: 3, removed: 2 })
+  assert.deepEqual(warnings, ['[push] native delivery failed (MessageRateExceeded)', '[push] native delivery failed (InvalidCredentials)'])
+  assert.ok(warnings.every((line) => !line.includes('PushToken')), 'tokens never reach the log')
+})
+
+test('loadPushDevices drops struck-out phones and reads a missing table as none', async () => {
+  const rows = [
+    { id: 'd1', user_id: 'u1', token: 'ExponentPushToken[a]', failure_count: 4 },
+    { id: 'd2', user_id: 'u1', token: 'ExponentPushToken[b]', failure_count: 5 },
+    { id: 'd3', user_id: 'u2', token: 'ExponentPushToken[c]', failure_count: 9 },
+  ]
+  const client = makeClient((op) => (op.kind === 'select' ? { data: rows, error: null } : { data: null, error: null }))
+  const loaded = await loadPushDevices(client, ['u1', 'u2'])
+  assert.deepEqual(loaded.devices.map((d) => d.id), ['d1'])
+  assert.equal(loaded.removed, 2)
+  assert.deepEqual(client.calls[1].filters, [['in', 'id', ['d2', 'd3']]])
+
+  const failedDelete = makeClient((op) => (op.kind === 'select' ? { data: rows, error: null } : { data: null, error: { message: 'boom' } }))
+  const warnings = []
+  const kept = await loadPushDevices(failedDelete, ['u1'], { log: { warn: (line) => warnings.push(line) } })
+  assert.deepEqual(kept.devices.map((d) => d.id), ['d1'], 'still not sent to')
+  assert.equal(kept.removed, 0)
+  assert.equal(warnings.length, 1)
+
+  const none = await loadPushDevices(makeClient(() => { throw new Error('no query for an empty list') }), [])
+  assert.deepEqual(none, { devices: [], removed: 0 })
+  const missing = await loadPushDevices(makeClient(() => ({ data: null, error: { code: '42P01', message: 'relation "push_devices" does not exist' } })), ['u1'])
+  assert.deepEqual(missing, { devices: [], removed: 0 })
+})
+
+test('deliverToPushDevices hands back the phones for the next item, with the strike counted', async () => {
+  const client = makeClient(() => ({ data: null, error: null }))
+  const devices = [
+    { id: 'd1', user_id: 'u1', token: 'ExponentPushToken[a]', failure_count: 4 },
+    { id: 'd2', user_id: 'u1', token: 'ExponentPushToken[b]', failure_count: 0 },
+  ]
+  const strike = async ({ messages }) => messages.map((m) => ({ token: m.to, ok: false, error: 'UnknownError', gone: false, strike: true }))
+  const first = await deliverToPushDevices({ client, devices, payload: buildTestPayload(), send: strike, log: { warn() {} } })
+  assert.deepEqual(first.devices.map((d) => [d.id, d.failure_count]), [['d1', 5], ['d2', 1]])
+  assert.deepEqual({ sent: first.sent, failed: first.failed, removed: first.removed }, { sent: 0, failed: 2, removed: 0 })
+
+  // d1 reached five strikes: skipped from now on, and deleted by the next run's loadPushDevices.
+  const asked = []
+  const second = await deliverToPushDevices({
+    client,
+    devices: first.devices,
+    payload: buildTestPayload(),
+    send: async ({ messages }) => {
+      asked.push(...messages.map((m) => m.to))
+      return ok(messages)
+    },
+  })
+  assert.deepEqual(asked, ['ExponentPushToken[b]'])
+  assert.equal(second.sent, 1)
+
+  const nothing = await deliverToPushDevices({ client, devices: [], payload: buildTestPayload(), send: async () => { throw new Error('not called') } })
+  assert.deepEqual(nothing, { sent: 0, failed: 0, removed: 0, devices: [] })
 })

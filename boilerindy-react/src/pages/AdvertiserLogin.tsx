@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
+import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import {
@@ -135,7 +136,7 @@ export default function AdvertiserLogin() {
         </div>
 
         <Link to="/" className="relative inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-gold-light)] no-underline w-fit">
-          <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>
+          <BrandMark />
           BoilerIndy
         </Link>
 

@@ -27,7 +27,7 @@ pnpm run preview      # Serve the production build locally
 pnpm run lint         # ESLint; must be error-clean, the React Compiler advisories stay warnings
 pnpm run typecheck    # tsc --noEmit over src/
 pnpm test             # Vitest + Testing Library, one run (pnpm run test:watch to keep it running)
-pnpm run render-icons # Re-render the PNG launch assets under public/ from public/app-icon.svg
+pnpm run render-icons # Re-render the PNG launch assets from public/app-icon.svg and splits the brand mark copies in public/brand/ out of it
 ```
 
 CI runs lint, typecheck, test and build in that order, so run those four before opening a pull request. The Playwright suite lives in `../e2e` and runs from the repository root with `pnpm run test:e2e`: it builds this package, serves it with `vite preview` and mocks the backend at the network layer, so it needs no Supabase credentials.

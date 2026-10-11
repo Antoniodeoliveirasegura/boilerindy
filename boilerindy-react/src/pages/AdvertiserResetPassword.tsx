@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import { resetAdvertiserPassword } from '../lib/advertiserApi'
 import PageTitle from '../components/PageTitle'
@@ -52,7 +53,7 @@ export default function AdvertiserResetPassword() {
       <PageTitle>Reset your advertiser password</PageTitle>
       <div className="w-full max-w-[400px]">
         <Link to="/advertise" className="inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-txt-0)] no-underline mb-8">
-          <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wide">BI</span>
+          <BrandMark />
           BoilerIndy
         </Link>
 

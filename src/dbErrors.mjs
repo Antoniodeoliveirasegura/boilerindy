@@ -126,6 +126,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-purdue-email-verification.sql',
     'Could not start verification. Please try again.',
   ),
+  // Two-step sign-in codes (LOGIN_TWO_FACTOR): the pending sign-ins.
+  sign_in_codes: dbFeature(
+    'sign_in_codes',
+    'Two-step sign-in',
+    'db/supabase-sign-in-challenges.sql',
+    'Could not check your sign-in code. Please try again.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',

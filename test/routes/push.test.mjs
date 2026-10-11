@@ -14,6 +14,7 @@ import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 const STUDENT = { id: '11111111-1111-4111-8111-111111111111', email: 'student@example.com' }
 const KEYS = { publicKey: 'BPublicKeyForTests', privateKey: 'privateKeyForTests', subject: 'mailto:test@example.com' }
 const CRON_SECRET = 'cron-secret-for-tests'
+const PHONE = 'ExponentPushToken[phone000000000000000001]'
 
 function validSubscription(endpoint = 'https://push.example.com/send/abc') {
   return {
@@ -36,10 +37,17 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {} } = {}, run) {
+async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null } = {}, run) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
+  // Stands in for sendExpoPush: records each request's messages and answers
+  // every one ok unless the test hands in its own answer.
+  const expoRequests = []
+  const sendExpo = async ({ messages }) => {
+    expoRequests.push(messages)
+    return expoAnswer ? expoAnswer(messages) : messages.map((m) => ({ token: m.to, ok: true, ticketId: `t-${m.to}` }))
+  }
   const limiter = (name) => (req, _res, next) => {
     limiterHits.push(`${name} ${req.method} ${req.path}`)
     next()
@@ -60,6 +68,7 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       PUSH_CRON_SECRET: cronSecret,
       pushCronSecretMatches: (header) => Boolean(cronSecret) && header === `Bearer ${cronSecret}`,
       warnCronTransient: (route, error) => transientWarnings.push({ route, error }),
+      sendExpo,
     }),
   )
   // Stands in for apiNotFound: where the cron route falls through to.
@@ -74,7 +83,7 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       const text = await response.text()
       return { status: response.status, headers: response.headers, body: text ? JSON.parse(text) : null }
     }
-    await run({ call, supabase, limiterHits, transientWarnings })
+    await run({ call, supabase, limiterHits, transientWarnings, expoRequests })
   })
 }
 
@@ -107,7 +116,7 @@ test('the public config reports the key, or that push is off, never cached, behi
 
 test('every session route needs a signed-in student', async () => {
   await withApp({ user: null }, async ({ call, supabase }) => {
-    const routes = [['GET', '/api/push/settings'], ['PUT', '/api/push/settings'], ['POST', '/api/push/subscriptions'], ['DELETE', '/api/push/subscriptions'], ['POST', '/api/push/test']]
+    const routes = [['GET', '/api/push/settings'], ['PUT', '/api/push/settings'], ['POST', '/api/push/subscriptions'], ['DELETE', '/api/push/subscriptions'], ['POST', '/api/push/test'], ['POST', '/api/me/push-token'], ['DELETE', '/api/me/push-token']]
     for (const [method, path] of routes) {
       const res = await call(method, path, method === 'GET' ? undefined : {})
       assert.equal(res.status, 401, `${method} ${path}`)
@@ -120,6 +129,7 @@ test("GET /api/push/settings answers the student's settings and devices, never c
   const tables = {
     push_settings: () => ({ data: { deadline_reminders: false, lead_minutes: 120 }, error: null }),
     push_subscriptions: () => ({ data: [{ id: 's1', created_at: '2026-10-01T00:00:00.000Z', user_agent: 'Safari', last_used_at: null }], error: null }),
+    push_devices: () => ({ data: [{ id: 'd1', platform: 'ios', device_name: 'iPhone', created_at: '2026-10-02T00:00:00.000Z', last_seen_at: '2026-10-03T00:00:00.000Z', token: PHONE }], error: null }),
   }
   await withApp({ tables }, async ({ call, supabase }) => {
     const res = await call('GET', '/api/push/settings')
@@ -129,7 +139,12 @@ test("GET /api/push/settings answers the student's settings and devices, never c
       enabled: true,
       settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 120 }),
       subscriptions: [{ id: 's1', createdAt: '2026-10-01T00:00:00.000Z', userAgent: 'Safari', lastUsedAt: null }],
+      devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z' }],
     })
+    assert.ok(!JSON.stringify(res.body).includes('PushToken'), 'the token is never returned')
+    const [devices] = supabase.queriesOf('push_devices')
+    assert.ok(hasCall(devices.chain, 'eq', 'user_id', STUDENT.id))
+    assert.ok(!devices.chain.find((c) => c.method === 'select').args[0].includes('token'), 'the token is not even read')
     const [settings] = supabase.queriesOf('push_settings')
     assert.ok(hasCall(settings.chain, 'eq', 'user_id', STUDENT.id))
     assert.ok(hasCall(settings.chain, 'maybeSingle'))
@@ -141,10 +156,29 @@ test("GET /api/push/settings answers the student's settings and devices, never c
 
 test('before db/supabase-push.sql runs, the settings route answers 503 push_not_configured', async () => {
   const missing = () => ({ data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.push_settings' in the schema cache" } })
-  await withApp({ tables: { push_settings: missing, push_subscriptions: missing } }, async ({ call }) => {
+  await withApp({ tables: { push_settings: missing, push_subscriptions: missing, push_devices: missing } }, async ({ call }) => {
     const res = await call('GET', '/api/push/settings')
     assert.equal(res.status, 503)
     assert.equal(res.body.error.code, 'push_not_configured')
+  })
+})
+
+test('before db/supabase-push-devices.sql runs, the settings route still answers, with no devices', async () => {
+  const tables = {
+    push_settings: () => ({ data: null, error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.push_devices' in the schema cache" } }),
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const res = await call('GET', '/api/push/settings')
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body.devices, [])
+    assert.deepEqual(res.body.subscriptions, [])
+  })
+  const broken = { ...tables, push_devices: () => ({ data: null, error: { code: '42501', message: 'permission denied for table push_devices' } }) }
+  await withApp({ tables: broken }, async ({ call }) => {
+    const res = await call('GET', '/api/push/settings')
+    assert.equal(res.status, 500)
   })
 })
 
@@ -232,11 +266,167 @@ test('POST /api/push/test needs push on, and with no devices sends nothing', asy
     assert.equal(res.status, 503)
     assert.equal(res.body.error.code, 'push_disabled')
   })
-  await withApp({ tables: { push_subscriptions: () => ({ data: [], error: null }) } }, async ({ call, limiterHits }) => {
+  const empty = { push_subscriptions: () => ({ data: [], error: null }), push_devices: () => ({ data: [], error: null }) }
+  await withApp({ tables: empty }, async ({ call, limiterHits, expoRequests }) => {
     const res = await call('POST', '/api/push/test', {})
     assert.equal(res.status, 200)
     assert.deepEqual(res.body, { sent: 0, failed: 0, removed: 0 })
     assert.deepEqual(limiterHits, ['push-test POST /api/push/test'])
+    assert.deepEqual(expoRequests, [], 'no phones, no Expo request')
+  })
+})
+
+// ── The native app: /api/me/push-token (issue #194) ─────────────────────────
+
+// push_settings answers the ensure-a-row upsert; push_devices answers the
+// student's existing phones on a select and the new row on the upsert.
+function deviceTables({ existing = [], settings = () => ({ data: null, error: null }) } = {}) {
+  return {
+    push_settings: settings,
+    push_devices: (chain) =>
+      operation(chain) === 'upsert' ? { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z' }, error: null } : { data: existing, error: null },
+  }
+}
+
+test('POST /api/me/push-token registers the phone and makes sure the student has settings', async () => {
+  await withApp({ tables: deviceTables() }, async ({ call, supabase, limiterHits }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', deviceName: '  Ana iPhone  ' })
+    assert.equal(res.status, 201)
+    assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z' } })
+    assert.deepEqual(limiterHits, ['push-write POST /api/me/push-token'])
+
+    const [settings] = supabase.queriesOf('push_settings')
+    const [settingsRow, settingsOptions] = settings.chain.find((c) => c.method === 'upsert').args
+    assert.deepEqual(settingsRow, { user_id: STUDENT.id }, 'the defaults, nothing else')
+    assert.deepEqual(settingsOptions, { onConflict: 'user_id', ignoreDuplicates: true }, 'never overwrites a saved choice')
+
+    const [existing, upsert] = supabase.queriesOf('push_devices')
+    assert.ok(hasCall(existing.chain, 'eq', 'user_id', STUDENT.id))
+    const [row, options] = upsert.chain.find((c) => c.method === 'upsert').args
+    assert.deepEqual({ ...row, last_seen_at: undefined }, {
+      user_id: STUDENT.id,
+      kind: 'expo',
+      token: PHONE,
+      platform: 'ios',
+      device_name: 'Ana iPhone',
+      last_seen_at: undefined,
+      failure_count: 0,
+    })
+    assert.ok(!Number.isNaN(Date.parse(row.last_seen_at)))
+    assert.deepEqual(options, { onConflict: 'token' })
+  })
+})
+
+test('the app body the app already sends, { token, platform }, is enough', async () => {
+  await withApp({ tables: deviceTables() }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'android' })
+    assert.equal(res.status, 201)
+    const upsert = supabase.queriesOf('push_devices').find((q) => operation(q.chain) === 'upsert')
+    const [row] = upsert.chain.find((c) => c.method === 'upsert').args
+    assert.equal(row.platform, 'android')
+    assert.equal(row.device_name, null)
+  })
+})
+
+test('POST /api/me/push-token needs push on and a valid token and platform, checked before any query', async () => {
+  await withApp({ vapidKeys: null }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios' })
+    assert.equal(res.status, 503)
+    assert.equal(res.body.error.code, 'push_disabled')
+    assert.equal(supabase.queries.length, 0)
+  })
+  await withApp({}, async ({ call, supabase }) => {
+    const badToken = await call('POST', '/api/me/push-token', { token: 'https://push.example.com/send/abc', platform: 'ios' })
+    assert.equal(badToken.status, 400)
+    assert.deepEqual(badToken.body, { error: { message: 'token must be an Expo push token, ExponentPushToken[...].', status: 400 } })
+    const badPlatform = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'web' })
+    assert.equal(badPlatform.status, 400)
+    assert.deepEqual(badPlatform.body, { error: { message: 'platform must be ios or android.', status: 400 } })
+    assert.equal(supabase.queries.length, 0)
+  })
+})
+
+test('a new phone past the ten-phone cap is refused, a known one re-registers', async () => {
+  const existing = Array.from({ length: 10 }, (_, i) => ({ id: `d${i}`, token: i === 0 ? PHONE : `ExponentPushToken[other${i}]` }))
+  await withApp({ tables: deviceTables({ existing }) }, async ({ call, supabase }) => {
+    const refused = await call('POST', '/api/me/push-token', { token: 'ExponentPushToken[brandnew]', platform: 'ios' })
+    assert.equal(refused.status, 409)
+    assert.deepEqual(refused.body, { error: { message: 'You can register at most 10 devices. Turn notifications off on an old device first.', status: 409 } })
+    assert.equal(supabase.queriesOf('push_devices').filter((q) => operation(q.chain) === 'upsert').length, 0)
+
+    const again = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios' })
+    assert.equal(again.status, 201)
+  })
+})
+
+test('a missing table answers push_not_configured naming the file to run', async () => {
+  const missing = (table) => () => ({ data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` } })
+  await withApp({ tables: { push_settings: () => ({ data: null, error: null }), push_devices: missing('push_devices') } }, async ({ call }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios' })
+    assert.equal(res.status, 503)
+    assert.equal(res.body.error.code, 'push_not_configured')
+    assert.match(res.body.error.message, /db\/supabase-push-devices\.sql/)
+    const del = await call('DELETE', '/api/me/push-token', { token: PHONE })
+    assert.equal(del.status, 503)
+    assert.match(del.body.error.message, /db\/supabase-push-devices\.sql/)
+  })
+  await withApp({ tables: deviceTables({ settings: missing('push_settings') }) }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios' })
+    assert.equal(res.status, 503)
+    assert.equal(res.body.error.code, 'push_not_configured')
+    assert.match(res.body.error.message, /db\/supabase-push\.sql/)
+    assert.equal(supabase.queriesOf('push_devices').length, 0, 'nothing is stored without the settings table')
+  })
+})
+
+test("DELETE /api/me/push-token removes only the student's own phone", async () => {
+  const tables = { push_devices: () => ({ data: [{ id: 'd1' }], error: null }) }
+  await withApp({ tables }, async ({ call, supabase, limiterHits }) => {
+    const missing = await call('DELETE', '/api/me/push-token', {})
+    assert.equal(missing.status, 400)
+    assert.deepEqual(missing.body, { error: { message: 'token is required.', status: 400 } })
+    const res = await call('DELETE', '/api/me/push-token', { token: PHONE })
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { removed: true })
+    const [del] = supabase.queriesOf('push_devices')
+    assert.equal(operation(del.chain), 'delete')
+    assert.ok(hasCall(del.chain, 'eq', 'user_id', STUDENT.id))
+    assert.ok(hasCall(del.chain, 'eq', 'token', PHONE))
+    assert.deepEqual(limiterHits, ['push-write DELETE /api/me/push-token', 'push-write DELETE /api/me/push-token'])
+  })
+})
+
+test('POST /api/push/test reaches the phones too, and drops one Expo no longer knows', async () => {
+  const tables = {
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: (chain) =>
+      operation(chain) === 'select'
+        ? {
+            data: [
+              { id: 'd1', user_id: STUDENT.id, token: PHONE, failure_count: 0 },
+              { id: 'd2', user_id: STUDENT.id, token: 'ExponentPushToken[uninstalled]', failure_count: 0 },
+            ],
+            error: null,
+          }
+        : { data: null, error: null },
+  }
+  const expoAnswer = (messages) =>
+    messages.map((m) =>
+      m.to === PHONE ? { token: m.to, ok: true, ticketId: 't1' } : { token: m.to, ok: false, error: 'DeviceNotRegistered', gone: true, strike: false },
+    )
+  await withApp({ tables, expoAnswer }, async ({ call, supabase, expoRequests }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { sent: 1, failed: 1, removed: 1 })
+    assert.equal(expoRequests.length, 1)
+    assert.deepEqual(expoRequests[0].map((m) => [m.to, m.title, m.data.url]), [
+      [PHONE, 'BoilerIndy notifications are on', '/settings'],
+      ['ExponentPushToken[uninstalled]', 'BoilerIndy notifications are on', '/settings'],
+    ])
+    const [select, del] = supabase.queriesOf('push_devices')
+    assert.ok(hasCall(select.chain, 'in', 'user_id', [STUDENT.id]))
+    assert.equal(operation(del.chain), 'delete')
+    assert.ok(hasCall(del.chain, 'eq', 'id', 'd2'))
   })
 })
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../../context/ThemeContext'
+import BrandMark from '../../components/BrandMark'
 import Icon from '../../components/Icons'
 import {
   listCampaigns,
@@ -479,7 +480,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
       <header className="border-b border-[var(--color-border)] bg-[var(--color-bg-1)]/60 backdrop-blur sticky top-0 z-10">
         <div className="max-w-[920px] mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] text-[10px] font-bold px-2 py-1 rounded-md tracking-wide">BI</span>
+            <BrandMark />
             <div>
               <div className="text-[14px] font-semibold leading-tight">Advertiser portal</div>
               <div className="text-[11px] text-[var(--color-txt-2)] leading-tight">{advertiser?.companyName}</div>
