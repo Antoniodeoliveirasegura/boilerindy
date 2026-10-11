@@ -958,7 +958,17 @@ export function createAuthRouter({
       if (swapErr) throw swapErr
       if (!swapped?.length) return challengeError(res, { reason: 'cooldown', retryAfterMs: RESEND_COOLDOWN_MS })
 
-      if (!(await deliverSignInCode(user.email, code))) return res.status(503).json(UNSENT_LOGIN_CODE)
+      if (!(await deliverSignInCode(user.email, code))) {
+        // Nothing arrived, so the code already mailed works again, unless
+        // another resend replaced it meanwhile. The failed send still counts.
+        const { error: undoErr } = await supabase
+          .from(CHALLENGES)
+          .update({ code_hash: row.code_hash, expires_at: row.expires_at, attempts: row.attempts, sent_at: row.sent_at })
+          .eq('id', row.id)
+          .eq('sends', sends + 1)
+        if (undoErr) logRouteError('[login-code] could not restore the earlier code', undoErr)
+        return res.status(503).json(UNSENT_LOGIN_CODE)
+      }
       res.json({ ok: true, expiresAt })
     } catch (error) {
       return respondDbError(res, error, { ...DB_FEATURES.sign_in_codes, fallback: 'Could not send a new code. Please try again.' })

@@ -122,6 +122,23 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/\/dashboard/)
   })
 
+  test('a resend that finds the sign-in timed out goes back to the password form', async ({ page, mockApi }) => {
+    mockApi.logout()
+    mockApi.requireLoginCode()
+    await page.goto('/login')
+
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
+
+    mockApi.timeOutLoginCode()
+    await page.getByRole('button', { name: 'Send a new code' }).click()
+    await expect(page.getByText('This sign-in timed out.', { exact: false })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    await expect(page.getByLabel('Verification code')).toHaveCount(0)
+  })
+
   test('a fresh sign-in without a schedule source still lands on setup', async ({ page, mockApi }) => {
     mockApi.logout()
     mockApi.setOnboarding({ linkedSourceCount: 0, classCount: 0, needsScheduleSource: true })
