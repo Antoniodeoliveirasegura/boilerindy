@@ -52,26 +52,29 @@ function StationCard({
   const visible = expanded ? station.items : station.items.slice(0, STATION_CAP)
 
   return (
-    <div className="card p-5 flex flex-col" data-dining-station={station.name}>
-      <div className="flex items-center gap-2.5 mb-3">
-        <div className="w-6 h-6 rounded-lg bg-[var(--color-dining-bg)] flex items-center justify-center flex-shrink-0">
-          <Icon name={STATION_ICONS[index % STATION_ICONS.length]} size={12} className="text-[var(--color-dining-color)]" />
-        </div>
-        <span className="text-[11px] font-semibold text-[var(--color-txt-0)] uppercase tracking-wide leading-tight">{station.name}</span>
+    <div className="card card-pad r-din flex flex-col" data-dining-station={station.name}>
+      <div className="flex items-center gap-2.5 mb-2">
+        <span className="route-badge sm">
+          <Icon name={STATION_ICONS[index % STATION_ICONS.length]} size={14} />
+        </span>
+        <span className="eyebrow bare leading-tight text-[var(--color-txt-0)]">{station.name}</span>
       </div>
-      <div className="space-y-1.5">
+      <div>
         {visible.map((item, idx) => {
           const isFav = favorites.has(normalizeItemName(item.name))
           return (
             <div
               key={`${item.name}-${idx}`}
-              className="text-[13px] bg-[var(--color-stat)] hover:bg-[var(--color-bg-3)] rounded-xl px-3 py-2 transition-colors"
+              className="py-2.5 border-t border-[var(--color-border)] first:border-t-0"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[var(--color-txt-0)] leading-snug">{item.name}</span>
-                <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-start justify-between gap-2">
+                <span className="flex items-start gap-2.5 min-w-0">
+                  <span aria-hidden="true" className="mt-[6px] w-2 h-2 shrink-0 rounded-[2px] bg-[var(--route)]" />
+                  <span className="font-display font-semibold text-[14px] leading-snug text-[var(--color-txt-0)]">{item.name}</span>
+                </span>
+                <div className="flex items-center gap-1 flex-shrink-0">
                   {item.calories != null && (
-                    <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap">{item.calories} cal</span>
+                    <span className="text-[12px] text-[var(--color-txt-3)] whitespace-nowrap tnum">{item.calories} cal</span>
                   )}
                   <button
                     type="button"
@@ -79,20 +82,20 @@ function StationCard({
                     aria-pressed={isFav}
                     aria-label={isFav ? `Remove ${item.name} from favorites` : `Add ${item.name} to favorites`}
                     title={isFav ? 'Remove favorite' : 'Add to favorites'}
-                    className="leading-none transition-transform hover:scale-110"
+                    className="grid place-items-center w-11 h-11 -my-3 -mr-2.5 md:w-8 md:h-8 md:-my-1.5 md:-mr-1.5 rounded-[var(--radius-md)] transition-colors hover:bg-[var(--color-bg-2)]"
                   >
                     <Icon
                       name="star"
-                      size={14}
-                      className={isFav ? 'text-[var(--color-gold-muted)] fill-current' : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
+                      size={15}
+                      className={isFav ? 'text-[var(--color-txt-0)] fill-current' : 'text-[var(--color-txt-3)]'}
                     />
                   </button>
                 </div>
               </div>
               {item.icons && item.icons.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1">
+                <div className="flex flex-wrap gap-1 mt-1.5 pl-[18px]">
                   {item.icons.slice(0, 4).map((ic) => (
-                    <span key={ic} className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-bg-2)] text-[var(--color-txt-2)]">
+                    <span key={ic} className="text-[11px] leading-none px-1.5 py-[4px] rounded-[var(--radius-sm)] bg-[var(--color-stat)] text-[var(--color-txt-2)]">
                       {ic}
                     </span>
                   ))}
@@ -106,7 +109,7 @@ function StationCard({
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="mt-3 text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] transition-colors text-left"
+          className="btn btn-ghost btn-sm self-start -ml-3 mt-1 text-[var(--color-txt-2)]"
         >
           {expanded ? '↑ Show less' : `+ ${station.items.length - STATION_CAP} more`}
         </button>
@@ -262,34 +265,25 @@ export default function Dining() {
   const empty = selected ? emptyMenuState(selected) : null
 
   return (
-    <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+    <div className="page">
       <PageTitle>Campus Dining</PageTitle>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
+      <header className="page-head">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Dining</h1>
-          <p className="text-[14px] text-[var(--color-txt-2)] mt-1">
+          <h1 className="page-title">Campus Dining</h1>
+          <p className="page-sub tnum">
             {live?.date ? `Menu for ${weekday}, ${live.date}` : "Today's menu"}
             {live?.cached && !live?.stale ? ' · cached' : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {selected && !loading && (
-            <div
-              className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 shadow-[var(--shadow-sm)]"
-              data-dining-blurb
-            >
-              <Icon name="clock" size={14} className="text-[var(--color-txt-3)]" />
-              {headerBlurb(selected, weekday)}
-            </div>
-          )}
           <button
             type="button"
             onClick={askWhatToEat}
             disabled={aiLoading || loading}
             title="AI meal recommendation"
-            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-[var(--shadow-sm)] hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40 whitespace-nowrap"
+            className="btn btn-secondary r-ai whitespace-nowrap disabled:opacity-50"
           >
-            <Icon name="sparkles" size={13} />
+            <Icon name="sparkles" size={15} className="text-[var(--route-text)]" />
             {aiLoading ? 'Thinking…' : 'What should I eat?'}
           </button>
           <button
@@ -298,16 +292,16 @@ export default function Dining() {
             disabled={refreshing || loading}
             title="Force-refresh menu"
             aria-label="Refresh menus"
-            className="flex items-center justify-center w-10 h-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-bg-3)] transition-colors disabled:opacity-40"
+            className="btn btn-secondary w-11 md:w-10 px-0 disabled:opacity-50"
           >
-            <Icon name="refresh" size={14} className={`text-[var(--color-txt-2)] ${refreshing ? 'animate-spin' : ''}`} />
+            <Icon name="refresh" size={15} className={refreshing ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
+      </header>
 
       {loadError && (
         <div
-          className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
+          className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"
           data-dining-error
         >
           {loadError} Nutrislice, which publishes the campus menus, is not answering. Try again in a few minutes.
@@ -316,7 +310,7 @@ export default function Dining() {
 
       {live?.stale && !loadError && (
         <div
-          className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
+          className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"
           data-dining-stale
         >
           Nutrislice is not answering right now, so this is the last menu we fetched{live.date ? ` (${live.date})` : ''}. Hours and open
@@ -326,16 +320,18 @@ export default function Dining() {
 
       {/* Your favorites on today's menu (issue #49) */}
       {favoritesToday.length > 0 && (
-        <div className="card p-4 mb-4 animate-fade-in-up" data-dining-favorites>
-          <div className="flex items-center gap-2 mb-2.5">
-            <Icon name="star" size={14} className="text-[var(--color-gold-muted)] fill-current" />
-            <span className="text-[13px] font-semibold text-[var(--color-txt-0)]">Your favorites on today&apos;s menu</span>
+        <div className="card card-pad r-din mb-4 animate-fade-in-up" data-dining-favorites>
+          <div className="card-head mb-2">
+            <span className="route-badge sm">
+              <Icon name="star" size={14} className="fill-current" />
+            </span>
+            <span className="card-title">Your favorites on today&apos;s menu</span>
           </div>
-          <div className="space-y-1.5">
+          <div>
             {favoritesToday.map((fav) => (
-              <div key={fav.name} className="flex items-center justify-between gap-3 text-[13px]">
-                <span className="text-[var(--color-txt-0)]">{fav.name}</span>
-                <span className="text-[12px] text-[var(--color-txt-2)] text-right">{fav.locations.join(', ')}</span>
+              <div key={fav.name} className="flex items-center justify-between gap-3 py-2 border-t border-[var(--color-border)] first:border-t-0">
+                <span className="font-display font-semibold text-[14px] text-[var(--color-txt-0)]">{fav.name}</span>
+                <span className="text-[12.5px] text-[var(--color-txt-2)] text-right">{fav.locations.join(', ')}</span>
               </div>
             ))}
           </div>
@@ -344,16 +340,16 @@ export default function Dining() {
 
       {/* AI Suggestion */}
       {aiSuggestion && (
-        <div className="card p-4 mb-4 animate-fade-in-up">
-          <div className="flex items-start gap-2.5">
-            <div className="w-6 h-6 rounded-lg bg-[var(--color-gold)] flex items-center justify-center shrink-0 mt-0.5">
-              <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
-            </div>
+        <div className="card card-pad r-ai mb-4 animate-fade-in-up">
+          <div className="flex items-start gap-3">
+            <span className="route-badge sm mt-0.5">
+              <Icon name="sparkles" size={14} />
+            </span>
             <div className="flex-1 min-w-0">
-              <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{aiSuggestion}</AiMarkdown>
+              <AiMarkdown className="text-[14px] text-[var(--color-txt-1)]">{aiSuggestion}</AiMarkdown>
             </div>
-            <button onClick={() => setAiSuggestion(null)} className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] shrink-0" aria-label="Dismiss suggestion">
-              <Icon name="close" size={14} />
+            <button onClick={() => setAiSuggestion(null)} className="icon-btn -mr-2.5 -mt-2.5 shrink-0" aria-label="Dismiss suggestion">
+              <Icon name="close" size={16} />
             </button>
           </div>
         </div>
@@ -361,35 +357,36 @@ export default function Dining() {
 
       {loading ? (
         /* Skeleton */
-        <div className="animate-pulse">
-          <div className="flex gap-2 mb-6">
-            <div className="h-11 w-36 rounded-xl bg-[var(--color-stat)]" />
-            <div className="h-11 w-32 rounded-xl bg-[var(--color-stat)]" />
+        <div>
+          <div className="flex gap-2 mb-5">
+            <div className="skeleton h-10 w-36" />
+            <div className="skeleton h-10 w-32" />
           </div>
-          <div className="card p-6 mb-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="space-y-2">
-                <div className="h-5 w-40 rounded-lg bg-[var(--color-stat)]" />
-                <div className="h-3.5 w-52 rounded-lg bg-[var(--color-stat)]" />
+          <div className="card card-pad mb-4">
+            <div className="flex items-center gap-3.5">
+              <div className="skeleton w-10 h-10 shrink-0" />
+              <div className="space-y-2 flex-1">
+                <div className="skeleton h-5 w-40" />
+                <div className="skeleton h-3.5 w-52" />
               </div>
-              <div className="h-9 w-28 rounded-xl bg-[var(--color-stat)]" />
+              <div className="skeleton h-10 w-32 hidden sm:block" />
             </div>
-            <div className="grid md:grid-cols-3 gap-6">
-              {[0, 1, 2].map((col) => (
-                <div key={col} className="space-y-2">
-                  <div className="h-3 w-20 rounded bg-[var(--color-stat)] mb-3" />
-                  {[0, 1, 2, 3].map((row) => (
-                    <div key={row} className="h-9 rounded-xl bg-[var(--color-stat)]" />
-                  ))}
-                </div>
-              ))}
-            </div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {[0, 1, 2].map((col) => (
+              <div key={col} className="card card-pad space-y-3">
+                <div className="skeleton h-3 w-24" />
+                {[0, 1, 2, 3].map((row) => (
+                  <div key={row} className="skeleton h-5" />
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       ) : (
         <>
           {locations.length > 0 && (
-            <div className="flex gap-2 mb-6 overflow-x-auto pb-1 -mx-1 px-1 animate-fade-in-up stagger-1">
+            <div className="flex gap-2 mb-5 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
               {locations.map((loc) => {
                 const isSelected = selected && loc.id === selected.id
                 return (
@@ -399,14 +396,16 @@ export default function Dining() {
                     onClick={() => setSelectedId(loc.id)}
                     aria-pressed={Boolean(isSelected)}
                     data-dining-location={loc.slug}
-                    className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border whitespace-nowrap transition-all duration-300 ${
-                      isSelected
-                        ? 'bg-[var(--color-surface)] border-[var(--color-border-2)] shadow-[var(--shadow-md)]'
-                        : 'bg-transparent border-transparent hover:bg-[var(--color-surface)] hover:border-[var(--color-border)]'
-                    }`}
+                    className={`pill shrink-0 whitespace-nowrap gap-2.5 min-h-11 md:min-h-[40px] px-4 text-[13.5px] ${isSelected ? 'pill-active' : ''}`}
                   >
-                    <div className={`status-dot ${loc.is_open ? 'status-open' : 'status-closed'}`} />
-                    <span className={`text-[13px] font-medium ${isSelected ? 'text-[var(--color-txt-0)]' : 'text-[var(--color-txt-1)]'}`}>{loc.name}</span>
+                    {/* On the inverted active pill the dot keeps a surface
+                        halo, so it still reads on ink (light) and white (dark). */}
+                    <span
+                      className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'} ${
+                        isSelected ? 'shadow-[0_0_0_2px_var(--color-surface)]' : ''
+                      }`}
+                    />
+                    <span>{loc.name}</span>
                   </button>
                 )
               })}
@@ -414,33 +413,38 @@ export default function Dining() {
           )}
 
           {selected && empty && (
-            <div className="mb-6 animate-fade-in-up stagger-2" data-dining-selected={selected.slug}>
+            <div className="mb-6" data-dining-selected={selected.slug}>
               {/* Location header */}
-              <div className="card p-5 mb-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-xl font-semibold text-[var(--color-txt-0)]">{selected.name}</h2>
-                      {selected.kind === 'retail' && (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-stat)] text-[var(--color-txt-2)]">
-                          Food court
+              <div className="card card-pad r-din mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <span className="route-badge lg">
+                      <Icon name="dining" size={22} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <h2 className="text-[24px] leading-tight text-[var(--color-txt-0)]">{selected.name}</h2>
+                        {selected.kind === 'retail' && <span className="badge">Food court</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className={`status-dot shrink-0 ${selected.is_open ? 'status-open' : 'status-closed'}`} />
+                        <span className="font-display font-semibold text-[13.5px] text-[var(--color-txt-1)]" data-dining-status>
+                          {statusLine(selected)}
                         </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className={`status-dot ${selected.is_open ? 'status-open' : 'status-closed'}`} />
-                      <span className="text-[13px] text-[var(--color-txt-2)]" data-dining-status>
-                        {statusLine(selected)}
-                      </span>
+                      </div>
+                      <div className="chip tint mt-3 whitespace-normal leading-snug py-1.5" data-dining-blurb>
+                        <Icon name="clock" size={13} className="shrink-0" />
+                        {headerBlurb(selected, weekday)}
+                      </div>
                     </div>
                   </div>
                   <a
                     href={diningDirectionsUrl(selected)}
                     target="_blank"
                     rel="noreferrer"
-                    className="btn btn-primary text-[12px] px-4 py-2.5 w-fit no-underline"
+                    className="btn btn-primary w-fit shrink-0 no-underline"
                   >
-                    <Icon name="mapPin" size={14} />
+                    <Icon name="mapPin" size={16} />
                     Get Directions
                   </a>
                 </div>
@@ -449,7 +453,7 @@ export default function Dining() {
               {favoriteError && (
                 <div
                   role="alert"
-                  className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
+                  className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"
                   data-dining-favorite-error
                 >
                   {favoriteError}
@@ -458,15 +462,15 @@ export default function Dining() {
 
               {/* Station grid, or the honest reason there is none */}
               {(selected.stations || []).length === 0 ? (
-                <div className="card p-10 flex flex-col items-center gap-3 text-center" data-dining-empty={empty.kind}>
-                  <div className="w-10 h-10 rounded-xl bg-[var(--color-stat)] flex items-center justify-center">
-                    <Icon name={empty.icon} size={18} className="text-[var(--color-txt-3)]" />
-                  </div>
-                  <p className="text-[14px] font-medium text-[var(--color-txt-0)]">{empty.title}</p>
-                  <p className="text-[13px] text-[var(--color-txt-2)] max-w-md">{empty.body}</p>
+                <div className="empty bg-[var(--color-surface)] p-5" data-dining-empty={empty.kind}>
+                  <span className="ico">
+                    <Icon name={empty.icon} size={18} />
+                  </span>
+                  <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{empty.title}</p>
+                  <p className="max-w-md -mt-1">{empty.body}</p>
                 </div>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
                   {(selected.stations || []).map((station, i) => (
                     <StationCard key={station.name} station={station} index={i} favorites={favorites} onToggleFavorite={toggleFavorite} />
                   ))}
@@ -476,19 +480,26 @@ export default function Dining() {
           )}
 
           {/* Weekly hours for every location, straight from the feed */}
-          <div className="card p-6 animate-fade-in-up stagger-3" data-dining-hours>
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-5">Weekly Hours of Operation</div>
+          <div className="card card-pad r-din" data-dining-hours>
+            <div className="card-head">
+              <span className="route-badge">
+                <Icon name="clock" size={18} />
+              </span>
+              <div className="card-title">Weekly Hours of Operation</div>
+            </div>
 
             {withHours.length > 0 ? (
-              <div className="space-y-6">
+              <div className="divide-y divide-[var(--color-border)]">
                 {withHours.map((loc) => (
-                  <div key={loc.id} data-dining-hours-for={loc.slug}>
-                    <div className="flex items-center gap-2.5 mb-3">
-                      <div className={`status-dot ${loc.is_open ? 'status-open' : 'status-closed'}`} />
-                      <span className="text-[14px] font-semibold text-[var(--color-txt-0)]">{loc.name}</span>
-                      <span className="text-[12px] text-[var(--color-txt-2)]">· {statusLine(loc)}</span>
+                  <div key={loc.id} className="py-4 first:pt-1 last:pb-0" data-dining-hours-for={loc.slug}>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mb-3">
+                      <span className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'}`} />
+                      <span className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{loc.name}</span>
+                      <span className="text-[12.5px] text-[var(--color-txt-2)]">· {statusLine(loc)}</span>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                    {/* A week strip: a 4px rule per day, amber for the campus
+                        day. Phones list the days as rows with the rule on the left. */}
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-4 sm:gap-x-2 sm:gap-y-3 lg:grid-cols-7">
                       {WEEKDAY_ORDER.map((day) => {
                         const hrs = loc.weekly_hours?.[day] || 'Not posted'
                         const isToday = day === weekday
@@ -497,23 +508,16 @@ export default function Dining() {
                           <div
                             key={day}
                             data-hours-today={isToday ? 'true' : undefined}
-                            className={`rounded-xl p-3 text-center transition-all ${
-                              isToday
-                                ? 'bg-gradient-to-br from-[var(--color-dining-bg)] to-[var(--color-dining-bg)]/50 border border-[var(--color-dining-color)]/15 ring-1 ring-[var(--color-dining-color)]/10'
-                                : 'bg-[var(--color-stat)]'
+                            className={`flex items-baseline justify-between gap-3 border-l-4 pl-3 py-1.5 sm:flex-col sm:items-start sm:justify-start sm:gap-1.5 sm:border-l-0 sm:border-t-4 sm:pl-0 sm:pt-2 sm:pb-0 ${
+                              isToday ? 'border-[var(--color-gold)]' : 'border-[var(--color-bg-3)]'
                             }`}
                           >
-                            <div
-                              className={`text-[11px] font-semibold uppercase tracking-wider mb-1.5 ${
-                                isToday ? 'text-[var(--color-dining-color)]' : 'text-[var(--color-txt-3)]'
-                              }`}
-                            >
+                            <div className={`eyebrow bare ${isToday ? 'text-[var(--color-txt-0)]' : ''}`}>
                               {SHORT_DAY[day]}
-                              {isToday && <span className="ml-1 inline-flex w-1.5 h-1.5 rounded-full bg-[var(--color-success)] align-middle" />}
                             </div>
                             <div
-                              className={`text-[12px] leading-snug ${
-                                isClosed ? 'text-[var(--color-txt-3)]' : isToday ? 'text-[var(--color-dining-color)] font-medium' : 'text-[var(--color-txt-1)]'
+                              className={`font-display text-[13px] leading-snug tnum ${
+                                isClosed ? 'font-semibold text-[var(--color-txt-3)]' : 'font-bold text-[var(--color-txt-0)]'
                               }`}
                             >
                               {isClosed ? 'Closed' : hrs}
@@ -526,9 +530,14 @@ export default function Dining() {
                 ))}
               </div>
             ) : (
-              <p className="text-[13px] text-[var(--color-txt-2)]" data-dining-no-hours>
-                Hours are not posted right now. They come from the same live feed as the menus, so they will reappear when it does.
-              </p>
+              <div className="empty row">
+                <span className="ico">
+                  <Icon name="clock" size={18} />
+                </span>
+                <p data-dining-no-hours>
+                  Hours are not posted right now. They come from the same live feed as the menus, so they will reappear when it does.
+                </p>
+              </div>
             )}
           </div>
         </>

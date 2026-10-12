@@ -16,91 +16,94 @@ import PageTitle from '../components/PageTitle'
 // Live garage availability for the six ST-permit garages (issue #14). Data is
 // IU Parking's public lot-count page, parsed and cached by /api/parking/garages.
 
-const TONE: Record<StatusTone, { pill: string; bar: string; dot: string }> = {
+// Status tones: semantic fills, not route colours. Amber only for "Filling up",
+// the one that is urgent.
+const TONE: Record<StatusTone, { badge: string; bar: string }> = {
   ok: {
-    pill: 'bg-[var(--color-success)]/15 text-[var(--color-success)]',
+    badge: 'bg-[var(--color-success)]/14 text-[var(--color-success)]',
     bar: 'bg-[var(--color-success)]',
-    dot: 'bg-[var(--color-success)]',
   },
   warn: {
-    pill: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-    bar: 'bg-amber-500',
-    dot: 'bg-amber-500',
+    badge: 'bg-[var(--color-gold)]/24 text-[var(--color-warning)]',
+    bar: 'bg-[var(--color-gold)]',
   },
   bad: {
-    pill: 'bg-[var(--color-error)]/15 text-[var(--color-error)]',
+    badge: 'bg-[var(--color-error)]/14 text-[var(--color-error)]',
     bar: 'bg-[var(--color-error)]',
-    dot: 'bg-[var(--color-error)]',
   },
   muted: {
-    pill: 'bg-[var(--color-txt-3)]/15 text-[var(--color-txt-2)]',
+    badge: 'bg-[var(--color-stat)] text-[var(--color-txt-2)]',
     bar: 'bg-[var(--color-txt-3)]',
-    dot: 'bg-[var(--color-txt-3)]',
   },
 }
 
-function GarageCard({ garage, now }: { garage: Garage; now: Date }) {
+// One garage as a departures row: who and where, the occupancy line, then
+// the status and the ways to get there. Phones: the status sits beside the
+// name, the occupancy line runs full width under them, the links close it.
+// From md: name | occupancy | status over links. The row leads with the name
+// and its code plate, solid in the Shuttles line: the code tells the garages
+// apart, so no repeated icon badge.
+const ROW_GRID =
+  "grid gap-x-4 gap-y-3 py-4 grid-cols-[minmax(0,1fr)_auto] [grid-template-areas:'id_st'_'occ_occ'_'lnk_lnk'] md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto] md:gap-x-8 md:gap-y-2 md:[grid-template-areas:'id_occ_st'_'id_occ_lnk']"
+
+function GarageRow({ garage, now }: { garage: Garage; now: Date }) {
   const tone = TONE[statusTone(garage.status)]
   const percent = garage.percentFull ?? 0
+  const permitLine = garage.stRule ? `ST permit: ${garage.stRule}` : garage.type || ''
   return (
-    <article className="card p-4 sm:p-5 flex flex-col gap-3" data-garage-id={garage.id} data-garage-status={garage.status}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-[16px] font-semibold text-[var(--color-txt-0)] leading-tight">
-            {garage.name}
-            {garage.code ? (
-              <span className="ml-2 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">
-                {garage.code}
-              </span>
-            ) : null}
-          </h2>
-          {garage.address ? (
-            <p className="text-[12px] text-[var(--color-txt-2)] mt-0.5 flex items-center gap-1">
-              <Icon name="mapPin" size={12} />
-              {garage.address}
-            </p>
-          ) : null}
-        </div>
-        <span className={`shrink-0 text-[11px] font-semibold px-2 py-1 rounded-full ${tone.pill}`}>{STATUS_LABEL[garage.status]}</span>
+    <article className={ROW_GRID} data-garage-id={garage.id} data-garage-status={garage.status}>
+      <div className="[grid-area:id] md:self-center min-w-0">
+        <h2 className="text-[16px] leading-tight text-[var(--color-txt-0)]">
+          {garage.name}
+          {garage.code ? <span className="code solid ml-2 align-[2px]">{garage.code}</span> : null}
+        </h2>
+        {garage.address ? (
+          <p className="text-[12.5px] text-[var(--color-txt-2)] mt-1 flex items-center gap-1">
+            <Icon name="mapPin" size={12} />
+            {garage.address}
+          </p>
+        ) : null}
+        {permitLine ? <p className="text-[12.5px] text-[var(--color-txt-2)] mt-0.5">{permitLine}</p> : null}
       </div>
 
-      <div>
+      <span className={`[grid-area:st] self-start md:self-end justify-self-end badge ${tone.badge}`}>{STATUS_LABEL[garage.status]}</span>
+
+      <div className="[grid-area:occ] md:self-center min-w-0">
         <div
-          className="h-2 rounded-full bg-[var(--color-bg-2)] overflow-hidden"
+          className="h-2 rounded-[2px] bg-[var(--color-bg-2)] dark:bg-[var(--color-bg-3)] overflow-hidden"
           role="progressbar"
           aria-label={`${garage.name} occupancy`}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={garage.percentFull ?? undefined}
         >
-          <div className={`h-full rounded-full transition-all ${tone.bar}`} style={{ width: `${garage.status === 'unknown' ? 0 : percent}%` }} />
+          <div className={`h-full ${tone.bar}`} style={{ width: `${garage.status === 'unknown' ? 0 : percent}%` }} />
         </div>
-        <div className="flex items-center justify-between gap-3 mt-2 text-[12px]">
-          <span className="font-medium text-[var(--color-txt-1)]">{availabilityLabel(garage)}</span>
-          <span className={garage.stale ? 'text-amber-600 dark:text-amber-400' : 'text-[var(--color-txt-3)]'}>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mt-2">
+          <span className="font-display font-bold text-[14px] text-[var(--color-txt-0)] tnum">{availabilityLabel(garage)}</span>
+          <span className={`text-[12px] tnum ${garage.stale ? 'text-[var(--color-warning)]' : 'text-[var(--color-txt-3)]'}`}>
             {garage.status === 'unknown' && !garage.updatedAt ? 'Sensors offline' : formatUpdated(garage.updatedAt, now)}
           </span>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
-        <span className="text-[var(--color-txt-2)]">
-          {garage.stRule ? `ST permit: ${garage.stRule}` : garage.type || ''}
-        </span>
-        <span className="flex items-center gap-3">
-          <Link to="/map?layer=parking" className="text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] inline-flex items-center gap-1">
-            <Icon name="mapPin" size={12} /> Map
-          </Link>
-          <a
-            href={directionsUrl(garage)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--color-gold-muted)] hover:underline inline-flex items-center gap-1"
-          >
-            Directions <Icon name="arrowUpRight" size={12} />
-          </a>
-        </span>
-      </div>
+      {/* Phones: each link is a 44px target; the row closes on them. */}
+      <span className="[grid-area:lnk] -my-2.5 md:my-0 md:self-start md:justify-self-end flex items-center gap-5 md:gap-3 font-display font-bold text-[13px] md:text-[12.5px]">
+        <Link
+          to="/map?layer=parking"
+          className="inline-flex items-center gap-1 min-h-11 md:min-h-0 text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]"
+        >
+          <Icon name="mapPin" size={12} /> Map
+        </Link>
+        <a
+          href={directionsUrl(garage)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 min-h-11 md:min-h-0 text-[var(--color-accent)] hover:underline underline-offset-2"
+        >
+          Directions <Icon name="arrowUpRight" size={12} />
+        </a>
+      </span>
     </article>
   )
 }
@@ -129,36 +132,37 @@ export default function Parking() {
   const knownCount = garages.filter((g) => g.status !== 'unknown').length
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="page">
       <PageTitle>Campus Parking</PageTitle>
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
+      <header className="page-head">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--color-txt-3)] mb-1">Purdue Indianapolis</p>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Parking</h1>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
+          <p className="eyebrow">Purdue Indianapolis</p>
+          <h1 className="page-title">Campus Parking</h1>
+          <p className="page-sub">
             Live availability in the six garages an ST student permit is valid in.
           </p>
         </div>
-        <div className="flex items-center gap-3 text-[12px] text-[var(--color-txt-2)]">
+        <div className="flex flex-wrap items-center gap-3">
           {snapshot ? (
-            <span>
+            <span className="inline-flex items-center gap-2 font-display font-bold text-[13px] text-[var(--color-txt-1)] tnum">
+              {knownCount > 0 ? <span className="live-dot" aria-hidden="true" /> : null}
               {knownCount > 0 ? `${openSpaces.toLocaleString()} spaces open across ${knownCount} garage${knownCount === 1 ? '' : 's'}` : 'No live counts right now'}
             </span>
           ) : null}
-          <button type="button" onClick={() => void parkingQuery.refetch()} className="btn btn-secondary text-[12px] px-3 py-1.5 inline-flex items-center gap-1.5">
-            <Icon name="refresh" size={12} /> Refresh
+          <button type="button" onClick={() => void parkingQuery.refetch()} className="btn btn-secondary btn-sm">
+            <Icon name="refresh" size={14} /> Refresh
           </button>
         </div>
-      </div>
+      </header>
 
       {requestError ? (
-        <div className="card p-4 mb-6 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30">
+        <div className="card p-4 mb-5 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30">
           {requestError}
         </div>
       ) : null}
 
       {snapshot && !snapshot.ok ? (
-        <div className="card p-4 mb-6 text-[13px] text-[var(--color-txt-1)] flex items-start gap-3" data-parking-degraded>
+        <div className="card p-4 mb-5 text-[13.5px] text-[var(--color-txt-1)] flex items-start gap-3" data-parking-degraded>
           <Icon name="info" size={16} className="shrink-0 mt-0.5 text-[var(--color-txt-2)]" />
           <p className="m-0">
             Live counts are unavailable right now, so this is the garage list without occupancy. IU Parking&apos;s feed usually
@@ -168,63 +172,66 @@ export default function Parking() {
       ) : null}
 
       {loading && !snapshot ? (
-        <div className="grid sm:grid-cols-2 gap-4 mb-8" aria-busy="true">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="card p-5 space-y-3">
-              <div className="h-4 w-40 rounded bg-[var(--color-stat)]" />
-              <div className="h-2 w-full rounded bg-[var(--color-stat)]" />
-              <div className="h-3 w-28 rounded bg-[var(--color-stat)]" />
+        <div className="card card-pad mb-8 divide-y divide-[var(--color-border)]" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-4 py-4 first:pt-0 last:pb-0">
+              <div className="skeleton w-8 h-8 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="skeleton h-4 w-40" />
+                <div className="skeleton h-3 w-28" />
+              </div>
+              <div className="skeleton h-2 w-1/3 hidden md:block" />
             </div>
           ))}
         </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 gap-4 mb-8">
+      ) : garages.length > 0 ? (
+        <section className="card px-4 sm:px-5 py-1 mb-8 r-bus divide-y divide-[var(--color-border)]">
           {garages.map((g) => (
-            <GarageCard key={g.id} garage={g} now={now} />
+            <GarageRow key={g.id} garage={g} now={now} />
           ))}
-        </div>
-      )}
+        </section>
+      ) : null}
 
       {permits ? (
         <section className="mb-8" aria-labelledby="parking-permits-heading">
-          <h2 id="parking-permits-heading" className="text-[11px] font-semibold uppercase tracking-widest text-[var(--color-txt-3)] mb-3">
+          <h2 id="parking-permits-heading" className="eyebrow mb-4">
             Student permits
           </h2>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-2 gap-4 items-start">
             {permits.permits.map((permit) => (
-              <div key={permit.code} className="card p-4 sm:p-5">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">{permit.code}</span>
-                  <h3 className="text-[15px] font-semibold text-[var(--color-txt-0)] m-0">{permit.name}</h3>
+              <div key={permit.code} className="card card-pad r-bus">
+                <div className="card-head mb-3">
+                  <span className="code solid text-[12px] px-2 py-[5px]">{permit.code}</span>
+                  <h3 className="card-title m-0">{permit.name}</h3>
                 </div>
-                <dl className="text-[13px] text-[var(--color-txt-1)] space-y-2 m-0">
-                  <div>
-                    <dt className="text-[11px] uppercase tracking-wider text-[var(--color-txt-3)]">Who</dt>
-                    <dd className="m-0">{permit.eligibility}</dd>
+                <dl className="m-0 divide-y divide-[var(--color-border)]">
+                  <div className="py-2.5 first:pt-0">
+                    <dt className="eyebrow bare flex mb-1.5">Who</dt>
+                    <dd className="m-0 text-[14px] text-[var(--color-txt-1)]">{permit.eligibility}</dd>
                   </div>
-                  <div>
-                    <dt className="text-[11px] uppercase tracking-wider text-[var(--color-txt-3)]">Where it is valid</dt>
-                    <dd className="m-0">{permit.valid}</dd>
+                  <div className="py-2.5">
+                    <dt className="eyebrow bare flex mb-1.5">Where it is valid</dt>
+                    <dd className="m-0 text-[14px] text-[var(--color-txt-1)]">{permit.valid}</dd>
                   </div>
-                  <div>
-                    <dt className="text-[11px] uppercase tracking-wider text-[var(--color-txt-3)]">Evenings and weekends</dt>
-                    <dd className="m-0">{permit.afterHours}</dd>
+                  <div className="py-2.5 last:pb-0">
+                    <dt className="eyebrow bare flex mb-1.5">Evenings and weekends</dt>
+                    <dd className="m-0 text-[14px] text-[var(--color-txt-1)]">{permit.afterHours}</dd>
                   </div>
                 </dl>
               </div>
             ))}
           </div>
-          <div className="card p-4 sm:p-5 mt-4">
-            <ul className="list-none m-0 p-0 grid sm:grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+          <div className="card card-pad mt-4">
+            <ul className="list-none -my-2.5 md:my-0 p-0 grid sm:grid-cols-2 gap-x-6 md:gap-y-2.5 font-display font-bold text-[13.5px]">
               {permits.links.map((link) => (
                 <li key={link.href}>
-                  <a href={link.href} target="_blank" rel="noopener noreferrer" className="text-[var(--color-gold-muted)] hover:underline inline-flex items-center gap-1">
+                  <a href={link.href} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline underline-offset-2 inline-flex items-center gap-1 min-h-11 md:min-h-0">
                     {link.label} <Icon name="arrowUpRight" size={12} />
                   </a>
                 </li>
               ))}
             </ul>
-            <ul className="list-disc pl-5 mt-3 mb-0 text-[12px] text-[var(--color-txt-2)] space-y-1">
+            <ul className="list-disc pl-5 mt-3.5 mb-0 text-[12.5px] text-[var(--color-txt-2)] space-y-1">
               {permits.notes.map((note) => (
                 <li key={note}>{note}</li>
               ))}
@@ -234,9 +241,9 @@ export default function Parking() {
       ) : null}
 
       {snapshot ? (
-        <p className="text-[11px] text-[var(--color-txt-3)]">
+        <p className="text-[12px] text-[var(--color-txt-3)]">
           Counts from{' '}
-          <a href={snapshot.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
+          <a href={snapshot.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-[var(--color-txt-1)]">
             IU Parking&apos;s live garage page
           </a>
           , refreshed about once a minute. Status is unofficial: a garage reads as full at 10 or fewer spaces left.
