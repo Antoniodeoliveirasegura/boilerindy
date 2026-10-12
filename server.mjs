@@ -698,7 +698,7 @@ app.get('/', (_req, res) => {
 // Groq campus assistant (Gemini -> xAI Grok -> Groq, 2026-09-14)
 // ============================================================
 const GROQ_API_KEY = process.env.GROQ_API_KEY
-// Model, 429 fallback model and (gpt-oss only) reasoning effort come from the
+// Model, 429/5xx fallback model and (gpt-oss only) reasoning effort come from the
 // env so a model swap needs no deploy; src/groqClient.mjs holds the defaults
 // and the wire format.
 const ai = createGroqClient({
@@ -830,14 +830,29 @@ function warnAssistantBusy(error) {
 // model (issue #253). Students still get a reply, so without this a primary
 // model at its daily cap would leave no trace; one warning-level Sentry issue
 // per Indianapolis day counts how often it happened, for the Dev tier decision.
-// Covers the assistant and the board AI, which share the client.
-function warnGroqFallback(error, { model, fallbackModel } = {}) {
+// A 5xx gets the same retry (issue #447) and its own daily issue, so a Groq
+// outage is not counted as us hitting the cap. Covers the assistant and the
+// board AI, which share the client.
+function warnGroqFallback(error, { model, fallbackModel, reason } = {}) {
+  const dayKey = todayYmdInZone(new Date(), TZ)
+  if (reason === 'upstream_error') {
+    const status = error?.status ?? null
+    console.warn(
+      `Groq ${status ?? '?'} on ${model}; retrying on ${fallbackModel}:`,
+      String(error?.body || '').slice(0, 200),
+    )
+    Sentry.captureMessage('ai: Groq primary model failed, used the fallback model', {
+      level: 'warning',
+      fingerprint: ['groq-fallback-5xx', dayKey],
+      extra: { model, fallbackModel, status },
+    })
+    return
+  }
   const retryAfter = error?.retryAfter ?? null
   const remainingTokens = error?.remainingTokens ?? null
   console.warn(
     `Groq rate limit on ${model} (retry-after ${retryAfter ?? '?'}s, remaining tokens ${remainingTokens ?? '?'}); retrying on ${fallbackModel}`,
   )
-  const dayKey = todayYmdInZone(new Date(), TZ)
   Sentry.captureMessage('ai: Groq primary model rate limited, used the fallback model', {
     level: 'warning',
     fingerprint: ['groq-fallback', dayKey],
