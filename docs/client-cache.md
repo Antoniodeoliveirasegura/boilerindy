@@ -66,8 +66,10 @@ flight, then the server call runs. A refusal (the user-write limiter's 429, a
 404 for an item a sync removed) restores the snapshot and the page shows why;
 no response or a 5xx keeps the tick and the page mirrors it to the device
 store, as before. The metadata is invalidated afterwards either way, so the
-cache ends on the server's truth. The layout boards, grades, degree, dining
-favorites and study groups keep their own local-first hooks.
+cache ends on the server's truth. The layout boards, grades, degree and study
+groups keep their own local-first hooks. Dining favorites have no hook and no
+device copy: the page reads and writes `/api/me/dining/favorites` directly,
+signed in only.
 
 Nothing under `['me', ...]` is ever persisted (`shouldDehydrateQuery` rejects
 it), and both sign-out paths in `AuthContext` (the button, and Supabase's

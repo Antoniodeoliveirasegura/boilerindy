@@ -1,8 +1,10 @@
 import { Suspense, useEffect } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { isPreviewPath } from '../lib/publicPreview'
 import { syncScheduleOverridesFromServer } from '../lib/scheduleOverrideStore'
 import Navbar from './Navbar'
+import PreviewBar from './PreviewBar'
 import CampusAssistant from './CampusAssistant'
 import SessionExpiryWatcher from './SessionExpiryWatcher'
 import SideSpotlightRail from './spotlight/SideSpotlightRail'
@@ -12,13 +14,21 @@ import SkipLink from './SkipLink'
 
 export default function AppLayout() {
   const { user, loading } = useAuth()
+  const { pathname } = useLocation()
   const userId = (user?.id as string | undefined) ?? null
   // The navbar, bottom tab bar, rails and assistant belong to the signed-in
   // app. Rendering them while auth loads flashed that app at signed-out
   // visitors before RequireAuth sent them to /login (issue #369). The outlet
   // still renders, so RequireAuth's "Loading…" shows. Routes stay guarded one
-  // by one so a public preview (#366) can render here for signed-out visitors.
+  // by one so the public preview (#366) can render here for signed-out visitors.
   const showChrome = !loading && Boolean(user)
+  // On a preview route (lib/publicPreview.ts) the page renders before auth
+  // settles, so the navbar's 64 px slot is held while it loads and then filled
+  // by the navbar (signed in) or the preview bar (signed out), never shifting
+  // the page. Every other route keeps no chrome at all signed out.
+  const preview = isPreviewPath(pathname)
+  const showPreviewBar = preview && !loading && !user
+  const holdNavbarSlot = preview && loading
 
   // Reconcile this device's schedule edits with the server once the user is
   // known. Every page reads them from localStorage synchronously, so this only
@@ -31,6 +41,8 @@ export default function AppLayout() {
   return (
     <div className="min-h-screen flex flex-col">
       <SkipLink />
+      {holdNavbarSlot && <div className="h-16" aria-hidden="true" data-testid="navbar-slot" />}
+      {showPreviewBar && <PreviewBar />}
       {showChrome && (
         <>
           <Navbar />

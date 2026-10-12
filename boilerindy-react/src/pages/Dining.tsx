@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
+import { useAuth } from '../context/AuthContext'
 import { track } from '../lib/usageStats'
 import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
@@ -25,6 +26,11 @@ import PageTitle from '../components/PageTitle'
 // nothing else. Every hour shown comes from the feed; when the feed is down
 // the page says so instead of inventing hours, and a retail food court is
 // presented as one rather than as a hall with a missing menu.
+//
+// Signed-out visitors can open it too (the public preview, issue #366). They
+// get the menus and hours; the stars, the favorites card and the AI pick need
+// an account, so they are hidden and never call the per-user API, where a 401
+// would send the visitor to /login.
 
 const UNAVAILABLE_MESSAGE = 'Live menus are temporarily unavailable.'
 
@@ -45,7 +51,8 @@ function StationCard({
   station: Station
   index: number
   favorites: Set<string>
-  onToggleFavorite: (name: string) => void
+  /** Absent signed out: the stars need an account. */
+  onToggleFavorite?: (name: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const overflow = station.items.length > STATION_CAP
@@ -73,20 +80,22 @@ function StationCard({
                   {item.calories != null && (
                     <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap">{item.calories} cal</span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => onToggleFavorite(item.name)}
-                    aria-pressed={isFav}
-                    aria-label={isFav ? `Remove ${item.name} from favorites` : `Add ${item.name} to favorites`}
-                    title={isFav ? 'Remove favorite' : 'Add to favorites'}
-                    className="leading-none transition-transform hover:scale-110"
-                  >
-                    <Icon
-                      name="star"
-                      size={14}
-                      className={isFav ? 'text-[var(--color-gold)] fill-current' : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
-                    />
-                  </button>
+                  {onToggleFavorite && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleFavorite(item.name)}
+                      aria-pressed={isFav}
+                      aria-label={isFav ? `Remove ${item.name} from favorites` : `Add ${item.name} to favorites`}
+                      title={isFav ? 'Remove favorite' : 'Add to favorites'}
+                      className="leading-none transition-transform hover:scale-110"
+                    >
+                      <Icon
+                        name="star"
+                        size={14}
+                        className={isFav ? 'text-[var(--color-gold)] fill-current' : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
+                      />
+                    </button>
+                  )}
                 </div>
               </div>
               {item.icons && item.icons.length > 0 && (
@@ -116,9 +125,19 @@ function StationCard({
 }
 
 export default function Dining() {
+  // Gate every per-user call on a settled session, not on `user` alone: while
+  // a signed-in student's cookie is re-minted on a cold load, a favorites read
+  // would 401 and authRequest would bounce them to /login.
+  const { user, loading: authLoading } = useAuth()
+  const userId = authLoading ? null : ((user?.id as string | undefined) ?? null)
+  const signedIn = userId !== null
+
+  // Once auth settles, so a signed-in cold load records the view after
+  // UsageListener has switched tracking on (signed out it records nothing).
   useEffect(() => {
+    if (authLoading) return
     track('dining_viewed')
-  }, [])
+  }, [authLoading])
 
   // The snapshot comes through the shared query cache (issue #251): a return
   // visit paints the last menus at once, and Home's dining widget reads the
@@ -144,14 +163,25 @@ export default function Dining() {
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
 
-  // Favorites (issue #49): a Set of normalized item names. Loaded once for the
+  // Favorites (issue #49): a Set of normalized item names. Loaded once per
   // signed-in user; failures leave it empty so the page still works.
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
   // Why the last star toggle did not save. Favorites have no device-only copy,
   // so every failure rolls the star back and says so (issue #202).
   const [favoriteError, setFavoriteError] = useState('')
 
+  // A sign-out (in another tab, say) no longer unmounts the page, so drop the
+  // last user's favorites when the user changes. Adjusted during render rather
+  // than in an effect, like the location default below.
+  const [favoritesUserId, setFavoritesUserId] = useState(userId)
+  if (favoritesUserId !== userId) {
+    setFavoritesUserId(userId)
+    setFavorites(new Set())
+    setFavoriteError('')
+  }
+
   useEffect(() => {
+    if (!userId) return
     let active = true
     authRequest('/api/me/dining/favorites')
       .then((data) => {
@@ -166,10 +196,13 @@ export default function Dining() {
     return () => {
       active = false
     }
-  }, [])
+  }, [userId])
 
   const toggleFavorite = useCallback(
     (rawName: string) => {
+      // Signed out the stars are hidden; refuse anyway, since the server
+      // spends the write budget before it answers 401.
+      if (!userId) return
       const key = normalizeItemName(rawName)
       if (!key) return
       const adding = !favorites.has(key)
@@ -201,10 +234,11 @@ export default function Dining() {
         )
       })
     },
-    [favorites],
+    [favorites, userId],
   )
 
   const askWhatToEat = () => {
+    if (!signedIn) return
     setAiLoading(true)
     fetch('/api/assistant', {
       method: 'POST',
@@ -282,16 +316,19 @@ export default function Dining() {
               {headerBlurb(selected, weekday)}
             </div>
           )}
-          <button
-            type="button"
-            onClick={askWhatToEat}
-            disabled={aiLoading || loading}
-            title="AI meal recommendation"
-            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-sm hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40 whitespace-nowrap"
-          >
-            <Icon name="sparkles" size={13} />
-            {aiLoading ? 'Thinking…' : 'What should I eat?'}
-          </button>
+          {/* The AI pick posts /api/assistant, which needs a session. */}
+          {signedIn && (
+            <button
+              type="button"
+              onClick={askWhatToEat}
+              disabled={aiLoading || loading}
+              title="AI meal recommendation"
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-sm hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40 whitespace-nowrap"
+            >
+              <Icon name="sparkles" size={13} />
+              {aiLoading ? 'Thinking…' : 'What should I eat?'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void refreshMenu()}
@@ -325,7 +362,7 @@ export default function Dining() {
       )}
 
       {/* Your favorites on today's menu (issue #49) */}
-      {favoritesToday.length > 0 && (
+      {signedIn && favoritesToday.length > 0 && (
         <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up" data-dining-favorites>
           <div className="flex items-center gap-2 mb-2.5">
             <Icon name="star" size={14} className="text-[var(--color-gold)] fill-current" />
@@ -343,7 +380,7 @@ export default function Dining() {
       )}
 
       {/* AI Suggestion */}
-      {aiSuggestion && (
+      {signedIn && aiSuggestion && (
         <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up">
           <div className="flex items-start gap-2.5">
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0 mt-0.5">
@@ -446,7 +483,7 @@ export default function Dining() {
                 </div>
               </div>
 
-              {favoriteError && (
+              {signedIn && favoriteError && (
                 <div
                   role="alert"
                   className="mb-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-stat)] px-4 py-3 text-[13px] text-[var(--color-txt-2)]"
@@ -468,7 +505,13 @@ export default function Dining() {
               ) : (
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {(selected.stations || []).map((station, i) => (
-                    <StationCard key={station.name} station={station} index={i} favorites={favorites} onToggleFavorite={toggleFavorite} />
+                    <StationCard
+                      key={station.name}
+                      station={station}
+                      index={i}
+                      favorites={favorites}
+                      onToggleFavorite={signedIn ? toggleFavorite : undefined}
+                    />
                   ))}
                 </div>
               )}

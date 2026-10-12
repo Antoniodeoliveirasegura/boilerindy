@@ -675,6 +675,17 @@ export const test = base.extend({
         return json(route, 200, { ok: true })
       }
 
+      // Without a session the per-user reads and writes, the assistant and the
+      // sponsor rails answer 401, as requireAuth does on the server (issue
+      // #366). Answering them 200 hid a signed-out page calling one, which in
+      // the real app sends the visitor to /login.
+      if (
+        !state.loggedIn &&
+        (pathname.startsWith('/api/me/') || pathname.startsWith('/api/assistant') || pathname.startsWith('/api/spotlight/'))
+      ) {
+        return json(route, 401, { error: { message: 'You must sign in to access this resource.', status: 401 } })
+      }
+
       if (pathname === '/api/me/classes') {
         return json(route, 200, { items: state.classes, meta: state.classesMeta })
       }

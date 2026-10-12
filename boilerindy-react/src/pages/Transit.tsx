@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
+import { useAuth } from '../context/AuthContext'
 import { track } from '../lib/usageStats'
 import {
   routes,
@@ -509,9 +510,19 @@ function loadMyStopForRoute(routeId: number | null | undefined): string | null {
 }
 
 export default function Transit() {
+  // Signed-out visitors can open this page (the public preview, issue #366).
+  // The "my stop" bell is for signed-in students only: its saved stop is kept
+  // per device, not per user, so signed out it is never read or written and
+  // no chime plays.
+  const { user, loading: authLoading } = useAuth()
+  const signedIn = !authLoading && Boolean(user)
+
+  // Once auth settles, so a signed-in cold load records the view after
+  // UsageListener has switched tracking on (signed out it records nothing).
   useEffect(() => {
+    if (authLoading) return
     track('transit_viewed')
-  }, [])
+  }, [authLoading])
 
   // Vehicles, stops and the route map come through the shared query cache
   // (issue #251): the dashboard's transit card reads the same entries, the
@@ -537,6 +548,9 @@ export default function Transit() {
   const [lastBusPos, setLastBusPos] = useState<string | null>(null)
   /** One “my stop” per route - chime fires when bus reaches the stop before this one */
   const [myStopId, setMyStopId] = useState<string | null>(null)
+  // The route whose saved stop is loaded: none signed out.
+  const myStopRouteId = signedIn ? (selectedRoute?.id ?? null) : null
+  const [loadedMyStopRouteId, setLoadedMyStopRouteId] = useState(myStopRouteId)
   const chimePlayedRef = useRef(false)
   const routeIdToCanonical = useMemo<Record<number, number>>(
     () => (Array.isArray(routesQuery.data) ? buildTranslocRouteIdMap(routesQuery.data) : { ...TRANLOC_ROUTE_ALIASES }),
@@ -552,7 +566,12 @@ export default function Transit() {
     setTrackedRouteId(currentRouteId)
     setVisitedStopIds(new Set())
     setLastBusPos(null)
-    setMyStopId(loadMyStopForRoute(currentRouteId))
+  }
+  // Load the saved stop when the route changes or the visitor signs in or out,
+  // the same way.
+  if (loadedMyStopRouteId !== myStopRouteId) {
+    setLoadedMyStopRouteId(myStopRouteId)
+    setMyStopId(loadMyStopForRoute(myStopRouteId))
   }
 
   const canonicalRouteId = useCallback<CanonicalFn>(
@@ -604,6 +623,7 @@ export default function Transit() {
 
   const toggleMyStop = useCallback(
     (stopId: string) => {
+      if (!signedIn) return
       chimePlayedRef.current = false
       setMyStopId((prev) => {
         const next = prev === stopId ? null : stopId
@@ -618,7 +638,7 @@ export default function Transit() {
         return next
       })
     },
-    [selectedRoute],
+    [selectedRoute, signedIn],
   )
 
   const stopBeforeMyStop = useMemo(() => {
@@ -827,8 +847,14 @@ export default function Transit() {
               Stops on this route
             </div>
             <p className="text-[11px] text-[var(--color-txt-3)]">
-              Green pulse = at stop · Filled = reached · Bell = your stop - chimes when the bus reaches the{' '}
-              <span className="font-medium text-[var(--color-txt-2)]">stop before</span> yours
+              Green pulse = at stop · Filled = reached
+              {signedIn && (
+                <>
+                  {' '}
+                  · Bell = your stop - chimes when the bus reaches the{' '}
+                  <span className="font-medium text-[var(--color-txt-2)]">stop before</span> yours
+                </>
+              )}
             </p>
           </div>
 
@@ -880,25 +906,27 @@ export default function Transit() {
                       Here
                     </span>
                   )}
-                  <button
-                    type="button"
-                    disabled={!canPickMyStop}
-                    onClick={() => canPickMyStop && toggleMyStop(s.id)}
-                    title={
-                      !canPickMyStop
-                        ? 'First stop has no “before” stop - pick another'
-                        : isMyStop
-                          ? 'Tap to clear my stop'
-                          : 'Set as my stop (chime at the stop before)'
-                    }
-                    className={`shrink-0 p-2.5 sm:p-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                      isMyStop
-                        ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                        : 'border-[var(--color-border)] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] active:bg-[var(--color-bg-2)]'
-                    }`}
-                  >
-                    <Icon name="bell" size={18} />
-                  </button>
+                  {signedIn && (
+                    <button
+                      type="button"
+                      disabled={!canPickMyStop}
+                      onClick={() => canPickMyStop && toggleMyStop(s.id)}
+                      title={
+                        !canPickMyStop
+                          ? 'First stop has no “before” stop - pick another'
+                          : isMyStop
+                            ? 'Tap to clear my stop'
+                            : 'Set as my stop (chime at the stop before)'
+                      }
+                      className={`shrink-0 p-2.5 sm:p-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isMyStop
+                          ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+                          : 'border-[var(--color-border)] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] active:bg-[var(--color-bg-2)]'
+                      }`}
+                    >
+                      <Icon name="bell" size={18} />
+                    </button>
+                  )}
                 </div>
               )
             })}

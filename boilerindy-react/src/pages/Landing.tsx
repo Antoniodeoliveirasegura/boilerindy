@@ -97,7 +97,7 @@ const dayTimeline = [
 const integrations = [
   ['schedule', 'Brightspace LMS'],
   ['dining', 'Campus Dining'],
-  ['bus', 'IndyGo Transit'],
+  ['bus', 'JAGLINE Shuttle'],
   ['calendar', 'Events Feed'],
   ['mapPin', 'Campus Map'],
   ['sparkles', 'Groq AI'],
@@ -378,6 +378,11 @@ export default function Landing() {
               <Link to="/login" className="inline-flex items-center gap-2 text-[14px] font-bold bg-[var(--color-gold-dark)] text-[var(--color-gold)] px-7 py-3.5 rounded-xl no-underline hover:-translate-y-0.5 transition-transform">
                 <Icon name="home" size={16} />
                 Get started free
+              </Link>
+              {/* The live pages a signed-out visitor can open (issue #366). */}
+              <Link to="/dining" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] border border-[var(--color-gold-dark)]/30 px-7 py-3.5 rounded-xl no-underline hover:bg-[var(--color-gold-dark)]/10 hover:-translate-y-0.5 transition-all">
+                <Icon name="dining" size={16} />
+                See live dining and buses
               </Link>
             </div>
           </div>
