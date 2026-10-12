@@ -83,6 +83,12 @@ Reply format (strict, overrides anything above):
 const ASSISTANT_BUSY_MESSAGE =
   'The assistant is busy right now. Give it a minute and ask again, or check the Schedule, Dining and Transit tabs directly.'
 
+// The 502 body when Groq fails some other way, usually a 5xx that survived the
+// client's one retry on the fallback model (issue #447). CampusAssistant.tsx
+// renders `error` in the bubble, where "AI service error" read as our bug.
+const ASSISTANT_UNAVAILABLE_MESSAGE =
+  'The assistant is having trouble right now. Try again in a minute, or check the Schedule, Dining and Transit tabs directly.'
+
 // ── Context formatters ────────────────────────────────────────────────────────
 
 function fmtTime(isoStr, opts = {}) {
@@ -483,7 +489,7 @@ export function createAssistantRouter({
       }
       if (err instanceof GroqUpstreamError) {
         console.error('Groq error:', err.body)
-        return res.status(502).json({ error: 'AI service error' })
+        return res.status(502).json({ error: ASSISTANT_UNAVAILABLE_MESSAGE })
       }
       console.error('Assistant error:', err)
       res.status(500).json({ error: 'Assistant request failed' })

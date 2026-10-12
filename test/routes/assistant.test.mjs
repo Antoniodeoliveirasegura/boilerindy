@@ -24,6 +24,7 @@ const clock = (iso) => new Date(iso).toLocaleTimeString('en-US', { timeZone: TZ,
 const EM_DASH = String.fromCharCode(0x2014)
 const MIDDLE_DOT = String.fromCharCode(0xb7)
 const BUSY_MESSAGE = 'The assistant is busy right now. Give it a minute and ask again, or check the Schedule, Dining and Transit tabs directly.'
+const UNAVAILABLE_MESSAGE = 'The assistant is having trouble right now. Try again in a minute, or check the Schedule, Dining and Transit tabs directly.'
 const EVERY_DAY = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 function calendarRow(overrides = {}) {
@@ -317,7 +318,7 @@ test('without a Groq key the chat answers from the offline router, never the mod
   }
 })
 
-test('Groq failures: a 429 on both models answers the busy line and warns, another upstream error 502, anything else 500', async (t) => {
+test('Groq failures: a 429 on both models answers the busy line and warns, another upstream error 502 with the trouble line, anything else 500', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const log = t.mock.method(console, 'error', () => {})
   const rateLimited = new GroqUpstreamError(429, 'tokens per day exceeded', { retryAfter: 30 })
@@ -333,8 +334,9 @@ test('Groq failures: a 429 on both models answers the busy line and warns, anoth
     assert.deepEqual(busyWarnings, [rateLimited])
 
     const upstream = await call('POST', '/api/assistant', ask('hi'))
+    // The bubble shows `error`, so it reads as a passing hiccup, not our bug (issue #447).
     assert.equal(upstream.status, 502)
-    assert.deepEqual(upstream.body, { error: 'AI service error' })
+    assert.deepEqual(upstream.body, { error: UNAVAILABLE_MESSAGE })
 
     const other = await call('POST', '/api/assistant', ask('hi'))
     assert.equal(other.status, 500)
