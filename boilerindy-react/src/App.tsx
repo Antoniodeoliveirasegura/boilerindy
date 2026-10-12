@@ -220,22 +220,11 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              <Route
-                path="/dining"
-                element={
-                  <RequireAuth>
-                    <Dining />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/transit"
-                element={
-                  <RequireAuth>
-                    <Transit />
-                  </RequireAuth>
-                }
-              />
+              {/* The public preview (issue #366): signed-out visitors may open these
+                  two, which read only public data, and get AppLayout's preview bar.
+                  The list lives in lib/publicPreview.ts. */}
+              <Route path="/dining" element={<Dining />} />
+              <Route path="/transit" element={<Transit />} />
               <Route
                 path="/parking"
                 element={

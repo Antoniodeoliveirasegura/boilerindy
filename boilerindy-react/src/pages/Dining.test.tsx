@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Dining from './Dining'
@@ -11,6 +11,13 @@ import { authRequest } from '../lib/authApi'
 
 vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
+
+// The page reads the session from useAuth (issue #366), which throws outside
+// AuthProvider; each test sets the state it needs, signed in by default.
+type AuthState = { loading: boolean; user: null | { id: string } }
+const SIGNED_IN: AuthState = { loading: false, user: { id: 'user-1' } }
+const auth = vi.hoisted(() => ({ value: { loading: false, user: { id: 'user-1' } } as AuthState }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => auth.value }))
 
 const CAPPED = 'You can save up to 300 favorites. Remove some to add more.'
 const LIMITED = 'You are making changes too quickly. Please wait a moment and try again.'
@@ -45,14 +52,17 @@ function httpError(status: number, message: string) {
 }
 
 let nextWrite: unknown = null
+let savedFavorites: string[] = []
 
 beforeEach(() => {
   nextWrite = null
+  savedFavorites = []
+  auth.value = SIGNED_IN
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(snapshot)))
   vi.mocked(authRequest)
     .mockReset()
     .mockImplementation(async (_path, options) => {
-      if (!options?.method) return { favorites: [] }
+      if (!options?.method) return { favorites: savedFavorites }
       if (nextWrite) {
         const error = nextWrite
         nextWrite = null
@@ -70,11 +80,21 @@ afterEach(() => {
 // gets its own client so nothing leaks between cases.
 function renderDining() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <Dining />
     </QueryClientProvider>,
   )
+  return {
+    ...view,
+    /** Re-render after changing auth.value, as a session change would. */
+    rerenderDining: () =>
+      view.rerender(
+        <QueryClientProvider client={client}>
+          <Dining />
+        </QueryClientProvider>,
+      ),
+  }
 }
 
 async function star() {
@@ -112,4 +132,60 @@ it('titles the tab after the page', async () => {
   renderDining()
   await star()
   expect(document.title).toBe('Campus Dining - BoilerIndy')
+})
+
+// Issue #366: signed-out visitors can open the page. They get the menus and
+// none of the per-user pieces, and the page never calls the per-user API,
+// whose 401 would send them to /login with a false "session expired".
+describe('signed out (the public preview)', () => {
+  beforeEach(() => {
+    auth.value = { loading: false, user: null }
+  })
+
+  it('shows the menu with no stars, favorites or AI pick, and no per-user request', async () => {
+    renderDining()
+    expect(await screen.findByText('Veggie Burger')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh menus' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /favorites/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /What should I eat/ })).toBeNull()
+    expect(document.querySelector('[data-dining-favorites]')).toBeNull()
+    expect(authRequest).not.toHaveBeenCalled()
+  })
+
+  it('signing out drops the favorites the page had loaded', async () => {
+    auth.value = SIGNED_IN
+    savedFavorites = ['veggie burger']
+    const { rerenderDining } = renderDining()
+    expect(await screen.findByRole('button', { name: 'Remove Veggie Burger from favorites' })).toHaveAttribute('aria-pressed', 'true')
+    expect(document.querySelector('[data-dining-favorites]')).not.toBeNull()
+
+    auth.value = { loading: false, user: null }
+    rerenderDining()
+    expect(screen.queryByRole('button', { name: /favorites/ })).toBeNull()
+    expect(document.querySelector('[data-dining-favorites]')).toBeNull()
+    expect(screen.getByText('Veggie Burger')).toBeInTheDocument()
+  })
+})
+
+describe('signed in', () => {
+  it('shows the stars and the AI pick', async () => {
+    renderDining()
+    expect(await star()).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /What should I eat/ })).toBeInTheDocument()
+    expect(authRequest).toHaveBeenCalledWith('/api/me/dining/favorites')
+  })
+
+  it('reads favorites only once auth has settled', async () => {
+    auth.value = { loading: true, user: { id: 'user-1' } }
+    const { rerenderDining } = renderDining()
+    expect(await screen.findByText('Veggie Burger')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /favorites/ })).toBeNull()
+    expect(authRequest).not.toHaveBeenCalled()
+
+    auth.value = SIGNED_IN
+    rerenderDining()
+    expect(await star()).toBeInTheDocument()
+    expect(authRequest).toHaveBeenCalledTimes(1)
+    expect(authRequest).toHaveBeenCalledWith('/api/me/dining/favorites')
+  })
 })

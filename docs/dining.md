@@ -107,6 +107,12 @@ address). When the feed is down the page says so and the hours card reads
 times are gone, as are the unused sample-venue branch and the dead directions
 button.
 
+Signed-out visitors can open the page too (the public preview, issue #366):
+they get the menus, hours and refresh, under the preview bar. The favorite
+stars, the "Your favorites on today's menu" card and the "What should I eat?"
+button need a session and are hidden; the favorites read waits until auth has
+settled with a user, so it never answers 401 and bounces anyone to `/login`.
+
 ## Configuration
 
 ```bash
@@ -128,3 +134,5 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   directions URL, campus weekday, header pill.
 - `e2e/dining.spec.js`: the page against the mocked snapshot, including the
   feed-down and stale states and favorites surviving a reload.
+- `e2e/public-preview.spec.js` and `boilerindy-react/src/pages/Dining.test.tsx`:
+  the signed-out page, with no per-user request.
