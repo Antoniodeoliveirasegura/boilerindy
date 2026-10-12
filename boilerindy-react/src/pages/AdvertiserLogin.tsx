@@ -26,6 +26,14 @@ const ADVERTISER_PERKS = [
   { icon: 'star', title: 'Transparent analytics', desc: 'Impressions, taps, and reach - measured, not estimated.' },
 ]
 
+// StatusBanner's info and error plates. Every notice here is role="status"
+// (the errors too), so they are written out rather than going through
+// StatusBanner, which would turn an error into an alert. Confirmations are
+// neutral; only errors take a colour.
+const NOTE_BASE = 'flex items-start gap-2.5 rounded-[var(--radius-lg)] border border-l-4 px-3.5 py-2.5 text-[13.5px] font-medium'
+const NOTE_INFO = `${NOTE_BASE} border-[var(--color-border-2)] border-l-[var(--color-txt-2)] bg-[var(--color-stat)] text-[var(--color-txt-1)]`
+const NOTE_ERROR = `${NOTE_BASE} border-[var(--color-error)]/30 border-l-[var(--color-error)] bg-[var(--color-error)]/10 text-[var(--color-error)]`
+
 export default function AdvertiserLogin() {
   const { dark, toggleTheme } = useTheme()
   const navigate = useNavigate()
@@ -124,66 +132,74 @@ export default function AdvertiserLogin() {
     }
   }
 
+  const labelClass = 'block text-[13px] font-semibold text-[var(--color-txt-1)]'
+  const textLink = 'font-semibold text-[var(--color-accent)] hover:underline underline-offset-2'
+
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.05fr_0.95fr] bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+    <div className="min-h-screen grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] bg-[var(--color-bg-1)] text-[var(--color-txt-0)]">
       <PageTitle>Advertise</PageTitle>
       <SkipLink />
-      {/* ── Brand / value panel ─────────────────────────────────────────── */}
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-[var(--color-ink)]">
-        <div className="hero-bg" aria-hidden="true">
-          <div className="hero-bg__aurora hero-bg__aurora--gold" />
-          <div className="hero-bg__aurora hero-bg__aurora--gold2" />
-        </div>
+      {/* ── Brand / value panel: a neutral ink panel ──
+          The ink fills the whole column; the content inside sticks at one
+          viewport tall, so a long form scrolls past it instead of opening
+          dead bands between the brand, the copy and the stats. */}
+      <aside className="ink-panel rounded-none border-0 relative hidden lg:block">
+        <div className="sticky top-0 flex h-screen min-h-fit flex-col justify-between gap-12 px-12 pt-8 pb-10 xl:px-16">
+          <Link to="/" className="topbar-brand w-fit">
+            <BrandMark surface="ink" size={32} />
+            BoilerIndy
+          </Link>
 
-        <Link to="/" className="relative inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-gold-light)] no-underline w-fit">
-          <BrandMark surface="ink" />
-          BoilerIndy
-        </Link>
+          <div className="max-w-[500px]">
+            {/* The sign chip from Landing, on the lifted tile so it stands off the ink. */}
+            <div className="ink-panel inline-flex items-center overflow-hidden rounded-[4px] bg-[var(--color-ink-lift-2)] font-display text-[13px] font-extrabold tracking-[0.02em]">
+              <span className="route-badge size-[34px] rounded-none">
+                <Icon name="briefcase" size={18} />
+              </span>
+              <span className="pl-3 pr-3.5">Advertiser Portal</span>
+            </div>
+            <h1 className="page-title mt-7 text-[var(--color-ink-txt)]">
+              Put your brand where students actually look.
+            </h1>
+            <p className="mt-5 max-w-[460px] text-[16px] leading-relaxed text-[var(--color-ink-dim)]">
+              BoilerIndy is the daily home screen for Purdue Indianapolis student life. Reach them in context - without the noise of social feeds.
+            </p>
 
-        <div className="relative max-w-[440px]">
-          <div className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
-            <Icon name="briefcase" size={13} />
-            Advertiser Portal
+            <ul className="mt-10 space-y-5">
+              {ADVERTISER_PERKS.map((perk) => (
+                <li key={perk.title} className="flex items-start gap-4">
+                  <span className="route-badge">
+                    <Icon name={perk.icon} size={18} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-display text-[14.5px] font-bold leading-snug text-[var(--color-ink-txt)]">{perk.title}</div>
+                    <p className="mt-0.5 text-[13px] leading-relaxed text-[var(--color-ink-dim)]">{perk.desc}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
-          <h1 className="text-[clamp(2rem,3.4vw,2.9rem)] font-bold tracking-[-0.02em] leading-tight text-[var(--color-gold-light)] mb-4">
-            Put your brand where students actually look.
-          </h1>
-          <p className="text-[15px] text-[var(--color-gold-light)]/70 leading-relaxed mb-8">
-            BoilerIndy is the daily home screen for Purdue Indianapolis student life. Reach them in context - without the noise of social feeds.
-          </p>
 
-          <ul className="list-none m-0 p-0 space-y-4">
-            {ADVERTISER_PERKS.map((perk) => (
-              <li key={perk.title} className="flex gap-3.5">
-                <div className="w-9 h-9 shrink-0 rounded-lg bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/25 text-[var(--color-gold-light)] flex items-center justify-center">
-                  <Icon name={perk.icon} size={16} />
-                </div>
-                <div>
-                  <div className="text-[13px] font-semibold text-[var(--color-gold-light)]">{perk.title}</div>
-                  <p className="text-[12px] text-[var(--color-gold-light)]/55 mt-0.5 leading-relaxed">{perk.desc}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="relative flex items-center gap-6 text-[var(--color-gold-light)]/70">
-          <div>
-            <div className="text-[20px] font-bold text-[var(--color-gold-light)] leading-none">Campus-wide</div>
-            <div className="text-[11px] mt-1">Purdue Indianapolis</div>
-          </div>
-          <div className="w-px h-8 bg-[var(--color-gold)]/20" />
-          <div>
-            <div className="text-[20px] font-bold text-[var(--color-gold-light)] leading-none">Daily</div>
-            <div className="text-[11px] mt-1">Active student use</div>
+          <div className="grid max-w-[400px] grid-cols-[auto_minmax(0,1fr)] border-t-4 border-[var(--color-ink-txt)]">
+            <div className="pt-4 pr-6">
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Campus-wide</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Purdue Indianapolis</div>
+            </div>
+            <div className="border-l border-[var(--color-ink-edge)] pt-4 pl-6">
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Daily</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Active student use</div>
+            </div>
           </div>
         </div>
       </aside>
 
       {/* ── Sign-in panel ───────────────────────────────────────────────── */}
-      <main id="main" tabIndex={-1} className="relative flex flex-col px-6 sm:px-10 py-8 focus:outline-none">
+      <main id="main" tabIndex={-1} className="relative flex min-w-0 flex-col px-4 pt-3 sm:px-10 sm:pt-5 lg:pt-[26px] focus:outline-none">
         <div className="flex items-center justify-between">
-          <Link to="/" className="inline-flex items-center gap-1.5 text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] no-underline">
+          <Link
+            to="/"
+            className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+          >
             <Icon name="arrowUpRight" size={14} className="rotate-[225deg]" />
             Back to site
           </Link>
@@ -191,36 +207,31 @@ export default function AdvertiserLogin() {
             type="button"
             onClick={toggleTheme}
             aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-colors"
+            className="icon-btn -mr-2.5"
           >
-            <Icon name={dark ? 'sun' : 'moon'} size={16} />
+            <Icon name={dark ? 'sun' : 'moon'} size={18} />
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col justify-center max-w-[400px] w-full mx-auto py-10">
+        <div className="mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center py-8 sm:py-12 lg:py-8">
           {/* Mobile-only brand (the value panel is hidden under lg). */}
-          <div className="lg:hidden inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
-            <Icon name="briefcase" size={13} />
-            Advertiser Portal
+          <div className="mb-4 flex items-center gap-3 lg:hidden">
+            <BrandMark size={30} />
+            <span aria-hidden="true" className="h-5 w-px bg-[var(--color-border-3)]" />
+            <span className="eyebrow bare">Advertiser Portal</span>
           </div>
 
           {notice && (
-            <div
-              role="status"
-              className={`rounded-xl border p-3.5 mb-5 text-[13px] leading-relaxed ${
-                notice.type === 'error'
-                  ? 'border-[var(--color-error)]/30 bg-[var(--color-error)]/8 text-[var(--color-error)]'
-                  : 'border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 text-[var(--color-txt-1)]'
-              }`}
-            >
-              {notice.text}
+            <div role="status" className={`mb-5 ${notice.type === 'error' ? NOTE_ERROR : NOTE_INFO}`}>
+              <Icon name={notice.type === 'error' ? 'close' : 'info'} size={16} className="mt-0.5 shrink-0" />
+              <span className="min-w-0">{notice.text}</span>
             </div>
           )}
 
-          <h2 className="text-[1.6rem] font-bold tracking-tight mb-1.5">
+          <h2 className="page-title compact">
             {showForgot ? 'Reset your password' : 'Advertiser sign in'}
           </h2>
-          <p className="text-[13px] text-[var(--color-txt-2)] mb-7">
+          <p className="page-sub mb-6">
             {showForgot
               ? 'Enter your business email and we’ll send you a reset link.'
               : 'Manage your campaigns and placements on BoilerIndy.'}
@@ -228,16 +239,14 @@ export default function AdvertiserLogin() {
 
           {showForgot ? (
             forgotDone ? (
-              <div
-                role="status"
-                className="rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 p-3.5 text-[13px] leading-relaxed text-[var(--color-txt-1)]"
-              >
-                If an advertiser account exists for that email, we’ve sent a reset link. Check your inbox - it expires in 1 hour.
+              <div role="status" className={NOTE_INFO}>
+                <Icon name="mail" size={16} className="mt-0.5 shrink-0" />
+                <span className="min-w-0">If an advertiser account exists for that email, we’ve sent a reset link. Check your inbox - it expires in 1 hour.</span>
               </div>
             ) : (
               <form onSubmit={handleForgot} className="space-y-4">
                 <div>
-                  <label htmlFor="adv-forgot-email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">
+                  <label htmlFor="adv-forgot-email" className={`${labelClass} mb-1.5`}>
                     Business email
                   </label>
                   <input
@@ -247,13 +256,13 @@ export default function AdvertiserLogin() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.com"
-                    className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                    className="input"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={forgotSubmitting}
-                  className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="btn btn-primary min-h-11 w-full disabled:opacity-60"
                 >
                   <Icon name="send" size={15} />
                   {forgotSubmitting ? 'Sending…' : 'Send reset link'}
@@ -263,7 +272,7 @@ export default function AdvertiserLogin() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="adv-email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">
+                <label htmlFor="adv-email" className={`${labelClass} mb-1.5`}>
                   Business email
                 </label>
                 <input
@@ -273,12 +282,12 @@ export default function AdvertiserLogin() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
-                  className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                  className="input"
                 />
               </div>
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="adv-password" className="text-[12px] font-semibold text-[var(--color-txt-1)]">
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <label htmlFor="adv-password" className={labelClass}>
                     Password
                   </label>
                   <button
@@ -287,7 +296,7 @@ export default function AdvertiserLogin() {
                       setShowForgot(true)
                       setNotice(null)
                     }}
-                    className="text-[11px] text-[var(--color-accent)] hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                    className={`-my-3 inline-flex min-h-11 items-center bg-transparent p-0 text-[13px] ${textLink}`}
                   >
                     Forgot?
                   </button>
@@ -299,14 +308,14 @@ export default function AdvertiserLogin() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                  className="input"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                className="btn btn-primary min-h-11 w-full disabled:opacity-60"
               >
                 <Icon name="briefcase" size={15} />
                 {submitting ? 'Signing in…' : 'Sign in to portal'}
@@ -322,25 +331,23 @@ export default function AdvertiserLogin() {
                 setForgotDone(false)
                 setNotice(null)
               }}
-              className="mt-6 inline-flex items-center gap-1.5 text-[13px] text-[var(--color-accent)] hover:underline bg-transparent border-0 p-0 cursor-pointer"
+              className={`mt-4 inline-flex min-h-11 w-fit items-center gap-1.5 bg-transparent p-0 text-[13px] ${textLink}`}
             >
               <Icon name="arrowUpRight" size={13} className="rotate-[225deg]" />
               Back to sign in
             </button>
           ) : (
             <>
-              <div className="flex items-center gap-3 my-6">
-                <div className="flex-1 h-px bg-[var(--color-border)]" />
-                <span className="text-[11px] text-[var(--color-txt-3)] uppercase tracking-wider">New here</span>
-                <div className="flex-1 h-px bg-[var(--color-border)]" />
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-[var(--color-border-2)]" />
+                <span className="eyebrow bare text-[var(--color-txt-3)]">New here</span>
+                <div className="h-px flex-1 bg-[var(--color-border-2)]" />
               </div>
 
               {reqDone ? (
-                <div
-                  role="status"
-                  className="rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 p-3.5 text-[13px] leading-relaxed text-[var(--color-txt-1)]"
-                >
-                  Thanks - we’ve got your request. We’ll email you about advertiser access during the campus pilot.
+                <div role="status" className={NOTE_INFO}>
+                  <Icon name="check" size={16} className="mt-0.5 shrink-0" />
+                  <span className="min-w-0">Thanks - we’ve got your request. We’ll email you about advertiser access during the campus pilot.</span>
                 </div>
               ) : showRequest ? (
                 <form onSubmit={handleRequestAccess} className="space-y-3">
@@ -351,7 +358,7 @@ export default function AdvertiserLogin() {
                     onChange={(e) => setReqEmail(e.target.value)}
                     placeholder="Business email"
                     aria-label="Business email"
-                    className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                    className="input"
                   />
                   <input
                     type="text"
@@ -359,7 +366,7 @@ export default function AdvertiserLogin() {
                     onChange={(e) => setReqCompany(e.target.value)}
                     placeholder="Company (optional)"
                     aria-label="Company"
-                    className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow"
+                    className="input"
                   />
                   <textarea
                     value={reqMessage}
@@ -367,12 +374,12 @@ export default function AdvertiserLogin() {
                     placeholder="What would you like to promote? (optional)"
                     aria-label="Message"
                     rows={3}
-                    className="w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow resize-none"
+                    className="input resize-none"
                   />
                   <button
                     type="submit"
                     disabled={reqSubmitting}
-                    className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-txt-0)] px-5 py-3 rounded-xl border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="btn btn-secondary min-h-11 w-full disabled:opacity-60"
                   >
                     <Icon name="send" size={15} />
                     {reqSubmitting ? 'Sending…' : 'Submit request'}
@@ -385,7 +392,7 @@ export default function AdvertiserLogin() {
                     setShowRequest(true)
                     setReqEmail(email)
                   }}
-                  className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-txt-0)] px-5 py-3 rounded-xl border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] cursor-pointer transition-colors"
+                  className="btn btn-secondary min-h-11 w-full"
                 >
                   <Icon name="send" size={15} />
                   Request advertiser access
@@ -394,13 +401,18 @@ export default function AdvertiserLogin() {
             </>
           )}
 
-          <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
-            Looking for the student app?{' '}
-            <Link to="/login" className="text-[var(--color-accent)] hover:underline">Sign in here</Link>.
-          </p>
+          <div className="mt-8 border-t border-[var(--color-border-2)] pt-5 text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+            <p className="flex items-start gap-2.5">
+              <Icon name="graduation" size={15} className="mt-[3px] text-[var(--color-txt-3)]" />
+              <span>
+                Looking for the student app?{' '}
+                <Link to="/login" className={textLink}>Sign in here</Link>.
+              </span>
+            </p>
+          </div>
         </div>
 
-        <SiteDisclaimer note="Advertiser accounts are invite-only during the campus pilot" />
+        <SiteDisclaimer note="Advertiser accounts are invite-only during the campus pilot" className="-mx-4 sm:-mx-10" rule />
       </main>
     </div>
   )

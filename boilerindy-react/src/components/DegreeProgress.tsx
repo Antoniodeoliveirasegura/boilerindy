@@ -130,90 +130,98 @@ export default function DegreeProgress({
   const hasPlan = Boolean(program && progress && progress.groups.length > 0)
 
   return (
-    <div className="card p-4 mb-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-1">
-        <div className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-          Degree progress
+    <section className="card card-pad r-cls mb-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="route-badge">
+            <Icon name="graduation" size={18} />
+          </span>
+          <div className="card-title">
+            Degree progress
+          </div>
         </div>
         <MajorPicker value={major} onChange={onChangeMajor} />
       </div>
       {majorError && (
-        <p role="alert" className="text-[12px] text-[var(--color-error)] mt-2">
+        <p role="alert" className="mt-2.5 text-[13px] font-medium text-[var(--color-error)]">
           {majorError}
         </p>
       )}
 
       {!program ? (
-        <p className="text-[13px] text-[var(--color-txt-2)] mt-2">
+        <p className="mt-3 text-[14px] text-[var(--color-txt-2)]">
           Pick your major to see the required courses and check them off automatically as you log
           grades.
         </p>
       ) : !hasPlan ? (
         // A catalogue major we haven't mapped a plan of study for yet.
-        <div className="mt-3 rounded-xl border border-dashed border-[var(--color-border-2)] p-4">
-          <div className="text-[13px] font-medium text-[var(--color-txt-0)]">
-            {program.name} is saved to your profile.
+        <div className="empty mt-4">
+          <div>
+            <div className="font-display text-[14.5px] font-bold text-[var(--color-txt-0)]">
+              {program.name} is saved to your profile.
+            </div>
+            <p className="mt-1 text-[13px] leading-relaxed">
+              We haven&apos;t mapped this major&apos;s plan of study yet, so there&apos;s no checklist
+              to tick off - your GPA, credits and courses below still track normally.{' '}
+              <a
+                href="https://catalog.purdue.edu/"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[var(--color-accent)] hover:underline"
+              >
+                Check the Purdue catalog
+              </a>{' '}
+              for the official requirements.
+            </p>
           </div>
-          <p className="text-[12px] text-[var(--color-txt-2)] mt-1 leading-relaxed">
-            We haven&apos;t mapped this major&apos;s plan of study yet, so there&apos;s no checklist
-            to tick off - your GPA, credits and courses below still track normally.{' '}
-            <a
-              href="https://catalog.purdue.edu/"
-              target="_blank"
-              rel="noreferrer"
-              className="text-[var(--color-accent)] hover:underline"
-            >
-              Check the Purdue catalog
-            </a>{' '}
-            for the official requirements.
-          </p>
         </div>
       ) : (
-        <div className="mt-3">
-          {/* Overall progress */}
-          <div className="flex items-baseline justify-between gap-3 mb-1">
-            <div className="text-[13px] text-[var(--color-txt-1)]">
-              <span className="font-semibold text-[var(--color-txt-0)]">
+        <div className="mt-4">
+          {/* Overall progress: the plan as a route line, filled as far as you
+              have come. */}
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div className="tnum text-[14px] text-[var(--color-txt-1)]">
+              <span className="font-display font-extrabold text-[var(--color-txt-0)]">
                 {progress!.doneCourses}
               </span>{' '}
               of {progress!.listedCourses} listed courses ·{' '}
-              <span className="font-semibold text-[var(--color-txt-0)]">
+              <span className="font-display font-extrabold text-[var(--color-txt-0)]">
                 {progress!.doneCredits}
               </span>{' '}
               cr done
             </div>
-            <div className="text-[12px] text-[var(--color-txt-3)]">
+            <div className="tnum text-[12.5px] text-[var(--color-txt-2)]">
               {program.totalCredits} cr to graduate
             </div>
           </div>
-          <div className="h-2 rounded-full bg-[var(--color-stat)] overflow-hidden">
+          <div className="h-1.5 overflow-hidden rounded-[var(--radius-xs)] bg-[var(--color-bg-3)]">
             <div
-              className="h-full bg-[var(--color-gold)] rounded-full transition-all duration-500"
+              className="h-full bg-[var(--route)] transition-[width] duration-500"
               style={{ width: `${pct}%` }}
             />
           </div>
 
-          <div className="text-[11px] text-[var(--color-txt-3)] mt-2">
+          <div className="mt-2.5 text-[12.5px] text-[var(--color-txt-2)]">
             Tap any course to log the grade you earned - it goes straight into your tracker.
           </div>
 
           {/* Requirement groups */}
-          <div ref={listRef} className="mt-3 space-y-4">
+          <div ref={listRef} className="mt-4 grid items-start gap-x-8 gap-y-5 lg:grid-cols-2">
             {progress!.groups.map((g) => (
-              <div key={g.name}>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <div className="text-[13px] font-semibold text-[var(--color-txt-0)]">{g.name}</div>
+              <div key={g.name} className="min-w-0">
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border-2)] pb-1.5">
+                  <div className="font-display text-[13.5px] font-extrabold text-[var(--color-txt-0)]">{g.name}</div>
                   {g.total > 0 && (
-                    <div className="text-[11px] text-[var(--color-txt-3)] shrink-0">
+                    <div className="tnum shrink-0 font-display text-[12px] font-bold text-[var(--color-txt-2)]">
                       {g.doneCount}/{g.total}
                     </div>
                   )}
                 </div>
                 {g.note && (
-                  <div className="text-[11px] text-[var(--color-txt-3)] mb-1.5">{g.note}</div>
+                  <div className="mt-1.5 text-[12px] text-[var(--color-txt-2)]">{g.note}</div>
                 )}
                 {g.courses.length > 0 ? (
-                  <div className="space-y-0.5">
+                  <div className="mt-1">
                     {g.courses.map((c) => {
                       const logged = acceptedCodes(c)
                         .map((code) => loggedByCode.get(code))
@@ -234,51 +242,52 @@ export default function DegreeProgress({
                               logged ? ` - logged ${logged.letterGrade}` : ' - not logged'
                             }`}
                             onClick={() => setOpenCode(isOpen ? null : c.code)}
-                            className={`group w-full flex items-center gap-2.5 text-[13px] text-left rounded-lg px-2 -mx-2 py-1.5 transition-colors outline-none hover:bg-[var(--color-stat)] focus-visible:ring-2 focus-visible:ring-[var(--color-gold)]/40 ${
-                              isOpen ? 'bg-[var(--color-stat)]' : ''
+                            className={`group -mx-2 flex min-h-[44px] w-[calc(100%+16px)] items-center gap-2.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[13.5px] transition-colors hover:bg-[var(--color-surface-hover)] md:min-h-[40px] ${
+                              isOpen ? 'bg-[var(--color-surface-hover)]' : ''
                             }`}
                           >
                             <span
-                              className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 text-[10px] font-semibold ${
+                              className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] font-display text-[10px] font-extrabold ${
                                 c.done
-                                  ? 'bg-[var(--color-success)] text-white'
+                                  ? 'bg-[var(--route)] text-[var(--route-on)]'
                                   : logged
-                                    ? 'border border-[var(--color-error)] text-[var(--color-error)]'
-                                    : 'border border-dashed border-[var(--color-border-2)] text-[var(--color-txt-3)] group-hover:border-[var(--color-gold)] group-hover:text-[var(--color-gold-muted)]'
+                                    ? 'text-[var(--color-error)] shadow-[inset_0_0_0_1.5px_var(--color-error)]'
+                                    : 'border-[1.5px] border-dashed border-[var(--color-border-3)] text-[var(--color-txt-2)] group-hover:border-solid group-hover:border-[var(--color-txt-2)]'
                               }`}
                             >
                               {c.done ? (
-                                <Icon name="check" size={11} />
+                                <Icon name="check" size={12} strokeWidth={3} />
                               ) : logged ? (
                                 logged.letterGrade
                               ) : (
                                 <Icon
                                   name="plus"
-                                  size={10}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                  size={11}
+                                  strokeWidth={2.5}
+                                  className="opacity-0 transition-opacity group-hover:opacity-100"
                                 />
                               )}
                             </span>
-                            <span className="font-mono text-[12px] text-[var(--color-txt-2)] w-[5.5rem] shrink-0">
+                            <span className="tnum w-[5.75rem] shrink-0 font-display text-[12.5px] font-bold text-[var(--color-txt-1)]">
                               {c.code}
                             </span>
                             <span
-                              className={`flex-1 min-w-0 truncate ${
+                              className={`min-w-0 flex-1 truncate ${
                                 c.done ? 'text-[var(--color-txt-2)]' : 'text-[var(--color-txt-1)]'
                               }`}
                             >
                               {c.name}
                             </span>
-                            <span className="text-[11px] text-[var(--color-txt-3)] shrink-0">
+                            <span className="tnum shrink-0 text-[12px] text-[var(--color-txt-2)]">
                               {c.credits} cr
                             </span>
                           </button>
 
                           {isOpen && (
-                            <div className="absolute left-0 right-0 z-40 mt-1 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-xl)] p-2.5">
-                              <div className="text-[11px] text-[var(--color-txt-3)] mb-1.5">
+                            <div className="menu-panel absolute left-0 right-0 z-40 mt-1 p-3">
+                              <div className="mb-2 text-[12.5px] text-[var(--color-txt-2)]">
                                 {logged ? 'Change your grade for' : 'What did you get in'}{' '}
-                                <span className="font-mono text-[var(--color-txt-2)]">{c.code}</span>
+                                <span className="font-display font-bold text-[var(--color-txt-0)]">{c.code}</span>
                                 ?
                               </div>
                               <div className="flex flex-wrap gap-1">
@@ -292,13 +301,13 @@ export default function DegreeProgress({
                                         onLogCourse(c, letter, logged?.id ?? null)
                                         setOpenCode(null)
                                       }}
-                                      className={`min-w-[2.1rem] px-1.5 py-1 rounded-lg text-[12px] font-semibold border transition-colors ${
+                                      className={`h-11 min-w-[2.75rem] rounded-[var(--radius-md)] border-[1.5px] px-1.5 font-display text-[13px] font-extrabold transition-colors md:h-9 md:min-w-[2.5rem] ${
                                         active
-                                          ? 'bg-[var(--color-gold)] border-[var(--color-gold)] text-black'
-                                          : `border-[var(--color-border)] hover:border-[var(--color-gold)] hover:text-[var(--color-gold-muted)] ${
+                                          ? 'border-[var(--color-txt-0)] bg-[var(--color-txt-0)] text-[var(--color-surface)]'
+                                          : `border-[var(--color-border-2)] bg-[var(--color-surface)] hover:border-[var(--color-txt-0)] ${
                                               isGpaLetter(letter)
-                                                ? 'text-[var(--color-txt-1)]'
-                                                : 'text-[var(--color-txt-3)]'
+                                                ? 'text-[var(--color-txt-0)]'
+                                                : 'text-[var(--color-txt-2)]'
                                             }`
                                       }`}
                                     >
@@ -314,9 +323,9 @@ export default function DegreeProgress({
                                     onRemoveCourse(logged.id as string)
                                     setOpenCode(null)
                                   }}
-                                  className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-error)] transition-colors"
+                                  className="btn btn-ghost btn-sm -ml-2 mt-2 text-[var(--color-txt-2)] hover:text-[var(--color-error)]"
                                 >
-                                  <Icon name="trash" size={13} />
+                                  <Icon name="trash" size={14} />
                                   Remove from tracker
                                 </button>
                               )}
@@ -332,14 +341,14 @@ export default function DegreeProgress({
           </div>
 
           {/* Source + disclaimer */}
-          <div className="mt-4 pt-3 border-t border-[var(--color-border)] text-[11px] text-[var(--color-txt-3)] leading-relaxed">
+          <div className="mt-5 border-t border-[var(--color-border)] pt-3 text-[12px] leading-relaxed text-[var(--color-txt-2)]">
             Planning aid only - selective and general-education credits aren&apos;t auto-tracked.
             Confirm with your advisor / MyPurduePlan.{' '}
             <a
               href={program.sourceUrl ?? 'https://catalog.purdue.edu/'}
               target="_blank"
               rel="noreferrer"
-              className="text-[var(--color-accent)] hover:underline"
+              className="font-medium text-[var(--color-accent)] hover:underline"
             >
               Source
             </a>
@@ -347,6 +356,6 @@ export default function DegreeProgress({
           </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }

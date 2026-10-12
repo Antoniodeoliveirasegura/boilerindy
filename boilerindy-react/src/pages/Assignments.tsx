@@ -55,100 +55,60 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
-const priorityConfig: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  high: {
-    label: 'High',
-    bg: 'bg-red-50 dark:bg-red-900/20',
-    text: 'text-red-700 dark:text-red-400',
-    border: 'border-red-200 dark:border-red-800',
-  },
-  medium: {
-    label: 'Medium',
-    bg: 'bg-amber-50 dark:bg-amber-900/20',
-    text: 'text-amber-700 dark:text-amber-400',
-    border: 'border-amber-200 dark:border-amber-800',
-  },
-  low: {
-    label: 'Low',
-    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
-    text: 'text-emerald-700 dark:text-emerald-400',
-    border: 'border-emerald-200 dark:border-emerald-800',
-  },
+// Priority is a label plus a flag colour; the badge itself stays neutral. Only
+// high is coloured: --color-warning is the signal amber in dark, and amber is
+// kept for now, the primary action and urgency.
+const priorityConfig: Record<string, { label: string; flag: string }> = {
+  high: { label: 'High', flag: 'text-[var(--color-error)]' },
+  medium: { label: 'Medium', flag: 'text-[var(--color-txt-2)]' },
+  low: { label: 'Low', flag: 'text-[var(--color-txt-3)]' },
 }
 
 const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 }
 
-const categoryConfig: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
-  exam: {
-    label: 'Exams',
-    bg: 'bg-red-50 dark:bg-red-900/20', 
-    text: 'text-red-700 dark:text-red-400', 
-    border: 'border-red-200 dark:border-red-800',
-    icon: 'alert'
-  },
-  assignment: { 
-    label: 'Assignments',
-    bg: 'bg-blue-50 dark:bg-blue-900/20', 
-    text: 'text-blue-700 dark:text-blue-400', 
-    border: 'border-blue-200 dark:border-blue-800',
-    icon: 'edit'
-  },
-  lab: { 
-    label: 'Labs',
-    bg: 'bg-green-50 dark:bg-green-900/20', 
-    text: 'text-green-700 dark:text-green-400', 
-    border: 'border-green-200 dark:border-green-800',
-    icon: 'beaker'
-  },
-  project: { 
-    label: 'Projects',
-    bg: 'bg-purple-50 dark:bg-purple-900/20', 
-    text: 'text-purple-700 dark:text-purple-400', 
-    border: 'border-purple-200 dark:border-purple-800',
-    icon: 'folder'
-  },
-  quiz: { 
-    label: 'Quizzes',
-    bg: 'bg-orange-50 dark:bg-orange-900/20', 
-    text: 'text-orange-700 dark:text-orange-400', 
-    border: 'border-orange-200 dark:border-orange-800',
-    icon: 'document'
-  },
-  campus_event: { 
-    label: 'Campus Events',
-    bg: 'bg-pink-50 dark:bg-pink-900/20', 
-    text: 'text-pink-700 dark:text-pink-400', 
-    border: 'border-pink-200 dark:border-pink-800',
-    icon: 'calendar'
-  },
-  resource: { 
-    label: 'Resources',
-    bg: 'bg-gray-50 dark:bg-gray-800/50', 
-    text: 'text-gray-600 dark:text-gray-300', 
-    border: 'border-gray-200 dark:border-gray-700',
-    icon: 'document'
-  },
-  deadline: { 
-    label: 'Deadlines',
-    bg: 'bg-yellow-50 dark:bg-yellow-900/20', 
-    text: 'text-yellow-700 dark:text-yellow-400', 
-    border: 'border-yellow-200 dark:border-yellow-800',
-    icon: 'clock'
-  },
-  event: { 
-    label: 'Other',
-    bg: 'bg-[var(--color-bg-2)]', 
-    text: 'text-[var(--color-txt-1)]', 
-    border: 'border-[var(--color-border)]',
-    icon: 'calendar'
-  },
-  manual_task: {
-    label: 'My tasks',
-    bg: 'bg-teal-50 dark:bg-teal-900/20',
-    text: 'text-teal-700 dark:text-teal-400',
-    border: 'border-teal-200 dark:border-teal-800',
-    icon: 'check',
-  },
+const categoryConfig: Record<string, { label: string; icon: string }> = {
+  exam: { label: 'Exams', icon: 'alert' },
+  assignment: { label: 'Assignments', icon: 'edit' },
+  lab: { label: 'Labs', icon: 'beaker' },
+  project: { label: 'Projects', icon: 'folder' },
+  quiz: { label: 'Quizzes', icon: 'document' },
+  campus_event: { label: 'Campus Events', icon: 'calendar' },
+  resource: { label: 'Resources', icon: 'document' },
+  deadline: { label: 'Deadlines', icon: 'clock' },
+  event: { label: 'Other', icon: 'calendar' },
+  manual_task: { label: 'My tasks', icon: 'check' },
+}
+
+// Titles often lead with the course code ("CS 25100 Project 2"); the code goes
+// on a plate above the rest of the title. Only a Purdue code (2-5 letter
+// subject, 5-digit number) counts, and it splits only on whitespace, so the
+// rest keeps its own punctuation ("CS 25100 - Lab 3" leaves "- Lab 3") and
+// "CS 25100: Project 2" stays whole. A title that is only a code stays whole
+// too. Same rule as Schedule; Home's splitter should move to it too.
+const COURSE_CODE_LEAD = /^([A-Z]{2,5} ?\d{5}[A-Z]?)(?:\s+(\S.*))?$/
+
+function splitCourseCode(text: string): { code: string; rest: string } {
+  const trimmed = text.trim()
+  const match = COURSE_CODE_LEAD.exec(trimmed)
+  return match?.[2] ? { code: match[1], rest: match[2] } : { code: '', rest: trimmed }
+}
+
+// The departures date block: short weekday over the day of the month.
+function whenParts(dateString: string | null | undefined) {
+  if (!dateString) return null
+  const date = new Date(dateString)
+  return { day: date.toLocaleDateString(undefined, { weekday: 'short' }), date: date.getDate() }
+}
+
+// Urgent: open and due within the next 24 hours. The label is the countdown
+// shown on the amber badge ("Due in 15h"); the hours are rounded with a floor
+// of 1, the same count Home's task rows show.
+const HOUR_MS = 60 * 60 * 1000
+function dueSoonLabel(dateString: string | null | undefined): string | null {
+  if (!dateString) return null
+  const diff = new Date(dateString).getTime() - Date.now()
+  if (diff <= 0 || diff > 24 * HOUR_MS) return null
+  return `Due in ${Math.max(1, Math.round(diff / HOUR_MS))}h`
 }
 
 function formatDate(dateString: string | null | undefined) {
@@ -615,8 +575,13 @@ export default function Assignments() {
     }
   }, [])
 
+  const fieldLabel = 'mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]'
+  // Same height as the Refresh btn-sm beside them: 44px on phones, 34px up.
+  const toggleLabel = 'pill min-h-[44px] cursor-pointer gap-2 select-none md:min-h-[34px]'
+  const toggleBox = 'h-4 w-4 shrink-0 accent-[var(--color-txt-0)]'
+
   return (
-    <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+    <div className="page">
       <PageTitle>Assignments</PageTitle>
       <TaskCompleteReward
         origin={rewardOrigin}
@@ -624,67 +589,70 @@ export default function Assignments() {
       />
       {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
       <SourceErrorNotice className="mb-6" />
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
+      <header className="page-head animate-fade-in-up">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Assignments</h1>
-          <p className="text-[14px] text-[var(--color-txt-2)] mt-1">
+          <h1 className="page-title">Assignments</h1>
+          <p className="page-sub">
             {filteredItems.length} item{filteredItems.length === 1 ? '' : 's'} · Brightspace imports and tasks you add
           </p>
           {taskError ? (
-            <p className="text-[13px] text-red-600 dark:text-red-400 mt-2">{taskError}</p>
+            <p className="mt-2 text-[13.5px] font-medium text-[var(--color-error)]">{taskError}</p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={toggleLabel}>
             <input
               type="checkbox"
               checked={sortByPriority}
               onChange={(e) => setSortByPriority(e.target.checked)}
-              className="w-4 h-4 rounded border-[var(--color-border-2)]"
+              className={toggleBox}
             />
             Sort by priority
           </label>
-          <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
+          <label className={toggleLabel}>
             <input
               type="checkbox"
               checked={hideCompleted}
               onChange={(e) => setHideCompleted(e.target.checked)}
-              className="w-4 h-4 rounded border-[var(--color-border-2)]"
+              className={toggleBox}
             />
             Hide done
           </label>
-          <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
-            <input 
-              type="checkbox" 
-              checked={showPast} 
+          <label className={toggleLabel}>
+            <input
+              type="checkbox"
+              checked={showPast}
               onChange={(e) => setShowPast(e.target.checked)}
-              className="w-4 h-4 rounded border-[var(--color-border-2)]"
+              className={toggleBox}
             />
             Show past items
           </label>
-          <button onClick={reloadAssignments} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button onClick={reloadAssignments} className="btn btn-secondary btn-sm">
             <Icon name="refresh" size={14} />
             Refresh
           </button>
         </div>
-      </div>
+      </header>
 
       {taskMeta.unavailable && (
-        <div className="card p-4 mb-4 border-amber-500/30 bg-amber-500/5 text-[13px] text-[var(--color-txt-2)] animate-fade-in-up leading-relaxed">
-          <span className="font-medium text-[var(--color-txt-1)]">Tasks work in this browser: </span>
-          checkboxes and &ldquo;My tasks&rdquo; are saved locally until the database is set up. Run{' '}
-          <code className="text-[12px] px-1 rounded bg-[var(--color-stat)]">supabase-user-tasks.sql</code>{' '}
-          in the Supabase SQL Editor so completions sync to your account across devices.
+        <div className="card mb-5 flex items-start gap-2.5 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-2)] animate-fade-in-up">
+          <Icon name="info" size={16} className="mt-0.5 shrink-0 text-[var(--color-txt-2)]" />
+          <div className="min-w-0">
+            <span className="font-semibold text-[var(--color-txt-1)]">Tasks work in this browser: </span>
+            checkboxes and &ldquo;My tasks&rdquo; are saved locally until the database is set up. Run{' '}
+            <code className="rounded-[var(--radius-xs)] bg-[var(--color-stat)] px-1 text-[12px]">supabase-user-tasks.sql</code>{' '}
+            in the Supabase SQL Editor so completions sync to your account across devices.
+          </div>
         </div>
       )}
 
-      <div className="card p-4 sm:p-5 mb-6 border-[var(--color-border)] animate-fade-in-up stagger-1">
-        <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">
+      <section className="card card-pad r-tsk mb-5 animate-fade-in-up stagger-1">
+        <div className="eyebrow mb-4">
           Add a task
         </div>
-        <form onSubmit={handleAddManualTask} className="flex flex-col sm:flex-row gap-3 sm:items-end">
-          <div className="flex-1 min-w-0">
-            <label htmlFor="new-task-title" className="text-[11px] text-[var(--color-txt-3)] block mb-1">
+        <form onSubmit={handleAddManualTask} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="new-task-title" className={fieldLabel}>
               Title
             </label>
             <input
@@ -693,11 +661,11 @@ export default function Assignments() {
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="e.g. Finish lab write-up"
-              className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)]"
+              className="input"
             />
           </div>
-          <div className="w-full sm:w-44 shrink-0">
-            <label htmlFor="new-task-due" className="text-[11px] text-[var(--color-txt-3)] block mb-1">
+          <div className="w-full shrink-0 sm:w-48">
+            <label htmlFor="new-task-due" className={fieldLabel}>
               Due date
             </label>
             <input
@@ -705,40 +673,41 @@ export default function Assignments() {
               type="date"
               value={newDueDate}
               onChange={(e) => setNewDueDate(e.target.value)}
-              className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-[14px] text-[var(--color-txt-0)]"
+              className="input tnum"
             />
           </div>
           <button
             type="submit"
             disabled={addSubmitting || !newTitle.trim()}
-            className="btn btn-primary text-[13px] px-5 py-2.5 w-full sm:w-auto shrink-0 disabled:opacity-40"
+            className="btn btn-primary min-h-[44px] w-full shrink-0 disabled:border-[var(--color-border-2)] disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:shadow-none sm:w-auto"
           >
             {addSubmitting ? 'Adding…' : 'Add task'}
           </button>
         </form>
-      </div>
+      </section>
 
       {hasNoSources && (
-        <div className="card p-5 mb-6 animate-fade-in-up">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
-                Connect your Brightspace calendar
-              </div>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
-                Import your assignments, exams, and due dates from Brightspace to see them here.
-              </p>
+        <section className="card card-pad r-tsk mb-5 flex flex-col gap-4 sm:flex-row sm:items-center animate-fade-in-up">
+          <span className="route-badge">
+            <Icon name="calendar" size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="card-title">
+              Connect your Brightspace calendar
             </div>
-            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
-              <Icon name="calendar" size={15} />
-              Connect Brightspace
-            </Link>
+            <p className="mt-1 max-w-[640px] text-[13.5px] leading-snug text-[var(--color-txt-2)]">
+              Import your assignments, exams, and due dates from Brightspace to see them here.
+            </p>
           </div>
-        </div>
+          <Link to="/setup" className="btn btn-ink w-fit shrink-0">
+            <Icon name="calendar" size={16} />
+            Connect Brightspace
+          </Link>
+        </section>
       )}
 
       {categoriesWithManual.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6 animate-fade-in-up stagger-1">
+        <div className="mb-5 flex flex-wrap gap-2 animate-fade-in-up stagger-1">
           <button
             onClick={() => setSelectedCategories([])}
             className={`pill whitespace-nowrap ${selectedCategories.length === 0 ? 'pill-active' : ''}`}
@@ -757,17 +726,17 @@ export default function Assignments() {
               </button>
             )
           })}
-          <span className="w-px self-stretch bg-[var(--color-border)] mx-1" aria-hidden="true" />
+          <span className="mx-1 w-px self-stretch bg-[var(--color-border-2)]" aria-hidden="true" />
           {PRIORITY_LEVELS.map((level) => {
             const isActive = priorityFilter === level
             return (
               <button
                 key={level}
                 onClick={() => setPriorityFilter(isActive ? null : level)}
-                className={`pill whitespace-nowrap inline-flex items-center gap-1.5 ${isActive ? 'pill-active' : ''}`}
+                className={`pill whitespace-nowrap ${isActive ? 'pill-active' : ''}`}
                 title={`Show only ${priorityConfig[level].label.toLowerCase()} priority tasks`}
               >
-                <Icon name="flag" size={11} className={priorityConfig[level].text} />
+                <Icon name="flag" size={12} className={isActive ? '' : priorityConfig[level].flag} />
                 {priorityConfig[level].label}
               </button>
             )
@@ -777,31 +746,28 @@ export default function Assignments() {
 
       {/* AI Insights Panel */}
       {!hasNoSources && !loading && filteredItems.length > 0 && (
-        <div className={`card mb-6 transition-all duration-300 animate-fade-in-up stagger-2 ${insightsOpen ? '' : 'cursor-pointer'}`}>
+        <section className="card r-ai mb-5 animate-fade-in-up stagger-2">
           <div
-            className="flex items-center justify-between gap-3 p-4 cursor-pointer"
+            className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3.5 md:px-5"
             onClick={() => setInsightsOpen((v) => !v)}
           >
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-[var(--color-gold)] flex items-center justify-center shrink-0">
-                <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
-              </div>
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">AI Insights</span>
+            <div className="flex items-center gap-3">
+              <span className="route-badge">
+                <Icon name="sparkles" size={18} />
+              </span>
+              <span className="card-title">AI Insights</span>
             </div>
-            <Icon name={insightsOpen ? 'chevronUp' : 'chevronDown'} size={14} className="text-[var(--color-txt-3)]" />
+            <Icon name={insightsOpen ? 'chevronUp' : 'chevronDown'} size={18} className="text-[var(--color-txt-2)]" />
           </div>
           {insightsOpen && (
-            <div className="px-4 pb-4">
-              <div className="flex items-center gap-2 mb-3">
+            <div className="px-4 pb-4 md:px-5 md:pb-5">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                {/* Ink-only active state: the sparkles badge is this card's one amber. */}
                 {['priority', 'study'].map((m) => (
                   <button
                     key={m}
                     onClick={() => setInsightsMode(m)}
-                    className={`text-[11px] font-medium px-3 py-1.5 rounded-full transition-all ${
-                      insightsMode === m
-                        ? 'bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)]'
-                        : 'bg-[var(--color-stat)] text-[var(--color-txt-2)] hover:bg-[var(--color-bg-3)]'
-                    }`}
+                    className={`pill ${insightsMode === m ? 'pill-active shadow-none' : ''}`}
                   >
                     {m === 'priority' ? 'Priority Ranking' : 'Study Plan'}
                   </button>
@@ -809,173 +775,204 @@ export default function Assignments() {
                 <button
                   onClick={() => generateInsights(insightsMode)}
                   disabled={insightsLoading}
-                  className="ml-auto text-[11px] text-[var(--color-accent)] hover:underline disabled:opacity-40 shrink-0"
+                  className="head-link shrink-0 disabled:opacity-40"
                 >
                   {insightsLoading ? 'Generating…' : activeInsight ? 'Refresh' : 'Generate'}
                 </button>
               </div>
               {insightsLoading && !activeInsight ? (
-                <div className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] py-2">
-                  <div className="w-3.5 h-3.5 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin shrink-0" />
+                <div className="flex items-center gap-2 py-2 text-[13.5px] text-[var(--color-txt-2)]">
+                  <Icon name="refresh" size={14} className="animate-spin" />
                   Analyzing your assignments…
                 </div>
               ) : activeInsight ? (
                 <>
-                  <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{activeInsight}</AiMarkdown>
+                  <AiMarkdown className="text-[14px] text-[var(--color-txt-1)]">{activeInsight}</AiMarkdown>
                   {insightsAt[insightsMode] && (
-                    <p className="mt-2 text-[11px] text-[var(--color-txt-3)]">
+                    <p className="mt-2 text-[12px] text-[var(--color-txt-3)]">
                       Generated {describeAge(insightsAt[insightsMode])} - refresh after you check things off.
                     </p>
                   )}
                 </>
               ) : (
-                <p className="text-[12px] text-[var(--color-txt-3)] py-1">
+                <p className="py-1 text-[13.5px] text-[var(--color-txt-2)]">
                   Click &ldquo;Generate&rdquo; to get AI-powered {insightsMode === 'priority' ? 'priority ranking' : 'study plan'} based on your schedule and deadlines.
                 </p>
               )}
             </div>
           )}
-        </div>
+        </section>
       )}
 
       {loading ? (
-        <div className="card p-8 text-center text-[var(--color-txt-2)]">
+        <div className="card card-pad text-center text-[14px] text-[var(--color-txt-2)]">
           Loading assignments...
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="card p-8 text-center">
-          <Icon name="calendar" size={32} className="mx-auto text-[var(--color-txt-3)] mb-3" />
-          <div className="text-[var(--color-txt-1)] font-medium">No items found</div>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
-            {hasNoSources 
-              ? 'Connect your Brightspace calendar to see assignments and events.'
-              : selectedCategories.length > 0 
-                ? 'Try selecting different categories or showing past items.'
-                : 'No upcoming assignments or events.'}
-          </p>
+        <div className="card card-pad">
+          <div className="empty">
+            <span className="ico">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <div className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">No items found</div>
+              <p className="mt-1">
+                {hasNoSources
+                  ? 'Connect your Brightspace calendar to see assignments and events.'
+                  : selectedCategories.length > 0
+                    ? 'Try selecting different categories or showing past items.'
+                    : 'No upcoming assignments or events.'}
+              </p>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="grid lg:grid-cols-[1fr_340px] gap-6">
-          <div className="space-y-6 animate-fade-in-up stagger-2">
-            {Object.entries(groupedItems).map(([date, dateItems]) => (
-              <div key={date}>
-                <div className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
+          <section className="card card-pad r-tsk min-w-0 animate-fade-in-up stagger-2">
+            {Object.entries(groupedItems).map(([date, dateItems], groupIndex) => (
+              <div key={date} className={groupIndex > 0 ? 'mt-2' : ''}>
+                <div className="eyebrow bare">
                   {date}
                 </div>
-                <div className="space-y-2">
+                <ol className="dep">
                   {dateItems.map(item => {
                     const config = categoryConfig[item.category ?? ''] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
                     const past = isPastDue(item.startTime)
-                    
+                    const { code, rest } = splitCourseCode(item.title ?? '')
+                    const when = whenParts(item.startTime)
+                    const dueSoon = item.completed ? null : dueSoonLabel(item.startTime)
+
                     return (
-                      <div
-                        key={item.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setSelectedItem(item)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setSelectedItem(item)
-                          }
-                        }}
-                        className={`w-full text-left card-interactive p-4 transition-all cursor-pointer ${
-                          isSelected ? 'ring-2 ring-[var(--color-gold)]' : ''
-                        } ${past && !item.completed ? 'opacity-60' : ''} ${item.completed ? 'opacity-90' : ''}`}
-                      >
-                        <div className="flex items-start gap-3">
+                      <li key={item.id} className={dueSoon ? 'urgent' : undefined}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedItem(item)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedItem(item)
+                            }
+                          }}
+                          className={`dep-row group -mx-2 w-[calc(100%+16px)] cursor-pointer grid-cols-[36px_48px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-[var(--radius-md)] px-2 transition-colors sm:-mx-3 sm:w-[calc(100%+24px)] sm:grid-cols-[36px_48px_minmax(0,1fr)_auto] sm:gap-x-3.5 sm:px-3 ${
+                            isSelected
+                              ? 'bg-[var(--color-surface-hover)] shadow-[inset_3px_0_0_var(--color-txt-0)]'
+                              : 'hover:bg-[var(--color-surface-hover)]'
+                          } ${past && !item.completed ? 'opacity-60' : ''}`}
+                        >
                           <button
                             type="button"
                             onClick={(e) => toggleItemComplete(item, !item.completed, e)}
-                            className={`shrink-0 mt-0.5 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-colors ${
-                              item.completed
-                                ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-[var(--color-bg-0)]'
-                                : 'border-[var(--color-border-2)] hover:border-[var(--color-accent)] bg-[var(--color-surface)]'
-                            } ${poppingId === item.id ? 'task-check-pop' : ''}`}
+                            className={`-ml-2 grid h-11 w-11 place-items-center rounded-[var(--radius-md)] ${poppingId === item.id ? 'task-check-pop' : ''}`}
                             aria-label={item.completed ? 'Mark as not done' : 'Mark as done'}
                           >
-                            {item.completed ? <Icon name="check" size={14} /> : null}
+                            <span
+                              className={`grid h-[22px] w-[22px] place-items-center rounded-[var(--radius-sm)] border-2 transition-colors ${
+                                item.completed
+                                  ? 'border-[var(--route)] bg-[var(--route)] text-[var(--route-on)]'
+                                  : 'border-[var(--color-border-3)] bg-[var(--color-surface)] group-hover:border-[var(--color-txt-2)]'
+                              }`}
+                            >
+                              {item.completed ? <Icon name="check" size={14} strokeWidth={3} /> : null}
+                            </span>
                           </button>
-                          <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${config.text.replace('text-', 'bg-')}`} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div
-                                className={`font-medium text-[14px] line-clamp-2 ${
-                                  item.completed
-                                    ? 'line-through text-[var(--color-txt-3)]'
-                                    : 'text-[var(--color-txt-0)]'
-                                }`}
-                              >
-                                {item.title}
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {item.priority && (
-                                  <span
-                                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ${priorityConfig[item.priority].bg} ${priorityConfig[item.priority].text}`}
-                                  >
-                                    <Icon name="flag" size={10} />
-                                    {priorityConfig[item.priority].label}
-                                  </span>
-                                )}
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full ${config.bg} ${config.text}`}>
-                                  {config.label}
-                                </span>
-                              </div>
+                          <span className="when" aria-hidden="true">
+                            {when ? (
+                              <>
+                                <span>{when.day}</span>
+                                <b>{when.date}</b>
+                              </>
+                            ) : null}
+                          </span>
+                          <div className="body">
+                            {code ? <span className="code">{code}</span> : null}
+                            <div
+                              className={`ttl line-clamp-2 ${
+                                item.completed ? 'text-[var(--color-txt-3)] line-through' : ''
+                              }`}
+                            >
+                              {rest}
                             </div>
-                            <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[var(--color-txt-2)]">
+                            <div className="meta flex flex-wrap items-center gap-x-3 gap-y-1.5">
                               {!item.allDay && (
-                                <span className="flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1">
                                   <Icon name="clock" size={12} />
                                   {formatDueTime(item.startTime)}
                                 </span>
                               )}
                               {item.location && (
-                                <span className="flex items-center gap-1 truncate">
+                                <span className="inline-flex min-w-0 items-center gap-1 truncate">
                                   <Icon name="mapPin" size={12} />
                                   {item.location.split(' (')[0]}
                                 </span>
                               )}
+                              <span className="inline-flex items-center gap-1">
+                                <Icon name="tag" size={12} />
+                                {config.label}
+                              </span>
+                              {item.priority && (
+                                <span className="badge">
+                                  <Icon name="flag" size={10} className={priorityConfig[item.priority].flag} />
+                                  {priorityConfig[item.priority].label}
+                                </span>
+                              )}
                             </div>
                           </div>
+                          {dueSoon ? (
+                            <span
+                              aria-hidden="true"
+                              className="badge badge-signal col-start-3 justify-self-start sm:col-start-4 sm:row-start-1 sm:justify-self-end"
+                            >
+                              {dueSoon}
+                            </span>
+                          ) : (
+                            <span className="end hidden sm:flex" aria-hidden="true">
+                              <Icon name="chevronRight" size={18} />
+                            </span>
+                          )}
                         </div>
-                      </div>
+                      </li>
                     )
                   })}
-                </div>
+                </ol>
               </div>
             ))}
-          </div>
+          </section>
 
-          <div className="lg:sticky lg:top-24 h-fit min-w-0 animate-fade-in-up stagger-3">
+          {/* On phones this column stacks under the whole list, so the empty
+              placeholder only shows from lg; a selected item still shows. The
+              placeholder skips the entry fade: an element that toggles display
+              at a breakpoint replays it and can be caught at opacity 0. */}
+          <div
+            className={`h-fit min-w-0 lg:sticky lg:top-24 ${
+              selectedItem ? 'animate-fade-in-up stagger-3' : 'hidden lg:block'
+            }`}
+          >
             {selectedItem ? (
-              <div className="card p-5 min-w-0 overflow-hidden">
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div>
-                    <span className={`text-[11px] px-2.5 py-1 rounded-full ${
-                      (categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).bg
-                    } ${(categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).text}`}>
-                      {(categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).label}
-                    </span>
-                  </div>
-                  <button 
+              <div className="card card-pad r-tsk min-w-0 overflow-hidden">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <span className="badge badge-route">
+                    {(categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).label}
+                  </span>
+                  <button
                     onClick={() => setSelectedItem(null)}
-                    className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)]"
+                    className="icon-btn -mr-2 -mt-2"
                   >
                     <Icon name="close" size={18} />
                   </button>
                 </div>
-                
+
                 <h3
-                  className={`text-[18px] font-semibold mb-4 ${
-                    selectedItem.completed ? 'line-through text-[var(--color-txt-3)]' : 'text-[var(--color-txt-0)]'
+                  className={`mb-4 text-[19px] leading-snug ${
+                    selectedItem.completed ? 'text-[var(--color-txt-3)] line-through' : 'text-[var(--color-txt-0)]'
                   }`}
                 >
                   {selectedItem.title}
                 </h3>
 
                 <div className="mb-5">
-                  <div className="text-[12px] font-medium text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
+                  <div className="eyebrow bare mb-2">
                     Priority
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -987,13 +984,9 @@ export default function Assignments() {
                           type="button"
                           onClick={() => setItemPriority(selectedItem, isActive ? null : level)}
                           aria-pressed={isActive}
-                          className={`inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-xl border transition-all ${
-                            isActive
-                              ? `${priorityConfig[level].bg} ${priorityConfig[level].text} ${priorityConfig[level].border}`
-                              : 'border-[var(--color-border)] text-[var(--color-txt-2)] hover:border-[var(--color-border-2)]'
-                          }`}
+                          className={`pill ${isActive ? 'pill-active' : ''}`}
                         >
-                          <Icon name="flag" size={11} />
+                          <Icon name="flag" size={12} className={isActive ? '' : priorityConfig[level].flag} />
                           {priorityConfig[level].label}
                         </button>
                       )
@@ -1001,11 +994,11 @@ export default function Assignments() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 mb-5">
+                <div className="mb-5 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={(e) => toggleItemComplete(selectedItem, !selectedItem.completed, e)}
-                    className="btn btn-secondary text-[12px] px-3 py-1.5"
+                    className="btn btn-secondary btn-sm"
                   >
                     {selectedItem.completed ? 'Mark not done' : 'Mark done'}
                   </button>
@@ -1013,38 +1006,34 @@ export default function Assignments() {
                     <button
                       type="button"
                       onClick={() => deleteManualTask(selectedItem.id)}
-                      className="text-[12px] px-3 py-1.5 rounded-xl border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                      className="btn btn-ghost btn-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]"
                     >
                       Delete task
                     </button>
                   )}
                 </div>
-                
-                <div className="space-y-3 mb-5">
-                  <div className="flex items-center gap-3 text-[13px]">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-2)] flex items-center justify-center">
-                      <Icon name="calendar" size={15} className="text-[var(--color-txt-2)]" />
-                    </div>
-                    <div>
-                      <div className="text-[var(--color-txt-1)]">{formatDate(selectedItem.startTime)}</div>
+
+                <div className="mb-1 border-t border-[var(--color-border)]">
+                  <div className="flex items-center gap-3 border-b border-[var(--color-border)] py-3 text-[14px]">
+                    <Icon name="calendar" size={16} className="shrink-0 text-[var(--color-txt-3)]" />
+                    <div className="tnum">
+                      <div className="font-display font-bold text-[var(--color-txt-0)]">{formatDate(selectedItem.startTime)}</div>
                       {!selectedItem.allDay && (
-                        <div className="text-[var(--color-txt-3)] text-[12px]">{formatDueTime(selectedItem.startTime)}</div>
+                        <div className="text-[12.5px] text-[var(--color-txt-2)]">{formatDueTime(selectedItem.startTime)}</div>
                       )}
                     </div>
                   </div>
-                  
+
                   {selectedItem.location && (
-                    <div className="flex items-start gap-3 text-[13px] min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-2)] flex items-center justify-center shrink-0">
-                        <Icon name="mapPin" size={15} className="text-[var(--color-txt-2)]" />
-                      </div>
-                      <div className="text-[var(--color-txt-1)] min-w-0 break-words [overflow-wrap:anywhere]">
+                    <div className="flex min-w-0 items-start gap-3 border-b border-[var(--color-border)] py-3 text-[14px]">
+                      <Icon name="mapPin" size={16} className="mt-0.5 shrink-0 text-[var(--color-txt-3)]" />
+                      <div className="min-w-0 break-words text-[var(--color-txt-1)] [overflow-wrap:anywhere]">
                         {/^https?:\/\//i.test(selectedItem.location.trim()) ? (
                           <a
                             href={selectedItem.location.trim()}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[var(--color-accent)] hover:underline break-all"
+                            className="break-all text-[var(--color-accent)] hover:underline"
                           >
                             {selectedItem.location.trim().length > 72
                               ? `${selectedItem.location.trim().slice(0, 72)}…`
@@ -1056,25 +1045,23 @@ export default function Assignments() {
                       </div>
                     </div>
                   )}
-                  
-                  <div className="flex items-center gap-3 text-[13px]">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-2)] flex items-center justify-center">
-                      <Icon name="clock" size={15} className="text-[var(--color-txt-2)]" />
-                    </div>
+
+                  <div className="flex items-center gap-3 border-b border-[var(--color-border)] py-3 text-[14px]">
+                    <Icon name="clock" size={16} className="shrink-0 text-[var(--color-txt-3)]" />
                     <div>
-                      <div className={`${isPastDue(selectedItem.startTime) ? 'text-[var(--color-error)]' : 'text-[var(--color-txt-1)]'}`}>
+                      <div className={`font-display font-bold ${isPastDue(selectedItem.startTime) ? 'text-[var(--color-error)]' : 'text-[var(--color-txt-0)]'}`}>
                         {isPastDue(selectedItem.startTime) ? 'Past due' : `Due in ${getRelativeTime(selectedItem.startTime)}`}
                       </div>
                     </div>
                   </div>
                 </div>
-                
+
                 {selectedItem.description && (
-                  <div className="pt-4 border-t border-[var(--color-border)] min-w-0">
-                    <div className="text-[12px] font-medium text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
+                  <div className="min-w-0 pt-4">
+                    <div className="eyebrow bare mb-2">
                       Description
                     </div>
-                    <div className="text-[13px] text-[var(--color-txt-1)] leading-relaxed min-w-0 max-w-full break-words [overflow-wrap:anywhere]">
+                    <div className="min-w-0 max-w-full break-words text-[13.5px] leading-relaxed text-[var(--color-txt-1)] [overflow-wrap:anywhere]">
                       {(() => {
                         const full = stripHtml(selectedItem.description)
                         const truncated = full.length > 800
@@ -1091,9 +1078,13 @@ export default function Assignments() {
                 )}
               </div>
             ) : (
-              <div className="card p-5 text-center text-[var(--color-txt-2)]">
-                <Icon name="document" size={24} className="mx-auto mb-2 text-[var(--color-txt-3)]" />
-                <p className="text-[13px]">Select an item to view details</p>
+              <div className="card card-pad">
+                <div className="empty">
+                  <span className="ico">
+                    <Icon name="document" size={18} />
+                  </span>
+                  <p>Select an item to view details</p>
+                </div>
               </div>
             )}
           </div>

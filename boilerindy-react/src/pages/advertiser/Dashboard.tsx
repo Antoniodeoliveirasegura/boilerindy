@@ -68,12 +68,14 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
+// cls is added to the shared .badge: a route tint for the live states (Live
+// green, Paused orange, In review blue), the plain stat badge for the rest.
 const STATUS_META: Record<string, { label: string; cls: string }> = {
-  draft: { label: 'Draft', cls: 'text-[var(--color-txt-2)] bg-[var(--color-bg-2)] border-[var(--color-border)]' },
-  pending_review: { label: 'In review', cls: 'text-[var(--color-gold-dark)] bg-[var(--color-gold)]/20 border-[var(--color-gold)]/40' },
-  active: { label: 'Live', cls: 'text-emerald-700 bg-emerald-500/15 border-emerald-500/30 dark:text-emerald-300' },
-  paused: { label: 'Paused', cls: 'text-amber-700 bg-amber-500/15 border-amber-500/30 dark:text-amber-300' },
-  ended: { label: 'Ended', cls: 'text-[var(--color-txt-3)] bg-[var(--color-bg-2)] border-[var(--color-border)]' },
+  draft: { label: 'Draft', cls: '' },
+  pending_review: { label: 'In review', cls: 'badge-route r-cls' },
+  active: { label: 'Live', cls: 'badge-route r-din' },
+  paused: { label: 'Paused', cls: 'badge-route r-bus' },
+  ended: { label: 'Ended', cls: 'text-[var(--color-txt-3)]' },
 }
 
 const MIN_PHOTOS = 3
@@ -93,11 +95,7 @@ const EMPTY_FORM = {
 
 function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] || STATUS_META.draft
-  return (
-    <span className={`inline-flex items-center text-[11px] font-semibold px-2.5 py-1 rounded-full border ${meta.cls}`}>
-      {meta.label}
-    </span>
-  )
+  return <span className={`badge shrink-0 ${meta.cls}`}>{meta.label}</span>
 }
 
 // Build the API payload from form state; omit blank optional fields.
@@ -136,9 +134,12 @@ function campaignToForm(c: Campaign): CampaignFormData {
   }
 }
 
-const inputCls =
-  'w-full rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[14px] text-[var(--color-txt-0)] placeholder:text-[var(--color-txt-3)] outline-none focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 transition-shadow'
-const labelCls = 'block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5'
+const inputCls = 'input'
+const labelCls = 'block text-[13px] font-semibold text-[var(--color-txt-1)] mb-1.5'
+const hintCls = 'text-[12px] leading-snug text-[var(--color-txt-3)]'
+// Destructive outline (End): the filled error plate stays for confirmations.
+const dangerBtnCls =
+  'btn btn-secondary btn-sm text-[var(--color-error)] border-[var(--color-error)]/55 hover:border-[var(--color-error)] hover:bg-[var(--color-error)]/8'
 
 function CampaignForm({
   initial,
@@ -182,9 +183,9 @@ function CampaignForm({
         e.preventDefault()
         onSubmit(form)
       }}
-      className="rounded-2xl border border-[var(--color-border-2)] bg-[var(--color-surface)] p-5 sm:p-6 space-y-4"
+      className="card card-pad space-y-4"
     >
-      <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
+      <h3 className="card-title text-[18px]">{title}</h3>
 
       <div>
         <label className={labelCls} htmlFor="cmp-name">Campaign name</label>
@@ -203,17 +204,17 @@ function CampaignForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls} htmlFor="cmp-starts">Starts</label>
-            <input id="cmp-starts" type="date" className={inputCls} value={form.startsOn} onChange={set('startsOn')} />
+            <input id="cmp-starts" type="date" className={`${inputCls} tnum`} value={form.startsOn} onChange={set('startsOn')} />
           </div>
           <div>
             <label className={labelCls} htmlFor="cmp-ends">Ends</label>
-            <input id="cmp-ends" type="date" className={inputCls} value={form.endsOn} onChange={set('endsOn')} />
+            <input id="cmp-ends" type="date" className={`${inputCls} tnum`} value={form.endsOn} onChange={set('endsOn')} />
           </div>
         </div>
       </div>
 
-      <div className="pt-1">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-txt-3)] mb-2">Banner creative</div>
+      <div className="pt-4 border-t border-[var(--color-border)]">
+        <div className="eyebrow bare mb-3">Banner creative</div>
         <div className="space-y-3">
           <input className={inputCls} value={form.headline} onChange={set('headline')} placeholder="Headline (your business name)" aria-label="Headline" />
           <textarea className={`${inputCls} resize-none`} rows={2} value={form.body} onChange={set('body')} placeholder="Short description students will see" aria-label="Body" />
@@ -221,19 +222,19 @@ function CampaignForm({
           <div>
             <label className={labelCls} htmlFor="cmp-website">Website URL</label>
             <input id="cmp-website" className={inputCls} value={form.ctaUrl} onChange={set('ctaUrl')} placeholder="https://yourbusiness.com" aria-label="Website URL" />
-            <p className="text-[11px] text-[var(--color-txt-3)] mt-1">Students tap the banner to open this link.</p>
+            <p className={`${hintCls} mt-1.5`}>Students tap the banner to open this link.</p>
           </div>
 
           <div>
             <div className="flex items-center justify-between gap-2 mb-1.5">
               <span className={labelCls.replace('mb-1.5', 'mb-0')}>Photos (min {MIN_PHOTOS})</span>
               {isBannerPlacement && (
-                <span className={`text-[11px] font-medium ${filledPhotos >= MIN_PHOTOS ? 'text-emerald-600' : 'text-[var(--color-txt-3)]'}`}>
+                <span className={`font-display font-bold text-[12px] tnum ${filledPhotos >= MIN_PHOTOS ? 'text-[var(--color-success)]' : 'text-[var(--color-txt-3)]'}`}>
                   {filledPhotos}/{MIN_PHOTOS}+ added
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-[var(--color-txt-3)] mb-2">
+            <p className={`${hintCls} mb-2`}>
               Paste direct image links (https://…). Side banners rotate through these photos.
             </p>
             <div className="space-y-2">
@@ -252,7 +253,7 @@ function CampaignForm({
               <button
                 type="button"
                 onClick={addPhotoSlot}
-                className="mt-2 text-[12px] font-semibold text-[var(--color-accent)] hover:underline cursor-pointer bg-transparent border-0 p-0"
+                className="mt-1.5 inline-flex items-center min-h-[36px] max-md:min-h-[44px] font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-2 cursor-pointer bg-transparent border-0 p-0"
               >
                 + Add another photo
               </button>
@@ -263,19 +264,11 @@ function CampaignForm({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          type="submit"
-          disabled={submitting}
-          className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-4 py-2.5 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-        >
+      <div className="flex items-center gap-2 pt-1">
+        <button type="submit" disabled={submitting} className="btn btn-primary disabled:opacity-60">
           {submitting ? 'Saving…' : submitLabel}
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex items-center text-[13px] font-semibold text-[var(--color-txt-1)] px-4 py-2.5 rounded-xl border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] cursor-pointer transition-colors"
-        >
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
           Cancel
         </button>
       </div>
@@ -331,29 +324,32 @@ function CampaignCard({
   const canEdit = status === 'draft' || status === 'paused'
 
   return (
-    <div className="rounded-2xl border border-[var(--color-border-2)] bg-[var(--color-surface)] p-5">
+    <div className="card card-pad">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-[15px] font-bold tracking-tight truncate">{campaign.name}</h3>
-          <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5">{PLACEMENT_LABELS[campaign.placement ?? ''] || campaign.placement}</div>
+          <h3 className="card-title truncate">{campaign.name}</h3>
+          <div className="card-sub">{PLACEMENT_LABELS[campaign.placement ?? ''] || campaign.placement}</div>
         </div>
         <StatusBadge status={status} />
       </div>
 
       {campaign.creative?.headline && (
-        <p className="text-[13px] text-[var(--color-txt-1)] mt-3 line-clamp-2">{campaign.creative.headline}</p>
+        <p className="text-[13.5px] leading-snug text-[var(--color-txt-1)] mt-3 line-clamp-2">{campaign.creative.headline}</p>
       )}
 
-      <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-txt-2)] mt-3">
+      <div className="chip mt-3">
         <Icon name="calendar" size={13} />
         {dateLabel}
       </div>
 
       {showStats && stats && (
-        <div className="flex items-center gap-4 text-[12px] text-[var(--color-txt-2)] mt-3 pt-3 border-t border-[var(--color-border)]">
-          <span><strong className="text-[var(--color-txt-0)] font-semibold">{stats.impressions.toLocaleString()}</strong> impressions</span>
-          <span><strong className="text-[var(--color-txt-0)] font-semibold">{stats.taps.toLocaleString()}</strong> taps</span>
-          <span><strong className="text-[var(--color-txt-0)] font-semibold">{(stats.ctr * 100).toFixed(1)}%</strong> CTR</span>
+        // Each cell is as wide as its number or label and a cell that does not
+        // fit wraps to the next line, so six- and seven-figure counts never run
+        // into the next column. Numbers drop to 20px while the cards are 2-up.
+        <div className="flex flex-wrap gap-x-6 gap-y-3 mt-4 pt-3.5 border-t border-[var(--color-border)]">
+          <span className="flex flex-col gap-1.5"><strong className="big-stat text-[24px] sm:max-lg:text-[20px]">{stats.impressions.toLocaleString()}</strong>{' '}<span className="eyebrow bare text-[10.5px]">impressions</span></span>
+          <span className="flex flex-col gap-1.5"><strong className="big-stat text-[24px] sm:max-lg:text-[20px]">{stats.taps.toLocaleString()}</strong>{' '}<span className="eyebrow bare text-[10.5px]">taps</span></span>
+          <span className="flex flex-col gap-1.5"><strong className="big-stat text-[24px] sm:max-lg:text-[20px]">{(stats.ctr * 100).toFixed(1)}%</strong>{' '}<span className="eyebrow bare text-[10.5px]">CTR</span></span>
         </div>
       )}
 
@@ -363,9 +359,9 @@ function CampaignCard({
             type="button"
             disabled={busy}
             onClick={onEdit}
-            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[var(--color-txt-1)] px-3 py-1.5 rounded-lg border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] cursor-pointer transition-colors disabled:opacity-60"
+            className="btn btn-secondary btn-sm disabled:opacity-60"
           >
-            <Icon name="edit" size={12} /> Edit
+            <Icon name="edit" size={13} /> Edit
           </button>
         )}
         {actions.map((a) => (
@@ -374,13 +370,7 @@ function CampaignCard({
             type="button"
             disabled={busy}
             onClick={() => onStatus(a.to)}
-            className={`inline-flex items-center text-[12px] font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-colors disabled:opacity-60 ${
-              a.primary
-                ? 'text-[var(--color-gold-dark)] bg-[var(--color-gold)] border-0 hover:brightness-105'
-                : a.danger
-                  ? 'text-[var(--color-error)] border border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/8'
-                  : 'text-[var(--color-txt-1)] border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)]'
-            }`}
+            className={`${a.primary ? 'btn btn-ink btn-sm' : a.danger ? dangerBtnCls : 'btn btn-secondary btn-sm'} disabled:opacity-60`}
           >
             {a.label}
           </button>
@@ -475,31 +465,29 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   }
 
   return (
-    <div className="flex-1 bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+    <div className="flex-1 text-[var(--color-txt-0)]">
       <PageTitle>Advertiser dashboard</PageTitle>
-      <header className="border-b border-[var(--color-border)] bg-[var(--color-bg-1)]/60 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-[920px] mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <BrandMark />
-            <div>
-              <div className="text-[14px] font-semibold leading-tight">Advertiser portal</div>
-              <div className="text-[11px] text-[var(--color-txt-2)] leading-tight">{advertiser?.companyName}</div>
+      {/* The portal's own band: the app's top bar (a paper band on a 4px ink
+          rule in light, the ink band in dark), on the same 1200px edges. */}
+      <header className="topbar sticky top-0 z-10">
+        <div className="max-w-[1200px] mx-auto px-4 md:px-6 h-14 md:h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BrandMark size={32} />
+            <div className="min-w-0">
+              <div className="font-display font-extrabold text-[15px] leading-tight tracking-[-0.01em] truncate">Advertiser portal</div>
+              <div className="text-[12px] leading-tight mt-0.5 truncate text-[var(--color-txt-2)] dark:text-[var(--color-ink-dim)]">{advertiser?.companyName}</div>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={toggleTheme}
               aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] transition-colors"
+              className="icon-btn"
             >
-              <Icon name={dark ? 'sun' : 'moon'} size={16} />
+              <Icon name={dark ? 'sun' : 'moon'} size={18} />
             </button>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-1)] px-3 py-1.5 rounded-lg border border-[var(--color-border-2)] hover:bg-[var(--color-bg-2)] cursor-pointer transition-colors"
-            >
+            <button type="button" onClick={handleSignOut} className="btn btn-secondary btn-sm">
               <Icon name="close" size={14} /> Sign out
             </button>
           </div>
@@ -507,33 +495,32 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
       </header>
 
       {/* PublicLayout renders the page's <main> (issue #221); this is the content column. */}
-      <div className="max-w-[920px] mx-auto px-5 sm:px-8 py-8">
-        <div className="flex items-end justify-between gap-4 mb-6">
+      <div className="page pb-10">
+        <div className="page-head">
           <div>
-            <h1 className="text-[1.7rem] font-bold tracking-tight">Campaigns</h1>
-            <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
+            <h1 className="page-title">Campaigns</h1>
+            <p className="page-sub">
               Build a banner with at least 3 photos and your website. Submit for review when ready.
             </p>
           </div>
           {!creating && !editingId && (
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="shrink-0 inline-flex items-center gap-2 text-[13px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-4 py-2.5 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all"
-            >
-              <Icon name="plus" size={15} /> New campaign
+            <button type="button" onClick={() => setCreating(true)} className="btn btn-primary shrink-0">
+              <Icon name="plus" size={16} /> New campaign
             </button>
           )}
         </div>
 
         {error && (
-          <div role="alert" className="rounded-xl border border-[var(--color-error)]/30 bg-[var(--color-error)]/8 text-[var(--color-error)] p-3.5 mb-5 text-[13px]">
+          <div
+            role="alert"
+            className="rounded-lg border-[1.5px] border-[var(--color-error)]/45 bg-[var(--color-error)]/8 text-[var(--color-error)] px-3.5 py-2.5 mb-5 text-[13.5px] leading-snug"
+          >
             {error}
           </div>
         )}
 
         {creating && (
-          <div className="mb-6">
+          <div className="mb-6 max-w-[760px]">
             <CampaignForm
               initial={EMPTY_FORM}
               submitting={submitting}
@@ -546,7 +533,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
         )}
 
         {editingCampaign && (
-          <div className="mb-6">
+          <div className="mb-6 max-w-[760px]">
             <CampaignForm
               initial={campaignToForm(editingCampaign)}
               submitting={submitting}
@@ -561,22 +548,18 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
         {loading ? (
           <div className="text-[14px] text-[var(--color-txt-2)] py-12 text-center">Loading campaigns…</div>
         ) : campaigns.length === 0 && !creating ? (
-          <div className="rounded-2xl border border-dashed border-[var(--color-border-2)] py-14 text-center">
-            <div className="w-11 h-11 mx-auto rounded-xl bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/25 text-[var(--color-gold-dark)] flex items-center justify-center mb-3">
+          <div className="empty items-center text-center px-6 py-12">
+            <span className="ico">
               <Icon name="rocket" size={18} />
-            </div>
-            <h3 className="text-[15px] font-bold">No campaigns yet</h3>
-            <p className="text-[13px] text-[var(--color-txt-2)] mt-1 mb-4">Create your first campaign to get started.</p>
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="inline-flex items-center gap-2 text-[13px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-4 py-2.5 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all"
-            >
-              <Icon name="plus" size={15} /> New campaign
+            </span>
+            <h3 className="text-[17px] text-[var(--color-txt-0)]">No campaigns yet</h3>
+            <p className="-mt-1.5">Create your first campaign to get started.</p>
+            <button type="button" onClick={() => setCreating(true)} className="btn btn-secondary mt-1">
+              <Icon name="plus" size={16} /> New campaign
             </button>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
             {campaigns.map((c) => (
               <CampaignCard
                 key={c.id}

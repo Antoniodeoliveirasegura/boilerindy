@@ -1,11 +1,21 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import BrandMark from '../components/BrandMark'
 import PageTitle from '../components/PageTitle'
 
 // Terms of Service page (issue #115). Plain-language, grounded in what the app
 // actually does. Contact is support@boilerindy.app. Have counsel review the
 // wording before a public launch if possible.
+
+// In-prose links: underlined, since the accent alone is too close to the body
+// text colour to mark a link on its own.
+const LINK_CLASS =
+  'font-semibold text-[var(--color-accent)] underline decoration-[var(--color-accent)]/45 decoration-[1.5px] underline-offset-[3px] hover:decoration-[var(--color-accent)]'
+
+// Reading column type: Jakarta section heads over 15px/1.6 prose.
+const SECTION_TITLE = 'text-[18px] leading-[1.3] text-[var(--color-txt-0)]'
+const SECTION_BODY = 'mt-2 text-[15px] leading-[1.6] text-[var(--color-txt-1)]'
 
 const SECTIONS = [
   {
@@ -108,38 +118,56 @@ export default function Terms() {
   const back = getBackTarget(searchParams.get('from'))
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+    <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
       <PageTitle>Terms of Service</PageTitle>
-      <div className="max-w-[720px] mx-auto">
-        <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
-          {back.label}
-        </Link>
-        <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Terms of Service</h1>
-        <p className="text-[13px] text-[var(--color-txt-2)] mb-8">
-          Last updated July 16, 2026. The short version: BoilerIndy is a free, independent student
-          app for Purdue Indianapolis - be respectful, don't misuse it, campus data may be
-          imperfect, and it's provided as-is.
-        </p>
-
-        <div className="space-y-7">
-          {SECTIONS.map((section) => (
-            <section key={section.title}>
-              <h2 className="text-[17px] font-semibold text-[var(--color-txt-0)] mb-1.5">{section.title}</h2>
-              <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] whitespace-pre-line">{section.body}</p>
-              {section.link ? (
-                <Link
-                  to={section.link.to}
-                  className="inline-block text-[14px] text-[var(--color-accent)] hover:underline mt-1.5"
+      <div className="page flex-1 pb-12 md:pb-16">
+        <div className="page-measure">
+          <div className="mb-8 flex items-center gap-3 md:mb-10">
+            <BrandMark size={28} />
+            <span aria-hidden="true" className="h-6 w-px bg-[var(--color-border-2)]" />
+            <Link
+              to={back.to}
+              className="-ml-1 inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+            >
+              {back.label}
+            </Link>
+          </div>
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">Terms of Service</h1>
+              <p className="page-sub">
+                Last updated July 16, 2026. The short version: BoilerIndy is a free, independent student
+                app for Purdue Indianapolis - be respectful, don't misuse it, campus data may be
+                imperfect, and it's provided as-is.
+              </p>
+            </div>
+          </div>
+          <div className="card card-pad r-ink -mx-4 rounded-none border-x-0 sm:mx-0 sm:rounded-[var(--radius-xl)] sm:border-x sm:p-8">
+            {SECTIONS.map((section, index) => (
+              <section key={section.title} className="relative pb-8 pl-10 last:pb-0 sm:pl-12">
+                <span
+                  aria-hidden="true"
+                  className="route-badge sm absolute left-0 top-0 font-display text-[11px] font-extrabold tnum"
                 >
-                  {section.link.label}
-                </Link>
-              ) : null}
-            </section>
-          ))}
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                {index < SECTIONS.length - 1 ? (
+                  <span aria-hidden="true" className="absolute bottom-1 left-[11px] top-7 w-0.5 bg-[var(--route)]" />
+                ) : null}
+                <h2 className={SECTION_TITLE}>{section.title}</h2>
+                <p className={SECTION_BODY}>{section.body}</p>
+                {section.link ? (
+                  <Link to={section.link.to} className={`${LINK_CLASS} mt-2 inline-block text-[15px]`}>
+                    {section.link.label}
+                  </Link>
+                ) : null}
+              </section>
+            ))}
+          </div>
         </div>
-
-        <SiteDisclaimer className="mt-8" />
       </div>
+
+      <SiteDisclaimer rule />
     </div>
   )
 }

@@ -14,7 +14,7 @@ import {
 } from '../../lib/adminApi'
 import { reportReasonLabel } from '../../lib/reportReasons'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
-import { formatDateTime } from './adminHelpers'
+import { DANGER_BTN, formatDateTime } from './adminHelpers'
 import PageTitle from '../../components/PageTitle'
 
 // The report queue (issue #192): everything students reported, newest first.
@@ -208,18 +208,14 @@ export default function AdminReports() {
         description="What students reported on the board, Lost & Found, the guide, study groups, the marketplace and their profiles, newest first. Open the content, take it down if it breaks the rules, then resolve the report; dismiss one that needs nothing. Aim to review each report within a day."
       />
 
-      <div className="flex flex-wrap gap-2 mb-5" role="group" aria-label="Report status">
+      <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label="Report status">
         {STATUSES.map((s) => (
           <button
             key={s.key}
             type="button"
             onClick={() => selectStatus(s.key)}
             aria-pressed={status === s.key}
-            className={`text-[12px] px-3.5 py-2 rounded-xl border transition-colors ${
-              status === s.key
-                ? 'bg-[var(--color-accent)]/12 text-[var(--color-accent)] border-[var(--color-accent)]/30 font-medium'
-                : 'bg-[var(--color-surface)] text-[var(--color-txt-1)] border-[var(--color-border)] hover:border-[var(--color-accent)]/40'
-            }`}
+            className={`pill ${status === s.key ? 'pill-active' : ''}`}
           >
             {s.label}
           </button>
@@ -230,42 +226,43 @@ export default function AdminReports() {
       {success && <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />}
 
       {loading ? (
-        <div className="card p-6 text-[13px] text-[var(--color-txt-2)]">Loading reports…</div>
+        <div className="card card-pad text-[13.5px] text-[var(--color-txt-2)]">Loading reports…</div>
       ) : reports.length === 0 ? (
         <EmptyState
+          icon="flag"
           title="Nothing here"
           description={status === 'open' ? 'No open reports. New ones show up here as students file them.' : `No ${status} reports.`}
         />
       ) : (
-        <ul className="space-y-3" aria-label={`${STATUSES.find((s) => s.key === status)?.label} reports`}>
+        <ul className="card divide-y divide-[var(--color-border)]" aria-label={`${STATUSES.find((s) => s.key === status)?.label} reports`}>
           {reports.map((report) => {
             const contentType = CONTENT_TYPES[report.targetType]
             const overdue = report.status === 'open' && now - new Date(report.createdAt).getTime() > REVIEW_WINDOW_MS
             const open = preview?.reportId === report.id
             return (
-              <li key={report.id} className="card p-4">
+              <li key={report.id} className="px-4 py-4 sm:px-5">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--color-txt-3)]">
-                      <span className="font-medium uppercase tracking-wide">{TYPE_LABELS[report.targetType] ?? report.targetType}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="eyebrow text-[10.5px]">{TYPE_LABELS[report.targetType] ?? report.targetType}</span>
                       {report.target?.deleted && (
-                        <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5">Taken down</span>
+                        <span className="badge">Taken down</span>
                       )}
                       {report.target?.hidden && !report.target.deleted && (
-                        <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5">Hidden by reports</span>
+                        <span className="badge">Hidden by reports</span>
                       )}
                     </div>
-                    <div className="text-[14px] font-medium text-[var(--color-txt-0)] mt-1 break-words">{targetTitle(report)}</div>
+                    <div className="font-display font-bold text-[15px] leading-snug text-[var(--color-txt-0)] mt-2 break-words">{targetTitle(report)}</div>
                     {report.target?.authorId && report.targetType !== 'user' && (
-                      <div className="text-[11px] text-[var(--color-txt-3)] mt-0.5">
+                      <div className="text-[12.5px] text-[var(--color-txt-2)] mt-0.5">
                         Posted by {report.target.authorName || 'a student with no name'}
                       </div>
                     )}
-                    <div className="text-[13px] text-[var(--color-txt-1)] mt-2">
-                      <span className="font-medium">{reportReasonLabel(report.reason)}</span>
+                    <div className="text-[13.5px] leading-snug text-[var(--color-txt-1)] mt-2.5">
+                      <span className="font-semibold text-[var(--color-txt-0)]">{reportReasonLabel(report.reason)}</span>
                       {report.details ? <span className="text-[var(--color-txt-2)]">: {report.details}</span> : null}
                     </div>
-                    <div className={`text-[11px] mt-1.5 ${overdue ? 'text-[var(--color-error)]' : 'text-[var(--color-txt-3)]'}`}>
+                    <div className={`text-[12.5px] mt-1.5 tnum ${overdue ? 'font-semibold text-[var(--color-error)]' : 'text-[var(--color-txt-3)]'}`}>
                       Reported by {report.reporter.displayName || 'a student with no name'}, {ageLabel(report.createdAt, now)} (
                       {formatDateTime(report.createdAt)})
                     </div>
@@ -277,7 +274,7 @@ export default function AdminReports() {
                         onClick={() => handleOpen(report)}
                         disabled={busyId === report.id}
                         aria-expanded={open}
-                        className="btn btn-secondary text-[12px] px-3 py-2 disabled:opacity-50"
+                        className="btn btn-secondary btn-sm disabled:opacity-50"
                       >
                         <Icon name="eye" size={14} />
                         {open ? 'Close' : 'Open'}
@@ -288,7 +285,7 @@ export default function AdminReports() {
                         type="button"
                         onClick={() => handleTakeDown(report)}
                         disabled={busyId === report.id}
-                        className="inline-flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl border border-[var(--color-error)]/40 text-[var(--color-error)] hover:bg-[var(--color-error)]/10 disabled:opacity-50"
+                        className={`${DANGER_BTN} disabled:opacity-50`}
                       >
                         <Icon name="trash" size={14} />
                         Take down
@@ -300,7 +297,7 @@ export default function AdminReports() {
                           type="button"
                           onClick={() => handleClose(report, 'resolved')}
                           disabled={busyId === report.id}
-                          className="btn btn-primary text-[12px] px-3 py-2 disabled:opacity-50"
+                          className="btn btn-secondary btn-sm disabled:opacity-50"
                         >
                           <Icon name="check" size={14} />
                           Resolve
@@ -309,7 +306,7 @@ export default function AdminReports() {
                           type="button"
                           onClick={() => handleClose(report, 'dismissed')}
                           disabled={busyId === report.id}
-                          className="btn btn-secondary text-[12px] px-3 py-2 disabled:opacity-50"
+                          className="btn btn-ghost btn-sm disabled:opacity-50"
                         >
                           Dismiss
                         </button>
@@ -318,18 +315,21 @@ export default function AdminReports() {
                   </div>
                 </div>
                 {open && (
-                  <div className="mt-3 rounded-xl border border-[var(--color-border)] p-3 text-[12px]" aria-live="polite">
+                  <div
+                    className="mt-3.5 rounded-r-md border-l-[3px] border-[var(--color-border-3)] bg-[var(--color-stat)] px-3.5 py-3 text-[13px] leading-snug"
+                    aria-live="polite"
+                  >
                     {preview?.item ? (
                       <>
-                        <div className="font-medium text-[var(--color-txt-0)] break-words">
+                        <div className="font-display font-bold text-[var(--color-txt-0)] break-words">
                           {clip(firstString(preview.item, ['title', 'body', 'name']) || '(untitled)', 200)}
                         </div>
                         {firstString(preview.item, ['description', 'body', 'location']) && (
-                          <div className="text-[var(--color-txt-2)] mt-1 whitespace-pre-wrap break-words">
+                          <div className="text-[var(--color-txt-1)] mt-1 whitespace-pre-wrap break-words">
                             {clip(firstString(preview.item, ['description', 'body', 'location']), 1000)}
                           </div>
                         )}
-                        <div className="text-[11px] text-[var(--color-txt-3)] mt-1.5 font-mono break-all">Id {preview.item.id}</div>
+                        <div className="text-[11.5px] text-[var(--color-txt-3)] mt-2 font-mono break-all">Id {preview.item.id}</div>
                       </>
                     ) : (
                       <div className="text-[var(--color-txt-2)]">It is no longer live: it was taken down or deleted.</div>

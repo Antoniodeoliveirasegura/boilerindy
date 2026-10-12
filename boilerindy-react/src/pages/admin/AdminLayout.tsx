@@ -15,59 +15,56 @@ export default function AdminLayout() {
   const { user, getDisplayName } = useAuth()
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[var(--color-bg-0)]">
-      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 lg:py-8">
-        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-          <aside className="lg:w-64 shrink-0">
-            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:sticky lg:top-20">
-              <div className="flex items-center gap-3 px-2 pb-4 mb-2 border-b border-[var(--color-border)]">
-                <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold-dark)]">
-                  <Icon name="shield" size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[14px] font-semibold text-[var(--color-txt-0)] truncate">Admin console</div>
-                  <div className="text-[11px] text-[var(--color-txt-2)] truncate">{getDisplayName()}</div>
-                </div>
-              </div>
-
-              <nav className="space-y-1" aria-label="Admin navigation">
-                {NAV.map(({ to, end, label, icon }) => (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    end={end}
-                    className={({ isActive }) =>
-                      `flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] no-underline transition-colors ${
-                        isActive
-                          ? 'bg-[var(--color-gold)]/20 text-[var(--color-gold-dark)] font-medium border border-[var(--color-gold)]/30'
-                          : 'text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] border border-transparent'
-                      }`
-                    }
-                  >
-                    <Icon name={icon} size={16} />
-                    {label}
-                  </NavLink>
-                ))}
-              </nav>
-
-              <div className="mt-4 pt-4 border-t border-[var(--color-border)] px-2">
-                <Link
-                  to="/dashboard"
-                  className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)] no-underline"
-                >
-                  ← Back to student app
-                </Link>
-                {user?.email && (
-                  <div className="text-[11px] text-[var(--color-txt-3)] mt-2 truncate">{user.email}</div>
-                )}
+    <div className="page pb-10">
+      <div className="flex flex-col lg:flex-row gap-5 lg:gap-8">
+        <aside className="lg:w-60 shrink-0">
+          <div className="card r-ink p-3 lg:sticky lg:top-20">
+            <div className="flex items-center gap-3 px-1.5 pt-1 pb-3 mb-2 border-b border-[var(--color-border)]">
+              <span className="route-badge">
+                <Icon name="shield" size={18} />
+              </span>
+              <div className="min-w-0">
+                <div className="font-display font-bold text-[14px] leading-tight text-[var(--color-txt-0)] truncate">Admin console</div>
+                <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5 truncate">{getDisplayName()}</div>
               </div>
             </div>
-          </aside>
 
-          {/* AppLayout renders the page's <main> (issue #221); this is a plain column. */}
-          <div className="flex-1 min-w-0">
-            <Outlet />
+            <nav className="grid grid-cols-2 gap-1 lg:grid-cols-1" aria-label="Admin navigation">
+              {NAV.map(({ to, end, label, icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={end}
+                  // The shell's drawer row (an ink plate with the amber edge when
+                  // active), sized down for the console: it follows any change
+                  // to .drawer-link in index.css.
+                  className={({ isActive }) =>
+                    `drawer-link gap-2.5 min-h-[44px] lg:min-h-[40px] px-3 text-[13.5px] leading-tight transition-colors ${isActive ? 'is-active' : ''}`
+                  }
+                >
+                  <Icon name={icon} size={16} />
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+
+            <div className="mt-2 pt-2 border-t border-[var(--color-border)] px-1.5 pb-1">
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center min-h-[36px] max-md:min-h-[44px] font-display font-bold text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)] no-underline"
+              >
+                ← Back to student app
+              </Link>
+              {user?.email && (
+                <div className="text-[12px] text-[var(--color-txt-3)] truncate">{user.email}</div>
+              )}
+            </div>
           </div>
+        </aside>
+
+        {/* AppLayout renders the page's <main> (issue #221); this is a plain column. */}
+        <div className="flex-1 min-w-0">
+          <Outlet />
         </div>
       </div>
     </div>

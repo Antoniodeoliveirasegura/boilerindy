@@ -317,8 +317,14 @@ export default function Login() {
   }
 
   const isSignup = tab === 'signup'
-  const inputBase =
-    'w-full py-2.5 px-3.5 rounded-xl border border-[var(--color-border-2)] bg-[var(--color-surface)] text-[var(--color-txt-0)] text-sm outline-none transition-shadow focus:border-[var(--color-gold)] focus:ring-2 focus:ring-[var(--color-gold)]/20 placeholder:text-[var(--color-txt-3)]'
+  // Field plates come from the shared .input; a failed field keeps an error edge.
+  const fieldClass = (err?: string) => (err ? 'input border-[var(--color-error)] hover:border-[var(--color-error)]' : 'input')
+  const labelClass = 'block mb-1.5 text-[13px] font-semibold text-[var(--color-txt-1)]'
+  const errorClass = 'mt-1.5 text-[12.5px] font-medium text-[var(--color-error)]'
+  // The Sign in / Create account switch: two pills in a stat track.
+  const segmentClass = (active: boolean) =>
+    `pill justify-center ${active ? 'pill-active' : 'border-transparent bg-transparent hover:bg-[var(--color-surface)]'}`
+  const textLink = 'font-semibold text-[var(--color-accent)] hover:underline underline-offset-2'
 
   if (loading) {
     return (
@@ -330,61 +336,67 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.05fr_0.95fr] bg-[var(--color-bg-0)] text-[var(--color-txt-0)]">
+    <div className="min-h-screen grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] bg-[var(--color-bg-1)] text-[var(--color-txt-0)]">
       <PageTitle>{forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}</PageTitle>
-      {/* ── Brand / value panel ─────────────────────────────────────────── */}
+      {/* ── Brand / value panel: a neutral ink panel ──
+          The ink fills the whole column; the content inside sticks at one
+          viewport tall, so a long form scrolls past it instead of opening
+          dead bands between the brand, the copy and the stats. */}
       <SkipLink />
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-[var(--color-ink)]">
-        <div className="hero-bg" aria-hidden="true">
-          <div className="hero-bg__aurora hero-bg__aurora--gold" />
-          <div className="hero-bg__aurora hero-bg__aurora--gold2" />
-        </div>
+      <aside className="ink-panel rounded-none border-0 relative hidden lg:block">
+        <div className="sticky top-0 flex h-screen min-h-fit flex-col justify-between gap-12 px-12 pt-8 pb-10 xl:px-16">
+          <Link to="/" className="topbar-brand w-fit">
+            <BrandMark surface="ink" size={32} />
+            BoilerIndy
+          </Link>
 
-        <Link to="/" className="relative inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-gold-light)] no-underline w-fit">
-          <BrandMark surface="ink" />
-          BoilerIndy
-        </Link>
-
-        <div className="relative max-w-[440px]">
-          <div className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
-            <Icon name="graduation" size={13} />
-            Student app
+          <div className="max-w-[500px]">
+            {/* The sign chip from Landing, on the lifted tile so it stands off the ink. */}
+            <div className="ink-panel inline-flex items-center overflow-hidden rounded-[4px] bg-[var(--color-ink-lift-2)] font-display text-[13px] font-extrabold tracking-[0.02em]">
+              <span className="route-badge size-[34px] rounded-none">
+                <Icon name="graduation" size={18} />
+              </span>
+              <span className="pl-3 pr-3.5">Student app</span>
+            </div>
+            <h1 className="page-title mt-7 text-[var(--color-ink-txt)]">
+              Your campus hub, all in one place.
+            </h1>
+            <p className="mt-5 max-w-[460px] text-[16px] leading-relaxed text-[var(--color-ink-dim)]">
+              Sign up with your email and link your Purdue account later during setup to access your schedule and campus services.
+            </p>
+            {/* The steps as stops on one line: white route badges on a thin track. */}
+            <ul className="relative mt-10 space-y-4 before:absolute before:bottom-4 before:left-[15px] before:top-4 before:w-0.5 before:bg-[var(--color-ink-dim)]/35 before:content-['']">
+              {asideFeatures.map(([icon, text]) => (
+                <li key={text} className="relative flex items-center gap-4">
+                  <span className="route-badge">
+                    <Icon name={icon} size={18} />
+                  </span>
+                  <span className="text-[14.5px] leading-snug text-[var(--color-ink-txt)]">{text}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <h1 className="text-[clamp(2rem,3.4vw,2.9rem)] font-bold tracking-[-0.02em] leading-tight text-[var(--color-gold-light)] mb-4">
-            Your campus hub, all in one place.
-          </h1>
-          <p className="text-[15px] text-[var(--color-gold-light)]/70 leading-relaxed mb-8">
-            Sign up with your email and link your Purdue account later during setup to access your schedule and campus services.
-          </p>
-          <ul className="list-none m-0 p-0 space-y-3.5">
-            {asideFeatures.map(([icon, text]) => (
-              <li key={text} className="flex items-center gap-3.5">
-                <div className="w-9 h-9 shrink-0 rounded-lg bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/25 text-[var(--color-gold-light)] flex items-center justify-center">
-                  <Icon name={icon} size={16} />
-                </div>
-                <span className="text-[13px] text-[var(--color-gold-light)]/80">{text}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
 
-        <div className="relative flex items-center gap-6 text-[var(--color-gold-light)]/70">
-          <div>
-            <div className="text-[20px] font-bold text-[var(--color-gold-light)] leading-none">Free</div>
-            <div className="text-[11px] mt-1">For all students</div>
-          </div>
-          <div className="w-px h-8 bg-[var(--color-gold)]/20" />
-          <div>
-            <div className="text-[20px] font-bold text-[var(--color-gold-light)] leading-none">Secure</div>
-            <div className="text-[11px] mt-1">Supabase auth</div>
+          <div className="grid max-w-[400px] grid-cols-[auto_minmax(0,1fr)] border-t-4 border-[var(--color-ink-txt)]">
+            <div className="pt-4 pr-6">
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Free</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">For all students</div>
+            </div>
+            <div className="border-l border-[var(--color-ink-edge)] pt-4 pl-6">
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Secure</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Supabase auth</div>
+            </div>
           </div>
         </div>
       </aside>
 
       {/* ── Auth panel ──────────────────────────────────────────────────── */}
-      <main id="main" tabIndex={-1} className="relative flex flex-col px-6 sm:px-10 py-8 focus:outline-none">
+      <main id="main" tabIndex={-1} className="relative flex min-w-0 flex-col px-4 pt-3 sm:px-10 sm:pt-5 lg:pt-[26px] focus:outline-none">
         <div className="flex items-center justify-between">
-          <Link to="/" className="inline-flex items-center gap-1.5 text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] no-underline">
+          <Link
+            to="/"
+            className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+          >
             <Icon name="arrowUpRight" size={14} className="rotate-[225deg]" />
             Back to site
           </Link>
@@ -392,22 +404,23 @@ export default function Login() {
             type="button"
             onClick={toggleTheme}
             aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-colors"
+            className="icon-btn -mr-2.5"
           >
-            <Icon name={dark ? 'sun' : 'moon'} size={16} />
+            <Icon name={dark ? 'sun' : 'moon'} size={18} />
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col justify-center max-w-[400px] w-full mx-auto py-10">
-          <div className="lg:hidden inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
-            <Icon name="graduation" size={13} />
-            Student app
+        <div className="mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center py-8 sm:py-12 lg:py-8">
+          <div className="mb-4 flex items-center gap-3 lg:hidden">
+            <BrandMark size={30} />
+            <span aria-hidden="true" className="h-5 w-px bg-[var(--color-border-3)]" />
+            <span className="eyebrow bare">Student app</span>
           </div>
 
-          <h1 className="text-[1.6rem] font-bold tracking-tight mb-1.5">
+          <h1 className="page-title compact">
             {pendingCode ? 'Check your email' : forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}
           </h1>
-          <p className="text-[13px] text-[var(--color-txt-2)] mb-6">
+          <p className="page-sub mb-6">
             {pendingCode
               ? `We sent a 6-digit code to ${pendingCode.email}. Enter it to ${pendingCode.flow === 'signup' ? 'confirm your email' : 'finish signing in'}.`
               : forgotMode
@@ -417,11 +430,11 @@ export default function Login() {
                   : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
           </p>
 
-          <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
-            <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${!isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-[var(--shadow-sm)]' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
+          <div className={`mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] p-1 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
+            <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={segmentClass(!isSignup)}>
               Sign in
             </button>
-            <button type="button" onClick={() => { setTab('signup'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-[var(--shadow-sm)]' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
+            <button type="button" onClick={() => { setTab('signup'); clearErrors() }} className={segmentClass(isSignup)}>
               Create account
             </button>
           </div>
@@ -444,15 +457,15 @@ export default function Login() {
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={oauthSubmitting || submitting}
-                className="w-full inline-flex items-center justify-center gap-2.5 text-[14px] font-semibold text-[var(--color-txt-0)] bg-[var(--color-surface)] border border-[var(--color-border-2)] px-5 py-3 rounded-xl cursor-pointer hover:bg-[var(--color-bg-2)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                className="btn btn-secondary min-h-11 w-full disabled:opacity-60"
               >
-                <Icon name="google" size={17} />
+                <Icon name="google" size={18} />
                 {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
               </button>
 
-              <div className="flex items-center gap-3 my-5" aria-hidden="true">
+              <div className="my-5 flex items-center gap-3" aria-hidden="true">
                 <span className="h-px flex-1 bg-[var(--color-border-2)]" />
-                <span className="text-[11px] text-[var(--color-txt-3)]">or use your email</span>
+                <span className="eyebrow bare text-[var(--color-txt-3)]">or use your email</span>
                 <span className="h-px flex-1 bg-[var(--color-border-2)]" />
               </div>
             </>
@@ -461,10 +474,10 @@ export default function Login() {
           {pendingCode ? (
             <form onSubmit={handleVerifyCode} className="space-y-4">
               <div>
-                <label htmlFor="code" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Verification code</label>
+                <label htmlFor="code" className={labelClass}>Verification code</label>
                 <input
                   id="code"
-                  className={`${inputBase} text-center text-lg tracking-[0.5em] font-semibold ${fieldErr.code ? 'border-[var(--color-error)]' : ''}`}
+                  className={`${fieldClass(fieldErr.code)} pl-[calc(12px+0.5em)] text-center font-display text-[20px]! font-bold tracking-[0.5em] tnum`}
                   value={code}
                   onChange={(ev) => setCode(ev.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="000000"
@@ -473,38 +486,38 @@ export default function Login() {
                   maxLength={6}
                   autoFocus
                 />
-                {fieldErr.code && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.code}</p>}
+                {fieldErr.code && <p className={errorClass}>{fieldErr.code}</p>}
               </div>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
+              <label className="flex cursor-pointer select-none items-start gap-2.5">
                 <input
                   type="checkbox"
                   checked={trustDevice}
                   onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="w-4 h-4 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
+                  className="mt-px h-[18px] w-[18px] shrink-0 accent-[var(--color-txt-0)]"
                 />
-                <span className="text-[13px] text-[var(--color-txt-1)]">Trust this device for 30 days (only on your own device)</span>
+                <span className="text-[13.5px] leading-snug text-[var(--color-txt-1)]">Trust this device for 30 days (only on your own device)</span>
               </label>
               <button
                 type="submit"
                 disabled={submitting || code.length !== 6}
-                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60"
+                className="btn btn-primary min-h-11 w-full disabled:opacity-60"
               >
                 <Icon name="check" size={16} />
                 {submitting ? 'Verifying…' : 'Verify and continue'}
               </button>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-x-4">
                 <button
                   type="button"
                   onClick={handleResendCode}
                   disabled={resending}
-                  className="text-[13px] text-[var(--color-accent)] hover:underline bg-transparent border-0 cursor-pointer disabled:opacity-60"
+                  className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink} disabled:opacity-60`}
                 >
                   {resending ? 'Sending…' : 'Send a new code'}
                 </button>
                 <button
                   type="button"
                   onClick={leaveCodeStep}
-                  className="text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] bg-transparent border-0 cursor-pointer"
+                  className="inline-flex min-h-11 items-center bg-transparent text-[13px] font-semibold text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]"
                 >
                   Use a different account
                 </button>
@@ -513,14 +526,14 @@ export default function Login() {
           ) : forgotMode ? (
             <form onSubmit={handleForgotSubmit} className="space-y-4">
               <div>
-                <label htmlFor="email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Email address</label>
-                <input id="email" type="email" className={`${inputBase} ${fieldErr.email ? 'border-[var(--color-error)]' : ''}`} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
-                {fieldErr.email && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.email}</p>}
+                <label htmlFor="email" className={labelClass}>Email address</label>
+                <input id="email" type="email" className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+                {fieldErr.email && <p className={errorClass}>{fieldErr.email}</p>}
               </div>
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60"
+                className="btn btn-primary min-h-11 w-full disabled:opacity-60"
               >
                 <Icon name="mail" size={16} />
                 {submitting ? 'Sending…' : 'Email me a reset link'}
@@ -528,7 +541,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => { setForgotMode(false); clearErrors() }}
-                className="w-full text-[13px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] bg-transparent border-0 cursor-pointer py-1"
+                className="btn btn-ghost min-h-11 w-full"
               >
                 Back to sign in
               </button>
@@ -537,52 +550,53 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignup && (
               <div>
-                <label htmlFor="name" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Full name</label>
-                <input id="name" className={`${inputBase} ${fieldErr.name ? 'border-[var(--color-error)]' : ''}`} value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Your Name" autoComplete="name" />
-                {fieldErr.name && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.name}</p>}
+                <label htmlFor="name" className={labelClass}>Full name</label>
+                <input id="name" className={fieldClass(fieldErr.name)} value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Your Name" autoComplete="name" />
+                {fieldErr.name && <p className={errorClass}>{fieldErr.name}</p>}
               </div>
             )}
 
             <div>
-              <label htmlFor="email" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Email address</label>
-              <input id="email" type="email" className={`${inputBase} ${fieldErr.email ? 'border-[var(--color-error)]' : ''}`} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
-              {fieldErr.email && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.email}</p>}
+              <label htmlFor="email" className={labelClass}>Email address</label>
+              <input id="email" type="email" className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+              {fieldErr.email && <p className={errorClass}>{fieldErr.email}</p>}
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Password</label>
+              <label htmlFor="password" className={labelClass}>Password</label>
               <div className="relative">
-                <input id="password" type={pwVisible ? 'text' : 'password'} className={`${inputBase} pr-11 ${fieldErr.password ? 'border-[var(--color-error)]' : ''}`} value={password} onChange={(ev) => setPassword(ev.target.value)} placeholder="••••••••" autoComplete={isSignup ? 'new-password' : 'current-password'} />
-                <button type="button" onClick={() => setPwVisible((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md border-0 bg-transparent text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
-                  <Icon name={pwVisible ? 'eyeOff' : 'eye'} size={16} />
+                <input id="password" type={pwVisible ? 'text' : 'password'} className={`${fieldClass(fieldErr.password)} pr-12`} value={password} onChange={(ev) => setPassword(ev.target.value)} placeholder="••••••••" autoComplete={isSignup ? 'new-password' : 'current-password'} />
+                {/* A 36px plate with a 44px hit area (the before: box) that fills the field's height. */}
+                <button type="button" onClick={() => setPwVisible((v) => !v)} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[var(--radius-md)] bg-transparent text-[var(--color-txt-2)] before:absolute before:-inset-1 before:content-[''] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]">
+                  <Icon name={pwVisible ? 'eyeOff' : 'eye'} size={17} />
                 </button>
               </div>
-              {fieldErr.password && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.password}</p>}
+              {fieldErr.password && <p className={errorClass}>{fieldErr.password}</p>}
             </div>
 
             {isSignup && (
               <div>
-                <label htmlFor="confirm" className="block text-[12px] font-semibold text-[var(--color-txt-1)] mb-1.5">Confirm password</label>
-                <input id="confirm" type="password" className={`${inputBase} ${fieldErr.confirm ? 'border-[var(--color-error)]' : ''}`} value={confirm} onChange={(ev) => setConfirm(ev.target.value)} placeholder="••••••••" autoComplete="new-password" />
-                {fieldErr.confirm && <p className="text-[11px] text-[var(--color-error)] mt-1">{fieldErr.confirm}</p>}
+                <label htmlFor="confirm" className={labelClass}>Confirm password</label>
+                <input id="confirm" type="password" className={fieldClass(fieldErr.confirm)} value={confirm} onChange={(ev) => setConfirm(ev.target.value)} placeholder="••••••••" autoComplete="new-password" />
+                {fieldErr.confirm && <p className={errorClass}>{fieldErr.confirm}</p>}
               </div>
             )}
 
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
+            <div className="flex items-center justify-between gap-3">
+              <label className="flex min-h-11 cursor-pointer select-none items-center gap-2.5">
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
+                  className="h-[18px] w-[18px] shrink-0 accent-[var(--color-txt-0)]"
                 />
-                <span className="text-[13px] text-[var(--color-txt-1)]">Remember me</span>
+                <span className="text-[13.5px] text-[var(--color-txt-1)]">Remember me</span>
               </label>
               {!isSignup && (
                 <button
                   type="button"
                   onClick={() => { setForgotMode(true); clearErrors() }}
-                  className="text-[13px] text-[var(--color-accent)] hover:underline"
+                  className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink}`}
                 >
                   Forgot password?
                 </button>
@@ -592,18 +606,18 @@ export default function Login() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-5 py-3 rounded-xl border-0 cursor-pointer hover:brightness-105 transition-all disabled:opacity-60"
+              className="btn btn-primary min-h-11 w-full disabled:opacity-60"
             >
               <Icon name={isSignup ? 'sparkles' : 'mail'} size={16} />
               {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
             </button>
 
             {isSignup && (
-              <p className="text-[11px] text-[var(--color-txt-3)] leading-relaxed">
+              <p className="text-[12px] leading-relaxed text-[var(--color-txt-3)]">
                 By creating an account you agree to basic usage analytics that help improve
                 BoilerIndy - stored in our own database, no third-party trackers, opt out anytime
                 in Settings.{' '}
-                <Link to="/privacy?from=signup" className="text-[var(--color-accent)] hover:underline">
+                <Link to="/privacy?from=signup" className={textLink}>
                   Privacy policy
                 </Link>
                 .
@@ -612,18 +626,26 @@ export default function Login() {
           </form>
           )}
 
-          <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
-            On your phone?{' '}
-            <Link to="/install" className="text-[var(--color-accent)] hover:underline">Add BoilerIndy to your Home Screen</Link>{' '}
-            for full screen and deadline reminders.
-          </p>
-          <p className="text-[12px] text-[var(--color-txt-3)] text-center mt-6 leading-relaxed">
-            Want to advertise on BoilerIndy?{' '}
-            <Link to="/advertise" className="text-[var(--color-accent)] hover:underline">Advertiser sign in</Link>.
-          </p>
+          <div className="mt-8 space-y-3 border-t border-[var(--color-border-2)] pt-5 text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+            <p className="flex items-start gap-2.5">
+              <Icon name="plus" size={15} className="mt-[3px] text-[var(--color-txt-3)]" />
+              <span>
+                On your phone?{' '}
+                <Link to="/install" className={textLink}>Add BoilerIndy to your Home Screen</Link>{' '}
+                for full screen and deadline reminders.
+              </span>
+            </p>
+            <p className="flex items-start gap-2.5">
+              <Icon name="briefcase" size={15} className="mt-[3px] text-[var(--color-txt-3)]" />
+              <span>
+                Want to advertise on BoilerIndy?{' '}
+                <Link to="/advertise" className={textLink}>Advertiser sign in</Link>.
+              </span>
+            </p>
+          </div>
         </div>
 
-        <SiteDisclaimer note="Link your Purdue account later in setup" />
+        <SiteDisclaimer note="Link your Purdue account later in setup" className="-mx-4 sm:-mx-10" rule />
       </main>
     </div>
   )

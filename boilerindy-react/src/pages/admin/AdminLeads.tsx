@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import Icon from '../../components/Icons'
 import { listAdminLeads, updateAdminLead } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader, StatusBadge } from './adminShared'
-import { LEAD_STATUS_META, formatDateTime } from './adminHelpers'
+import { LEAD_STATUS_META, TABLE_HEAD_ROW, TABLE_ROW, TABLE_TH, formatDateTime } from './adminHelpers'
 import PageTitle from '../../components/PageTitle'
 
 const FILTERS = [
@@ -69,11 +69,7 @@ export default function AdminLeads() {
         title="Access requests"
         description="Businesses requesting advertiser portal access. Review each lead, then create an account from the Advertisers tab."
         actions={
-          <button
-            type="button"
-            onClick={load}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] cursor-pointer"
-          >
+          <button type="button" onClick={load} className="btn btn-secondary btn-sm">
             <Icon name="refresh" size={14} />
             Refresh
           </button>
@@ -83,17 +79,13 @@ export default function AdminLeads() {
       <AlertBanner message={error} onDismiss={() => setError('')} />
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
 
-      <div className="flex flex-wrap gap-2 mb-5">
+      <div className="flex flex-wrap gap-2 mb-4">
         {FILTERS.map(({ value, label }) => (
           <button
             key={value}
             type="button"
             onClick={() => setFilter(value)}
-            className={`rounded-full px-3.5 py-1.5 text-[12px] font-medium border cursor-pointer transition-colors ${
-              filter === value
-                ? 'bg-[var(--color-gold)]/20 border-[var(--color-gold)]/40 text-[var(--color-gold-dark)]'
-                : 'bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-txt-2)] hover:bg-[var(--color-bg-2)]'
-            }`}
+            className={`pill ${filter === value ? 'pill-active' : ''}`}
           >
             {label}
           </button>
@@ -101,72 +93,76 @@ export default function AdminLeads() {
       </div>
 
       {loading ? (
-        <div className="text-[13px] text-[var(--color-txt-2)]">Loading requests…</div>
+        <div className="text-[13.5px] text-[var(--color-txt-2)]">Loading requests…</div>
       ) : leads.length === 0 ? (
         <EmptyState
+          icon="users"
           title="No requests in this view"
           description={filter === 'new' ? 'New advertiser access requests will appear here.' : 'Try another filter.'}
         />
       ) : (
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+        <div className="card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-[13px]">
+            <table className="w-full min-w-[760px] text-left text-[13.5px]">
               <thead>
-                <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg-2)]/60">
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Business</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Message</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Submitted</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Status</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)] text-right">Actions</th>
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={TABLE_TH}>Business</th>
+                  <th className={TABLE_TH}>Message</th>
+                  <th className={TABLE_TH}>Submitted</th>
+                  <th className={TABLE_TH}>Status</th>
+                  <th className={`${TABLE_TH} text-right`}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {leads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
-                    <td className="px-4 py-4">
-                      <div className="font-medium text-[var(--color-txt-0)]">{lead.companyName || '-'}</div>
-                      <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5">{lead.email}</div>
+                  <tr key={lead.id} className={`${TABLE_ROW} align-top`}>
+                    <td className="px-4 py-3.5">
+                      <div className="font-display font-bold text-[14px] leading-snug text-[var(--color-txt-0)]">{lead.companyName || '-'}</div>
+                      <div className="text-[12.5px] text-[var(--color-txt-2)] mt-0.5">{lead.email}</div>
                     </td>
-                    <td className="px-4 py-4 text-[var(--color-txt-1)] max-w-xs">
-                      <p className="line-clamp-3 whitespace-pre-wrap">{lead.message || '-'}</p>
+                    <td className="px-4 py-3.5 min-w-[12rem] text-[var(--color-txt-1)]">
+                      <p className="line-clamp-3 whitespace-pre-wrap leading-snug">{lead.message || '-'}</p>
                     </td>
-                    <td className="px-4 py-4 text-[var(--color-txt-2)] whitespace-nowrap">
+                    <td className="px-4 py-3.5 w-[8.75rem] text-[var(--color-txt-2)] tnum">
                       {formatDateTime(lead.createdAt)}
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-3.5">
                       <StatusBadge status={lead.status} metaMap={LEAD_STATUS_META} />
                     </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {lead.status === 'new' && (
-                          <button
-                            type="button"
-                            disabled={busyId === lead.id}
-                            onClick={() => setLeadStatus(lead, 'contacted')}
-                            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg-2)] cursor-pointer disabled:opacity-50"
-                          >
-                            Mark contacted
-                          </button>
-                        )}
-                        {lead.status !== 'closed' && (
+                    <td className="px-4 py-3">
+                      {/* Same place in every row: the main action (Create account)
+                          on the first line, the quieter Mark contacted and Close
+                          on the second. Closed rows have no actions. */}
+                      {lead.status !== 'closed' && (
+                        <div className="flex flex-col items-end gap-1">
                           <Link
                             to={`/admin/advertisers?lead=${encodeURIComponent(lead.id)}&email=${encodeURIComponent(lead.email)}&company=${encodeURIComponent(lead.companyName || '')}`}
-                            className="rounded-lg bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-2.5 py-1.5 text-[12px] font-semibold no-underline hover:opacity-90"
+                            className="btn btn-secondary btn-sm no-underline"
                           >
                             Create account
                           </Link>
-                        )}
-                        {lead.status !== 'closed' && (
-                          <button
-                            type="button"
-                            disabled={busyId === lead.id}
-                            onClick={() => setLeadStatus(lead, 'closed')}
-                            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] text-[var(--color-txt-2)] hover:bg-[var(--color-bg-2)] cursor-pointer disabled:opacity-50"
-                          >
-                            Close
-                          </button>
-                        )}
-                      </div>
+                          <div className="flex justify-end gap-1">
+                            {lead.status === 'new' && (
+                              <button
+                                type="button"
+                                disabled={busyId === lead.id}
+                                onClick={() => setLeadStatus(lead, 'contacted')}
+                                className="btn btn-ghost btn-sm whitespace-nowrap disabled:opacity-50"
+                              >
+                                Mark contacted
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={busyId === lead.id}
+                              onClick={() => setLeadStatus(lead, 'closed')}
+                              className="btn btn-ghost btn-sm disabled:opacity-50"
+                            >
+                              Close
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -43,10 +43,7 @@ function rank(option: MajorOption, query: string): number {
 
 function DegreeBadge({ degree }: { degree: string }) {
   return (
-    <span
-      title={degreeLabels[degree] || degree}
-      className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold tracking-wide bg-[var(--color-stat)] border border-[var(--color-border)] text-[var(--color-txt-2)]"
-    >
+    <span title={degreeLabels[degree] || degree} className="badge shrink-0">
       {degree}
     </span>
   )
@@ -131,19 +128,19 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
 
   return (
     <div ref={wrapRef} className="relative w-full sm:w-[22rem]">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           data-testid="major-picker"
           onClick={() => setOpen((o) => !o)}
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="flex-1 min-w-0 flex items-center gap-2 py-2 px-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[13px] text-left outline-none transition-colors hover:border-[var(--color-border-2)] focus-visible:border-[var(--color-gold)] focus-visible:ring-2 focus-visible:ring-[var(--color-gold)]/20"
+          className="input flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-[14px]"
         >
-          <Icon name="graduation" size={15} className="text-[var(--color-txt-3)] shrink-0" />
+          <Icon name="graduation" size={16} className="shrink-0 text-[var(--color-txt-2)]" />
           <span
-            className={`flex-1 min-w-0 truncate ${
-              selected ? 'text-[var(--color-txt-0)]' : 'text-[var(--color-txt-3)]'
+            className={`min-w-0 flex-1 truncate ${
+              selected ? 'font-display font-bold text-[var(--color-txt-0)]' : 'text-[var(--color-txt-3)]'
             }`}
           >
             {selected ? selected.name : 'Select your major…'}
@@ -151,8 +148,8 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
           {selected && <DegreeBadge degree={selected.degree} />}
           <Icon
             name={open ? 'chevronUp' : 'chevronDown'}
-            size={15}
-            className="text-[var(--color-txt-3)] shrink-0"
+            size={16}
+            className="shrink-0 text-[var(--color-txt-2)]"
           />
         </button>
         {selected && (
@@ -160,17 +157,21 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
             type="button"
             onClick={() => onChange(null)}
             aria-label="Clear selected major"
-            className="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg text-[var(--color-txt-3)] hover:text-[var(--color-error)] hover:bg-[var(--color-stat)] transition-colors"
+            className="icon-btn shrink-0 hover:text-[var(--color-error)]"
           >
-            <Icon name="close" size={15} />
+            <Icon name="close" size={16} />
           </button>
         )}
       </div>
 
       {open && (
-        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-xl)] overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--color-border)]">
-            <Icon name="search" size={14} className="text-[var(--color-txt-3)] shrink-0" />
+        <div className="menu-panel absolute z-50 mt-1.5 w-full overflow-hidden p-0">
+          <div className="relative border-b border-[var(--color-border)] p-2">
+            <Icon
+              name="search"
+              size={15}
+              className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-[var(--color-txt-3)]"
+            />
             <input
               ref={inputRef}
               value={query}
@@ -184,9 +185,9 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
               role="combobox"
               aria-expanded={open}
               aria-controls="major-picker-list"
-              className="flex-1 min-w-0 bg-transparent text-[13px] text-[var(--color-txt-0)] outline-none placeholder:text-[var(--color-txt-3)]"
+              className="input min-h-[44px] py-2 pl-9 pr-12 text-[14px] md:min-h-[40px]"
             />
-            <span className="text-[11px] text-[var(--color-txt-3)] shrink-0 tabular-nums">
+            <span className="tnum pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 font-display text-[12px] font-bold text-[var(--color-txt-3)]">
               {results.length}
             </span>
           </div>
@@ -199,7 +200,7 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
             className="max-h-[18rem] overflow-y-auto overscroll-contain py-1"
           >
             {results.length === 0 ? (
-              <div className="px-3 py-6 text-center text-[12px] text-[var(--color-txt-2)]">
+              <div className="px-3 py-6 text-center text-[13px] text-[var(--color-txt-2)]">
                 No major matches “{query}”.
               </div>
             ) : (
@@ -215,24 +216,28 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
                     aria-selected={isSelected}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => commit(option)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors ${
-                      index === activeIndex ? 'bg-[var(--color-stat)]' : ''
+                    className={`flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-[14px] transition-colors md:min-h-[40px] ${
+                      index === activeIndex ? 'bg-[var(--color-bg-2)]' : ''
                     }`}
                   >
                     <span
                       className={`w-4 shrink-0 ${
-                        isSelected ? 'text-[var(--color-gold-muted)]' : 'text-transparent'
+                        isSelected ? 'text-[var(--color-txt-0)]' : 'text-transparent'
                       }`}
                     >
-                      <Icon name="check" size={14} />
+                      <Icon name="check" size={14} strokeWidth={2.5} />
                     </span>
-                    <span className="flex-1 min-w-0 truncate text-[var(--color-txt-0)]">
+                    <span
+                      className={`min-w-0 flex-1 truncate text-[var(--color-txt-0)] ${
+                        isSelected ? 'font-display font-bold' : ''
+                      }`}
+                    >
                       {option.name}
                     </span>
                     {option.tracked && (
                       <span
                         title="Requirements are mapped for this major"
-                        className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] border border-[var(--color-gold)]/30"
+                        className="badge badge-route shrink-0"
                       >
                         Plan
                       </span>

@@ -21,6 +21,9 @@ type Match = {
 type Connection = { userId: string; displayName?: string; email?: string }
 type IncomingRequest = { userId: string; displayName?: string }
 
+// A disabled primary drops to a neutral plate: amber marks a live action only.
+const PRIMARY_OFF = 'disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:border-[var(--color-border-2)] disabled:shadow-none'
+
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
@@ -147,140 +150,199 @@ export default function Friends() {
     loadConnections()
   }
 
-  const personAction = 'text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]'
+  const personAction = 'py-1 font-display font-semibold text-[13px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]'
+  const initial = (name?: string) => (name || '').trim().charAt(0).toUpperCase()
 
   return (
-    <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
-      <PageTitle>People</PageTitle>
-      {moderationUi}
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">People</h1>
-        <p className="text-[14px] text-[var(--color-txt-2)] mt-1">Meet classmates who share your courses.</p>
-      </div>
-
-      {/* Profile / discoverable */}
-      <form onSubmit={saveProfile} className="card p-5 mb-6 space-y-3">
-        <div className="text-[12px] font-semibold text-[var(--color-txt-2)] uppercase tracking-wider">Your profile</div>
-        <p className="text-[12px] text-[var(--color-txt-2)]">
-          Turn on “discoverable” to appear to classmates in your courses. Until you accept a request, others only see
-          your name, interests, and how many courses you share - never your email or schedule. Default is off.
-        </p>
-        <textarea
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          maxLength={300}
-          rows={2}
-          placeholder="Short bio (optional)"
-          className="input w-full text-[13px] px-3 py-2 resize-y"
-        />
-        <input
-          value={interests}
-          onChange={(e) => setInterests(e.target.value)}
-          placeholder="Interests, comma-separated (e.g. chess, hiking)"
-          className="input w-full text-[13px] px-3 py-2"
-        />
-        <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-1)]">
-          <input type="checkbox" checked={discoverable} onChange={(e) => setDiscoverable(e.target.checked)} />
-          Discoverable to classmates
-        </label>
-        <div className="flex items-center gap-3">
-          <button type="submit" disabled={savingProfile} className="btn btn-primary px-4 py-2.5 text-[13px] disabled:opacity-60">
-            {savingProfile ? 'Saving…' : 'Save profile'}
-          </button>
-          {profileMsg && <span className="text-[12px] text-[var(--color-txt-2)]">{profileMsg}</span>}
-        </div>
-      </form>
-
-      {/* Incoming requests */}
-      {requestError && <div role="alert" className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">{requestError}</div>}
-      {incoming.length > 0 && (
-        <div className="mb-6">
-          <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">Requests</div>
-          <div className="space-y-2">
-            {incoming.map((req) => (
-              <div key={req.userId} className="card p-4 flex items-center justify-between gap-3">
-                <span className="text-[14px] font-medium text-[var(--color-txt-0)]">{req.displayName} wants to connect</span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={() => respond(req, 'accept')} className="btn btn-primary text-[12px] px-3 py-2">Accept</button>
-                  <button type="button" onClick={() => respond(req, 'decline')} className="text-[12px] px-3 py-2 rounded-xl border border-[var(--color-border-2)] text-[var(--color-txt-2)]">Decline</button>
-                  <button type="button" onClick={() => void handleBlock(req)} className={`${personAction} px-1`}>Block</button>
-                </div>
-              </div>
-            ))}
+    <div className="page r-ink">
+      <div className="page-measure">
+        <PageTitle>People</PageTitle>
+        {moderationUi}
+        <header className="page-head">
+          <div>
+            <h1 className="page-title">People</h1>
+            <p className="page-sub">Meet classmates who share your courses.</p>
           </div>
-        </div>
-      )}
+        </header>
 
-      {/* Connections */}
-      {accepted.length > 0 && (
-        <div className="mb-6">
-          <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">Your connections</div>
-          <div className="space-y-2">
-            {accepted.map((c) => (
-              <div key={c.userId} className="card p-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-[14px] font-medium text-[var(--color-txt-0)]">{c.displayName}</span>
-                  {c.email && <a href={`mailto:${c.email}`} className="text-[12px] text-[var(--color-accent)] hover:underline">{c.email}</a>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={(e) => reportUser(c, e.currentTarget)} className={personAction}>Report user</button>
-                  <button type="button" onClick={() => void handleBlock(c)} className={personAction}>Block</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Matches */}
-      <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">Suggested classmates</div>
-      {matchError && <div className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">{matchError}</div>}
-      {loadingMatches ? (
-        <p className="text-[13px] text-[var(--color-txt-3)]">Loading…</p>
-      ) : !discoverable ? (
-        <div className="card p-8 text-center">
-          <p className="text-[14px] font-medium text-[var(--color-txt-0)]">Turn on “discoverable” to see matches</p>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">You’ll be matched with classmates who also opt in.</p>
-        </div>
-      ) : matches.length === 0 ? (
-        <div className="card p-8 text-center">
-          <p className="text-[14px] font-medium text-[var(--color-txt-0)]">No matches yet</p>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">Check back as more classmates opt in.</p>
-        </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {matches.map((m) => (
-            <div key={m.userId} className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-[15px] font-semibold text-[var(--color-txt-0)] break-words">{m.displayName}</h3>
-                  <div className="text-[12px] text-[var(--color-accent)] mt-0.5">
-                    {m.sharedCount} shared course{m.sharedCount === 1 ? '' : 's'}
-                    {Array.isArray(m.sharedCourses) && m.sharedCourses.length > 0 && (
-                      <span className="text-[var(--color-txt-3)]"> · {m.sharedCourses.join(', ')}</span>
-                    )}
-                  </div>
-                  {Array.isArray(m.interests) && m.interests.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {m.interests.slice(0, 6).map((i) => (
-                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)]">{i}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button type="button" onClick={() => connect(m)} className="btn btn-primary text-[12px] px-3 py-2 shrink-0">
-                  <Icon name="plus" size={14} />
-                  Connect
-                </button>
-              </div>
-              <div className="flex gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
-                <button type="button" onClick={(e) => reportUser(m, e.currentTarget)} className={personAction}>Report user</button>
-                <button type="button" onClick={() => void handleBlock(m)} className={personAction}>Block</button>
-              </div>
+        <div className="space-y-5">
+          {/* Profile / discoverable */}
+          <form onSubmit={saveProfile} className="card card-pad space-y-3.5">
+            <div className="card-head mb-3.5">
+              <span className="route-badge" aria-hidden="true">
+                <Icon name="user" size={18} />
+              </span>
+              <div className="card-title">Your profile</div>
             </div>
-          ))}
+            <p className="text-[14px] leading-relaxed text-[var(--color-txt-2)] max-w-[40rem]">
+              Turn on “discoverable” to appear to classmates in your courses. Until you accept a request, others only see
+              your name, interests, and how many courses you share - never your email or schedule. Default is off.
+            </p>
+            <div className="grid gap-3.5">
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                maxLength={300}
+                rows={2}
+                placeholder="Short bio (optional)"
+                className="input resize-y"
+              />
+              <input
+                value={interests}
+                onChange={(e) => setInterests(e.target.value)}
+                placeholder="Interests, comma-separated (e.g. chess, hiking)"
+                className="input"
+              />
+            </div>
+            <label className="flex items-center gap-2.5 min-h-[40px] text-[14px] text-[var(--color-txt-1)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={discoverable}
+                onChange={(e) => setDiscoverable(e.target.checked)}
+                className="w-4 h-4 accent-[var(--color-txt-0)]"
+              />
+              Discoverable to classmates
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="submit" disabled={savingProfile} className={`btn btn-primary ${PRIMARY_OFF}`}>
+                {savingProfile ? 'Saving…' : 'Save profile'}
+              </button>
+              {profileMsg && <span className="text-[13px] text-[var(--color-txt-2)]">{profileMsg}</span>}
+            </div>
+          </form>
+
+          {/* Incoming requests */}
+          {requestError && (
+            <div role="alert" className="card px-4 py-3 border-[var(--color-error)]/40 text-[14px] text-[var(--color-error)]">
+              {requestError}
+            </div>
+          )}
+          {incoming.length > 0 && (
+            <section className="card card-pad">
+              <div className="card-head">
+                <span className="route-badge" aria-hidden="true">
+                  <Icon name="bell" size={18} />
+                </span>
+                <div className="card-title">Requests</div>
+              </div>
+              <ul className="-mt-1">
+                {incoming.map((req) => (
+                  <li key={req.userId} className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-x-3.5 py-3 border-t border-[var(--color-border)] first:border-t-0">
+                    <span className="ava" aria-hidden="true">{initial(req.displayName)}</span>
+                    <div className="min-w-0 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-2">
+                      <span className="min-h-9 min-w-0 flex items-center font-display font-bold text-[15px] text-[var(--color-txt-0)] [overflow-wrap:anywhere]">{req.displayName} wants to connect</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={() => respond(req, 'accept')} className="btn btn-ink btn-sm">Accept</button>
+                        <button type="button" onClick={() => respond(req, 'decline')} className="btn btn-secondary btn-sm">Decline</button>
+                        <button type="button" onClick={() => void handleBlock(req)} className={`${personAction} px-1.5`}>Block</button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Connections */}
+          {accepted.length > 0 && (
+            <section className="card card-pad">
+              <div className="card-head">
+                <span className="route-badge" aria-hidden="true">
+                  <Icon name="users" size={18} />
+                </span>
+                <div className="card-title">Your connections</div>
+              </div>
+              <ul className="-mt-1">
+                {accepted.map((c) => (
+                  <li key={c.userId} className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-x-3.5 py-3 border-t border-[var(--color-border)] first:border-t-0">
+                    <span className="ava" aria-hidden="true">{initial(c.displayName)}</span>
+                    <div className="min-w-0 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-1">
+                      <div className="min-h-9 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{c.displayName}</span>
+                        {c.email && <a href={`mailto:${c.email}`} className="text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] [overflow-wrap:anywhere]">{c.email}</a>}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <button type="button" onClick={(e) => reportUser(c, e.currentTarget)} className={personAction}>Report user</button>
+                        <button type="button" onClick={() => void handleBlock(c)} className={personAction}>Block</button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Matches */}
+          <section className="card card-pad">
+            <div className="card-head">
+              <span className="route-badge" aria-hidden="true">
+                <Icon name="users" size={18} />
+              </span>
+              <div className="card-title">Suggested classmates</div>
+            </div>
+            {matchError && <div className="mb-3 text-[14px] text-[var(--color-error)]">{matchError}</div>}
+            {loadingMatches ? (
+              <p className="text-[14px] text-[var(--color-txt-2)]">Loading…</p>
+            ) : !discoverable ? (
+              <div className="empty row">
+                <span className="ico shrink-0">
+                  <Icon name="eyeOff" size={18} />
+                </span>
+                <div>
+                  <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">Turn on “discoverable” to see matches</p>
+                  <p className="mt-0.5">You’ll be matched with classmates who also opt in.</p>
+                </div>
+              </div>
+            ) : matches.length === 0 ? (
+              <div className="empty row">
+                <span className="ico shrink-0">
+                  <Icon name="users" size={18} />
+                </span>
+                <div>
+                  <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No matches yet</p>
+                  <p className="mt-0.5">Check back as more classmates opt in.</p>
+                </div>
+              </div>
+            ) : (
+              <ul className="-mt-1">
+                {matches.map((m) => (
+                  <li key={m.userId} className="grid grid-cols-[36px_minmax(0,1fr)] gap-x-3.5 py-4 border-t border-[var(--color-border)] first:border-t-0">
+                    <span className="ava" aria-hidden="true">{initial(m.displayName)}</span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                        <div className="min-w-0">
+                          <h3 className="text-[15px] leading-snug text-[var(--color-txt-0)] break-words">{m.displayName}</h3>
+                          <div className="text-[13px] font-semibold text-[var(--color-txt-1)] mt-0.5 tnum">
+                            {m.sharedCount} shared course{m.sharedCount === 1 ? '' : 's'}
+                            {Array.isArray(m.sharedCourses) && m.sharedCourses.length > 0 && (
+                              <span className="font-normal text-[var(--color-txt-2)]"> · {m.sharedCourses.join(', ')}</span>
+                            )}
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => connect(m)} className="btn btn-ink btn-sm shrink-0">
+                          <Icon name="plus" size={14} />
+                          Connect
+                        </button>
+                      </div>
+                      {Array.isArray(m.interests) && m.interests.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                          {m.interests.slice(0, 6).map((i) => (
+                            <span key={i} className="chip">{i}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-4 mt-2">
+                        <button type="button" onClick={(e) => reportUser(m, e.currentTarget)} className={personAction}>Report user</button>
+                        <button type="button" onClick={() => void handleBlock(m)} className={personAction}>Block</button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-      )}
+      </div>
     </div>
   )
 }

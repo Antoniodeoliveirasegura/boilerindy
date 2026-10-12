@@ -50,7 +50,6 @@ type ClassEntry = {
   room: string
   startTime: string
   endTime?: string | null
-  color: string
   count: number
   pattern?: string
   isManual?: boolean
@@ -67,32 +66,41 @@ type EditForm = {
   days: string[]
 }
 
-const colorOrder = ['blue', 'green', 'purple', 'orange']
-const colorConfig: Record<string, { bg: string; border: string; text: string; accent: string }> = {
-  blue: {
-    bg: 'bg-[#e4eef8] dark:bg-[#18283a]',
-    border: 'border-[#6c8fb3]/18 dark:border-[#4f78a4]/30',
-    text: 'text-[#37628d] dark:text-[#8fc4ff]',
-    accent: 'bg-[#4f78a4] dark:bg-[#4f78a4]',
-  },
-  green: {
-    bg: 'bg-[#e3f1e7] dark:bg-[#112b19]',
-    border: 'border-[#5a9470]/18 dark:border-[#3f9a59]/30',
-    text: 'text-[#2f6d47] dark:text-[#72d493]',
-    accent: 'bg-[#3f9a59] dark:bg-[#3f9a59]',
-  },
-  purple: {
-    bg: 'bg-[#efe8f5] dark:bg-[#26183a]',
-    border: 'border-[#8d6aa7]/18 dark:border-[#9b72bd]/30',
-    text: 'text-[#76548f] dark:text-[#d8b6ff]',
-    accent: 'bg-[#8d6aa7] dark:bg-[#9b72bd]',
-  },
-  orange: {
-    bg: 'bg-[#f5ead8] dark:bg-[#332208]',
-    border: 'border-[#a98542]/18 dark:border-[#b98a2a]/30',
-    text: 'text-[#7a5720] dark:text-[#f0c56a]',
-    accent: 'bg-[#a98542] dark:bg-[#b98a2a]',
-  },
+// Course titles from the feed often lead with the course code ("CS 25100
+// Data Structures"); the code goes on a plate and the rest stays as text.
+// Only a Purdue code (2-5 letter subject, 5-digit number) counts, and it splits
+// only on whitespace, so the rest keeps its own punctuation ("CS 25100 - Lab 3"
+// leaves "- Lab 3") and "CS 25100: Project 2" stays whole. Same rule as
+// Assignments; Home's splitter should move to it too.
+const COURSE_CODE_LEAD = /^([A-Z]{2,5} ?\d{5}[A-Z]?)(?:\s+(\S.*))?$/
+
+function splitCourseCode(text: string): { code: string; rest: string } {
+  const trimmed = text.trim()
+  const match = COURSE_CODE_LEAD.exec(trimmed)
+  return match ? { code: match[1], rest: match[2] ?? '' } : { code: '', rest: trimmed }
+}
+
+function CourseCode({ text, className = '' }: { text: string; className?: string }) {
+  const { code, rest } = splitCourseCode(text)
+  return (
+    <>
+      {code ? <span className="code solid">{code}</span> : null}
+      {rest ? <span className={className}>{rest}</span> : null}
+    </>
+  )
+}
+
+// The time gutter: "9:30" over "AM", from the meeting's local start time.
+function gutterTime(iso: string): { hm: string; half: string } {
+  const date = new Date(iso)
+  const hours = date.getHours()
+  const hm = `${((hours + 11) % 12) + 1}:${String(date.getMinutes()).padStart(2, '0')}`
+  return { hm, half: hours < 12 ? 'AM' : 'PM' }
+}
+
+function minutesOfDay(iso: string): number {
+  const date = new Date(iso)
+  return date.getHours() * 60 + date.getMinutes()
 }
 
 function getDayName(dateValue: string | Date) {
@@ -203,7 +211,6 @@ function getWeeklyPattern(
         room: room || 'Location unavailable',
         startTime,
         endTime,
-        color: colorOrder[seen.size % colorOrder.length],
         count: 1,
         hasOverride,
       })
@@ -220,7 +227,6 @@ function getWeeklyPattern(
     })
   }
 
-  let colorCursor = seen.size
   for (const manual of overrides.manual) {
     const pattern = getPatternLabel(manual.days.filter((d) => DAYS.includes(d)))
     for (const day of manual.days) {
@@ -242,7 +248,6 @@ function getWeeklyPattern(
         room: manual.room || 'Location unavailable',
         startTime: anchoredStart,
         endTime: anchoredEnd,
-        color: colorOrder[colorCursor++ % colorOrder.length],
         count: 1,
         pattern,
         isManual: true,
@@ -340,6 +345,22 @@ export default function Schedule() {
   }
 
   const needsSetup = onboarding?.needsPurdueConnection || onboarding?.needsScheduleSource
+
+  // The wall clock for the "now" rule on today's column, refreshed each minute.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const todayName = getDayName(now)
+  // Where the now rule sits in today's list: before the first meeting that has
+  // not started yet (after the last one once the day is done).
+  const nowIndex = useMemo(() => {
+    if (selectedDay !== todayName || !classes.length) return -1
+    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const next = classes.findIndex((cls) => minutesOfDay(cls.startTime) > nowMinutes)
+    return next === -1 ? classes.length : next
+  }, [classes, now, selectedDay, todayName])
 
   function requireUser(): string | null {
     if (!userId) {
@@ -502,14 +523,20 @@ export default function Schedule() {
   }
 
   const editorOpen = editing || adding
+  const fieldLabel = 'block text-[13px] font-semibold text-[var(--color-txt-1)]'
+  const closeEditor = () => {
+    setEditing(false)
+    setAdding(false)
+    setFormError('')
+  }
 
   return (
-    <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+    <div className="page">
       <PageTitle>Class Schedule</PageTitle>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
+      <header className="page-head animate-fade-in-up">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Class Schedule</h1>
-          <p className="text-[14px] text-[var(--color-txt-2)] mt-1">
+          <h1 className="page-title">Class Schedule</h1>
+          <p className="page-sub">
             {termLabel || 'Current term'}
             {classesMeta.totalInTerm ? ` · ${classesMeta.totalInTerm} imported meetings` : ''}
             {placeholderHiddenCount > 0 ? (
@@ -522,130 +549,122 @@ export default function Schedule() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {hiddenCount > 0 ? (
-            <button
-              type="button"
-              onClick={restoreHidden}
-              className="btn btn-secondary text-[13px] px-4 py-2.5"
-            >
+            <button type="button" onClick={restoreHidden} className="btn btn-secondary">
               Restore {hiddenCount} deleted
             </button>
           ) : null}
-          <button type="button" onClick={openAdd} className="btn btn-primary text-[13px] px-4 py-2.5">
-            <Icon name="plus" size={14} />
+          <button type="button" onClick={openAdd} className="btn btn-primary">
+            <Icon name="plus" size={16} />
             Add class
           </button>
         </div>
-      </div>
+      </header>
 
       {(banner || loadBanner) && (
-        <div className="card p-4 mb-6 text-[13px] text-[var(--color-txt-1)] border-[var(--color-border)]">
-          {banner || loadBanner}
+        <div className="card mb-5 flex items-start gap-2.5 px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]">
+          <Icon name="info" size={16} className="mt-0.5 text-[var(--color-txt-2)]" />
+          <span className="min-w-0">{banner || loadBanner}</span>
         </div>
       )}
 
       {needsSetup && (
-        <div className="card p-5 mb-6 animate-fade-in-up">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
-                {onboarding?.needsPurdueConnection ? 'Link Purdue to import your schedule' : 'Connect your Purdue timetable feed'}
-              </div>
-              {/* needsPurdueConnection is also false when linking is off
-                  (PURDUE_AUTH_MODE=off), so only hasPurdueLinked may claim a
-                  link (issue #372). */}
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
-                {onboarding?.needsPurdueConnection
-                  ? 'Your BoilerIndy account is ready. Link Purdue first, then attach your timetable iCal export.'
-                  : onboarding?.hasPurdueLinked
-                    ? 'Your Purdue account is linked. Finish setup to sync your recurring class meetings into this page.'
-                    : 'Connect your timetable feed to sync your recurring class meetings into this page.'}
-              </p>
+        <section className="card card-pad r-cls mb-5 flex flex-col gap-4 sm:flex-row sm:items-center animate-fade-in-up">
+          <span className="route-badge">
+            <Icon name={onboarding?.needsPurdueConnection ? 'graduation' : 'calendar'} size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="card-title">
+              {onboarding?.needsPurdueConnection ? 'Link Purdue to import your schedule' : 'Connect your Purdue timetable feed'}
             </div>
-            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
-              <Icon name={onboarding?.needsPurdueConnection ? 'graduation' : 'calendar'} size={15} />
-              Open setup
-            </Link>
+            {/* needsPurdueConnection is also false when linking is off
+                (PURDUE_AUTH_MODE=off), so only hasPurdueLinked may claim a
+                link (issue #372). */}
+            <p className="mt-1 max-w-[640px] text-[13.5px] leading-snug text-[var(--color-txt-2)]">
+              {onboarding?.needsPurdueConnection
+                ? 'Your BoilerIndy account is ready. Link Purdue first, then attach your timetable iCal export.'
+                : onboarding?.hasPurdueLinked
+                  ? 'Your Purdue account is linked. Finish setup to sync your recurring class meetings into this page.'
+                  : 'Connect your timetable feed to sync your recurring class meetings into this page.'}
+            </p>
           </div>
-        </div>
+          <Link to="/setup" className="btn btn-ink w-fit shrink-0">
+            <Icon name={onboarding?.needsPurdueConnection ? 'graduation' : 'calendar'} size={16} />
+            Open setup
+          </Link>
+        </section>
       )}
 
       {editorOpen ? (
-        <div className="card p-5 mb-6 animate-fade-in-up">
-          <div className="flex items-start justify-between gap-3 mb-4">
+        <section className="card card-pad mb-5 animate-fade-in-up">
+          <header className="card-head items-start">
             <div>
-              <h2 className="text-[16px] font-semibold text-[var(--color-txt-0)]">
-                {adding ? 'Add a class' : 'Edit class'}
-              </h2>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
+              <h2 className="card-title">{adding ? 'Add a class' : 'Edit class'}</h2>
+              <p className="card-sub">
                 Fixes stay on this device and keep working after you re-sync the Purdue feed.
               </p>
             </div>
             <button
               type="button"
-              onClick={() => {
-                setEditing(false)
-                setAdding(false)
-                setFormError('')
-              }}
-              className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)]"
+              onClick={closeEditor}
+              className="icon-btn -mr-2 -mt-2 ml-auto shrink-0"
               aria-label="Close editor"
             >
               <Icon name="close" size={18} />
             </button>
-          </div>
+          </header>
 
-          <div className="grid sm:grid-cols-2 gap-3">
-            <label className="block text-[12px] text-[var(--color-txt-3)]">
+          <div className="grid gap-x-4 gap-y-3.5 sm:grid-cols-2">
+            <label className={fieldLabel}>
               Course code
               <input
                 value={form.code}
                 onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[14px] text-[var(--color-txt-0)]"
+                className="input mt-1.5 font-normal"
                 placeholder="CS 18000"
               />
             </label>
-            <label className="block text-[12px] text-[var(--color-txt-3)]">
+            <label className={fieldLabel}>
               Name / section
               <input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[14px] text-[var(--color-txt-0)]"
+                className="input mt-1.5 font-normal"
                 placeholder="Problem Solving And Object-Oriented Programming"
               />
             </label>
-            <label className="block text-[12px] text-[var(--color-txt-3)]">
+            <label className={fieldLabel}>
               Room / location
               <input
                 value={form.room}
                 onChange={(e) => setForm((f) => ({ ...f, room: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[14px] text-[var(--color-txt-0)]"
+                className="input mt-1.5 font-normal"
                 placeholder="LWSN B155"
               />
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <label className="block text-[12px] text-[var(--color-txt-3)]">
+              <label className={fieldLabel}>
                 Starts
                 <input
                   type="time"
                   value={form.startHm}
                   onChange={(e) => setForm((f) => ({ ...f, startHm: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[14px] text-[var(--color-txt-0)]"
+                  className="input tnum mt-1.5 font-normal"
                 />
               </label>
-              <label className="block text-[12px] text-[var(--color-txt-3)]">
+              <label className={fieldLabel}>
                 Ends
                 <input
                   type="time"
                   value={form.endHm}
                   onChange={(e) => setForm((f) => ({ ...f, endHm: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[14px] text-[var(--color-txt-0)]"
+                  className="input tnum mt-1.5 font-normal"
                 />
               </label>
             </div>
           </div>
 
           <div className="mt-4">
-            <div className="text-[12px] text-[var(--color-txt-3)] mb-2">Meets on</div>
+            <div className={`${fieldLabel} mb-2`}>Meets on</div>
             <div className="flex flex-wrap gap-1.5">
               {DAYS.map((day) => {
                 const active = form.days.includes(day)
@@ -654,11 +673,7 @@ export default function Schedule() {
                     key={day}
                     type="button"
                     onClick={() => toggleDay(day)}
-                    className={`text-[12px] px-3 py-1.5 rounded-xl border transition-colors ${
-                      active
-                        ? 'border-[var(--color-gold)] bg-[var(--color-gold)]/15 text-[var(--color-txt-0)]'
-                        : 'border-[var(--color-border)] text-[var(--color-txt-2)]'
-                    }`}
+                    className={`pill min-w-[56px] justify-center ${active ? 'pill-active' : ''}`}
                   >
                     {day.slice(0, 3)}
                   </button>
@@ -666,274 +681,260 @@ export default function Schedule() {
               })}
             </div>
             {!adding && !selectedClass?.isManual ? (
-              <p className="text-[11px] text-[var(--color-txt-3)] mt-2">
+              <p className="mt-2 text-[12px] text-[var(--color-txt-3)]">
                 Uncheck a day to hide that meeting if the feed put it on the wrong weekday.
               </p>
             ) : null}
           </div>
 
           {formError ? (
-            <p className="text-[13px] text-red-600 dark:text-red-400 mt-3">{formError}</p>
+            <p className="mt-3 text-[13px] font-medium text-[var(--color-error)]">{formError}</p>
           ) : null}
 
-          <div className="flex flex-wrap gap-2 mt-5">
-            <button
-              type="button"
-              onClick={adding ? saveAdd : saveEdit}
-              className="btn btn-primary text-[13px] px-4 py-2.5"
-            >
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button type="button" onClick={adding ? saveAdd : saveEdit} className="btn btn-ink">
               {adding ? 'Add to schedule' : 'Save changes'}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(false)
-                setAdding(false)
-                setFormError('')
-              }}
-              className="btn btn-secondary text-[13px] px-4 py-2.5"
-            >
+            <button type="button" onClick={closeEditor} className="btn btn-secondary">
               Cancel
             </button>
           </div>
-        </div>
+        </section>
       ) : null}
 
-      {/* Weekday strip scrolls inside the card on narrow screens (issue #162);
-          the day buttons keep their minimum width instead of compressing. */}
-      <div className="card p-1.5 mb-6 animate-fade-in-up stagger-1">
-        <div className="flex gap-1 overflow-x-auto">
-          {DAYS.map((day) => {
-            const isSelected = selectedDay === day
-            const hasClasses = (schedule[day] || []).length > 0
-            return (
-              <button
-                key={day}
-                onClick={() => setSelectedDay(day)}
-                className={`flex-1 shrink-0 min-w-[88px] whitespace-nowrap text-[13px] py-2.5 rounded-xl transition-all duration-300 relative
-                  ${isSelected
-                    ? 'bg-[var(--color-gold)] text-[var(--color-gold-dark)] font-semibold shadow-[var(--shadow-sm)]'
-                    : 'text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]'
-                  }`}
-              >
-                <span className="hidden sm:inline">{day}</span>
-                <span className="sm:hidden">{day.slice(0, 3)}</span>
-                {hasClasses && !isSelected && (
-                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[var(--color-gold)]" />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-[1fr_340px] gap-6">
-        <div className="space-y-3 animate-fade-in-up stagger-2">
-          {loading ? (
-            <div className="card p-12 text-center">
-              <p className="text-[15px] font-medium text-[var(--color-txt-1)]">Loading imported classes…</p>
-            </div>
-          ) : classes.length === 0 ? (
-            <div className="card p-12 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-[var(--color-stat)] flex items-center justify-center mx-auto mb-4">
-                <Icon name="calendar" size={28} className="text-[var(--color-txt-3)]" />
-              </div>
-              <p className="text-[15px] font-medium text-[var(--color-txt-1)]">No weekly classes scheduled</p>
-              <p className="text-[13px] text-[var(--color-txt-3)] mt-1">
-                {needsSetup
-                  ? 'Finish setup to populate this schedule, or add a class manually.'
-                  : 'No recurring class meetings were found for this day. Add one if the feed missed it.'}
-              </p>
-              <button type="button" onClick={openAdd} className="btn btn-secondary text-[13px] px-4 py-2.5 mt-4">
-                Add class
-              </button>
-            </div>
-          ) : (
-            classes.map((cls, idx) => {
-              const config = colorConfig[cls.color]
-              const isSelected = selectedClass?.id === cls.id
-
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
+        <section className="card r-cls min-w-0 animate-fade-in-up stagger-1">
+          {/* Weekday strip scrolls inside the card on narrow screens (issue #162);
+              the day buttons keep their minimum width instead of compressing.
+              Each day carries a 4px top rule: amber for today, ink for the
+              selected day, and one small square per meeting. */}
+          <div className="flex gap-1 overflow-x-auto rounded-t-[var(--radius-xl)] border-b border-[var(--color-border)] p-1.5">
+            {DAYS.map((day) => {
+              const isSelected = selectedDay === day
+              const isToday = todayName === day
+              const meetings = (schedule[day] || []).length
               return (
-                <div
-                  key={cls.id}
-                  onClick={() => setSelectedClass(cls)}
-                  className={`card card-interactive p-0 overflow-hidden transition-all duration-300
-                    ${isSelected ? 'ring-2 ring-[var(--color-gold)] ring-offset-2 ring-offset-[var(--color-bg-1)]' : ''}`}
-                  style={{ animationDelay: `${idx * 0.08}s` }}
+                <button
+                  key={day}
+                  onClick={() => setSelectedDay(day)}
+                  className={`flex min-w-[88px] flex-1 shrink-0 flex-col items-start gap-1.5 whitespace-nowrap border-t-4 px-3 pb-2 pt-2 text-left font-display text-[14px] transition-colors
+                    ${isToday ? 'border-[var(--color-gold)]' : isSelected ? 'border-[var(--color-txt-0)]' : 'border-[var(--color-bg-3)]'}
+                    ${isSelected
+                      ? 'bg-[var(--color-stat)] font-extrabold text-[var(--color-txt-0)]'
+                      : 'font-bold text-[var(--color-txt-2)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-txt-0)]'
+                    }`}
                 >
-                  <div className="flex">
-                    <div className={`w-1.5 ${config.accent}`} />
-                    <div className={`flex-1 p-4 ${config.bg} ${config.border} border-l-0 border`}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <div className={`text-[11px] font-semibold ${config.text} tracking-wide`}>
-                              {cls.code}
-                            </div>
-                            <span className="badge">{cls.pattern}</span>
-                            {cls.isManual ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-stat)] text-[var(--color-txt-2)]">
-                                Added
-                              </span>
-                            ) : null}
-                            {cls.hasOverride && !cls.isManual ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-gold)]/20 text-[var(--color-txt-1)]">
-                                Edited
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-[16px] font-semibold text-[var(--color-txt-0)] mt-1">
-                            {cls.name}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[var(--color-txt-2)] mt-2">
-                            <span className="flex items-center gap-1.5">
-                              <Icon name="clock" size={12} />
-                              {cls.time}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleFindRoom(cls.room)
-                              }}
-                              className="flex items-center gap-1.5 hover:text-[var(--color-gold-muted)] transition-colors"
-                              title="Find this room on map"
-                            >
-                              <Icon name="mapPin" size={12} />
-                              {cls.room}
-                            </button>
-                            <span className="flex items-center gap-1.5">
-                              <Icon name="calendar" size={12} />
-                              Meets {cls.pattern}
-                              {!cls.isManual ? ` · ${cls.count} time${cls.count === 1 ? '' : 's'} this term` : ''}
-                            </span>
-                          </div>
+                  <span className="hidden sm:inline">{day}</span>
+                  <span className="sm:hidden">{day.slice(0, 3)}</span>
+                  <span aria-hidden="true" className="flex h-[6px] gap-[3px]">
+                    {Array.from({ length: Math.min(meetings, 5) }, (_, i) => (
+                      <span key={i} className="h-[6px] w-[6px] rounded-[1px] bg-[var(--route)]" />
+                    ))}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="p-3 sm:p-4 md:p-5">
+            {loading ? (
+              <p className="py-6 text-center text-[15px] font-medium text-[var(--color-txt-1)]">Loading imported classes…</p>
+            ) : classes.length === 0 ? (
+              <div className="empty">
+                <span className="ico">
+                  <Icon name="calendar" size={18} />
+                </span>
+                <div>
+                  <p className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">No weekly classes scheduled</p>
+                  <p className="mt-1">
+                    {needsSetup
+                      ? 'Finish setup to populate this schedule, or add a class manually.'
+                      : 'No recurring class meetings were found for this day. Add one if the feed missed it.'}
+                  </p>
+                </div>
+                <button type="button" onClick={openAdd} className="btn btn-secondary btn-sm">
+                  Add class
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {classes.map((cls, idx) => {
+                  const isSelected = selectedClass?.id === cls.id
+                  const gutter = gutterTime(cls.startTime)
+
+                  return (
+                    <div key={cls.id} className="space-y-3">
+                      {idx === nowIndex ? <NowRule /> : null}
+                      <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2.5 sm:grid-cols-[52px_minmax(0,1fr)] sm:gap-4">
+                        <div aria-hidden="true" className="pt-3 text-right font-display font-extrabold leading-none">
+                          <span className="tnum block text-[15px] text-[var(--color-txt-1)] sm:text-[16px]">{gutter.hm}</span>
+                          <span className="mt-1 block text-[10.5px] tracking-[0.12em] text-[var(--color-txt-3)]">{gutter.half}</span>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openEdit(cls)
-                              setSelectedClass(cls)
-                            }}
-                            className={`p-2 rounded-lg ${config.bg} hover:ring-2 hover:ring-[var(--color-gold)] transition-all`}
-                            title="Edit class"
-                            aria-label={`Edit ${cls.code}`}
-                          >
-                            <Icon name="edit" size={16} className={config.text} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleHide(cls)
-                            }}
-                            className="p-2 rounded-lg hover:bg-red-500/10 hover:ring-2 hover:ring-red-500/40 transition-all"
-                            title="Delete from schedule"
-                            aria-label={`Delete ${cls.code} from schedule`}
-                          >
-                            <Icon name="trash" size={16} className="text-red-600 dark:text-red-400" />
-                          </button>
+                        <div
+                          onClick={() => setSelectedClass(cls)}
+                          className={`min-w-0 cursor-pointer rounded-[var(--radius-md)] bg-[var(--color-cls-bg)] py-3 pl-4 pr-1.5 transition-shadow sm:pl-5 sm:pr-2
+                            ${isSelected
+                              ? /* The selection only drives the lg detail panel, so the ring shows from lg. */
+                                'shadow-[inset_4px_0_0_var(--color-cls-sub)] lg:shadow-[inset_4px_0_0_var(--color-cls-sub),0_0_0_2px_var(--color-txt-0)]'
+                              : 'shadow-[inset_4px_0_0_var(--color-cls-sub)] hover:shadow-[inset_4px_0_0_var(--color-cls-sub),0_0_0_1px_var(--color-border-3)]'
+                            }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                                <CourseCode
+                                  text={cls.code}
+                                  className="font-display text-[13.5px] font-bold text-[var(--color-txt-1)]"
+                                />
+                                <span className="badge bg-[var(--color-surface)]">{cls.pattern}</span>
+                                {cls.isManual ? <span className="badge bg-[var(--color-surface)]">Added</span> : null}
+                                {cls.hasOverride && !cls.isManual ? <span className="badge bg-[var(--color-surface)]">Edited</span> : null}
+                              </div>
+                              <div className="mt-1.5 font-display text-[16px] font-bold leading-snug text-[var(--color-txt-0)]">
+                                {cls.name}
+                              </div>
+                              <div className="tnum mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-[var(--color-txt-2)]">
+                                <span className="flex items-center gap-1.5">
+                                  <Icon name="clock" size={13} />
+                                  {cls.time}
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleFindRoom(cls.room)
+                                  }}
+                                  className="flex items-center gap-1.5 rounded-[var(--radius-xs)] font-medium text-[var(--color-txt-1)] underline-offset-2 hover:text-[var(--color-accent)] hover:underline"
+                                  title="Find this room on map"
+                                >
+                                  <Icon name="mapPin" size={13} />
+                                  {cls.room}
+                                </button>
+                                <span className="flex items-center gap-1.5">
+                                  <Icon name="calendar" size={13} />
+                                  Meets {cls.pattern}
+                                  {!cls.isManual ? ` · ${cls.count} time${cls.count === 1 ? '' : 's'} this term` : ''}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-center sm:flex-row">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openEdit(cls)
+                                  setSelectedClass(cls)
+                                }}
+                                className="icon-btn hover:bg-[var(--color-surface)] md:h-9 md:w-9"
+                                title="Edit class"
+                                aria-label={`Edit ${cls.code}`}
+                              >
+                                <Icon name="edit" size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleHide(cls)
+                                }}
+                                className="icon-btn hover:bg-[var(--color-surface)] hover:text-[var(--color-error)] md:h-9 md:w-9"
+                                title="Delete from schedule"
+                                aria-label={`Delete ${cls.code} from schedule`}
+                              >
+                                <Icon name="trash" size={16} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
+                  )
+                })}
+                {nowIndex === classes.length ? <NowRule /> : null}
+              </div>
+            )}
+          </div>
+        </section>
 
         <div className="hidden lg:block">
-          <div className="card p-5 sticky top-24">
+          <div className="card card-pad r-cls sticky top-24">
             {selectedClass ? (
               <div className="animate-fade-in">
-                <div className={`text-[11px] font-semibold ${colorConfig[selectedClass.color].text} tracking-wide`}>
-                  {selectedClass.code}
+                <div className="flex flex-wrap items-center gap-2">
+                  <CourseCode
+                    text={selectedClass.code}
+                    className="font-display text-[13.5px] font-bold text-[var(--color-txt-1)]"
+                  />
                 </div>
-                <h2 className="text-[17px] font-semibold text-[var(--color-txt-0)] mt-1">
+                <h2 className="mt-2 text-[22px] leading-tight text-[var(--color-txt-0)]">
                   {selectedClass.name}
                 </h2>
 
-                <div className="grid grid-cols-2 gap-3 mt-5">
-                  <div className="bg-[var(--color-stat)] rounded-xl p-3">
-                    <div className="text-[10px] text-[var(--color-txt-3)] uppercase tracking-wider mb-1">Day</div>
-                    <div className="text-[13px] font-medium text-[var(--color-txt-0)]">{selectedClass.day}</div>
-                  </div>
-                  <div className="bg-[var(--color-stat)] rounded-xl p-3">
-                    <div className="text-[10px] text-[var(--color-txt-3)] uppercase tracking-wider mb-1">Pattern</div>
-                    <div className="text-[13px] font-medium text-[var(--color-txt-0)]">{selectedClass.pattern}</div>
-                  </div>
-                  <div className="bg-[var(--color-stat)] rounded-xl p-3">
-                    <div className="text-[10px] text-[var(--color-txt-3)] uppercase tracking-wider mb-1">Time</div>
-                    <div className="text-[13px] font-medium text-[var(--color-txt-0)]">{selectedClass.time}</div>
-                  </div>
-                  <div className="bg-[var(--color-stat)] rounded-xl p-3">
-                    <div className="text-[10px] text-[var(--color-txt-3)] uppercase tracking-wider mb-1">Room</div>
-                    <div className="text-[13px] font-medium text-[var(--color-txt-0)]">{selectedClass.room}</div>
-                  </div>
-                  <div className="bg-[var(--color-stat)] rounded-xl p-3 col-span-2">
-                    <div className="text-[10px] text-[var(--color-txt-3)] uppercase tracking-wider mb-1">Source</div>
-                    <div className="text-[13px] font-medium text-[var(--color-txt-0)]">
+                <dl className="mt-4 grid grid-cols-2 gap-x-4 border-t border-[var(--color-border)]">
+                  {[
+                    ['Day', selectedClass.day],
+                    ['Pattern', selectedClass.pattern],
+                    ['Time', selectedClass.time],
+                    ['Room', selectedClass.room],
+                  ].map(([label, value]) => (
+                    <div key={label} className="border-b border-[var(--color-border)] py-3">
+                      <dt className="eyebrow bare">{label}</dt>
+                      <dd className="tnum mt-1.5 font-display text-[14px] font-bold leading-snug text-[var(--color-txt-0)]">{value}</dd>
+                    </div>
+                  ))}
+                  <div className="col-span-2 border-b border-[var(--color-border)] py-3">
+                    <dt className="eyebrow bare">Source</dt>
+                    <dd className="mt-1.5 font-display text-[14px] font-bold leading-snug text-[var(--color-txt-0)]">
                       {selectedClass.isManual
                         ? 'Added manually'
                         : selectedClass.hasOverride
                           ? 'Imported · edited on this device'
                           : 'Imported from Purdue feed'}
-                    </div>
+                    </dd>
                   </div>
-                </div>
+                </dl>
 
-                <div className="flex flex-col gap-2 mt-5">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(selectedClass)}
-                    className="btn btn-primary text-[12px] px-4 py-2.5 w-full"
-                  >
-                    <Icon name="edit" size={14} />
+                <div className="mt-5 flex flex-col gap-2">
+                  <button type="button" onClick={() => openEdit(selectedClass)} className="btn btn-ink w-full">
+                    <Icon name="edit" size={16} />
                     Edit details
                   </button>
                   <button
                     type="button"
                     onClick={() => handleFindRoom(selectedClass.room)}
-                    className="btn btn-secondary text-[12px] px-4 py-2.5 w-full"
+                    className="btn btn-secondary w-full"
                   >
-                    <Icon name="mapPin" size={14} />
+                    <Icon name="mapPin" size={16} />
                     Find Room
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleHide(selectedClass)}
-                    className="text-[12px] px-4 py-2.5 rounded-xl border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 inline-flex items-center justify-center gap-2"
-                  >
-                    <Icon name="trash" size={14} />
-                    Delete from schedule
-                  </button>
+                  <Link to="/setup" className="btn btn-secondary w-full">
+                    <Icon name="calendar" size={16} />
+                    Resync Feed
+                  </Link>
                   {selectedClass.hasOverride && !selectedClass.isManual ? (
-                    <button
-                      type="button"
-                      onClick={() => handleReset(selectedClass)}
-                      className="text-[12px] px-4 py-2.5 rounded-xl border border-[var(--color-border)] text-[var(--color-txt-2)] hover:bg-[var(--color-bg-2)]"
-                    >
+                    <button type="button" onClick={() => handleReset(selectedClass)} className="btn btn-ghost w-full">
                       Reset to imported
                     </button>
                   ) : null}
-                  <Link to="/setup" className="btn btn-secondary text-[12px] px-4 py-2.5 w-full">
-                    <Icon name="calendar" size={14} />
-                    Resync Feed
-                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleHide(selectedClass)}
+                    className="btn btn-ghost w-full text-[var(--color-error)] hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]"
+                  >
+                    <Icon name="trash" size={16} />
+                    Delete from schedule
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-12">
-                <div className="w-14 h-14 rounded-2xl bg-[var(--color-stat)] flex items-center justify-center mx-auto mb-4">
-                  <Icon name="calendar" size={24} className="text-[var(--color-txt-3)]" />
+              <div className="empty">
+                <span className="ico">
+                  <Icon name="calendar" size={18} />
+                </span>
+                <div>
+                  <p className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">No class selected</p>
+                  <p className="mt-1">Choose a day with meetings, or add a class the feed missed</p>
                 </div>
-                <p className="text-[14px] font-medium text-[var(--color-txt-1)]">No class selected</p>
-                <p className="text-[12px] text-[var(--color-txt-3)] mt-1">
-                  Choose a day with meetings, or add a class the feed missed
-                </p>
-                <button type="button" onClick={openAdd} className="btn btn-secondary text-[12px] px-4 py-2.5 mt-4">
+                <button type="button" onClick={openAdd} className="btn btn-secondary btn-sm">
                   Add class
                 </button>
               </div>
@@ -941,6 +942,18 @@ export default function Schedule() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Today's "now" rule: a 2px amber line with an amber stop ringed in ink. */
+function NowRule() {
+  return (
+    <div aria-hidden="true" className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-2.5 sm:grid-cols-[52px_minmax(0,1fr)] sm:gap-4">
+      <span />
+      <span className="relative block h-[2px] bg-[var(--color-gold)]">
+        <span className="absolute -left-[6px] -top-[5px] h-3 w-3 rounded-full bg-[var(--color-gold)] shadow-[0_0_0_2px_var(--color-txt-0)]" />
+      </span>
     </div>
   )
 }

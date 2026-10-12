@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import BrandMark from '../components/BrandMark'
+import Icon from '../components/Icons'
 import PageTitle from '../components/PageTitle'
 
 // Support and contact page (issue #193). Apple needs a support URL and both
@@ -11,11 +13,20 @@ import PageTitle from '../components/PageTitle'
 
 const GITHUB_ISSUES_URL = 'https://github.com/Antoniodeoliveirasegura/boilerindy/issues'
 
-const LINK_CLASS = 'text-[var(--color-accent)] hover:underline'
+// In-prose links: underlined, since the accent alone is too close to the body
+// text colour to mark a link on its own.
+const LINK_CLASS =
+  'font-semibold text-[var(--color-accent)] underline decoration-[var(--color-accent)]/45 decoration-[1.5px] underline-offset-[3px] hover:decoration-[var(--color-accent)]'
 
-const SECTIONS: { title: string; body: ReactNode }[] = [
+// Reading column type: Jakarta section heads over 15px/1.6 prose.
+const SECTION_TITLE = 'text-[18px] leading-[1.3] text-[var(--color-txt-0)]'
+const SECTION_BODY = 'mt-2 text-[15px] leading-[1.6] text-[var(--color-txt-1)]'
+
+// Each section's icon is its stop on the route line down the page.
+const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
   {
     title: 'Email us',
+    icon: 'mail',
     body: (
       <>
         For help with your account, the app, or anything that looks wrong, email{' '}
@@ -28,6 +39,7 @@ const SECTIONS: { title: string; body: ReactNode }[] = [
   },
   {
     title: 'Report a bug or suggest a feature',
+    icon: 'github',
     body: (
       <>
         You can also{' '}
@@ -40,6 +52,7 @@ const SECTIONS: { title: string; body: ReactNode }[] = [
   },
   {
     title: 'Report abuse',
+    icon: 'flag',
     body: (
       <>
         To report a post, listing, or user that breaks the{' '}
@@ -56,6 +69,7 @@ const SECTIONS: { title: string; body: ReactNode }[] = [
   },
   {
     title: 'Your data and your account',
+    icon: 'shield',
     body: (
       <>
         The{' '}
@@ -81,29 +95,47 @@ export default function Support() {
   const back = getBackTarget(searchParams.get('from'))
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+    <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
       <PageTitle>Support</PageTitle>
-      <div className="max-w-[720px] mx-auto">
-        <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
-          {back.label}
-        </Link>
-        <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Support</h1>
-        <p className="text-[13px] text-[var(--color-txt-2)] mb-8">
-          Need help with BoilerIndy, found a bug, or have a question about your account? Here is how to
-          reach us.
-        </p>
-
-        <div className="space-y-7">
-          {SECTIONS.map((section) => (
-            <section key={section.title}>
-              <h2 className="text-[17px] font-semibold text-[var(--color-txt-0)] mb-1.5">{section.title}</h2>
-              <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)]">{section.body}</p>
-            </section>
-          ))}
+      <div className="page flex-1 pb-12 md:pb-16">
+        <div className="page-measure">
+          <div className="mb-8 flex items-center gap-3 md:mb-10">
+            <BrandMark size={28} />
+            <span aria-hidden="true" className="h-6 w-px bg-[var(--color-border-2)]" />
+            <Link
+              to={back.to}
+              className="-ml-1 inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+            >
+              {back.label}
+            </Link>
+          </div>
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">Support</h1>
+              <p className="page-sub">
+                Need help with BoilerIndy, found a bug, or have a question about your account? Here is how to
+                reach us.
+              </p>
+            </div>
+          </div>
+          <div className="card card-pad r-ink -mx-4 rounded-none border-x-0 sm:mx-0 sm:rounded-[var(--radius-xl)] sm:border-x sm:p-8">
+            {SECTIONS.map((section, index) => (
+              <section key={section.title} className="relative pb-8 pl-10 last:pb-0 sm:pl-12">
+                <span aria-hidden="true" className="route-badge sm absolute left-0 top-0">
+                  <Icon name={section.icon} />
+                </span>
+                {index < SECTIONS.length - 1 ? (
+                  <span aria-hidden="true" className="absolute bottom-1 left-[11px] top-7 w-0.5 bg-[var(--route)]" />
+                ) : null}
+                <h2 className={SECTION_TITLE}>{section.title}</h2>
+                <p className={SECTION_BODY}>{section.body}</p>
+              </section>
+            ))}
+          </div>
         </div>
-
-        <SiteDisclaimer className="mt-8" />
       </div>
+
+      <SiteDisclaimer rule />
     </div>
   )
 }

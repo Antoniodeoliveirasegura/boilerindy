@@ -44,11 +44,12 @@ import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitV
 import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
 
+// Each quick action wears its own transit line (route class) on its badge.
 const quickActionTemplates = [
-  { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', color: 'map' },
-  { path: '/dining', label: 'Dining', sub: 'See what\'s open', icon: 'dining', color: 'dining' },
-  { path: '/transit', label: 'Transit', sub: 'Live bus times', icon: 'bus', color: 'bus' },
-  { path: '/events', label: 'Events', sub: '', icon: 'calendar', color: 'events' },
+  { path: '/map', label: 'Campus Map', sub: 'Find any building', icon: 'mapPin', route: 'r-map' },
+  { path: '/dining', label: 'Dining', sub: 'See what\'s open', icon: 'dining', route: 'r-din' },
+  { path: '/transit', label: 'Transit', sub: 'Live bus times', icon: 'bus', route: 'r-bus' },
+  { path: '/events', label: 'Events', sub: '', icon: 'calendar', route: 'r-evt' },
 ]
 
 // Quick actions widget width -> internal grid columns. At quarter width the
@@ -78,22 +79,12 @@ Requirements:
 - Bullet 3: notable campus or career events this week, or say none are scheduled.
 - No headings, no emoji. Stay under 150 words. Write in second person ("you"). Be warm and skimmable.`
 
-const homeEventCategory: Record<string, { label: string; badge: string; dot: string }> = {
-  campus_event: {
-    label: 'Campus Event',
-    badge: 'bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-400',
-    dot: 'bg-pink-500',
-  },
-  event: {
-    label: 'Event',
-    badge: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400',
-    dot: 'bg-indigo-500',
-  },
-  deadline: {
-    label: 'Deadline',
-    badge: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400',
-    dot: 'bg-yellow-500',
-  },
+// Category labels for today's events. The card carries the Events line, so the
+// labels themselves stay neutral badges.
+const homeEventCategory: Record<string, { label: string }> = {
+  campus_event: { label: 'Campus Event' },
+  event: { label: 'Event' },
+  deadline: { label: 'Deadline' },
 }
 
 function isSameLocalDay(isoOrDate: string | Date, now: Date) {
@@ -139,13 +130,6 @@ const fallbackMenuPreview = {
   sides: ['Caesar Salad', 'Roasted Veggies', 'Garlic Bread'],
 }
 
-const colorMap: Record<string, string> = {
-  map: 'bg-[var(--color-map-bg)] text-[var(--color-map-color)]',
-  dining: 'bg-[var(--color-dining-bg)] text-[var(--color-dining-color)]',
-  bus: 'bg-[var(--color-bus-bg)] text-[var(--color-bus-title)]',
-  events: 'bg-[var(--color-events-bg)] text-[var(--color-events-color)]',
-}
-
 function getGreeting(now: Date) {
   const hour = now.getHours()
   if (hour < 12) return 'Good morning'
@@ -182,6 +166,66 @@ function formatDuration(minutes: number) {
 function getMinutesBetween(later: Date, earlier: Date) {
   return Math.max(0, Math.round((later.getTime() - earlier.getTime()) / 60000))
 }
+
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+const EVENT_CATEGORIES = ['campus_event', 'event', 'activity']
+const NOT_TASK_CATEGORIES = ['campus_event', 'event', 'activity', 'class']
+const EXAM_CATEGORIES = ['exam', 'quiz', 'midterm']
+
+/** "CS 25100 Data Structures" -> code plate "CS 25100" + name "Data Structures". */
+function splitCourseCode(title: string): { code: string | null; name: string } {
+  const text = String(title || '').trim()
+  const m = text.match(/^([A-Z]{2,5} ?\d{3,5}[A-Z]?)\s+(.+)$/)
+  if (!m) return { code: null, name: text }
+  return { code: m[1], name: m[2] }
+}
+
+function shortTime(d: Date) {
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+function shortWeekdayCaps(d: Date) {
+  return d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()
+}
+
+/** Split-flap digits for the departures board: 9:30 AM -> [9] : [3][0] AM. */
+function flapParts(d: Date) {
+  const h = d.getHours()
+  const hour12 = h % 12 || 12
+  return {
+    hour: String(hour12).split(''),
+    minute: String(d.getMinutes()).padStart(2, '0').split(''),
+    meridiem: h < 12 ? 'AM' : 'PM',
+    day: shortWeekdayCaps(d),
+  }
+}
+
+/** "9:00 PM" -> minutes after midnight, or null. */
+function parseClockMinutes(text: string) {
+  const m = String(text).trim().match(/^(\d{1,2}):(\d{2})\s*([AP])M$/i)
+  if (!m) return null
+  let hour = Number(m[1]) % 12
+  if (m[3].toUpperCase() === 'P') hour += 12
+  return hour * 60 + Number(m[2])
+}
+
+/** "7:00 AM - 10:00 AM, 11:00 AM - 9:00 PM" -> [[420, 600], [660, 1260]]. */
+function parseHourRanges(hours: string | null | undefined) {
+  const ranges: Array<[number, number]> = []
+  const re = /(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(String(hours || ''))) !== null) {
+    const open = parseClockMinutes(m[1])
+    let close = parseClockMinutes(m[2])
+    if (open == null || close == null) continue
+    if (close <= open) close = 24 * 60
+    ranges.push([open, close])
+  }
+  return ranges
+}
+
+const pct = (value: number) => `${Math.round(value * 1000) / 10}%`
 
 function deriveScheduleState(items: any[], now: Date) {
   const safeItems = (items || []).filter(
@@ -726,7 +770,8 @@ export default function Home() {
   }, [transitVehicles, transitStops, transitRouteMap, userLocation])
 
   const smartAlerts = useMemo(() => {
-    const alerts = []
+    // Each alert wears the line it belongs to. The sentence stays one text node.
+    const alerts: Array<{ icon: string; route: string; text: string }> = []
     const nowMs = now.getTime()
 
     // Assignment due within 24 hours
@@ -739,8 +784,8 @@ export default function Home() {
     for (const item of urgentItems.slice(0, 2)) {
       const hoursLeft = Math.round((new Date(item.startTime).getTime() - nowMs) / 3600000)
       alerts.push({
-        icon: 'alert',
-        color: 'text-red-500',
+        icon: 'document',
+        route: 'r-tsk',
         text: `${item.title} is due in ${hoursLeft}h`,
       })
     }
@@ -753,7 +798,7 @@ export default function Home() {
       if (minsToClass > 0 && minsToClass <= 15) {
         alerts.push({
           icon: 'clock',
-          color: 'text-orange-500',
+          route: 'r-cls',
           text: `${scheduleState.nextClass.title} starts in ${minsToClass} min`,
         })
       }
@@ -770,7 +815,7 @@ export default function Home() {
           if (minsUntilClose > 0 && minsUntilClose <= 45) {
             alerts.push({
               icon: 'dining',
-              color: 'text-yellow-500',
+              route: 'r-din',
               text: `${diningStatus.name} closes in ${minsUntilClose} min`,
             })
           }
@@ -782,7 +827,7 @@ export default function Home() {
     if (!transitLoading && transitVehicles.length === 0 && !transitError) {
       alerts.push({
         icon: 'bus',
-        color: 'text-[var(--color-txt-3)]',
+        route: 'r-bus',
         text: 'No campus shuttles are running right now',
       })
     }
@@ -817,81 +862,212 @@ export default function Home() {
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     .slice(0, 5)
 
+  // The week ahead as seven days from today: what lands on each, as short
+  // neutral tags (the full detail goes in each day's aria-label).
+  const weekDays = useMemo(() => {
+    const first = new Date(now)
+    first.setHours(0, 0, 0, 0)
+    const meetings = homeClasses.filter((c) => c?.startTime && !shouldExcludeFromSchedule(c))
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(first)
+      day.setDate(first.getDate() + i)
+      const nextDay = new Date(day)
+      nextDay.setDate(day.getDate() + 1)
+      const inDay = (iso: string | undefined) => {
+        if (!iso) return false
+        const t = new Date(iso).getTime()
+        return t >= day.getTime() && t < nextDay.getTime()
+      }
+      const classCount = meetings.filter((c) => inDay(c.startTime)).length
+      const dated = cleanCalendarItems.filter((item) => item?.startTime && inDay(item.startTime))
+      const tasks = dated.filter((item) => !NOT_TASK_CATEGORIES.includes(item.category))
+      const exams = tasks.filter((item) => EXAM_CATEGORIES.includes(item.category) || isLikelyExamItem(item))
+      const dueCount = tasks.length - exams.length
+      const eventCount = dated.filter((item) => EVENT_CATEGORIES.includes(item.category)).length
+      const quizOnly = exams.length > 0 && exams.every((e) => /quiz/i.test(`${e.category} ${e.title}`))
+
+      // Tallies: a count and a short singular noun, the same form for every
+      // count, so they fit a 390px column and repeat no string on the page.
+      const tags: Array<{ text: string; due?: boolean }> = []
+      if (classCount) tags.push({ text: `${classCount} class` })
+      if (dueCount) tags.push({ text: `${dueCount} due`, due: true })
+      if (exams.length) tags.push({ text: `${exams.length} ${quizOnly ? 'quiz' : 'exam'}` })
+      if (eventCount) tags.push({ text: `${eventCount} event` })
+
+      const parts = [
+        classCount ? `${classCount} class${classCount === 1 ? '' : 'es'}` : '',
+        dueCount ? `${dueCount} due` : '',
+        exams.length ? `${exams.length} ${quizOnly ? 'quiz' : 'exam'}${exams.length === 1 ? '' : quizOnly ? 'zes' : 's'}` : '',
+        eventCount ? `${eventCount} event${eventCount === 1 ? '' : 's'}` : '',
+      ].filter(Boolean)
+      const long = day.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+      return {
+        key: localIsoDate(day),
+        today: i === 0,
+        d: shortWeekdayCaps(day),
+        n: day.getDate(),
+        tags: tags.slice(0, 3),
+        label: `${long}${i === 0 ? ', today' : ''}: ${parts.length ? parts.join(', ') : 'nothing scheduled'}`,
+      }
+    })
+  }, [now, homeClasses, cleanCalendarItems])
+
+  // Free time drawn as a route line: now, the first deadline that falls before
+  // the next class (if any), and the next class as the terminus. Stops sit in
+  // proportion to the real times; the middle one is kept clear of the ends so
+  // its labels never collide with theirs.
+  const freeLine = useMemo(() => {
+    const next = scheduleState.nextClass
+    if (!next) return null
+    const nowMs = now.getTime()
+    const startMs = next.startDate.getTime()
+    if (startMs <= nowMs) return null
+    const dayTag = (d: Date) => (d.toDateString() === now.toDateString() ? '' : shortWeekdayCaps(d))
+    const deadline = cleanCalendarItems
+      .filter((item) => {
+        if (!item?.startTime || NOT_TASK_CATEGORIES.includes(item.category)) return false
+        const t = new Date(item.startTime).getTime()
+        return t > nowMs && t < startMs
+      })
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0]
+    const nextParts = splitCourseCode(next.title)
+    const startDay = dayTag(next.startDate)
+    let mid = null as null | { left: string; leftNarrow: string; time: string; day: string; name: string }
+    let midLabel = ''
+    if (deadline) {
+      const due = new Date(deadline.startTime)
+      const share = (due.getTime() - nowMs) / (startMs - nowMs)
+      // Clamped so the middle labels stay clear of "Now" and the terminus.
+      // The narrow bounds apply when the card is under 32rem (phones, and a
+      // half-width card on a tablet), where the labels sit closer together.
+      mid = {
+        left: pct(Math.min(0.58, Math.max(0.22, share))),
+        leftNarrow: pct(Math.min(0.5, Math.max(0.26, share))),
+        time: shortTime(due),
+        day: dayTag(due),
+        name: splitCourseCode(deadline.title).name,
+      }
+      midLabel = ` ${deadline.title} due ${mid.day ? `${mid.day} ` : ''}${mid.time}.`
+    }
+    return {
+      nowTime: shortTime(now),
+      mid,
+      last: {
+        time: shortTime(next.startDate),
+        day: startDay,
+        name: nextParts.code || nextParts.name,
+        where: next.location || '',
+      },
+      label: `Now, ${shortTime(now)}.${midLabel} ${next.title} ${startDay ? `${startDay} ` : ''}${shortTime(next.startDate)}${next.location ? `, ${next.location}` : ''}.`,
+    }
+  }, [scheduleState.nextClass, cleanCalendarItems, now])
+
+  // Card headings keep their original Title Case text (tests and accessible
+  // names read it) and display in sentence case through CSS
+  // ('lowercase first-letter:uppercase'), as they used to display in caps.
   // Registry: widget id → display title + a renderer that closes over the
-  // already-computed state above. Each renderer returns the section's existing
-  // card JSX verbatim (or null when it has nothing to show, e.g. smart alerts).
+  // already-computed state above. Each renderer returns the section's card
+  // (or null when it has nothing to show, e.g. smart alerts).
   // Only ids present here are rendered; unknown ids in a saved layout are
   // ignored. The saved layout drives order, size, and visibility.
   const widgetRegistry: Record<string, { title: string; render: (size?: string) => React.ReactNode }> = {
     'week-ahead': {
       title: 'Week ahead',
-      render: () => (
-        <div
-          className="card p-4 sm:p-5 overflow-hidden transition-all duration-700 opacity-100 translate-y-0"
-        >
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-1">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-[var(--color-gold)] flex items-center justify-center shrink-0">
-              <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
+      render: () => {
+        const summary = !hasScheduleData ? (
+          <p className="text-[14px] text-[var(--color-txt-2)]">
+            <Link to="/setup" className="font-display font-bold text-[var(--color-accent)] hover:underline">
+              Connect your schedule
+            </Link>{' '}
+            to get a weekly briefing.
+          </p>
+        ) : weekAheadLoading && !weekAheadText ? (
+          <div className="flex items-center gap-2 text-[14px] text-[var(--color-txt-2)]">
+            <div className="w-3.5 h-3.5 border-2 border-[var(--color-txt-2)] border-t-transparent rounded-full animate-spin shrink-0" />
+            Generating your week summary…
+          </div>
+        ) : typeof weekAheadText === 'string' && weekAheadText ? (
+          <AiMarkdown className="text-[14px] leading-[1.55] text-[var(--color-txt-1)] max-w-[68ch]">{weekAheadText}</AiMarkdown>
+        ) : null
+        // Seven blank days say nothing to someone with no schedule, so the
+        // strip waits for a schedule or for something landing this week.
+        const showStrip = hasScheduleData || weekDays.some((day) => day.tags.length > 0)
+        return (
+          <div className="card card-pad r-ai @container">
+            <div className="card-head">
+              <span className="route-badge">
+                <Icon name="sparkles" size={18} />
+              </span>
+              <div>
+                <h2 className="card-title">{now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}</h2>
+                <p className="card-sub">AI · from your linked schedule & calendar</p>
+              </div>
+              {hasScheduleData && (
+                <button
+                  type="button"
+                  onClick={generateWeekAheadSummary}
+                  disabled={weekAheadLoading}
+                  className="head-link disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Icon name="refresh" size={14} className={weekAheadLoading ? 'animate-spin' : ''} />
+                  {weekAheadLoading ? 'Generating…' : 'Refresh'}
+                </button>
+              )}
             </div>
-            <div>
-              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-                {now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}
-              </h2>
-              <p className="text-[11px] text-[var(--color-txt-3)] mt-0.5">
-                AI · from your linked schedule & calendar
-              </p>
+            <div
+              className={
+                summary && showStrip
+                  ? 'grid gap-5 items-start @min-[46rem]:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] @min-[46rem]:gap-8'
+                  : ''
+              }
+            >
+              {summary}
+              {showStrip && (
+                <ol className="week-strip [&_.tags]:max-w-[4.75rem]" aria-label="Your next seven days">
+                  {weekDays.map((day) => (
+                    // The detail is real text for screen readers (browse mode
+                    // skips an aria-label on a list item); the short visible
+                    // day, date and tags are hidden from them.
+                    <li key={day.key} className={day.today ? 'today' : undefined}>
+                      <span className="sr-only">{day.label}</span>
+                      <span className="d" aria-hidden="true">{day.d}</span>
+                      <span className="n" aria-hidden="true">{day.n}</span>
+                      <span className="tags" aria-hidden="true">
+                        {day.tags.map((tag) => (
+                          <span key={tag.text} className={`tag${tag.due ? ' due' : ''}`}>
+                            {tag.text}
+                          </span>
+                        ))}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </div>
           </div>
-          {hasScheduleData && (
-          <button
-            type="button"
-            onClick={generateWeekAheadSummary}
-            disabled={weekAheadLoading}
-            className="text-[11px] text-[var(--color-accent)] hover:underline disabled:opacity-40 shrink-0 self-start sm:self-auto"
-          >
-            {weekAheadLoading ? 'Generating…' : 'Refresh'}
-          </button>
-          )}
-        </div>
-        <div className="mt-4">
-          {!hasScheduleData ? (
-            <p className="text-[13px] text-[var(--color-txt-2)]">
-              <Link to="/setup" className="text-[var(--color-accent)] hover:underline">
-                Connect your schedule
-              </Link>{' '}
-              to get a weekly briefing.
-            </p>
-          ) : weekAheadLoading && !weekAheadText ? (
-            <div className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)]">
-              <div className="w-3.5 h-3.5 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin shrink-0" />
-              Generating your week summary…
-            </div>
-          ) : typeof weekAheadText === 'string' && weekAheadText ? (
-            <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{weekAheadText}</AiMarkdown>
-          ) : null}
-        </div>
-      </div>
-        ),
+        )
+      },
     },
     'smart-alerts': {
       title: 'Heads up',
       render: () =>
         smartAlerts.length === 0 ? null : (
-        <div className="card p-4 border-[var(--color-border)] transition-all duration-700 opacity-100 translate-y-0">
-          <div className="flex items-center gap-2 mb-3">
-            <Icon name="alert" size={14} className="text-[var(--color-txt-2)]" />
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Heads Up</h2>
+          <div className="alerts">
+            <h2 className="alerts-label">
+              <Icon name="alert" size={15} />
+              Heads Up
+            </h2>
+            <ul>
+              {smartAlerts.map((alert, i) => (
+                <li key={i} className={alert.route}>
+                  <span className="route-badge sm">
+                    <Icon name={alert.icon} size={14} />
+                  </span>
+                  <span className="min-w-0">{alert.text}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="space-y-2">
-            {smartAlerts.map((alert, i) => (
-              <div key={i} className="flex items-center gap-3 text-[13px]">
-                <Icon name={alert.icon} size={14} className={alert.color} />
-                <span className="text-[var(--color-txt-1)]">{alert.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
         ),
     },
     'quick-actions': {
@@ -900,30 +1076,19 @@ export default function Home() {
       // actions vertically instead of squashing them. Full class strings are
       // written out so Tailwind's scanner emits them.
       render: (size?: string) => (
-        <div className={`grid gap-2.5 sm:gap-3 transition-all duration-700 opacity-100 translate-y-0 ${quickActionsGridClass(size ?? 'full')}`}>
-
-        {quickActions.map(({ path, label, sub, icon, color }, idx) => (
-          <Link
-            key={path}
-            to={path}
-            className="group card card-interactive p-3 sm:p-4 flex items-center gap-3 sm:gap-4 active:scale-[0.98] transition-transform"
-            style={{ animationDelay: `${idx * 0.05}s` }}
-          >
-            <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 ${colorMap[color]} transition-transform duration-300 group-hover:scale-110`}>
-              <Icon name={icon} size={18} className="sm:hidden" />
-              <Icon name={icon} size={22} className="hidden sm:block" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] sm:text-[14px] font-medium text-[var(--color-txt-0)] group-hover:text-[var(--color-accent)] transition-colors">
-                {label}
-              </div>
-              {/* Two lines at phone widths so the caption stays readable in the
-                  2x2 grid (issue #162); one clamped line from sm up as before. */}
-              <div className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)] mt-0.5 line-clamp-2 sm:line-clamp-1">{sub}</div>
-            </div>
-            <Icon name="arrowUpRight" size={14} className="text-[var(--color-txt-3)] group-hover:text-[var(--color-accent)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all hidden sm:block" />
-          </Link>
-        ))}
+        <div className={`grid gap-3 sm:gap-4 ${quickActionsGridClass(size ?? 'full')}`}>
+          {quickActions.map(({ path, label, sub, icon, route }) => (
+            <Link key={path} to={path} className={`tile ${route}`}>
+              <span className="route-badge">
+                <Icon name={icon} size={18} />
+              </span>
+              <span>
+                <b>{label}</b>
+                <small>{sub}</small>
+              </span>
+              <Icon name="arrowUpRight" size={16} className="go" />
+            </Link>
+          ))}
         </div>
       ),
     },
@@ -940,26 +1105,34 @@ export default function Home() {
                 ? 'text-[var(--color-gold-muted)]'
                 : 'text-[var(--color-error)]'
         return (
-          <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-                Cumulative GPA
-              </h2>
-              <Link
-                to="/grade-tracker"
-                className="text-[11px] text-[var(--color-accent)] hover:underline"
-              >
+          <div className="card card-pad r-ink">
+            <div className="card-head">
+              <span className="route-badge">
+                <Icon name="graduation" size={18} />
+              </span>
+              <div>
+                <h2 className="card-title">Cumulative GPA</h2>
+              </div>
+              <Link to="/grade-tracker" className="head-link">
                 {gpa == null ? 'Add grades' : 'View all'}
+                <Icon name={gpa == null ? 'plus' : 'chevronRight'} size={14} />
               </Link>
             </div>
             {gpa == null ? (
-              <div className="text-[13px] text-[var(--color-txt-2)]">
-                Track your courses to see your GPA here.
+              <div className="empty sm:flex-row sm:items-center sm:gap-4">
+                {/* Decorative: the heading and the sentence carry the meaning. */}
+                <span className="flaps blank" aria-hidden="true">
+                  <span className="flap" />
+                  <span className="flap-sep">.</span>
+                  <span className="flap" />
+                  <span className="flap" />
+                </span>
+                <p>Track your courses to see your GPA here.</p>
               </div>
             ) : (
-              <div className="flex items-baseline gap-3">
-                <span className={`text-4xl font-semibold ${tone}`}>{gpa.toFixed(2)}</span>
-                <span className="text-[12px] text-[var(--color-txt-2)]">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className={`big-stat ${tone}`}>{gpa.toFixed(2)}</span>
+                <span className="text-[13px] text-[var(--color-txt-2)] tnum">
                   {gpaSummary.credits} credits · {gpaSummary.terms.length} term
                   {gpaSummary.terms.length === 1 ? '' : 's'}
                 </span>
@@ -971,95 +1144,218 @@ export default function Home() {
     },
     'next-class': {
       title: 'Next class',
-      render: () => (
-        <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-              {scheduleState.cardLabel}
-            </h2>
-            <span className="text-[11px] text-[var(--color-txt-2)] flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
-              {scheduleState.statusLabel}
-            </span>
-          </div>
-
-          {displayClass ? (
-            <div className="bg-gradient-to-br from-[var(--color-cls-bg)] to-[var(--color-cls-bg)]/50 rounded-xl p-4 border border-[var(--color-cls-sub)]/10">
-              <div className="text-[11px] font-semibold text-[var(--color-cls-sub)] tracking-wide">{displayClass.title}</div>
-              <div className="text-[16px] font-semibold text-[var(--color-cls-title)] mt-1">{displayClass.description || 'Class meeting'}</div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[var(--color-cls-sub)] mt-2">
-                <span className="flex items-center gap-1.5">
-                  <Icon name="mapPin" size={12} />
-                  {displayClass.location || 'Location unavailable'}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Icon name="clock" size={12} />
-                  {formatTimeRange(displayClass.startTime, displayClass.endTime)}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Icon name="calendar" size={12} />
-                  {new Date(displayClass.startTime).toLocaleDateString(undefined, { weekday: 'long' })}
-                </span>
+      render: () => {
+        const start = displayClass ? new Date(displayClass.startTime) : null
+        const flap = start ? flapParts(start) : null
+        const course = displayClass ? splitCourseCode(displayClass.title) : null
+        // The big amber countdown is the visual twin of the status line, which
+        // stays in the head for screen readers (and is the only one on phones).
+        const countdown = scheduleState.currentClass
+          ? { label: 'Ends in', value: formatDuration(getMinutesBetween(scheduleState.currentClass.endDate, now)) }
+          : scheduleState.nextClass
+            ? { label: 'Starts in', value: formatDuration(scheduleState.freeMinutes) }
+            : null
+        // One amber primary per view: Done owns it while customizing, and the
+        // setup banner's button owns it while the banner shows.
+        const directionsPrimary = !!displayClass && !showSetupBanner && !editing
+        return (
+          // The board's own width picks its layout (it is the container), so a
+          // half-width board on a tablet never squeezes the desktop row:
+          // - 40rem and up: flaps, destination and countdown in one row.
+          // - 30 to 40rem: flaps and countdown, the destination under them.
+          // - under 30rem: the phone single column, with the status line in the
+          //   head instead of the countdown.
+          // Phones (under md) keep the foundation's own rules.
+          <div className="board r-cls @container">
+            <div className="board-head flex-wrap gap-y-2">
+              <h2 className="board-title">{scheduleState.cardLabel}</h2>
+              {/* Amber only while something is counting down; "Schedule clear" stays neutral.
+                  With a countdown on screen the line is for screen readers only. */}
+              <span
+                className={`board-status ${
+                  countdown
+                    ? 'md:inline-flex md:sr-only md:@max-[30rem]:not-sr-only'
+                    : 'md:inline-flex text-[var(--color-ink-dim)]'
+                }`}
+              >
+                {countdown && <span className="live-dot" aria-hidden="true" />}
+                {scheduleState.statusLabel}
+              </span>
+            </div>
+            <div className="board-main md:@min-[30rem]:@max-[40rem]:grid-cols-[auto_minmax(0,1fr)] md:@min-[30rem]:@max-[40rem]:gap-y-4 md:@max-[30rem]:grid-cols-1 md:@max-[30rem]:gap-3.5">
+              {flap && start ? (
+                <div
+                  className="flaps"
+                  role="img"
+                  aria-label={`${start.toLocaleDateString(undefined, { weekday: 'long' })} ${shortTime(start)}`}
+                >
+                  {flap.hour.map((digit, i) => (
+                    <span key={`h${i}`} className="flap" aria-hidden="true">
+                      {digit}
+                    </span>
+                  ))}
+                  <span className="flap-sep" aria-hidden="true">:</span>
+                  {flap.minute.map((digit, i) => (
+                    <span key={`m${i}`} className="flap" aria-hidden="true">
+                      {digit}
+                    </span>
+                  ))}
+                  <span className="flap-meta" aria-hidden="true">
+                    <b>{flap.meridiem}</b>
+                    <span>{flap.day}</span>
+                  </span>
+                </div>
+              ) : (
+                <div className="flaps" aria-hidden="true">
+                  <span className="flap">{' '}</span>
+                  <span className="flap-sep">:</span>
+                  <span className="flap">{' '}</span>
+                  <span className="flap">{' '}</span>
+                </div>
+              )}
+              <div className="dest md:@min-[30rem]:@max-[40rem]:col-span-2 md:@min-[30rem]:@max-[40rem]:order-last">
+                {displayClass && course ? (
+                  <>
+                    {course.code && <span className="code solid">{course.code}</span>}
+                    {course.code ? ' ' : null}
+                    <p className="dest-name">{course.name}</p>
+                    <p className="dest-sub">{displayClass.description || 'Class meeting'}</p>
+                    <p className="dest-sub mt-1 tnum">{scheduleState.cardMeta}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="dest-name">No upcoming classes</p>
+                    <p className="dest-sub">
+                      {classLoadError || 'You have no more imported class meetings coming up right now.'}
+                    </p>
+                  </>
+                )}
               </div>
-              <div className="text-[12px] text-[var(--color-cls-sub)]/90 mt-3">
-                {scheduleState.cardMeta}
+              {countdown && (
+                <div className="countdown md:@max-[30rem]:hidden" aria-hidden="true">
+                  <small>{countdown.label}</small>
+                  <b>{countdown.value}</b>
+                </div>
+              )}
+            </div>
+            <div className="board-foot md:@max-[40rem]:flex-col md:@max-[40rem]:items-stretch">
+              {displayClass && start && (
+                <dl className="cells">
+                  <div>
+                    <dt>Room</dt>
+                    <dd className="whitespace-normal [overflow-wrap:anywhere]">
+                      {displayClass.location || 'Location unavailable'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Time</dt>
+                    <dd>{formatTimeRange(displayClass.startTime, displayClass.endTime)}</dd>
+                  </div>
+                  <div>
+                    <dt>Day</dt>
+                    <dd>{start.toLocaleDateString(undefined, { weekday: 'long' })}</dd>
+                  </div>
+                </dl>
+              )}
+              <div className="board-actions md:@max-[40rem]:grid md:@max-[40rem]:grid-cols-2 md:@max-[30rem]:[&_.btn]:px-2.5">
+                <Link to="/schedule" className="btn btn-onink">
+                  <Icon name="calendar" size={16} />
+                  Full Schedule
+                </Link>
+                <Link to="/map" className={`btn ${directionsPrimary ? 'btn-primary' : 'btn-onink'}`}>
+                  <Icon name="navigation" size={16} />
+                  Get Directions
+                </Link>
               </div>
             </div>
-          ) : (
-            <div className="bg-[var(--color-stat)] rounded-xl p-4 border border-[var(--color-border)]">
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">No upcoming classes</div>
-              <div className="text-[13px] text-[var(--color-txt-2)] mt-1">
-                {classLoadError || 'You have no more imported class meetings coming up right now.'}
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-4">
-            <Link to="/schedule" className="btn btn-secondary text-[12px] px-4 py-2 flex-1">
-              <Icon name="calendar" size={14} />
-              Full Schedule
-            </Link>
-            <Link to="/map" className="btn btn-secondary text-[12px] px-4 py-2 flex-1">
-              <Icon name="navigation" size={14} />
-              Get Directions
-            </Link>
           </div>
-        </div>
-      ),
+        )
+      },
     },
     'free-time': {
       title: 'Free time',
       render: () => (
-        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-              Free Time
-            </h2>
+        // A container: the route line sizes its labels to the card, not the viewport.
+        <div className="card card-pad r-cls @container">
+          <div className="card-head">
+            <span className="route-badge">
+              <Icon name="clock" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">Free Time</h2>
+            </div>
             {/* Not AI: buildSuggestions() is deterministic logic over the
-                schedule. The sparkle badge made it read as a model answer and
+                schedule. A sparkle here made it read as a model answer and
                 undercut the real assistant sitting right below it. */}
-            <span className="badge bg-[var(--color-stat)] text-[var(--color-txt-2)]">
-              <Icon name="clock" size={10} />
-              From your schedule
-            </span>
+            <span className="chip ml-auto shrink-0">From your schedule</span>
           </div>
 
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-[42px] font-semibold text-[var(--color-txt-0)] leading-none tracking-tight">
-              {formatDuration(scheduleState.freeMinutes)}
-            </span>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="big-stat">{formatDuration(scheduleState.freeMinutes)}</span>
+            {freeLine && <p className="min-w-0 text-[14px] text-[var(--color-txt-2)]">{scheduleState.freeLabel}</p>}
           </div>
-          <p className="text-[13px] text-[var(--color-txt-2)] mb-4">
-            {scheduleState.freeLabel}
-          </p>
 
-          <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-stat)]/50">
-              <div>
-                <div className="text-[10px] font-bold text-[var(--color-txt-3)] uppercase tracking-wider">
-                  What you could do
+          {freeLine ? (
+            <div className="line" role="img" aria-label={freeLine.label}>
+              <div className="line-track" />
+              <div className="stop first now" aria-hidden="true">
+                <span className="t">{freeLine.nowTime}</span>
+                <span className="dot" />
+                <span className="n">
+                  <b>Now</b>
+                </span>
+              </div>
+              {freeLine.mid && (
+                // An ink stop (r-ink) for the deadline. Under 32rem of card it
+                // takes the narrow position and moves its time under the dot,
+                // the same arrangement the foundation gives phones.
+                <div
+                  className="stop mid r-ink left-[var(--mid)] @max-[32rem]:left-[var(--mid-narrow)] @max-[32rem]:pt-7 @max-[32rem]:[&>.t]:order-2 @max-[32rem]:[&>.t]:h-auto @max-[32rem]:[&>.t]:mt-2 @max-[32rem]:[&>.dot]:order-1 @max-[32rem]:[&>.n]:order-3 @max-[32rem]:[&>.n]:mt-0.5"
+                  aria-hidden="true"
+                  style={{ '--mid': freeLine.mid.left, '--mid-narrow': freeLine.mid.leftNarrow } as React.CSSProperties}
+                >
+                  <span className="t">
+                    {freeLine.mid.day && <em>{freeLine.mid.day}</em>}
+                    {freeLine.mid.time}
+                  </span>
+                  <span className="dot" />
+                  <span className="n">
+                    <b className="max-w-[8.5rem] @max-[32rem]:max-w-[5rem] truncate">{freeLine.mid.name}</b>
+                    due
+                  </span>
                 </div>
-                <p className="text-[11px] text-[var(--color-txt-2)] mt-0.5 hidden sm:block">
+              )}
+              <div className="stop last" aria-hidden="true">
+                <span className="t">
+                  {freeLine.last.day && <em>{freeLine.last.day}</em>}
+                  {freeLine.last.time}
+                </span>
+                <span className="dot" />
+                <span className="n max-w-[8rem] @max-[32rem]:max-w-[6rem]">
+                  <b className="truncate">{freeLine.last.name}</b>
+                  {/* In the narrowest card (a half-width card on a small tablet) the
+                      room makes way for the middle stop; the board and the
+                      line's label still give it. */}
+                  <span className={`block truncate ${freeLine.mid ? '@max-[19rem]:hidden' : ''}`}>
+                    {freeLine.last.where}
+                  </span>
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="empty row mt-4">
+              <span className="ico">
+                <Icon name="calendar" size={18} />
+              </span>
+              <p>{scheduleState.freeLabel}</p>
+            </div>
+          )}
+
+          <div className="mt-5 pt-4 border-t border-[var(--color-border)]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 pt-1">
+                <div className="eyebrow bare">What you could do</div>
+                <p className="text-[12.5px] text-[var(--color-txt-2)] mt-1.5 hidden sm:block">
                   Ideas from your schedule, dining, and today&apos;s events
                 </p>
               </div>
@@ -1068,73 +1364,25 @@ export default function Home() {
                 onClick={() => window.dispatchEvent(new CustomEvent('open-campus-assistant', {
                   detail: { message: 'What should I do right now? Consider my free time, dining hours, any upcoming events or classes, and give me a specific personalized suggestion.' }
                 }))}
-                className="inline-flex items-center justify-center gap-1.5 shrink-0 rounded-xl px-3.5 py-2 text-[12px] font-semibold bg-[var(--color-gold)] text-[var(--color-gold-dark)] border border-[rgba(23,18,10,0.22)] hover:bg-[var(--color-gold-light)] transition-all"
+                className="btn btn-secondary btn-sm shrink-0"
               >
                 <Icon name="sparkles" size={14} />
                 Ask AI
               </button>
             </div>
-            <ul className="list-none m-0 divide-y divide-[var(--color-border)] p-2 sm:p-3 gap-0">
-              {suggestions.map(({ icon, text, time, variant = 'default', sub }, idx) => {
-                const iconWrap =
-                  variant === 'dining-open'
-                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-500/25'
-                    : variant === 'dining-closed'
-                      ? 'bg-[var(--color-bg-2)] text-[var(--color-txt-2)] ring-1 ring-[var(--color-border)]'
-                      : variant === 'event'
-                        ? 'bg-[var(--color-accent)]/12 text-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/20'
-                        : variant === 'free'
-                          ? 'bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] ring-1 ring-[var(--color-gold)]/25'
-                          : variant === 'class' || variant === 'nav'
-                            ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/15'
-                            : 'bg-[var(--color-stat)] text-[var(--color-txt-2)] ring-1 ring-[var(--color-border)]'
-                const timeIsShort = String(time).length <= 14
-                return (
-                  <li key={idx} className="list-none">
-                    <div className="flex gap-3 sm:gap-4 p-3 rounded-xl hover:bg-[var(--color-stat)]/80 transition-colors">
-                      <div className={`w-11 h-11 shrink-0 rounded-xl flex items-center justify-center ${iconWrap}`}>
-                        <Icon name={icon} size={18} />
-                      </div>
-                      <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
-                        <div className="min-w-0">
-                          {sub && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--color-txt-3)] block mb-0.5">
-                              {sub}
-                            </span>
-                          )}
-                          <p className="text-[14px] font-medium text-[var(--color-txt-0)] leading-snug line-clamp-3">
-                            {text}
-                          </p>
-                          {!timeIsShort && (
-                            <p className="text-[12px] text-[var(--color-txt-2)] mt-1 sm:hidden leading-snug">
-                              {time}
-                            </p>
-                          )}
-                        </div>
-                        <div
-                          className={`shrink-0 sm:text-right ${timeIsShort ? 'sm:self-center' : 'sm:max-w-[min(100%,12rem)]'}`}
-                        >
-                          <span
-                            className={`inline-block text-[11px] font-semibold tabular-nums px-2.5 py-1 rounded-lg whitespace-pre-wrap sm:whitespace-nowrap sm:text-right ${
-                              variant === 'dining-open'
-                                ? 'bg-emerald-500/12 text-emerald-800 dark:text-emerald-300'
-                                : variant === 'dining-closed'
-                                  ? 'bg-[var(--color-bg-2)] text-[var(--color-txt-2)]'
-                                  : variant === 'event'
-                                    ? 'bg-[var(--color-accent-bg)] text-[var(--color-accent)]'
-                                    : variant === 'free'
-                                      ? 'bg-[var(--color-gold)]/12 text-[var(--color-gold-muted)]'
-                                      : 'bg-[var(--color-stat)] text-[var(--color-txt-2)] border border-[var(--color-border)]'
-                            }`}
-                          >
-                            {time}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
+            <ul className="rows mt-2">
+              {suggestions.map(({ icon, text, time, sub }, idx) => (
+                <li key={idx}>
+                  <span className="inline-grid place-items-center w-8 h-8 shrink-0 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-1)]">
+                    <Icon name={icon} size={16} />
+                  </span>
+                  <span className="txt">
+                    {sub && <small>{sub}</small>}
+                    <b className="line-clamp-3">{text}</b>
+                  </span>
+                  <span className="chip shrink-0 max-w-[12rem] whitespace-normal leading-[1.25]">{time}</span>
+                </li>
+              ))}
             </ul>
           </div>
         </div>
@@ -1143,334 +1391,407 @@ export default function Home() {
     'todays-events': {
       title: "Today's events",
       render: () => (
-        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Today's Events</h2>
-            <Link to="/events" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
+        <div className="card card-pad r-evt">
+          <div className="card-head">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">Today&apos;s Events</h2>
+            </div>
+            <Link to="/events" className="head-link">
+              View all
+              <Icon name="chevronRight" size={14} />
+            </Link>
           </div>
           {hasNoCalendarSources && (
-            <div className="rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 p-4 mb-4">
-              <div className="text-[13px] font-medium text-[var(--color-txt-0)]">Connect your calendar</div>
-              <p className="text-[12px] text-[var(--color-txt-2)] mt-1">
+            <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] p-4">
+              <div className="font-display font-bold text-[14px] text-[var(--color-txt-0)]">Connect your calendar</div>
+              <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
                 Link Brightspace or another source in setup so today&apos;s campus events match your feed.
               </p>
-              <Link to="/setup" className="inline-flex items-center gap-1.5 text-[12px] text-[var(--color-accent)] font-medium mt-2 hover:underline">
+              <Link
+                to="/setup"
+                className="inline-flex items-center gap-1.5 mt-2 font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline"
+              >
                 <Icon name="calendar" size={14} />
                 Go to setup
               </Link>
             </div>
           )}
           {calendarLoadError && !calendarLoading && (
-            <p className="text-[12px] text-[var(--color-txt-2)] mb-3">{calendarLoadError}</p>
+            <p className="text-[13px] text-[var(--color-txt-2)] mb-3">{calendarLoadError}</p>
           )}
-          <div className="space-y-3">
-            {calendarLoading ? (
-              <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
-                Loading today&apos;s events…
+          {calendarLoading ? (
+            <p className="text-[14px] text-[var(--color-txt-2)]">Loading today&apos;s events…</p>
+          ) : todayEventsPreview.length === 0 ? (
+            !hasNoCalendarSources ? (
+              <div className="empty row">
+                <span className="ico">
+                  <Icon name="calendar" size={18} />
+                </span>
+                <p>No more events scheduled for the rest of today.</p>
               </div>
-            ) : todayEventsPreview.length === 0 ? (
-              !hasNoCalendarSources ? (
-                <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
-                  No more events scheduled for the rest of today.
-                </div>
-              ) : null
-            ) : (
-              todayEventsPreview.map((item) => {
+            ) : null
+          ) : (
+            <ul>
+              {todayEventsPreview.map((item) => {
                 const cat = homeEventCategory[item.category] || homeEventCategory.event
                 const loc = item.location ? item.location.split(' (')[0] : null
                 return (
-                  <div key={item.id} className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)]">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="text-[14px] font-medium text-[var(--color-txt-0)] leading-snug">{item.title}</div>
-                      <span className={`badge shrink-0 ${cat.badge}`}>{cat.label}</span>
+                  <li
+                    key={item.id}
+                    className="flex items-start gap-3 py-3 border-t border-[var(--color-border)] first:border-t-0 first:pt-0"
+                  >
+                    <span className="mt-[7px] w-2 h-2 shrink-0 rounded-[2px] bg-[var(--route)]" aria-hidden="true" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-display font-bold text-[15px] leading-snug text-[var(--color-txt-0)]">{item.title}</div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-[12.5px] text-[var(--color-txt-2)]">
+                        <span className="tnum">{formatDashboardEventTime(item.startTime, item.endTime)}</span>
+                        {loc && (
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <Icon name="mapPin" size={12} className="shrink-0" />
+                            <span className="truncate">{loc}</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[var(--color-txt-2)]">
-                      <span className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${cat.dot}`} />
-                        {formatDashboardEventTime(item.startTime, item.endTime)}
-                      </span>
-                      {loc && (
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <Icon name="mapPin" size={12} className="shrink-0" />
-                          <span className="truncate">{loc}</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                    <span className="badge shrink-0">{cat.label}</span>
+                  </li>
                 )
-              })
-            )}
-            {!calendarLoading && todayRelevantEvents.length > todayEventsPreview.length && (
-              <p className="text-[11px] text-[var(--color-txt-3)] text-center pt-1">
-                +{todayRelevantEvents.length - todayEventsPreview.length} more on the{' '}
-                <Link to="/events" className="text-[var(--color-accent)] hover:underline">
-                  events page
-                </Link>
-              </p>
-            )}
-          </div>
+              })}
+            </ul>
+          )}
+          {!calendarLoading && todayRelevantEvents.length > todayEventsPreview.length && (
+            <p className="text-[12.5px] text-[var(--color-txt-2)] pt-3">
+              +{todayRelevantEvents.length - todayEventsPreview.length} more on the{' '}
+              <Link to="/events" className="text-[var(--color-accent)] hover:underline">
+                events page
+              </Link>
+            </p>
+          )}
         </div>
       ),
     },
     'live-shuttles': {
       title: 'Live shuttles',
       render: () => (
-        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
-          <div className="flex items-center justify-between mb-4 gap-2">
+        <div className="card card-pad r-bus">
+          <div className="card-head">
+            <span className="route-badge">
+              <Icon name="bus" size={18} />
+            </span>
             <div>
-              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Live shuttles</h2>
-              <div className="flex items-center gap-2 mt-0.5">
-                {transitUpdated && !transitLoading && (
-                  <span className="text-[10px] text-[var(--color-txt-3)]">
-                    Updated {transitUpdated.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </span>
-                )}
-                {userLocation && (
-                  <span className="text-[10px] text-[var(--color-success)] flex items-center gap-1">
-                    <span className="w-1 h-1 rounded-full bg-[var(--color-success)]" />
-                    ETA to you
-                  </span>
-                )}
-              </div>
+              <h2 className="card-title">Live shuttles</h2>
+              {(transitUpdated && !transitLoading) || userLocation ? (
+                <p className="card-sub flex flex-wrap items-center gap-x-2">
+                  {transitUpdated && !transitLoading && (
+                    <span className="tnum">
+                      Updated {transitUpdated.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  )}
+                  {userLocation && (
+                    <span className="text-[var(--color-success)] inline-flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]" />
+                      ETA to you
+                    </span>
+                  )}
+                </p>
+              ) : null}
             </div>
-            <Link to="/transit" className="text-[12px] text-[var(--color-accent)] hover:underline shrink-0">Map & routes</Link>
+            <Link to="/transit" className="head-link">
+              Map & routes
+              <Icon name="chevronRight" size={14} />
+            </Link>
           </div>
-          <div className="space-y-3">
-            {transitLoading && transitVehicles.length === 0 ? (
-              <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
-                Loading live bus positions…
-              </div>
-            ) : transitError && transitVehicles.length === 0 ? (
-              <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)]">
-                <p className="text-[13px] text-[var(--color-txt-2)]">{transitError}</p>
-                <Link to="/transit" className="text-[12px] text-[var(--color-accent)] font-medium mt-2 inline-block hover:underline">
-                  Open transit
-                </Link>
-              </div>
-            ) : transitDashboardRows.length === 0 ? (
-              <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
-                No buses active right now. Check the transit map for routes and alerts.
-              </div>
-            ) : (
-              transitDashboardRows.map(({ key, vehicle, route, near, speed, moving, eta }) => (
-                <div
+          {transitLoading && transitVehicles.length === 0 ? (
+            <p className="text-[14px] text-[var(--color-txt-2)]">Loading live bus positions…</p>
+          ) : transitError && transitVehicles.length === 0 ? (
+            <div className="empty">
+              <span className="ico">
+                <Icon name="alert" size={18} />
+              </span>
+              <p>{transitError}</p>
+              <Link
+                to="/transit"
+                className="font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline"
+              >
+                Open transit
+              </Link>
+            </div>
+          ) : transitDashboardRows.length === 0 ? (
+            <div className="empty">
+              {/* Decorative station sign; the sentence below carries the meaning. */}
+              <span className="plate" aria-hidden="true">Not in service</span>
+              <p>No buses active right now. Check the transit map for routes and alerts.</p>
+            </div>
+          ) : (
+            <ul>
+              {transitDashboardRows.map(({ key, vehicle, route, near, speed, moving, eta }) => (
+                <li
                   key={key}
-                  className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)]"
+                  className="flex items-start gap-3 py-3 border-t border-[var(--color-border)] first:border-t-0 first:pt-0"
                 >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5"
-                      style={{ backgroundColor: route.color }}
-                      title={route.name}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[14px] font-medium text-[var(--color-txt-0)]">{route.name}</div>
-                        <span className={`text-[11px] shrink-0 ${moving ? 'text-[var(--color-success)]' : 'text-[var(--color-txt-3)]'}`}>
-                          {moving ? `${Math.round(speed)} mph` : 'stopped'}
-                        </span>
-                      </div>
-                      <div className="text-[13px] text-[var(--color-txt-1)] mt-1 leading-snug">
-                        {eta}
-                      </div>
-                      <div className="text-[11px] text-[var(--color-txt-3)] mt-1">
-                        Bus {vehicle.Name}
-                        {near && <> · near {near.description}</>}
-                      </div>
+                  <span
+                    className="mt-1 w-3 h-3 shrink-0 rounded-[2px]"
+                    style={{ backgroundColor: route.color }}
+                    title={route.name}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{route.name}</div>
+                      <span className={`chip shrink-0 ${moving ? 'text-[var(--color-success)]' : 'text-[var(--color-txt-2)]'}`}>
+                        {moving ? `${Math.round(speed)} mph` : 'stopped'}
+                      </span>
+                    </div>
+                    <div className="text-[14px] text-[var(--color-txt-1)] mt-1 leading-snug">{eta}</div>
+                    <div className="text-[12px] text-[var(--color-txt-3)] mt-1">
+                      Bus {vehicle.Name}
+                      {near && <> · near {near.description}</>}
                     </div>
                   </div>
-                </div>
-              ))
-            )}
-            {!transitLoading && transitVehicles.length > transitDashboardRows.length ? (
-              <p className="text-[11px] text-[var(--color-txt-3)] text-center pt-1">
-                +{transitVehicles.length - transitDashboardRows.length} more on{' '}
-                <Link to="/transit" className="text-[var(--color-accent)] hover:underline">
-                  transit
-                </Link>
-              </p>
-            ) : null}
-          </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!transitLoading && transitVehicles.length > transitDashboardRows.length ? (
+            <p className="text-[12.5px] text-[var(--color-txt-2)] pt-3">
+              +{transitVehicles.length - transitDashboardRows.length} more on{' '}
+              <Link to="/transit" className="text-[var(--color-accent)] hover:underline">
+                transit
+              </Link>
+            </p>
+          ) : null}
         </div>
       ),
     },
     'dining': {
       title: 'Dining snapshot',
-      render: () => (
-        <div className="card p-5 transition-all duration-700 opacity-100 translate-y-0">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Dining Snapshot</h2>
-            <Link to="/dining" className="text-[12px] text-[var(--color-accent)] hover:underline">Open dining</Link>
-          </div>
-
-          {diningStatus && (
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${diningStatus.is_open ? 'bg-[var(--color-success)]' : 'bg-[var(--color-txt-3)]'}`} />
-              <span className="text-[13px] font-medium text-[var(--color-txt-0)]">{diningStatus.name}</span>
-              <span className="text-[12px] text-[var(--color-txt-2)]">
-                · {diningStatus.is_open ? 'Open' : 'Closed'} · {diningStatus.hours}
+      render: () => {
+        // The day's opening hours on a 24-hour track with an amber needle at
+        // now. Drawn only when the hours parse; the text above carries them.
+        const ranges = diningStatus ? parseHourRanges(diningStatus.hours) : []
+        const nowShare = (now.getHours() * 60 + now.getMinutes()) / (24 * 60)
+        return (
+          <div className="card card-pad r-din">
+            <div className="card-head">
+              <span className="route-badge">
+                <Icon name="dining" size={18} />
               </span>
+              <div>
+                <h2 className="card-title lowercase first-letter:uppercase">Dining Snapshot</h2>
+              </div>
+              <Link to="/dining" className="head-link">
+                Open dining
+                <Icon name="chevronRight" size={14} />
+              </Link>
             </div>
-          )}
 
-          <div className="text-[12px] font-medium text-[var(--color-txt-1)] mb-2">
-            {diningPreview ? "Today's menu" : 'Sample items'}
+            {diningStatus && (
+              <div className="mb-5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-display font-extrabold text-[18px] leading-tight tracking-[-0.01em] text-[var(--color-txt-0)] min-w-0">
+                    {diningStatus.name}
+                  </span>
+                  <span className={`eyebrow bare shrink-0 ${diningStatus.is_open ? 'text-[var(--color-success)]' : ''}`}>
+                    <span className={`status-dot ${diningStatus.is_open ? 'status-open' : 'bg-[var(--color-txt-3)]'}`} />
+                    {diningStatus.is_open ? 'Open' : 'Closed'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[14px] text-[var(--color-txt-1)] tnum">{diningStatus.hours}</p>
+                {ranges.length > 0 && (
+                  <div className="mt-4" aria-hidden="true">
+                    <div className="relative h-2.5 rounded-[2px] bg-[var(--color-stat)] shadow-[inset_0_0_0_1px_var(--color-border-2)]">
+                      {ranges.map(([open, close]) => (
+                        <span
+                          key={`${open}-${close}`}
+                          className="absolute inset-y-0 rounded-[2px] bg-[var(--route)]"
+                          style={{ left: pct(open / 1440), width: pct((close - open) / 1440) }}
+                        />
+                      ))}
+                      <span
+                        className="absolute -top-1.5 -bottom-1.5 w-[3px] -ml-[1.5px] rounded-[1px] bg-[var(--color-gold)] shadow-[0_0_0_1.5px_var(--color-surface)]"
+                        style={{ left: pct(nowShare) }}
+                      />
+                    </div>
+                    <div className="relative h-4 mt-2 font-display font-bold text-[10.5px] leading-none text-[var(--color-txt-3)] tnum">
+                      <span className="absolute left-1/4 -translate-x-1/2">6 AM</span>
+                      <span className="absolute left-1/2 -translate-x-1/2">12 PM</span>
+                      <span className="absolute left-3/4 -translate-x-1/2">6 PM</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="eyebrow mb-1">{diningPreview ? "Today's menu" : 'Sample items'}</div>
+            <ul className="grid grid-cols-2 gap-x-5">
+              {menuSnapshot.items.map((item) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-2 py-2 border-b border-[var(--color-border)] text-[14px] leading-snug text-[var(--color-txt-1)] min-w-0"
+                >
+                  <span className="mt-[6px] w-1.5 h-1.5 shrink-0 rounded-[1px] bg-[var(--route)]" aria-hidden="true" />
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {menuSnapshot.items.map((item) => (
-              <span key={item} className="badge">{item}</span>
-            ))}
-          </div>
-        </div>
-      ),
+        )
+      },
     },
     'board': {
       title: 'Student board',
       render: () => (
-        <div className="card p-0 overflow-hidden transition-all duration-700 opacity-100 translate-y-0 shadow-[var(--shadow-sm)]">
-          <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4 border-b border-[var(--color-border)]">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-sm)] flex items-center justify-center shrink-0">
-                <Icon name="messageCircle" size={20} className="text-[var(--color-accent)]" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider block">Student Board</h2>
-                <p className="text-[12px] text-[var(--color-txt-2)] mt-0.5 truncate">Community Q&amp;A from campus</p>
-              </div>
+        <div className="card card-pad r-ink">
+          <div className="card-head">
+            <span className="route-badge">
+              <Icon name="messageCircle" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">Student Board</h2>
+              <p className="card-sub">Community Q&amp;A from campus</p>
             </div>
-            <Link
-              to="/board"
-              className="shrink-0 inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-light)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-accent)]/10 transition-colors no-underline"
-            >
+            <Link to="/board" className="head-link">
               Open board
               <Icon name="arrowUpRight" size={14} />
             </Link>
           </div>
 
-          <div className="p-5 pt-4">
-            {boardError && !boardLoading && (
-              <p className="text-[12px] text-[var(--color-error)] mb-3 px-1">{boardError}</p>
-            )}
-            <div className="space-y-2.5">
-              {boardLoading ? (
-                <div className="space-y-2.5">
-                  {[0, 1, 2].map((i) => (
-                    <div
-                      key={i}
-                      className="flex gap-3 p-3 rounded-xl bg-[var(--color-stat)] border border-[var(--color-border)] animate-pulse"
-                    >
-                      <div className="w-1 rounded-full bg-[var(--color-border-2)] shrink-0" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-3.5 bg-[var(--color-border-2)] rounded-md w-[85%]" />
-                        <div className="h-3 bg-[var(--color-border-2)] rounded-md w-[40%]" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : boardPreview.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-[var(--color-border-2)] bg-[var(--color-stat)]/50 px-5 py-8 text-center">
-                  <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center mb-3 shadow-[var(--shadow-sm)]">
-                    <Icon name="message" size={22} className="text-[var(--color-txt-3)]" />
+          {boardError && !boardLoading && (
+            <p className="text-[13px] text-[var(--color-error)] mb-3">{boardError}</p>
+          )}
+          {boardLoading ? (
+            <ul className="posts" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <li key={i}>
+                  <div className="post-row">
+                    <span className="skeleton w-9 h-9 rounded-full" />
+                    <span className="block space-y-2">
+                      <span className="skeleton block h-3.5 w-[85%]" />
+                      <span className="skeleton block h-3 w-[40%]" />
+                    </span>
+                    <span />
                   </div>
-                  <p className="text-[13px] text-[var(--color-txt-1)] font-medium">No threads yet</p>
-                  <p className="text-[12px] text-[var(--color-txt-2)] mt-1 max-w-[220px] mx-auto">
-                    Be the first to ask the campus a question.
-                  </p>
-                  <Link
-                    to="/board"
-                    className="inline-flex items-center gap-1.5 mt-4 text-[12px] font-semibold text-[var(--color-accent)] hover:underline"
-                  >
-                    Start a thread
-                    <Icon name="arrowUpRight" size={12} />
-                  </Link>
-                </div>
-              ) : (
-                boardPreview.map((post) => (
-                  <Link
-                    key={post.id}
-                    to="/board"
-                    className="group flex gap-3 p-3.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)]/35 hover:bg-[var(--color-surface-hover)] hover:shadow-[var(--shadow-sm)] transition-all duration-200 no-underline text-inherit"
-                  >
-                    <div className="w-1 self-stretch min-h-[2.5rem] rounded-full bg-[var(--color-border-3)] opacity-80 group-hover:opacity-100 transition-opacity shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-[14px] font-semibold text-[var(--color-txt-0)] leading-snug line-clamp-2 group-hover:text-[var(--color-accent)] transition-colors">
-                          {post.title}
-                        </h3>
-                        {post.hot && (
-                          <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md bg-[var(--color-events-bg)] text-[var(--color-events-color)]">
-                            Hot
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-txt-2)]">
-                          <span className="w-5 h-5 rounded-full bg-[var(--color-accent-bg)] text-[var(--color-accent)] text-[9px] font-bold flex items-center justify-center">
-                            {(post.user || '?').charAt(0).toUpperCase()}
-                          </span>
-                          {post.user}
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)] text-[11px] font-medium">
-                          <Icon name="arrowUp" size={11} />
-                          {post.upvotes}
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)] text-[11px] font-medium">
-                          <Icon name="messageCircle" size={11} />
-                          {Array.isArray(post.replies) ? post.replies.length : 0}
-                        </span>
-                      </div>
-                    </div>
-                    <Icon
-                      name="arrowUpRight"
-                      size={15}
-                      className="text-[var(--color-txt-3)] shrink-0 opacity-0 group-hover:opacity-100 group-hover:text-[var(--color-accent)] transition-all mt-0.5"
-                    />
-                  </Link>
-                ))
-              )}
+                </li>
+              ))}
+            </ul>
+          ) : boardPreview.length === 0 ? (
+            <div className="empty">
+              <span className="ico">
+                <Icon name="message" size={18} />
+              </span>
+              <div>
+                <p className="font-display font-bold text-[var(--color-txt-1)]">No threads yet</p>
+                <p className="mt-0.5">Be the first to ask the campus a question.</p>
+              </div>
+              <Link
+                to="/board"
+                className="inline-flex items-center gap-1.5 font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline"
+              >
+                Start a thread
+                <Icon name="arrowUpRight" size={12} />
+              </Link>
             </div>
-          </div>
+          ) : (
+            <ul className="posts">
+              {boardPreview.map((post) => (
+                <li key={post.id}>
+                  <Link to="/board">
+                    <span className="ava" aria-hidden="true">
+                      {(post.user || '?').charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-start gap-2">
+                        <h3 className="ttl line-clamp-2 min-w-0">{post.title}</h3>
+                        {post.hot && <span className="badge shrink-0 mt-0.5">Hot</span>}
+                      </div>
+                      <span className="by">{post.user}</span>
+                    </div>
+                    <span className="counts">
+                      <span>
+                        <Icon name="arrowUp" size={12} />
+                        {post.upvotes}
+                      </span>
+                      <span>
+                        <Icon name="messageCircle" size={12} />
+                        {Array.isArray(post.replies) ? post.replies.length : 0}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       ),
     },
     'tasks-due': {
       title: 'Tasks due',
       render: () => (
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Tasks Due</h2>
-            <Link to="/assignments" className="text-[12px] text-[var(--color-accent)] hover:underline">View all</Link>
+        <div className="card card-pad r-tsk">
+          <div className="card-head">
+            <span className="route-badge">
+              <Icon name="document" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">Tasks Due</h2>
+            </div>
+            <Link to="/assignments" className="head-link">
+              View all
+              <Icon name="chevronRight" size={14} />
+            </Link>
           </div>
           {calendarLoading ? (
-            <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
-              Loading your tasks…
-            </div>
+            <p className="text-[14px] text-[var(--color-txt-2)]">Loading your tasks…</p>
           ) : tasksDuePreview.length === 0 ? (
-            <div className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] text-[13px] text-[var(--color-txt-2)]">
-              Nothing due right now. Add assignments on the{' '}
-              <Link to="/assignments" className="text-[var(--color-accent)] hover:underline">assignments page</Link>.
+            <div className="empty row">
+              <span className="ico">
+                <Icon name="document" size={18} />
+              </span>
+              <p>
+                Nothing due right now. Add assignments on the{' '}
+                <Link to="/assignments" className="text-[var(--color-accent)] hover:underline">assignments page</Link>.
+              </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {tasksDuePreview.map((item) => (
-                <Link
-                  key={item.id}
-                  to="/assignments"
-                  className="block rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:border-[var(--color-accent)]/35 transition-colors no-underline"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="text-[14px] font-medium text-[var(--color-txt-0)] leading-snug">{item.title}</div>
-                    <Icon name="arrowUpRight" size={14} className="text-[var(--color-txt-3)] shrink-0" />
-                  </div>
-                  <div className="text-[12px] text-[var(--color-txt-2)] mt-1.5 flex items-center gap-1.5">
-                    <Icon name="clock" size={12} className="shrink-0" />
-                    {formatDashboardEventTime(item.startTime, item.endTime)}
-                    {' · '}
-                    {new Date(item.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <ol className="dep -my-3">
+              {tasksDuePreview.map((item) => {
+                const due = new Date(item.startTime)
+                const msLeft = due.getTime() - now.getTime()
+                const urgent = msLeft < DAY_MS
+                const { code, name } = splitCourseCode(item.title)
+                return (
+                  <li key={item.id} className={urgent ? 'urgent' : undefined}>
+                    <Link to="/assignments">
+                      <span className="when" aria-hidden="true">
+                        <span>{shortWeekdayCaps(due)}</span>
+                        <b>{due.getDate()}</b>
+                      </span>
+                      <span className="body">
+                        {code && <span className="code">{code}</span>}
+                        {code ? ' ' : null}
+                        <span className="ttl">{name}</span>
+                        <span className="meta">
+                          {formatDashboardEventTime(item.startTime, item.endTime)}
+                          {' · '}
+                          {due.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                      </span>
+                      {urgent ? (
+                        <span className="badge badge-signal" aria-hidden="true">
+                          {Math.max(1, Math.round(msLeft / HOUR_MS))}h left
+                        </span>
+                      ) : (
+                        <span className="end" aria-hidden="true">
+                          <Icon name="chevronRight" size={18} />
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                )
+              })}
+            </ol>
           )}
         </div>
       ),
@@ -1478,15 +1799,19 @@ export default function Home() {
     'calendar-feed': {
       title: 'Calendar feed',
       render: () => (
-        <div className="card p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
-            <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Calendar Feed</h2>
+        <div className="card card-pad r-cls">
+          <div className="card-head">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">Calendar Feed</h2>
+            </div>
           </div>
-          <p className="text-[13px] text-[var(--color-txt-2)] mb-3">
+          <p className="text-[14px] text-[var(--color-txt-2)] mb-4">
             Subscribe to your BoilerIndy schedule and events in Google Calendar, Apple Calendar, or Outlook.
           </p>
-          <Link to="/settings" className="btn btn-secondary text-[12px] px-4 py-2 w-fit">
+          <Link to="/settings" className="btn btn-secondary btn-sm">
             <Icon name="external" size={14} />
             Manage feed
           </Link>
@@ -1507,80 +1832,27 @@ export default function Home() {
     .map((w) => ({ id: w.id, title: widgetRegistry[w.id].title }))
 
   return (
-    <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+    <div className="page">
       <PageTitle>Dashboard</PageTitle>
       {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
       <SourceErrorNotice className="mb-5" />
       <FeaturedDeal />
-      <div className="mb-6 sm:mb-8 transition-all duration-700 opacity-100 translate-y-0">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-[var(--color-txt-0)]">
-              {getGreeting(now)}, {firstName}
-            </h1>
-            <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-1 sm:mt-2">
-              Here's what's happening on campus today.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-[var(--shadow-sm)] self-start sm:self-auto">
-            <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
-            {getCurrentDate(now)}
-          </div>
-        </div>
-      </div>
-
-      {showSetupBanner && (
-        <div className="card p-5 mb-6 transition-all duration-700 delay-75 opacity-100 translate-y-0">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">
-                Finish Setup
-              </h2>
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
-                {needsPurdueConnection
-                  ? 'Link your Purdue account next'
-                  : purdueLinkingOff
-                    ? 'Connect your class schedule'
-                    : 'Your Purdue schedule is not connected yet'}
-              </div>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
-                {needsPurdueConnection
-                  ? 'Your BoilerIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
-                  : purdueLinkingOff
-                    ? 'Import your class schedule and assignments by attaching your Brightspace or Purdue Timetabling iCalendar export.'
-                    : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
-              </p>
-            </div>
-            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
-              <Icon name={needsPurdueConnection ? 'graduation' : 'calendar'} size={15} />
-              {needsPurdueConnection ? 'Link Purdue' : 'Connect schedule'}
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* Customize toolbar - fixed chrome that toggles widget edit mode. */}
-      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
-        {/* A refused layout save (issue #202) replaces the hint until the next change. */}
-        {saveError ? (
-          <p role="alert" className="text-[12px] text-[var(--color-error)] min-h-[1rem]">
-            {saveError}
+      <header className="page-head">
+        <div className="flex-1 max-md:basis-full">
+          <p className="eyebrow signal">
+            <time dateTime={localIsoDate(now)}>{getCurrentDate(now)}</time>
           </p>
-        ) : (
-          <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
-            {editing
-              ? 'Drag a card or use the arrows to reorder. Hide with ×; add hidden widgets below.'
-              : ''}
-          </p>
-        )}
+          <h1 className="page-title">
+            {getGreeting(now)}, {firstName}
+          </h1>
+          <p className="page-sub">Here's what's happening on campus today.</p>
+        </div>
+        {/* Customize toolbar: toggles widget edit mode. On phones it wraps
+            under the subtitle, as in the prototype. */}
         <div className="flex items-center gap-2 shrink-0">
           {editing && (
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm(true)}
-              className="btn btn-secondary text-[12px] px-4 py-2"
-            >
-              <Icon name="refresh" size={14} />
+            <button type="button" onClick={() => setShowResetConfirm(true)} className="btn btn-secondary">
+              <Icon name="refresh" size={16} />
               Reset
             </button>
           )}
@@ -1588,13 +1860,55 @@ export default function Home() {
             type="button"
             onClick={() => setEditing(!editing)}
             aria-pressed={editing}
-            className={`btn text-[12px] px-4 py-2 ${editing ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn ${editing ? 'btn-primary' : 'btn-secondary'}`}
           >
-            <Icon name={editing ? 'check' : 'settings'} size={14} />
+            <Icon name={editing ? 'check' : 'settings'} size={16} />
             {editing ? 'Done' : 'Customize'}
           </button>
         </div>
-      </div>
+      </header>
+
+      {/* A refused layout save (issue #202) replaces the hint until the next change. */}
+      {saveError ? (
+        <p role="alert" className="mb-4 text-[13px] text-[var(--color-error)]">
+          {saveError}
+        </p>
+      ) : editing ? (
+        <p className="mb-4 text-[13px] text-[var(--color-txt-2)]">
+          Drag a card or use the arrows to reorder. Hide with ×; add hidden widgets below.
+        </p>
+      ) : null}
+
+      {showSetupBanner && (
+        <div className="card card-pad r-cls mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <span className="route-badge lg">
+              <Icon name={needsPurdueConnection ? 'graduation' : 'calendar'} size={22} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="eyebrow">Finish Setup</h2>
+              <div className="mt-2 font-display font-bold text-[17px] leading-snug text-[var(--color-txt-0)]">
+                {needsPurdueConnection
+                  ? 'Link your Purdue account next'
+                  : purdueLinkingOff
+                    ? 'Connect your class schedule'
+                    : 'Your Purdue schedule is not connected yet'}
+              </div>
+              <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
+                {needsPurdueConnection
+                  ? 'Your BoilerIndy account is active. Link your Purdue identity from setup before connecting Purdue-specific sources.'
+                  : purdueLinkingOff
+                    ? 'Import your class schedule and assignments by attaching your Brightspace or Purdue Timetabling iCalendar export.'
+                    : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
+              </p>
+            </div>
+            {/* The route badge already carries the icon. Done owns the amber while customizing. */}
+            <Link to="/setup" className={`btn ${editing ? 'btn-secondary' : 'btn-primary'} w-fit shrink-0`}>
+              {needsPurdueConnection ? 'Link Purdue' : 'Connect schedule'}
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div
         className={
@@ -1629,7 +1943,7 @@ export default function Home() {
               reducedMotion={reducedMotion}
             >
               {content || (
-                <div className="card p-5 text-[13px] text-[var(--color-txt-2)]">
+                <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">
                   Nothing to show right now - this widget appears when it has something for you.
                 </div>
               )}
