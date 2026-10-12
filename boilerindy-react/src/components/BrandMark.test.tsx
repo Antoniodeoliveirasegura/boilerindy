@@ -22,7 +22,7 @@ describe('BrandMark', () => {
     expect(dark).toHaveAttribute('src', '/brand/mark-dark.svg')
     expect(dark).toHaveClass('hidden', 'in-[.dark]:block')
 
-    // Tailwind's dark: variant follows prefers-color-scheme in this app.
+    // The switch rides on the dark class itself (in-[.dark]:), not a dark: utility.
     for (const img of [light, dark]) expect(img.className).not.toMatch(/(^|\s)dark:/)
   })
 
@@ -36,6 +36,15 @@ describe('BrandMark', () => {
     for (const img of document.querySelectorAll('img')) expect(img).toHaveAttribute('alt', '')
     expect(screen.queryByRole('img')).toBeNull()
     expect(screen.getByRole('link')).toHaveAccessibleName('BoilerIndy')
+  })
+
+  test('on an ink surface renders only the copy for dark backgrounds', () => {
+    const { container } = render(<BrandMark surface="ink" size={24} />)
+    const imgs = container.querySelectorAll('img')
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0]).toHaveAttribute('src', '/brand/mark-dark.svg')
+    expect(imgs[0]).toHaveAttribute('alt', '')
+    expect(imgs[0]).toHaveAttribute('width', '24')
   })
 
   test('sizes both images and passes classes to the wrapper', () => {

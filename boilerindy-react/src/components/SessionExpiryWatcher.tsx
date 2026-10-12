@@ -59,7 +59,7 @@ export default function SessionExpiryWatcher() {
       className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[3000] w-[calc(100%-2rem)] max-w-md rounded-2xl border border-[var(--color-gold)]/40 bg-[var(--color-surface)] shadow-[var(--shadow-md)] p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
           <Icon name="clock" size={18} />
         </div>
         <div className="flex-1 min-w-0">

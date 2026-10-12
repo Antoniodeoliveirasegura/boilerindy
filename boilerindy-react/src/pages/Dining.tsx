@@ -84,7 +84,7 @@ function StationCard({
                     <Icon
                       name="star"
                       size={14}
-                      className={isFav ? 'text-[var(--color-gold)] fill-current' : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
+                      className={isFav ? 'text-[var(--color-gold-muted)] fill-current' : 'text-[var(--color-txt-3)] hover:text-[var(--color-gold-muted)]'}
                     />
                   </button>
                 </div>
@@ -275,7 +275,7 @@ export default function Dining() {
         <div className="flex flex-wrap items-center gap-2">
           {selected && !loading && (
             <div
-              className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 shadow-sm"
+              className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 shadow-[var(--shadow-sm)]"
               data-dining-blurb
             >
               <Icon name="clock" size={14} className="text-[var(--color-txt-3)]" />
@@ -287,7 +287,7 @@ export default function Dining() {
             onClick={askWhatToEat}
             disabled={aiLoading || loading}
             title="AI meal recommendation"
-            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-sm hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40 whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 text-[var(--color-gold-muted)] text-[12px] font-medium shadow-[var(--shadow-sm)] hover:bg-[var(--color-gold)]/15 transition-colors disabled:opacity-40 whitespace-nowrap"
           >
             <Icon name="sparkles" size={13} />
             {aiLoading ? 'Thinking…' : 'What should I eat?'}
@@ -298,7 +298,7 @@ export default function Dining() {
             disabled={refreshing || loading}
             title="Force-refresh menu"
             aria-label="Refresh menus"
-            className="flex items-center justify-center w-10 h-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm hover:bg-[var(--color-bg-3)] transition-colors disabled:opacity-40"
+            className="flex items-center justify-center w-10 h-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] hover:bg-[var(--color-bg-3)] transition-colors disabled:opacity-40"
           >
             <Icon name="refresh" size={14} className={`text-[var(--color-txt-2)] ${refreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -326,9 +326,9 @@ export default function Dining() {
 
       {/* Your favorites on today's menu (issue #49) */}
       {favoritesToday.length > 0 && (
-        <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up" data-dining-favorites>
+        <div className="card p-4 mb-4 animate-fade-in-up" data-dining-favorites>
           <div className="flex items-center gap-2 mb-2.5">
-            <Icon name="star" size={14} className="text-[var(--color-gold)] fill-current" />
+            <Icon name="star" size={14} className="text-[var(--color-gold-muted)] fill-current" />
             <span className="text-[13px] font-semibold text-[var(--color-txt-0)]">Your favorites on today&apos;s menu</span>
           </div>
           <div className="space-y-1.5">
@@ -344,9 +344,9 @@ export default function Dining() {
 
       {/* AI Suggestion */}
       {aiSuggestion && (
-        <div className="card p-4 mb-4 border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 animate-fade-in-up">
+        <div className="card p-4 mb-4 animate-fade-in-up">
           <div className="flex items-start gap-2.5">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0 mt-0.5">
+            <div className="w-6 h-6 rounded-lg bg-[var(--color-gold)] flex items-center justify-center shrink-0 mt-0.5">
               <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
             </div>
             <div className="flex-1 min-w-0">
@@ -401,7 +401,7 @@ export default function Dining() {
                     data-dining-location={loc.slug}
                     className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border whitespace-nowrap transition-all duration-300 ${
                       isSelected
-                        ? 'bg-[var(--color-surface)] border-[var(--color-border-2)] shadow-md'
+                        ? 'bg-[var(--color-surface)] border-[var(--color-border-2)] shadow-[var(--shadow-md)]'
                         : 'bg-transparent border-transparent hover:bg-[var(--color-surface)] hover:border-[var(--color-border)]'
                     }`}
                   >

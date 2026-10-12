@@ -307,7 +307,7 @@ export default function ConnectSchedule() {
       <div className="max-w-[520px] mx-auto px-4 sm:px-6 py-8 sm:py-12 pb-24">
         <PageTitle>Setup</PageTitle>
         <div className="text-center mb-6 sm:mb-8">
-          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center mx-auto mb-3 sm:mb-4">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] flex items-center justify-center mx-auto mb-3 sm:mb-4">
             <Icon name="graduation" size={24} className="sm:hidden" />
             <Icon name="graduation" size={28} className="hidden sm:block" />
           </div>
@@ -380,7 +380,7 @@ export default function ConnectSchedule() {
       {!user?.hasPurdueLinked ? (
         <div className="card p-4 sm:p-6 mb-6 sm:mb-8" data-testid="setup-purdue-email">
           <div className="flex items-start gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
               <Icon name="graduation" size={18} />
             </div>
             <div className="min-w-0">
@@ -431,7 +431,7 @@ export default function ConnectSchedule() {
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                       source.sourceType === 'brightspace_ical'
                         ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                        : 'bg-[var(--color-gold)]/15 text-[var(--color-gold)]'
+                        : 'bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)]'
                     }`}>
                       <Icon name={getSourceIcon(source.sourceType)} size={18} />
                     </div>
@@ -521,7 +521,7 @@ export default function ConnectSchedule() {
                 <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${
                   sourceType === 'purdue'
                     ? 'bg-[var(--color-gold)] text-[var(--color-gold-dark)]'
-                    : 'bg-[var(--color-gold)]/15 text-[var(--color-gold)]'
+                    : 'bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)]'
                 }`}>
                   <Icon name="schedule" size={14} className="sm:hidden" />
                   <Icon name="schedule" size={16} className="hidden sm:block" />

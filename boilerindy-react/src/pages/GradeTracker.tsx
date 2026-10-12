@@ -22,7 +22,7 @@ function gpaText(gpa: number | null | undefined) {
 function gpaTone(gpa: number | null | undefined) {
   if (gpa == null) return 'text-[var(--color-txt-2)]'
   if (gpa >= 3.5) return 'text-[var(--color-success)]'
-  if (gpa >= 2.5) return 'text-[var(--color-gold)]'
+  if (gpa >= 2.5) return 'text-[var(--color-gold-muted)]'
   return 'text-[var(--color-error)]'
 }
 
@@ -126,7 +126,7 @@ export default function GradeTracker() {
           Academics
         </div>
         <h1 className="text-2xl font-semibold text-[var(--color-txt-0)] flex items-center gap-2">
-          <Icon name="graduation" size={22} className="text-[var(--color-gold)]" />
+          <Icon name="graduation" size={22} className="text-[var(--color-gold-muted)]" />
           Grade Tracker
         </h1>
         <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">

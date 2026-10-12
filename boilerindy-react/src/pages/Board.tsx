@@ -478,7 +478,7 @@ export default function Board() {
       {moderationUi}
       {/* Hero */}
       <header className="relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)] mb-8">
-        <div className="absolute inset-0 bg-gradient-to-br from-[var(--color-accent-bg)]/90 via-[var(--color-gold)]/6 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-[var(--color-accent-bg)]/50 pointer-events-none" />
         <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-[var(--color-accent)]/5 blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
         <div className="relative px-5 sm:px-7 py-6 sm:py-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
           <div className="flex gap-4 min-w-0">
@@ -639,7 +639,7 @@ export default function Board() {
                 onKeyDown={(e) => e.key === 'Enter' && setIsAnon((v) => !v)}
                 className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${
                   isAnon
-                    ? 'bg-[var(--color-gold)] border-[var(--color-gold)] shadow-sm'
+                    ? 'bg-[var(--color-gold)] border-[var(--color-gold)] shadow-[var(--shadow-sm)]'
                     : 'border-[var(--color-border-2)] bg-[var(--color-surface)] group-hover:border-[var(--color-txt-3)]'
                 }`}
                 onClick={() => setIsAnon((v) => !v)}
@@ -739,7 +739,7 @@ export default function Board() {
             onClick={() => setFilterTag(null)}
             className={`shrink-0 text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all ${
               !filterTag
-                ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)] shadow-sm'
+                ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)] shadow-[var(--shadow-sm)]'
                 : 'bg-[var(--color-surface)] text-[var(--color-txt-2)] border-[var(--color-border)] hover:border-[var(--color-accent)]/30'
             }`}
           >
@@ -752,7 +752,7 @@ export default function Board() {
               onClick={() => setFilterTag(filterTag === tag ? null : tag)}
               className={`shrink-0 text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all ${
                 filterTag === tag
-                  ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)] shadow-sm'
+                  ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)] shadow-[var(--shadow-sm)]'
                   : 'bg-[var(--color-surface)] text-[var(--color-txt-2)] border-[var(--color-border)] hover:border-[var(--color-accent)]/30'
               }`}
             >
@@ -790,7 +790,7 @@ export default function Board() {
                   aria-pressed={post.upvotedByMe}
                   className={`flex flex-col items-center justify-center gap-0.5 w-[52px] sm:w-[58px] shrink-0 border-r border-[var(--color-border)] transition-colors ${
                     post.upvotedByMe
-                      ? 'bg-gradient-to-b from-[var(--color-gold)]/15 to-[var(--color-gold)]/5 text-[var(--color-gold-muted)]'
+                      ? 'bg-[var(--color-gold)]/12 text-[var(--color-gold-muted)]'
                       : 'bg-[var(--color-stat)]/80 text-[var(--color-txt-2)] hover:bg-[var(--color-stat)]'
                   }`}
                 >
@@ -991,7 +991,7 @@ export default function Board() {
                                 type="button"
                                 onClick={() => summarizeThread(post)}
                                 disabled={summarizing.has(post.id)}
-                                className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] hover:text-[var(--color-gold)] transition-colors disabled:opacity-40"
+                                className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] hover:underline underline-offset-2 transition-colors disabled:opacity-40"
                               >
                                 <Icon name="sparkles" size={14} />
                                 {summarizing.has(post.id) ? 'Summarizing…' : 'Summarize long thread'}

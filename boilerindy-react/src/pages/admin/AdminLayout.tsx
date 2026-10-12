@@ -21,7 +21,7 @@ export default function AdminLayout() {
           <aside className="lg:w-64 shrink-0">
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:sticky lg:top-20">
               <div className="flex items-center gap-3 px-2 pb-4 mb-2 border-b border-[var(--color-border)]">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center text-[var(--color-gold-dark)]">
+                <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold-dark)]">
                   <Icon name="shield" size={18} />
                 </div>
                 <div className="min-w-0">

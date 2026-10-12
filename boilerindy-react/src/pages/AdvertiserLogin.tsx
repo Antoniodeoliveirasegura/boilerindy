@@ -129,14 +129,14 @@ export default function AdvertiserLogin() {
       <PageTitle>Advertise</PageTitle>
       <SkipLink />
       {/* ── Brand / value panel ─────────────────────────────────────────── */}
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-gradient-to-br from-[var(--color-gold-dark)] via-[#4a3209] to-[#1e1606] dark:from-[#1a1206] dark:via-[#241a08] dark:to-[#100b04]">
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-[var(--color-ink)]">
         <div className="hero-bg" aria-hidden="true">
           <div className="hero-bg__aurora hero-bg__aurora--gold" />
           <div className="hero-bg__aurora hero-bg__aurora--gold2" />
         </div>
 
         <Link to="/" className="relative inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-gold-light)] no-underline w-fit">
-          <BrandMark />
+          <BrandMark surface="ink" />
           BoilerIndy
         </Link>
 
@@ -199,7 +199,7 @@ export default function AdvertiserLogin() {
 
         <div className="flex-1 flex flex-col justify-center max-w-[400px] w-full mx-auto py-10">
           {/* Mobile-only brand (the value panel is hidden under lg). */}
-          <div className="lg:hidden inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
+          <div className="lg:hidden inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
             <Icon name="briefcase" size={13} />
             Advertiser Portal
           </div>

@@ -23,7 +23,7 @@ export default function RequireAdmin({ children }: { children: ReactNode }) {
   if (!user.isAdmin) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center px-6">
-        <div className="max-w-md w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-sm">
+        <div className="max-w-md w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-[var(--shadow-sm)]">
           <div className="mx-auto mb-4 w-12 h-12 rounded-xl bg-[var(--color-bg-2)] flex items-center justify-center text-[var(--color-txt-2)]">
             <Icon name="lock" size={22} />
           </div>

@@ -57,7 +57,7 @@ export default function AdvertiserResetPassword() {
           BoilerIndy
         </Link>
 
-        <div className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
+        <div className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
           <Icon name="briefcase" size={13} />
           Advertiser Portal
         </div>

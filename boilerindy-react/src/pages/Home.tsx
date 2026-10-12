@@ -827,15 +827,11 @@ export default function Home() {
       title: 'Week ahead',
       render: () => (
         <div
-          className={`card p-4 sm:p-5 overflow-hidden transition-all duration-700 opacity-100 translate-y-0 ${
-            now.getDay() === 1
-              ? 'border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5 ring-1 ring-[var(--color-gold)]/15'
-              : 'border-[var(--color-gold)]/20'
-          }`}
+          className="card p-4 sm:p-5 overflow-hidden transition-all duration-700 opacity-100 translate-y-0"
         >
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-1">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
+            <div className="w-6 h-6 rounded-lg bg-[var(--color-gold)] flex items-center justify-center shrink-0">
               <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
             </div>
             <div>
@@ -941,7 +937,7 @@ export default function Home() {
             : gpa >= 3.5
               ? 'text-[var(--color-success)]'
               : gpa >= 2.5
-                ? 'text-[var(--color-gold)]'
+                ? 'text-[var(--color-gold-muted)]'
                 : 'text-[var(--color-error)]'
         return (
           <div className="card p-4 sm:p-5 transition-all duration-700 opacity-100 translate-y-0">
@@ -1072,7 +1068,7 @@ export default function Home() {
                 onClick={() => window.dispatchEvent(new CustomEvent('open-campus-assistant', {
                   detail: { message: 'What should I do right now? Consider my free time, dining hours, any upcoming events or classes, and give me a specific personalized suggestion.' }
                 }))}
-                className="inline-flex items-center justify-center gap-1.5 shrink-0 rounded-xl px-3.5 py-2 text-[12px] font-semibold bg-gradient-to-br from-[var(--color-gold)]/25 to-[var(--color-gold)]/10 text-[var(--color-gold-muted)] border border-[var(--color-gold)]/25 hover:from-[var(--color-gold)]/35 hover:border-[var(--color-gold)]/40 transition-all"
+                className="inline-flex items-center justify-center gap-1.5 shrink-0 rounded-xl px-3.5 py-2 text-[12px] font-semibold bg-[var(--color-gold)] text-[var(--color-gold-dark)] border border-[rgba(23,18,10,0.22)] hover:bg-[var(--color-gold-light)] transition-all"
               >
                 <Icon name="sparkles" size={14} />
                 Ask AI
@@ -1332,7 +1328,7 @@ export default function Home() {
       title: 'Student board',
       render: () => (
         <div className="card p-0 overflow-hidden transition-all duration-700 opacity-100 translate-y-0 shadow-[var(--shadow-sm)]">
-          <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4 border-b border-[var(--color-border)] bg-gradient-to-r from-[var(--color-accent-bg)]/35 via-transparent to-[var(--color-gold)]/8">
+          <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4 border-b border-[var(--color-border)]">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-sm)] flex items-center justify-center shrink-0">
                 <Icon name="messageCircle" size={20} className="text-[var(--color-accent)]" />
@@ -1395,7 +1391,7 @@ export default function Home() {
                     to="/board"
                     className="group flex gap-3 p-3.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)]/35 hover:bg-[var(--color-surface-hover)] hover:shadow-[var(--shadow-sm)] transition-all duration-200 no-underline text-inherit"
                   >
-                    <div className="w-1 self-stretch min-h-[2.5rem] rounded-full bg-gradient-to-b from-[var(--color-gold-muted)] to-[var(--color-accent)] opacity-80 group-hover:opacity-100 transition-opacity shrink-0" />
+                    <div className="w-1 self-stretch min-h-[2.5rem] rounded-full bg-[var(--color-border-3)] opacity-80 group-hover:opacity-100 transition-opacity shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="text-[14px] font-semibold text-[var(--color-txt-0)] leading-snug line-clamp-2 group-hover:text-[var(--color-accent)] transition-colors">
@@ -1526,7 +1522,7 @@ export default function Home() {
               Here's what's happening on campus today.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-sm self-start sm:self-auto">
+          <div className="flex items-center gap-2 text-[12px] sm:text-[13px] text-[var(--color-txt-2)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 shadow-[var(--shadow-sm)] self-start sm:self-auto">
             <Icon name="calendar" size={14} className="text-[var(--color-txt-3)]" />
             {getCurrentDate(now)}
           </div>
@@ -1534,7 +1530,7 @@ export default function Home() {
       </div>
 
       {showSetupBanner && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 transition-all duration-700 delay-75 opacity-100 translate-y-0">
+        <div className="card p-5 mb-6 transition-all duration-700 delay-75 opacity-100 translate-y-0">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h2 className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1">

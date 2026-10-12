@@ -81,7 +81,7 @@ export default function FreeFood() {
       </div>
 
       {hasNoSources && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 animate-fade-in-up">
+        <div className="card p-5 mb-6 animate-fade-in-up">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">Connect a calendar source</div>

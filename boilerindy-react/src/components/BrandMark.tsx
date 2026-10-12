@@ -8,9 +8,13 @@
 // - the adaptive app-icon.svg as an <img> follows the device setting, and
 //   inlined its <style> (.dark{display:none}) would match <html class="dark">
 //   and hide the whole app;
-// - Tailwind's `dark:` variant is the device setting too here (it compiles to
-//   prefers-color-scheme), hence `in-[.dark]:`, which matches the class on an
-//   ancestor.
+// - `in-[.dark]:` matches the class on an ancestor. (index.css now points
+//   Tailwind's `dark:` variant at the same class; this predates that and works
+//   either way.)
+//
+// On a surface that is dark in both themes (an ink panel such as the sign-in
+// brand panel or a departures board), pass surface="ink": the gold copy for
+// dark backgrounds is then the only one rendered.
 //
 // Decorative: alt="" on both, so the name beside the mark stays the accessible
 // name of the link or heading around it.
@@ -18,9 +22,18 @@ type BrandMarkProps = {
   /** Width and height in CSS pixels. */
   size?: number
   className?: string
+  /** 'page' (default) follows the theme; 'ink' always uses the copy for dark backgrounds. */
+  surface?: 'page' | 'ink'
 }
 
-export default function BrandMark({ size = 28, className = '' }: BrandMarkProps) {
+export default function BrandMark({ size = 28, className = '', surface = 'page' }: BrandMarkProps) {
+  if (surface === 'ink') {
+    return (
+      <span className={`inline-flex shrink-0 ${className}`}>
+        <img src="/brand/mark-dark.svg" alt="" width={size} height={size} className="block" />
+      </span>
+    )
+  }
   return (
     <span className={`inline-flex shrink-0 ${className}`}>
       <img src="/brand/mark-light.svg" alt="" width={size} height={size} className="block in-[.dark]:hidden" />

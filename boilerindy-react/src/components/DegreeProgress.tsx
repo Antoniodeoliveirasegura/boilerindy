@@ -244,7 +244,7 @@ export default function DegreeProgress({
                                   ? 'bg-[var(--color-success)] text-white'
                                   : logged
                                     ? 'border border-[var(--color-error)] text-[var(--color-error)]'
-                                    : 'border border-dashed border-[var(--color-border-2)] text-[var(--color-txt-3)] group-hover:border-[var(--color-gold)] group-hover:text-[var(--color-gold)]'
+                                    : 'border border-dashed border-[var(--color-border-2)] text-[var(--color-txt-3)] group-hover:border-[var(--color-gold)] group-hover:text-[var(--color-gold-muted)]'
                               }`}
                             >
                               {c.done ? (
@@ -295,7 +295,7 @@ export default function DegreeProgress({
                                       className={`min-w-[2.1rem] px-1.5 py-1 rounded-lg text-[12px] font-semibold border transition-colors ${
                                         active
                                           ? 'bg-[var(--color-gold)] border-[var(--color-gold)] text-black'
-                                          : `border-[var(--color-border)] hover:border-[var(--color-gold)] hover:text-[var(--color-gold)] ${
+                                          : `border-[var(--color-border)] hover:border-[var(--color-gold)] hover:text-[var(--color-gold-muted)] ${
                                               isGpaLetter(letter)
                                                 ? 'text-[var(--color-txt-1)]'
                                                 : 'text-[var(--color-txt-3)]'

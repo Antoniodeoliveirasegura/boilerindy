@@ -108,7 +108,7 @@ const integrations = [
 ]
 
 const toneClasses: Record<string, string> = {
-  gold: 'bg-[var(--color-gold)]/15 text-[var(--color-gold-dark)] dark:text-[var(--color-gold)]',
+  gold: 'bg-[var(--color-gold)]/15 text-[var(--color-gold-dark)] dark:text-[var(--color-gold-muted)]',
   accent: 'bg-[var(--color-accent-bg)] text-[var(--color-accent)]',
   dining: 'bg-[var(--color-dining-bg)] text-[var(--color-dining-color)]',
   bus: 'bg-[var(--color-bus-bg)] text-[var(--color-bus-title)]',
@@ -177,14 +177,14 @@ export default function Landing() {
         <div className="relative max-w-[var(--mkt-max)] mx-auto grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-8 items-center">
           {/* Left: copy */}
           <div>
-            <div className="mkt-reveal inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/35 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
+            <div className="mkt-reveal inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/35 rounded-full px-3.5 py-1.5 mb-6 tracking-wide">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse" />
               Built for Purdue Indianapolis
             </div>
             <h1 className="mkt-reveal text-[clamp(2.4rem,6vw,4.4rem)] font-bold tracking-[-0.03em] leading-[0.98] mb-6" style={{ '--mkt-delay': '80ms' } as React.CSSProperties}>
               The whole campus,
               <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-br from-[var(--color-gold)] via-[var(--color-gold-muted)] to-[var(--color-accent)]">
+              <span className="bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-[0.12em] rounded-[6px] [box-decoration-break:clone] [-webkit-box-decoration-break:clone]">
                 one quiet screen.
               </span>
             </h1>
@@ -193,7 +193,7 @@ export default function Landing() {
               stitched together and quietly organized by AI. Stop juggling ten apps.
             </p>
             <div className="mkt-reveal flex flex-wrap gap-3 mb-10" style={{ '--mkt-delay': '240ms' } as React.CSSProperties}>
-              <Link to="/login" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-6 py-3 rounded-xl no-underline shadow-lg shadow-[var(--color-gold)]/25 hover:brightness-105 hover:-translate-y-0.5 transition-all">
+              <Link to="/login" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] bg-[var(--color-gold)] px-6 py-3 rounded-xl no-underline shadow-[var(--shadow-lg)] shadow-[var(--color-gold)]/25 hover:brightness-105 hover:-translate-y-0.5 transition-all">
                 <Icon name="sparkles" size={16} />
                 Get started - it’s free
               </Link>
@@ -258,7 +258,7 @@ export default function Landing() {
               </div>
             </div>
             <div className="mkt-float mkt-float--slow absolute -right-3 sm:-right-6 bottom-16 rounded-xl border border-[var(--color-gold)]/30 bg-[var(--color-gold)]/10 backdrop-blur-sm shadow-[var(--shadow-lg)] px-3 py-2.5 flex items-center gap-2.5 max-w-[200px]">
-              <div className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/25 text-[var(--color-gold-dark)] dark:text-[var(--color-gold)] flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/25 text-[var(--color-gold-dark)] dark:text-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
                 <Icon name="sparkles" size={15} />
               </div>
               <div className="text-[11px] font-medium leading-snug text-[var(--color-txt-1)]">
@@ -273,7 +273,7 @@ export default function Landing() {
       <section id="features" className="px-5 sm:px-8 py-16 sm:py-24">
         <div className="max-w-[var(--mkt-max)] mx-auto">
           <div className="max-w-[600px] mb-10 sm:mb-14">
-            <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-[var(--color-gold)] mb-3">Everything, in its place</div>
+            <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-[var(--color-gold-muted)] mb-3">Everything, in its place</div>
             <h2 className="text-[clamp(1.8rem,4vw,2.8rem)] font-bold tracking-[-0.02em] leading-tight">
               Not a folder of apps. <span className="text-[var(--color-txt-2)]">A single, opinionated home.</span>
             </h2>
@@ -284,7 +284,7 @@ export default function Landing() {
               <article
                 key={tile.title}
                 className={`mkt-tile rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 flex flex-col ${tile.span} ${
-                  tile.feature ? 'justify-between bg-gradient-to-br from-[var(--color-gold)]/12 to-transparent' : ''
+                  tile.feature ? 'justify-between' : ''
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -292,7 +292,7 @@ export default function Landing() {
                     <Icon name={tile.icon} size={tile.feature ? 24 : 20} />
                   </div>
                   {tile.tag && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-gold-dark)] dark:text-[var(--color-gold)] bg-[var(--color-gold)]/25 rounded-full px-2.5 py-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-gold-dark)] dark:text-[var(--color-gold-muted)] bg-[var(--color-gold)]/25 rounded-full px-2.5 py-1">
                       {tile.tag}
                     </span>
                   )}
@@ -312,7 +312,7 @@ export default function Landing() {
       </section>
 
       {/* ── A day on campus ─────────────────────────────────────────────── */}
-      <section id="day" className="relative mkt-grain px-5 sm:px-8 py-16 sm:py-24 overflow-hidden bg-gradient-to-br from-[var(--color-gold-dark)] via-[#4a3209] to-[#1e1606] dark:from-[#1a1206] dark:via-[#241a08] dark:to-[#100b04]">
+      <section id="day" className="relative mkt-grain px-5 sm:px-8 py-16 sm:py-24 overflow-hidden ink-panel rounded-none border-x-0">
         <div className="relative max-w-[var(--mkt-max)] mx-auto">
           <div className="max-w-[560px] mb-12">
             <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-[var(--color-gold)] mb-3">A Tuesday, narrated</div>
@@ -345,7 +345,7 @@ export default function Landing() {
       <section id="stack" className="px-5 sm:px-8 py-16 sm:py-20">
         <div className="max-w-[var(--mkt-max)] mx-auto">
           <div className="text-center mb-10">
-            <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-[var(--color-gold)] mb-3">Real data, real-time</div>
+            <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-[var(--color-gold-muted)] mb-3">Real data, real-time</div>
             <h2 className="text-[clamp(1.5rem,3vw,2.2rem)] font-bold tracking-tight">Plugged into the systems you already use</h2>
           </div>
           <div className="mkt-marquee-mask">
@@ -366,7 +366,7 @@ export default function Landing() {
 
       {/* ── CTA ─────────────────────────────────────────────────────────── */}
       <section className="px-5 sm:px-8 pb-20">
-        <div className="relative max-w-[var(--mkt-max)] mx-auto rounded-3xl overflow-hidden mkt-grain bg-gradient-to-br from-[var(--color-gold)] via-[var(--color-gold-muted)] to-[#9a7832] text-[var(--color-gold-dark)] px-8 py-16 sm:py-20 text-center">
+        <div className="relative max-w-[var(--mkt-max)] mx-auto rounded-3xl overflow-hidden mkt-grain bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-8 py-16 sm:py-20 text-center">
           <div className="relative">
             <h2 className="text-[clamp(1.8rem,4vw,3rem)] font-bold tracking-[-0.02em] leading-tight mb-4 text-[var(--color-gold-dark)]">
               Your campus is ready when you are.

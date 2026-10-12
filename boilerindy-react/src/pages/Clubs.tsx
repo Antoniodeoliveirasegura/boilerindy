@@ -44,7 +44,7 @@ function ClubLogo({ club }: { club: Club }) {
     <div
       aria-hidden="true"
       data-club-initials
-      className="w-14 h-14 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] font-semibold text-[16px] flex items-center justify-center shrink-0"
+      className="w-14 h-14 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] font-semibold text-[16px] flex items-center justify-center shrink-0"
     >
       {initialsFor(club.name)}
     </div>
@@ -71,7 +71,7 @@ function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; o
         {club.blurb ? <p className="text-[13px] text-[var(--color-txt-1)] m-0 line-clamp-3 break-words">{club.blurb}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5 mt-auto pt-1">
           {club.indianapolis && scope === 'all' ? (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">
               Indianapolis
             </span>
           ) : null}
@@ -90,7 +90,7 @@ function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; o
             href={club.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto text-[12px] text-[var(--color-gold)] hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+            className="ml-auto text-[12px] text-[var(--color-gold-muted)] hover:underline inline-flex items-center gap-1 whitespace-nowrap"
           >
             BoilerLink <Icon name="arrowUpRight" size={12} />
           </a>
@@ -260,7 +260,7 @@ export default function Clubs() {
           <p className="m-0">
             BoilerLink is not answering right now, so the directory is empty. It usually comes back within a few minutes. You can
             still{' '}
-            <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="text-[var(--color-gold)] hover:underline">
+            <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="text-[var(--color-gold-muted)] hover:underline">
               open BoilerLink directly
             </a>
             .

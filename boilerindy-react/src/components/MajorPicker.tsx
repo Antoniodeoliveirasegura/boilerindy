@@ -221,7 +221,7 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
                   >
                     <span
                       className={`w-4 shrink-0 ${
-                        isSelected ? 'text-[var(--color-gold)]' : 'text-transparent'
+                        isSelected ? 'text-[var(--color-gold-muted)]' : 'text-transparent'
                       }`}
                     >
                       <Icon name="check" size={14} />
@@ -232,7 +232,7 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
                     {option.tracked && (
                       <span
                         title="Requirements are mapped for this major"
-                        className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-[var(--color-gold)]/15 text-[var(--color-gold)] border border-[var(--color-gold)]/30"
+                        className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] border border-[var(--color-gold)]/30"
                       >
                         Plan
                       </span>

@@ -278,7 +278,7 @@ export default function Perks() {
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
           {filtered.map((deal) => (
-            <div key={deal.id} className={`card p-4 ${deal.featured ? 'border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5' : ''}`}>
+            <div key={deal.id} className="card p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   {deal.featured && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] font-semibold">★ Featured</span>}

@@ -49,7 +49,7 @@ function GarageCard({ garage, now }: { garage: Garage; now: Date }) {
           <h2 className="text-[16px] font-semibold text-[var(--color-txt-0)] leading-tight">
             {garage.name}
             {garage.code ? (
-              <span className="ml-2 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
+              <span className="ml-2 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">
                 {garage.code}
               </span>
             ) : null}
@@ -95,7 +95,7 @@ function GarageCard({ garage, now }: { garage: Garage; now: Date }) {
             href={directionsUrl(garage)}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[var(--color-gold)] hover:underline inline-flex items-center gap-1"
+            className="text-[var(--color-gold-muted)] hover:underline inline-flex items-center gap-1"
           >
             Directions <Icon name="arrowUpRight" size={12} />
           </a>
@@ -194,7 +194,7 @@ export default function Parking() {
             {permits.permits.map((permit) => (
               <div key={permit.code} className="card p-4 sm:p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">{permit.code}</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">{permit.code}</span>
                   <h3 className="text-[15px] font-semibold text-[var(--color-txt-0)] m-0">{permit.name}</h3>
                 </div>
                 <dl className="text-[13px] text-[var(--color-txt-1)] space-y-2 m-0">
@@ -218,7 +218,7 @@ export default function Parking() {
             <ul className="list-none m-0 p-0 grid sm:grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
               {permits.links.map((link) => (
                 <li key={link.href}>
-                  <a href={link.href} target="_blank" rel="noopener noreferrer" className="text-[var(--color-gold)] hover:underline inline-flex items-center gap-1">
+                  <a href={link.href} target="_blank" rel="noopener noreferrer" className="text-[var(--color-gold-muted)] hover:underline inline-flex items-center gap-1">
                     {link.label} <Icon name="arrowUpRight" size={12} />
                   </a>
                 </li>

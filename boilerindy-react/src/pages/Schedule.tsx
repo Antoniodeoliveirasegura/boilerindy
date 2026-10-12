@@ -544,7 +544,7 @@ export default function Schedule() {
       )}
 
       {needsSetup && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 animate-fade-in-up">
+        <div className="card p-5 mb-6 animate-fade-in-up">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
@@ -712,7 +712,7 @@ export default function Schedule() {
                 onClick={() => setSelectedDay(day)}
                 className={`flex-1 shrink-0 min-w-[88px] whitespace-nowrap text-[13px] py-2.5 rounded-xl transition-all duration-300 relative
                   ${isSelected
-                    ? 'bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-light)] text-[var(--color-gold-dark)] font-semibold shadow-sm'
+                    ? 'bg-[var(--color-gold)] text-[var(--color-gold-dark)] font-semibold shadow-[var(--shadow-sm)]'
                     : 'text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]'
                   }`}
               >
@@ -795,7 +795,7 @@ export default function Schedule() {
                                 e.stopPropagation()
                                 handleFindRoom(cls.room)
                               }}
-                              className="flex items-center gap-1.5 hover:text-[var(--color-gold)] transition-colors"
+                              className="flex items-center gap-1.5 hover:text-[var(--color-gold-muted)] transition-colors"
                               title="Find this room on map"
                             >
                               <Icon name="mapPin" size={12} />

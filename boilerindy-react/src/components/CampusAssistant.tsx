@@ -229,15 +229,15 @@ export default function CampusAssistant() {
         style={{ animationDelay: `${idx * 0.03}s` }}
       >
         {!isUser && (
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0 mt-0.5">
-            <Icon name="sparkles" size={14} className="text-[var(--color-gold-dark)]" />
+          <div className="route-badge sm r-ai w-7 h-7 mt-0.5">
+            <Icon name="sparkles" size={14} />
           </div>
         )}
         <div
-          className={`text-[13px] px-4 py-2.5 rounded-2xl max-w-[85%] leading-relaxed
+          className={`text-[14px] px-3.5 py-2.5 rounded-[var(--radius-lg)] max-w-[85%] leading-relaxed
             ${isUser
-              ? 'bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] text-[var(--color-gold)] rounded-br-md whitespace-pre-wrap'
-              : 'bg-[var(--color-stat)] text-[var(--color-txt-0)] rounded-bl-md'
+              ? 'bg-[var(--color-ink)] text-[var(--color-ink-txt)] whitespace-pre-wrap'
+              : 'bg-[var(--color-surface)] text-[var(--color-txt-0)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-gold)]'
             }`}
         >
           {isUser ? msg.content : <AiMarkdown>{msg.content}</AiMarkdown>}
@@ -250,67 +250,69 @@ export default function CampusAssistant() {
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 bg-black/20 backdrop-blur-sm z-40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-150 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setOpen(false)}
       />
 
-      {/* Chat Window: below md it opens 16px above the lifted button (issue #249). */}
-      <div className={`fixed bottom-[calc(4rem+1.25rem+3.5rem+1rem+env(safe-area-inset-bottom))] md:bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-48px)] transition-all duration-500 ease-out ${open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
-        <div data-testid="assistant-panel" className="card p-0 overflow-hidden shadow-xl border-[var(--color-border-2)]">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-[var(--color-gold-dark)] to-[#2A1E0A] p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)]/20 flex items-center justify-center">
-                <Icon name="sparkles" size={20} className="text-[var(--color-gold)]" />
+      {/* Chat Window: below md it opens 12px above the lifted button, which sits
+          76px up to clear the tab bar (issue #249). */}
+      <div className={`fixed bottom-[calc(144px+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 z-50 w-[360px] max-w-[calc(100vw-32px)] transition-[opacity,transform] duration-150 ease-[var(--ease-snap)] ${open ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
+        <div data-testid="assistant-panel" className="card p-0 overflow-hidden shadow-[var(--shadow-xl)] border-[var(--color-border-2)]">
+          {/* Header: an ink plate in both themes. */}
+          <div className="on-ink bg-[var(--color-ink)] px-3 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="route-badge lg r-ai">
+                <Icon name="sparkles" size={20} />
               </div>
-              <div>
-                <div className="text-[14px] font-semibold text-[var(--color-gold)]">BoilerIndy</div>
-                <div className="text-[11px] text-[var(--color-gold)]/60 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
+              <div className="min-w-0">
+                <div className="font-display text-[15px] font-extrabold tracking-[-0.01em] text-[var(--color-ink-txt)]">BoilerIndy</div>
+                <div className="text-[11.5px] text-[var(--color-ink-dim)] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3FCB78]" />
                   Powered by Groq
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
               {messages.length > 1 && (
                 <button
                   onClick={resetConversation}
                   aria-label="Start a new conversation"
                   title="New conversation"
-                  className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 flex items-center justify-center text-[var(--color-gold)]/70 hover:text-[var(--color-gold)] hover:bg-[var(--color-gold)]/20 transition-colors"
+                  className="icon-btn w-10 h-10"
                 >
-                  <Icon name="refresh" size={15} />
+                  <Icon name="refresh" size={16} />
                 </button>
               )}
               <button
                 onClick={() => setOpen(false)}
                 aria-label="Close the assistant"
-                className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 flex items-center justify-center text-[var(--color-gold)]/70 hover:text-[var(--color-gold)] hover:bg-[var(--color-gold)]/20 transition-colors"
+                className="icon-btn w-10 h-10"
               >
-                <Icon name="close" size={16} />
+                <Icon name="close" size={18} />
               </button>
             </div>
           </div>
 
-          {/* Messages: below md the cap also leaves room for the top bar (64px), an
-              8px gap, the panel's bottom offset (156px) and the header, input row and
-              card border (147px), so short phones keep the header on screen (issue #249). */}
+          {/* Messages: below md the cap also leaves room for the top bar (56px), an
+              8px gap, the panel's bottom offset (144px), the header, input row and
+              card border (135px) and 8px to spare, so short phones keep the header
+              on screen (issue #249). */}
           <div
             ref={messagesRef}
-            className="min-h-[200px] max-h-[min(340px,calc(100dvh-375px-env(safe-area-inset-bottom)))] md:max-h-[340px] overflow-y-auto p-4 space-y-3 bg-[var(--color-surface)]"
+            className="min-h-[200px] max-h-[min(340px,calc(100dvh-351px-env(safe-area-inset-bottom)))] md:max-h-[340px] overflow-y-auto p-4 space-y-3 bg-[var(--color-surface)]"
           >
             {messages.map((msg, idx) => renderMessage(worded(msg), idx))}
 
             {isTyping && (
               <div className="flex gap-2.5 animate-fade-in">
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
-                  <Icon name="sparkles" size={14} className="text-[var(--color-gold-dark)]" />
+                <div className="route-badge sm r-ai w-7 h-7">
+                  <Icon name="sparkles" size={14} />
                 </div>
-                <div className="bg-[var(--color-stat)] rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="bg-[var(--color-surface)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-gold)] rounded-[var(--radius-lg)] px-4 py-3">
                   <div className="flex gap-1">
-                    <span className="w-2 h-2 rounded-full bg-[var(--color-txt-3)] animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 rounded-full bg-[var(--color-txt-3)] animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 rounded-full bg-[var(--color-txt-3)] animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <span className="w-2 h-2 rounded-[2px] bg-[var(--color-txt-3)] animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 rounded-[2px] bg-[var(--color-txt-3)] animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 rounded-[2px] bg-[var(--color-txt-3)] animate-bounce" style={{ animationDelay: '300ms' }} />
                   </div>
                 </div>
               </div>
@@ -325,7 +327,7 @@ export default function CampusAssistant() {
                 <button
                   key={idx}
                   onClick={() => handleSend(q)}
-                  className="shrink-0 whitespace-nowrap text-[11px] px-3 py-1.5 rounded-full border border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)] hover:text-[var(--color-txt-0)] transition-colors"
+                  className="shrink-0 whitespace-nowrap inline-flex items-center min-h-[32px] px-3 rounded-[var(--radius-md)] border-[1.5px] border-[var(--color-border-2)] bg-[var(--color-surface)] font-display text-[12px] font-bold text-[var(--color-txt-1)] hover:border-[var(--color-border-3)] hover:text-[var(--color-txt-0)] transition-colors"
                 >
                   {q}
                 </button>
@@ -334,7 +336,7 @@ export default function CampusAssistant() {
           )}
 
           {/* Input */}
-          <div className="p-3 border-t border-[var(--color-border)] bg-[var(--color-bg-1)]">
+          <div className="p-3 border-t border-[var(--color-border-2)] bg-[var(--color-surface)]">
             <div className="flex gap-2">
               <input
                 ref={inputRef}
@@ -342,7 +344,7 @@ export default function CampusAssistant() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
                 placeholder={listening ? 'Listening…' : 'Ask about campus...'}
-                className="input flex-1 text-[13px] px-4 py-2.5"
+                className="input flex-1 min-w-0 text-[14px]"
                 disabled={isTyping}
               />
               {micSupported && (
@@ -353,10 +355,10 @@ export default function CampusAssistant() {
                   aria-pressed={listening}
                   aria-label={listening ? 'Stop voice input' : 'Start voice input'}
                   title={listening ? 'Stop dictation' : 'Dictate'}
-                  className={`px-3 py-2.5 rounded-xl border transition-colors disabled:opacity-50
+                  className={`btn btn-secondary w-11 px-0 shrink-0 disabled:opacity-50
                     ${listening
                       ? 'bg-[var(--color-error)]/15 border-[var(--color-error)] text-[var(--color-error)] animate-pulse'
-                      : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
+                      : ''
                     }`}
                 >
                   <Icon name="mic" size={16} />
@@ -365,7 +367,7 @@ export default function CampusAssistant() {
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isTyping}
-                className="btn btn-primary px-4 py-2.5 disabled:opacity-50"
+                className="btn btn-primary w-11 px-0 shrink-0 disabled:opacity-50"
               >
                 <Icon name="send" size={16} />
               </button>
@@ -374,24 +376,18 @@ export default function CampusAssistant() {
         </div>
       </div>
 
-      {/* Floating Button: below md it sits 20px above the fixed bottom nav (h-16 plus
-          the notch inset) so it no longer covers the nav's More tab (issue #249). */}
+      {/* Floating Button: a 56px amber sign plate. Below md it sits 76px up (the
+          62px tab bar plus 14px) so it never covers the bar's More tab (issue #249);
+          the position lives in index.css (.fab). */}
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-[calc(4rem+1.25rem+env(safe-area-inset-bottom))] md:bottom-6 right-6 z-50 w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 group
-          ${open
-            ? 'bg-[var(--color-surface)] border border-[var(--color-border-2)] rotate-90'
-            : 'bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] hover:shadow-xl hover:scale-110'
-          }`}
+        className={`fab ${open ? 'is-open' : ''}`}
         title="BoilerIndy"
       >
         {open ? (
-          <Icon name="close" size={22} className="text-[var(--color-txt-1)]" />
+          <Icon name="close" size={22} />
         ) : (
-          <>
-            <Icon name="sparkles" size={24} className="text-[var(--color-gold-dark)]" />
-            <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[var(--color-success)] border-2 border-[var(--color-bg-1)] animate-pulse" />
-          </>
+          <Icon name="sparkles" size={24} />
         )}
       </button>
     </>

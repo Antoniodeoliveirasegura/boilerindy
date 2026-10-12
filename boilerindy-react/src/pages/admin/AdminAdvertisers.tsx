@@ -146,7 +146,7 @@ export default function AdminAdvertisers() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-advertiser-title"
-            className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl p-6"
+            className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-xl)] p-6"
           >
             <h2 id="create-advertiser-title" className="text-lg font-semibold text-[var(--color-txt-0)] mb-1">
               Create advertiser account

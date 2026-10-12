@@ -249,7 +249,7 @@ export default function Map() {
     <div className="flex flex-col lg:grid lg:grid-cols-[320px_1fr] h-[calc(100dvh-3.5rem)] overflow-hidden bg-[var(--color-bg-1)]">
       <PageTitle>Campus Map</PageTitle>
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col z-10 border-r border-[var(--color-border-2)] bg-[var(--color-surface)] shadow-md min-h-0">
+      <aside className="hidden lg:flex flex-col z-10 border-r border-[var(--color-border-2)] bg-[var(--color-surface)] shadow-[var(--shadow-md)] min-h-0">
         <div className="p-4 border-b border-[var(--color-border)] space-y-3 shrink-0">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-bold">Campus Map</h1>
@@ -298,7 +298,7 @@ export default function Map() {
                           {b.name}
                         </span>
                         {b.displayCode && (
-                          <span className="inline-block mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
+                          <span className="inline-block mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">
                             {b.displayCode}
                           </span>
                         )}
@@ -314,7 +314,7 @@ export default function Map() {
 
       {/* Map Container */}
       <div className="relative flex-1 p-2 lg:p-3 bg-[var(--color-bg-2)] min-h-0">
-        <div className={`h-full w-full rounded-2xl overflow-hidden border shadow-lg purdue-map ${
+        <div className={`h-full w-full rounded-2xl overflow-hidden border shadow-[var(--shadow-lg)] purdue-map ${
           dark ? 'is-dark border-[#2A1E0A]' : 'is-light border-[var(--color-border-2)]'
         }`}>
           <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full">
@@ -371,7 +371,7 @@ export default function Map() {
         {/* Mobile: Search FAB */}
         <button
           onClick={() => setSidebarOpen(true)}
-          className="lg:hidden absolute top-4 left-4 w-12 h-12 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg flex items-center justify-center text-[var(--color-txt-1)] z-[1000]"
+          className="lg:hidden absolute top-4 left-4 w-12 h-12 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-lg)] flex items-center justify-center text-[var(--color-txt-1)] z-[1000]"
           aria-label="Search buildings"
         >
           <Icon name="search" size={20} />
@@ -387,7 +387,7 @@ export default function Map() {
           type="button"
           onClick={locateUser}
           disabled={locationLoading}
-          className={`absolute top-4 right-4 w-11 h-11 rounded-xl shadow-lg z-[1000] flex items-center justify-center transition-all border-2 ${
+          className={`absolute top-4 right-4 w-11 h-11 rounded-xl shadow-[var(--shadow-lg)] z-[1000] flex items-center justify-center transition-all border-2 ${
             userLocation
               ? 'bg-blue-500 text-white border-blue-400'
               : 'bg-white dark:bg-[var(--color-surface)] border-[var(--color-border)] text-gray-700 dark:text-[var(--color-txt-1)] hover:text-blue-500 hover:border-blue-400'
@@ -400,7 +400,7 @@ export default function Map() {
         
         {/* Selected building info card */}
         {selectedBuilding && (
-          <div className="absolute bottom-4 left-4 right-4 lg:left-auto lg:right-6 lg:bottom-6 lg:w-80 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] shadow-lg p-4 animate-fade-in-up z-[1000]">
+          <div className="absolute bottom-4 left-4 right-4 lg:left-auto lg:right-6 lg:bottom-6 lg:w-80 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] shadow-[var(--shadow-lg)] p-4 animate-fade-in-up z-[1000]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <h3 className="font-semibold text-[var(--color-txt-0)] text-[15px]">{selectedBuilding.name}</h3>
@@ -431,7 +431,7 @@ export default function Map() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] rounded-t-2xl shadow-xl z-[1002] transition-transform duration-300 ${
+      <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] rounded-t-2xl shadow-[var(--shadow-xl)] z-[1002] transition-transform duration-300 ${
         sidebarOpen ? 'translate-y-0' : 'translate-y-full'
       }`} style={{ maxHeight: '75vh' }}>
         {/* Handle */}
@@ -489,7 +489,7 @@ export default function Map() {
                           {b.name}
                         </span>
                         {b.displayCode && (
-                          <span className="inline-block mt-1.5 text-[11px] font-bold px-2 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
+                          <span className="inline-block mt-1.5 text-[11px] font-bold px-2 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold-muted)]">
                             {b.displayCode}
                           </span>
                         )}

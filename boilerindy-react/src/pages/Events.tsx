@@ -230,7 +230,7 @@ export default function Events() {
       </div>
 
       {hasNoSources && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 animate-fade-in-up">
+        <div className="card p-5 mb-6 animate-fade-in-up">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
@@ -273,10 +273,10 @@ export default function Events() {
 
       {/* AI Event Recommendations */}
       {!hasNoSources && !loading && items.length > 0 && (
-        <div className="card p-4 mb-6 border-[var(--color-gold)]/20 animate-fade-in-up stagger-2">
+        <div className="card p-4 mb-6 animate-fade-in-up stagger-2">
           <div className="flex items-center justify-between gap-3 mb-2">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
+              <div className="w-6 h-6 rounded-lg bg-[var(--color-gold)] flex items-center justify-center shrink-0">
                 <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
               </div>
               <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Recommended for You</span>

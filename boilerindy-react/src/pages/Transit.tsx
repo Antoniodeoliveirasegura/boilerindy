@@ -423,7 +423,7 @@ function LiveMap({
   }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes])
 
   return (
-    <div className="relative w-full h-[280px] sm:h-[380px] lg:h-[450px] rounded-2xl overflow-hidden border border-[var(--color-border)] shadow-lg">
+    <div className="relative w-full h-[280px] sm:h-[380px] lg:h-[450px] rounded-2xl overflow-hidden border border-[var(--color-border)] shadow-[var(--shadow-lg)]">
       <style>{`
         @keyframes transit-pulse {
           0%, 100% { transform: scale(1); opacity: 1; }
@@ -437,7 +437,7 @@ function LiveMap({
       `}</style>
       <div ref={mapRef} className="w-full h-full" />
 
-      <div className="absolute top-3 left-3 bg-white/95 dark:bg-[var(--color-bg-2)]/95 backdrop-blur-sm rounded-xl p-2 sm:p-3 shadow-lg z-[1000] max-w-[140px] sm:max-w-none">
+      <div className="absolute top-3 left-3 bg-white/95 dark:bg-[var(--color-bg-2)]/95 backdrop-blur-sm rounded-xl p-2 sm:p-3 shadow-[var(--shadow-lg)] z-[1000] max-w-[140px] sm:max-w-none">
         <div className="text-[9px] sm:text-[10px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1.5 sm:mb-2">
           Active Routes
         </div>
@@ -466,7 +466,7 @@ function LiveMap({
         type="button"
         onClick={locateUser}
         disabled={locationLoading}
-        className={`absolute bottom-3 right-3 w-11 h-11 rounded-xl shadow-lg z-[1000] flex items-center justify-center transition-all border-2 ${
+        className={`absolute bottom-3 right-3 w-11 h-11 rounded-xl shadow-[var(--shadow-lg)] z-[1000] flex items-center justify-center transition-all border-2 ${
           userLocation
             ? 'bg-blue-500 text-white border-blue-400'
             : 'bg-white dark:bg-[var(--color-bg-2)] border-gray-200 dark:border-[var(--color-border)] text-gray-700 dark:text-[var(--color-txt-1)] hover:text-blue-500 hover:border-blue-400'

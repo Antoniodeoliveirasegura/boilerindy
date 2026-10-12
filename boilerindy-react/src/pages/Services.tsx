@@ -376,7 +376,7 @@ export default function Services() {
         <AddWidgetPicker hiddenWidgets={hiddenWidgets} onAdd={(id) => setVisible(id, true)} />
       )}
 
-      <div className="card p-5 sm:p-6 mt-8 bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] border-[var(--color-gold)]/20 animate-fade-in-up">
+      <div className="ink-panel p-5 sm:p-6 mt-8 animate-fade-in-up">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
           <div className="w-14 h-14 rounded-2xl bg-[var(--color-gold)]/20 flex items-center justify-center shrink-0 mx-auto sm:mx-0">
             <Icon name="sparkles" size={28} className="text-[var(--color-gold)]" />

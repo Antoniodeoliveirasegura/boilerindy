@@ -33,17 +33,17 @@ export default function SourceErrorNotice({ className = '' }: { className?: stri
     <div
       role="status"
       data-testid="source-error-notice"
-      className={`card p-4 flex items-start gap-3 text-[13px] bg-[var(--color-error)]/10 border-[var(--color-error)]/20 text-[var(--color-txt-1)] ${className}`}
+      className={`card p-4 flex items-start gap-3 text-[14px] bg-[var(--color-error)]/10 border-[var(--color-error)]/30 border-l-4 border-l-[var(--color-error)] shadow-none text-[var(--color-txt-1)] ${className}`}
     >
       <Icon name="alert" size={16} className="shrink-0 mt-0.5 text-[var(--color-error)]" />
       <div className="min-w-0">
         {broken.map((s) => (
           <p key={s.id}>
-            <span className="font-medium text-[var(--color-txt-0)]">{s.label}</span> stopped syncing
+            <span className="font-semibold text-[var(--color-txt-0)]">{s.label}</span> stopped syncing
             {s.lastError ? `: ${s.lastError}` : '.'}
           </p>
         ))}
-        <Link to="/setup" className="inline-block mt-1.5 font-medium text-[var(--color-accent)] hover:underline">
+        <Link to="/setup" className="inline-block mt-1.5 font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-2">
           Reconnect it in Calendar sources
         </Link>
       </div>

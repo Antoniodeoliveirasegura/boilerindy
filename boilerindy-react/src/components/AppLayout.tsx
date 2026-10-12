@@ -54,8 +54,9 @@ export default function AppLayout() {
           <Outlet />
         </Suspense>
       </main>
-      {/* Extra bottom padding on mobile clears the fixed bottom nav (issue #112). */}
-      <SiteDisclaimer className="mt-auto pb-20 md:pb-6" />
+      {/* Extra bottom padding on mobile clears the fixed tab bar (62px) and the
+          assistant button floating above it (issues #112, #249). */}
+      <SiteDisclaimer rule className="mt-auto pb-[calc(136px+env(safe-area-inset-bottom))] md:pb-8" />
       {showChrome && <CampusAssistant />}
       <SessionExpiryWatcher />
     </div>

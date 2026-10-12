@@ -334,14 +334,14 @@ export default function Login() {
       <PageTitle>{forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}</PageTitle>
       {/* ── Brand / value panel ─────────────────────────────────────────── */}
       <SkipLink />
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-gradient-to-br from-[var(--color-gold-dark)] via-[#4a3209] to-[#1e1606] dark:from-[#1a1206] dark:via-[#241a08] dark:to-[#100b04]">
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 bg-[var(--color-ink)]">
         <div className="hero-bg" aria-hidden="true">
           <div className="hero-bg__aurora hero-bg__aurora--gold" />
           <div className="hero-bg__aurora hero-bg__aurora--gold2" />
         </div>
 
         <Link to="/" className="relative inline-flex items-center gap-2.5 text-[15px] font-semibold text-[var(--color-gold-light)] no-underline w-fit">
-          <BrandMark />
+          <BrandMark surface="ink" />
           BoilerIndy
         </Link>
 
@@ -399,7 +399,7 @@ export default function Login() {
         </div>
 
         <div className="flex-1 flex flex-col justify-center max-w-[400px] w-full mx-auto py-10">
-          <div className="lg:hidden inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
+          <div className="lg:hidden inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-gold-muted)] bg-[var(--color-gold)]/15 border border-[var(--color-gold)]/30 rounded-full px-3.5 py-1.5 mb-6 w-fit">
             <Icon name="graduation" size={13} />
             Student app
           </div>
@@ -418,10 +418,10 @@ export default function Login() {
           </p>
 
           <div className={`flex bg-[var(--color-stat)] rounded-xl p-1 gap-1 mb-5 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
-            <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${!isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-sm' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
+            <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${!isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-[var(--shadow-sm)]' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
               Sign in
             </button>
-            <button type="button" onClick={() => { setTab('signup'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-sm' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
+            <button type="button" onClick={() => { setTab('signup'); clearErrors() }} className={`flex-1 py-2 rounded-lg text-[13px] font-medium border-0 cursor-pointer transition-all ${isSignup ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-[var(--shadow-sm)]' : 'bg-transparent text-[var(--color-txt-1)]'}`}>
               Create account
             </button>
           </div>
