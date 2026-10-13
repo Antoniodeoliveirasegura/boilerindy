@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Icon from '../../components/Icons'
+import PageLoader from '../../components/PageLoader'
 
 const NAV = [
   { to: '/admin', end: true, label: 'Overview', icon: 'grid' },
@@ -90,7 +91,11 @@ export default function AdminLayout() {
 
         {/* AppLayout renders the page's <main> (issue #221); this is a plain column. */}
         <div className="flex-1 min-w-0">
-          <Outlet />
+          {/* Each admin tab is its own chunk. Loading here keeps the sidebar on
+              screen; without it the app's outer loader replaced the whole console. */}
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
     </div>

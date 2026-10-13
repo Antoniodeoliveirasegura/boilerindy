@@ -3,6 +3,7 @@
 
 import type { BackendSession } from '../context/AuthContext'
 import { retryAfterMsFromHeader } from './queries/publicData'
+import { normalizeRoutePath } from './routePath'
 
 type UserLike = { name?: string | null; email?: string | null } | null | undefined
 
@@ -116,9 +117,32 @@ export function setSkipSetup(skip: boolean): void {
   }
 }
 
+/**
+ * A `next` value as a same-site path, or null. Resolved the way the browser
+ * and the router will resolve it, because a prefix check is not enough: URL
+ * parsing drops tabs and newlines, so "/\t/evil.example" passed a startsWith
+ * check and then resolved to "//evil.example", which React Router refuses by
+ * throwing, crashing the app on every visit to such a link. Dot segments
+ * ("/..//evil.example") can leave a same-origin URL whose path still starts
+ * with "//", so that is refused too. So is /login itself: signing in would
+ * land back on the sign-in form.
+ */
+export function safeNextPath(next: string | null | undefined): string | null {
+  if (!next || !next.startsWith('/')) return null
+  const base = 'https://next.invalid'
+  try {
+    const url = new URL(next, base)
+    if (url.origin !== base || url.pathname.startsWith('//')) return null
+    if (normalizeRoutePath(url.pathname) === '/login') return null
+    return url.pathname + url.search + url.hash
+  } catch {
+    return null
+  }
+}
+
 export function parseNextPath(search: string): string {
-  const next = new URLSearchParams(search).get('next')
-  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return next
+  const next = safeNextPath(new URLSearchParams(search).get('next'))
+  if (next) return next
   // Respect a saved choice to skip the schedule-setup screen on login
   return shouldSkipSetup() ? '/dashboard' : '/setup'
 }
@@ -133,15 +157,14 @@ export type OnboardingLike = { needsScheduleSource?: boolean } | null | undefine
  * parseNextPath only knew about the skip flag.
  */
 export function resolvePostLoginPath(search: string, onboarding?: OnboardingLike): string {
-  const next = new URLSearchParams(search).get('next')
-  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return next
+  const next = safeNextPath(new URLSearchParams(search).get('next'))
+  if (next) return next
   if (shouldSkipSetup()) return '/dashboard'
   if (onboarding && onboarding.needsScheduleSource === false) return '/dashboard'
   return '/setup'
 }
 
 export function startPurdueLink(nextPath = '/setup'): void {
-  const safeNext =
-    nextPath.startsWith('/') && !nextPath.startsWith('//') && !nextPath.startsWith('/\\') ? nextPath : '/setup'
+  const safeNext = safeNextPath(nextPath) ?? '/setup'
   window.location.href = `/auth/purdue/connect?next=${encodeURIComponent(safeNext)}`
 }

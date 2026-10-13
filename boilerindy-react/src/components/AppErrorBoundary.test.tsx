@@ -36,4 +36,60 @@ describe('AppErrorBoundary', () => {
     expect((error as Error).message).toBe('first render crashed')
     expect(context).toMatchObject({ contexts: { react: { componentStack: expect.any(String) } } })
   })
+
+  test('tries its children again when resetKey changes, so the next page is not stuck on the crash screen', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { rerender } = render(
+      <AppErrorBoundary resetKey="/schedule">
+        <Boom />
+      </AppErrorBoundary>,
+    )
+    expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument()
+
+    rerender(
+      <AppErrorBoundary resetKey="/schedule">
+        <p>still crashed</p>
+      </AppErrorBoundary>,
+    )
+    expect(screen.queryByText('still crashed')).not.toBeInTheDocument()
+
+    rerender(
+      <AppErrorBoundary resetKey="/dashboard">
+        <p>Dashboard</p>
+      </AppErrorBoundary>,
+    )
+    expect(screen.getByText('Dashboard')).toBeInTheDocument()
+  })
+
+  test('a page that crashes on the navigation that changed the key is rendered and reported once', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const sink = vi.fn()
+    attachErrorSink(sink)
+    let renders = 0
+    function CountedBoom(): never {
+      renders += 1
+      throw new Error('crashed on arrival')
+    }
+    const { rerender } = render(
+      <AppErrorBoundary resetKey="/dashboard">
+        <p>Dashboard</p>
+      </AppErrorBoundary>,
+    )
+    rerender(
+      <AppErrorBoundary resetKey="/events">
+        <CountedBoom />
+      </AppErrorBoundary>,
+    )
+    expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument()
+    const rendersAfterCrash = renders
+    expect(sink).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <AppErrorBoundary resetKey="/events">
+        <CountedBoom />
+      </AppErrorBoundary>,
+    )
+    expect(renders).toBe(rendersAfterCrash)
+    expect(sink).toHaveBeenCalledTimes(1)
+  })
 })

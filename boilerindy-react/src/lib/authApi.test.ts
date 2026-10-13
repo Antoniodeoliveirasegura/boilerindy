@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { authRequest, parseNextPath, resolvePostLoginPath, shouldSkipSetup, setSkipSetup } from './authApi'
+import { authRequest, parseNextPath, resolvePostLoginPath, safeNextPath, shouldSkipSetup, setSkipSetup } from './authApi'
 
 // Issues #23 (post-login redirect) and #40 (skip the connect-sources screen).
 beforeEach(() => localStorage.clear())
@@ -25,6 +25,44 @@ describe('parseNextPath', () => {
   test('an explicit next still wins over the skip flag', () => {
     setSkipSetup(true)
     expect(parseNextPath('?next=/board')).toBe('/board')
+  })
+})
+
+describe('safeNextPath', () => {
+  test('keeps a same-site path with its query and hash', () => {
+    expect(safeNextPath('/board?post=p3')).toBe('/board?post=p3')
+    expect(safeNextPath('/map?building=ET#info')).toBe('/map?building=ET#info')
+  })
+
+  test('rejects anything that would leave the site or is not a path', () => {
+    for (const next of [null, undefined, '', 'board', 'https://evil.example', '//evil.example', '/\\evil.example']) {
+      expect(safeNextPath(next)).toBeNull()
+    }
+  })
+
+  // A tab or newline is dropped by URL parsing, so these became
+  // "//evil.example/x" after a prefix check had passed them, and React Router
+  // threw on the navigate, crashing the app on every visit to the link.
+  test('rejects a path that only turns protocol-relative once tabs and newlines are dropped', () => {
+    for (const ch of ['\t', '\n', '\r']) {
+      expect(safeNextPath(`/${ch}/evil.example/x`)).toBeNull()
+    }
+    expect(parseNextPath('?next=%2F%09%2Fevil.example%2Fx')).toBe('/setup')
+  })
+
+  // Dot segments can leave a same-origin URL whose path starts with "//".
+  test('rejects a path that only turns protocol-relative once dot segments are resolved', () => {
+    for (const next of ['/.//evil.example', '/..//evil.example', '/../..//evil.example', '/%2e//evil.example', '/a/..//evil.example']) {
+      expect(safeNextPath(next)).toBeNull()
+    }
+    expect(parseNextPath('?next=%2F..%2F%2Fevil.example')).toBe('/setup')
+  })
+
+  test('rejects /login itself, in any case or with a trailing slash, so sign-in does not land on its own form', () => {
+    for (const next of ['/login', '/LOGIN', '/login/', '/login?tab=signup']) {
+      expect(safeNextPath(next)).toBeNull()
+    }
+    expect(resolvePostLoginPath('?next=%2F%0A%2Fevil.example', { needsScheduleSource: false })).toBe('/dashboard')
   })
 })
 
