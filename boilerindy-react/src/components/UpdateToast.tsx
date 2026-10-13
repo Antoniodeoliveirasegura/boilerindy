@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { applyUpdate, registerServiceWorker, type RegistrationLike } from '../lib/swUpdate'
 
 // Registers the service worker (production only, so dev assets are never
 // cached) and offers a refresh once a new version is installed and waiting
 // (issue #220). Renders nothing until then. `register`, `apply` and `enabled`
 // are props only so tests can drive it without a real worker.
+
+// The space left between this toast and the session-expiry alert stacked on it.
+const STACK_GAP_PX = 8
 
 type Props = {
   enabled?: boolean
@@ -19,6 +22,8 @@ export default function UpdateToast({
 }: Props) {
   const [ready, setReady] = useState<RegistrationLike | null>(null)
   const [dismissed, setDismissed] = useState(false)
+  const toastRef = useRef<HTMLDivElement>(null)
+  const shown = ready !== null && !dismissed
 
   useEffect(() => {
     if (!enabled) return
@@ -36,7 +41,28 @@ export default function UpdateToast({
     if (ready) apply(ready)
   }, [apply, ready])
 
-  if (!ready || dismissed) return null
+  // SessionExpiryWatcher's alert shares this bottom slot, and this toast sits
+  // over it, so the toast covered the alert's buttons when both showed. While
+  // the toast is up, its height plus a gap goes on <html> as
+  // --update-toast-lift, which the alert adds to its offset to stack above it.
+  // Measured, not fixed, because the message wraps to more lines on phones.
+  useLayoutEffect(() => {
+    const el = toastRef.current
+    if (!shown || !el) return undefined
+    const root = document.documentElement
+    const measure = () => {
+      root.style.setProperty('--update-toast-lift', `${el.getBoundingClientRect().height + STACK_GAP_PX}px`)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty('--update-toast-lift')
+    }
+  }, [shown])
+
+  if (!shown) return null
 
   // Sits above the mobile tab bar (z-40) and below dialogs (z-[2000]), like
   // ServerWakeNotice. On phones the bottom offset clears the assistant button,
@@ -45,6 +71,7 @@ export default function UpdateToast({
   return (
     <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] z-[1200] flex justify-center px-4 md:bottom-6">
       <div
+        ref={toastRef}
         role="status"
         aria-live="polite"
         data-testid="sw-update-toast"
