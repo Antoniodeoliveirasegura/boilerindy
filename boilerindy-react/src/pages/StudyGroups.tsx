@@ -30,9 +30,6 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
-// A disabled primary drops to a neutral plate: amber marks a live action only.
-const PRIMARY_OFF = 'disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:border-[var(--color-border-2)] disabled:shadow-none'
-
 export default function StudyGroups() {
   const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [optIn, setOptIn] = useState(false)
@@ -189,7 +186,7 @@ export default function StudyGroups() {
                 {group.capacity ? `/${group.capacity}` : ''} member{group.memberCount === 1 ? '' : 's'}
               </span>
             </div>
-            <h3 className="text-[15px] leading-snug text-[var(--color-txt-0)] mt-2 break-words">{group.title}</h3>
+            <h3 className="row-title mt-2 break-words">{group.title}</h3>
             {group.meetingInfo && (
               <div className="text-[13px] text-[var(--color-txt-2)] flex items-center gap-1.5 mt-1">
                 <Icon name="clock" size={13} />
@@ -204,7 +201,7 @@ export default function StudyGroups() {
             <button
               type="button"
               onClick={() => leaveGroup(group)}
-              className="btn btn-ghost btn-sm shrink-0 text-[var(--color-txt-2)]"
+              className="btn btn-ghost btn-sm shrink-0 -mr-3 text-[var(--color-txt-2)]"
             >
               Leave
             </button>
@@ -219,12 +216,12 @@ export default function StudyGroups() {
           )}
         </div>
         {(context === 'mine' && group.courseCode) || !group.isMine ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
+          <div className="mod-actions">
             {context === 'mine' && group.courseCode && (
               <button
                 type="button"
                 onClick={() => selectCourse(group.courseCode || '')}
-                className="py-1 font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] decoration-2"
+                className="link-btn py-1"
               >
                 See all {group.courseCode} groups
               </button>
@@ -234,15 +231,10 @@ export default function StudyGroups() {
                 <button
                   type="button"
                   onClick={(e) => report({ targetType: 'study_group', targetId: group.id, targetLabel: 'this group' }, e.currentTarget)}
-                  className="inline-flex items-center gap-1 py-1 font-display font-semibold text-[13px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
                 >
                   <Icon name="flag" size={13} /> Report
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void handleBlockCreator(group)}
-                  className="py-1 font-display font-semibold text-[13px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                >
+                <button type="button" onClick={() => void handleBlockCreator(group)}>
                   Block author
                 </button>
               </>
@@ -290,7 +282,7 @@ export default function StudyGroups() {
               onClick={toggleOptIn}
               disabled={optBusy}
               aria-pressed={optIn}
-              className={`btn shrink-0 max-sm:ml-12 disabled:opacity-50 ${optIn ? 'btn-ink' : 'btn-secondary'}`}
+              className="btn btn-secondary shrink-0 max-sm:ml-12"
             >
               {optIn ? <Icon name="check" size={15} strokeWidth={2.5} /> : null}
               {optIn ? 'Opted in' : 'Opt in'}
@@ -311,7 +303,7 @@ export default function StudyGroups() {
               <p className="text-[14px] text-[var(--color-error)]">{coursesError}</p>
             ) : courses.length === 0 ? (
               <div className="empty row">
-                <span className="ico shrink-0">
+                <span className="ico">
                   <Icon name="calendar" size={18} />
                 </span>
                 <p>
@@ -383,7 +375,7 @@ export default function StudyGroups() {
                     className="input tnum"
                   />
                   {formError && <p className="text-[13px] text-[var(--color-error)]">{formError}</p>}
-                  <button type="submit" disabled={submitting} className={`btn btn-primary ${PRIMARY_OFF}`}>
+                  <button type="submit" disabled={submitting} className="btn btn-primary">
                     {submitting ? 'Creating…' : 'Create group'}
                   </button>
                 </form>
@@ -393,7 +385,7 @@ export default function StudyGroups() {
                 <p className="text-[14px] text-[var(--color-txt-2)]">Loading groups…</p>
               ) : groups.length === 0 ? (
                 <div className="empty row">
-                  <span className="ico shrink-0">
+                  <span className="ico">
                     <Icon name="users" size={18} />
                   </span>
                   <div>

@@ -273,6 +273,15 @@
     letter-spacing: -0.025em;
   }
 
+  /* Headings are Jakarta 800 everywhere, with no markup edit. In the base
+     layer so a component class or a utility can still set a lighter weight:
+     row-level h3 titles use .row-title (Jakarta 700), and a page's
+     font-* utility wins over this default. */
+  h1, h2, h3, .card-title {
+    font-family: var(--font-headline);
+    font-weight: 800;
+  }
+
   /* Tabular numerals for every time, date, count and countdown. */
   time, .tnum {
     font-variant-numeric: tabular-nums;
@@ -287,15 +296,6 @@
     background: var(--color-gold);
     color: var(--color-gold-dark);
   }
-}
-
-/* Headings are Jakarta 800 everywhere. Unlayered on purpose: it beats the
-   font-semibold / font-bold utilities pages put on h1-h3, so every heading
-   moves onto the display face without a markup edit. For lighter display text
-   use a non-heading element with `font-display font-bold`. */
-h1, h2, h3, .card-title {
-  font-family: var(--font-headline);
-  font-weight: 800;
 }
 
 /* Focus: amber outer ring (reads on ink, dark and gold) around an ink inner
@@ -584,23 +584,31 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   .display .pn { margin-left: -0.09em; }
 
   /* ── Page container: the app's 1200px column, on the same edges as the
-     nav band (brand on the left, avatar on the right). AppLayout already
-     clears the tab bar and the assistant button below it, so pages add no
-     bottom padding. .page-measure is a centred reading column inside it for
-     feed and form pages (Board, Settings). ───────────────────────────────── */
+     nav band (brand on the left, avatar on the right). The bottom padding
+     keeps the last card off the disclaimer rule under it (40px, 56px from
+     md); AppLayout's disclaimer already clears the tab bar and the assistant
+     button, so pages add no bottom padding of their own. .page-measure is a
+     760px reading column inside it for feed and form pages (Board,
+     Settings). It is centred only from lg, where it clearly narrows the
+     column. On tablets the page is barely wider than 760px, so a centred
+     measure sat a few px in from the nav brand and the wide pages and the
+     left edge jumped between pages; there it keeps the shared left edge.
+     ─────────────────────────────────────────────────────────────────── */
   .page {
     width: 100%;
     max-width: 1200px;
     margin-inline: auto;
-    padding: 24px 16px 0;
+    padding: 24px 16px 40px;
   }
   .page-measure {
     width: 100%;
     max-width: 760px;
-    margin-inline: auto;
   }
   @media (min-width: 48rem) {
-    .page { padding: 32px 24px 0; }
+    .page { padding: 32px 24px 56px; }
+  }
+  @media (min-width: 64rem) {
+    .page-measure { margin-inline: auto; }
   }
 
   /* ── Eyebrow: caps label led by a 10px square. Neutral (txt-0) by default
@@ -667,6 +675,13 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     letter-spacing: -0.01em;
     color: var(--color-txt-0);
   }
+  /* Row title: the h3 of one row in a list (a group, a person, a listing, a
+     post). Jakarta 700, so a list of rows does not read as a stack of card
+     titles; page, section and card titles stay 800. */
+  .row-title {
+    font: 700 15px/1.3 var(--font-display);
+    color: var(--color-txt-0);
+  }
   .card-sub {
     margin-top: 2px;
     font-size: 12.5px;
@@ -696,6 +711,62 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     text-underline-offset: 3px;
   }
 
+  /* Link-style action inside a card body ("Use this title", "Append to
+     details"): the head link's type, with no hit-area padding of its own. */
+  .link-btn {
+    padding: 0;
+    font: 700 13px/1.5 var(--font-display);
+    color: var(--color-accent);
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .link-btn:hover:not(:disabled) {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Moderation actions (Report, Block) on anything students post: one quiet
+     line of text buttons in a single fixed slot, the last line of the row's
+     text block, left aligned under its meta or tags. Report leads with the
+     13px flag; Block has no icon; hover turns error. The button rules are
+     wrapped in :where() so a .link-btn sharing the line (StudyGroups' "See
+     all" link) or an owner action's own utilities keep their look. */
+  .mod-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    margin-top: 6px;
+  }
+  :where(.mod-actions) > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+    font: 600 12.5px/1.2 var(--font-display);
+    color: var(--color-txt-3);
+    background: none;
+    border: 0;
+    transition: color 120ms var(--ease-snap);
+  }
+  :where(.mod-actions) > button:where(:hover:not(:disabled)) { color: var(--color-error); }
+  :where(.mod-actions) > button > svg { width: 13px; height: 13px; }
+
+  /* In-prose link: always underlined (the accent alone sits too close to the
+     body text to mark a link), a 1.5px line at 3px that firms up on hover. */
+  .prose-link {
+    font-weight: 600;
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+  }
+  .prose-link:hover { text-decoration-color: var(--color-accent); }
+
   /* ── Buttons ───────────────────────────────────────────────────────────
      Sign plates: flat fills, a 1.5px edge, 1px down on press. */
   .btn {
@@ -716,7 +787,6 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
       color 120ms var(--ease-snap), transform 120ms var(--ease-snap);
   }
   .btn:active:not(:disabled) { transform: translateY(1px); }
-  .btn:disabled { cursor: not-allowed; }
 
   /* Primary: amber plate with an ink edge, the same in both themes. */
   .btn-primary {
@@ -764,6 +834,39 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     border-color: rgba(255, 255, 255, 0.6);
   }
 
+  /* Danger: a destructive action that stays an outline (End, Take down,
+     Delete). The filled error plate is kept for the confirmation dialog. */
+  .btn-danger {
+    background: var(--color-surface);
+    color: var(--color-error);
+    border-color: color-mix(in oklab, var(--color-error) 55%, transparent);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-error) 8%, transparent);
+    border-color: var(--color-error);
+  }
+
+  /* Disabled: an outline button fades to half. A disabled solid button
+     (primary, ink) instead drops to the same neutral plate in both themes: a
+     faded amber turns a muddy brown on dark, and a faded ink fill reads as a
+     grey slab, a broken primary. Amber and ink mark a live action only. On
+     an ink panel the plate is the panel's own tile. */
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary:disabled,
+  .btn-ink:disabled {
+    background: var(--color-stat);
+    color: var(--color-txt-3);
+    border-color: var(--color-border-2);
+    box-shadow: none;
+    opacity: 1;
+  }
+  .btn-onink:disabled {
+    background: var(--color-ink-lift-2);
+    color: var(--color-ink-dim);
+    border-color: var(--color-ink-edge);
+    opacity: 1;
+  }
+
   .btn-sm { min-height: 34px; padding: 0 12px; font-size: 13px; gap: 6px; }
   .btn-lg { min-height: 52px; padding: 0 22px; font-size: 16px; }
 
@@ -788,6 +891,22 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   }
   .input::placeholder { color: var(--color-txt-3); }
   .input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* Selects drop the platform arrow, which sat against the border, for the
+     icon set's chevronDown in txt-2, 14px in from the right edge. A select
+     cannot hold a pseudo-element, so the chevron is a background image, one
+     per theme. */
+  select.input {
+    appearance: none;
+    padding-right: 40px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23474E5A' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px 16px;
+  }
+  .dark select.input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23A9B0BA' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  }
 
   /* ── Pills (filters, tabs) ──────────────────────────────────────────────
      Active pill is ink with an amber underline; it inverts cleanly in dark. */
@@ -866,6 +985,27 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   .code.solid {
     background: var(--route, var(--color-txt-0));
     color: var(--route-on, var(--color-surface));
+    box-shadow: none;
+  }
+
+  /* One-time-code field: an .input with the code's digits in Jakarta 700
+     20px, tabular, centred and spaced (the left padding takes the last
+     digit's trailing letter-space back so the digits sit centred). It undoes
+     the course code plate's look, and an unlayered rule below keeps it at
+     20px under the phone 16px input rule. */
+  .input.code {
+    display: inline-block;
+    padding: 10px 12px 10px calc(12px + 0.4em);
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: inherit;
+    letter-spacing: 0.4em;
+    text-align: center;
+    white-space: normal;
+    color: var(--color-txt-0);
+    border-radius: var(--radius-lg);
     box-shadow: none;
   }
 
@@ -1093,16 +1233,26 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     line-height: 1.45;
     color: var(--color-txt-2);
   }
-  .empty .ico {
+  .empty .ico { width: 36px; height: 36px; }
+  /* Row: the icon beside the copy, aligned to the start so a paragraph or a
+     title over a line of copy reads from the top; the first line of copy
+     sits on the icon's centre line. */
+  .empty.row { flex-direction: row; align-items: flex-start; }
+  .empty.row > .ico + * { padding-top: 8px; padding-top: max(0px, calc((36px - 1lh) / 2)); }
+
+  /* Neutral icon square: a stat fill with a txt-2 icon, for an icon that
+     labels a row or a detail without a route colour (the empty state uses
+     it at 36px). It never shrinks in a flex row. */
+  .ico {
     display: inline-grid;
     place-items: center;
-    width: 36px;
-    height: 36px;
+    flex: none;
+    width: 32px;
+    height: 32px;
     border-radius: var(--radius-md);
     color: var(--color-txt-2);
     background: var(--color-stat);
   }
-  .empty.row { flex-direction: row; align-items: center; }
 
   /* ── Ink panel: a panel that is ink in both themes and sits on the page
      (a help card, a band, a departures board). Plain ink in light; in dark
@@ -1165,8 +1315,10 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   /* ── Departures board: an ink panel with split-flap digits ─────────────
      In dark it also carries a thin amber rule along the top: the board is
      the one "now" panel on a page. It keeps its own height (fit-content),
-     so a stretched grid row cannot open dead bands inside it. */
+     so a stretched grid row cannot open dead bands inside it. It is a size
+     container: its own width picks the layout (see the tiers below). */
   .board {
+    container: board / inline-size;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -1200,7 +1352,7 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     background: var(--route, #86A8FF);
   }
   .board-status {
-    display: none;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
     font: 800 13px/1 var(--font-display);
@@ -1310,6 +1462,43 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   }
   .board-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+  /* Board tiers, by the board's own width rather than the viewport, so a
+     half-width board on a tablet never squeezes the wide row:
+     - 40rem and up: flaps, destination and countdown in one row.
+     - 30 to 40rem: flaps and countdown, the destination under them; the foot
+       stacks and the two actions share the width.
+     - under 30rem: one column. The countdown goes and the status line in the
+       head stands in for it.
+     From 30rem the status line is the countdown's twin, so while a countdown
+     shows it is hidden visually and still read by screen readers. */
+  @container board (width >= 30rem) {
+    .board:has(.countdown) .board-status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border-width: 0;
+    }
+  }
+  @container board (width < 40rem) {
+    .board-foot { flex-direction: column; align-items: stretch; }
+    .board-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  }
+  @container board (30rem <= width < 40rem) {
+    .board-main { grid-template-columns: auto minmax(0, 1fr); row-gap: 16px; }
+    .dest { grid-column: span 2; order: 1; }
+  }
+  @container board (width < 30rem) {
+    .board-main { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px 0; }
+    .countdown { display: none; }
+    .board .cells { gap: 14px 22px; }
+    .board-actions .btn { padding: 0 10px; }
+  }
+
   /* Blank flaps: the empty state for a number that has no data yet. */
   .flaps.blank .flap {
     min-width: 40px;
@@ -1324,8 +1513,10 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   /* ── Route line: the day as a line with stops ──────────────────────────
      Track and stop rings take the card's single route colour; "now" is the
      amber stop with an ink ring. Place stops with style={{ left: '61%' }}
-     in proportion to time; .first and .last pin the ends. */
+     in proportion to time; .first and .last pin the ends. The line is a size
+     container, so a narrow card (not only a phone) gets the compact stops. */
   .line {
+    container: line / inline-size;
     position: relative;
     height: 92px;
     margin: 16px 4px 4px;
@@ -1391,9 +1582,23 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     font: 800 13px/1.25 var(--font-display);
     color: var(--color-txt-0);
   }
+  /* Under 32rem of line the names step down and each middle stop moves its
+     time under the dot, so its labels clear the end stops'. */
+  @container line (width < 32rem) {
+    .stop .n { font-size: 12px; }
+    .stop.mid { padding-top: 28px; }
+    .stop.mid .t { order: 2; height: auto; margin-top: 8px; }
+    .stop.mid .dot { order: 1; }
+    .stop.mid .n { order: 3; margin-top: 2px; }
+  }
 
   /* ── Week strip: seven days, a 4px rule each (amber for today), caps day,
-     tabular date and short neutral tags for what lands that day. ───────── */
+     tabular date and short neutral tags for what lands that day. Tags stay
+     about five characters ('Class', '1 due', 'Quiz') and at most 76px wide,
+     so they stay compact in a full-width strip. The detail is real text for
+     screen readers: each li starts with an sr-only span holding the day's
+     full description, and the visible .d, .n and .tags are aria-hidden
+     (browse mode skips an aria-label on a list item). ─────────────────── */
   .week-strip {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1426,6 +1631,7 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     align-items: stretch;
     gap: 3px;
     width: 100%;
+    max-width: 76px;
     margin-top: 4px;
   }
   .week-strip .tag {
@@ -1787,7 +1993,8 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     .btn,
     .btn-sm { min-height: 44px; min-width: 44px; }
     .head-link { min-height: 44px; }
-    .pill { min-height: 40px; padding: 0 14px; font-size: 13px; }
+    :where(.mod-actions) > button { min-height: 32px; }
+    .pill { min-height: 44px; padding: 0 14px; font-size: 13px; }
     .card-pad { padding: 16px; }
     .card.lined.card-pad { padding-top: 20px; }
     .page-title { font-size: 32px; letter-spacing: -0.03em; }
@@ -1796,17 +2003,12 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     .display { font-size: 50px; letter-spacing: -0.035em; }
     .big-stat { font-size: 40px; }
 
+    /* The board's layout follows its own width (the container tiers above);
+       only its padding and type scale step down with the phone. */
     .board { padding: 16px; }
-    .board-main { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px 0; }
     .flap { min-width: 44px; font-size: 50px; }
     .flap-sep { font-size: 38px; }
     .dest-name { font-size: 24px; }
-    .countdown { display: none; }
-    .board-status { display: inline-flex; }
-    .board-foot { flex-direction: column; align-items: stretch; }
-    .cells { gap: 14px 22px; }
-    .board-actions { display: grid; grid-template-columns: 1fr 1fr; }
-    .board-actions .btn { padding: 0 10px; }
 
     .tile { position: relative; flex-direction: column; align-items: flex-start; gap: 10px; min-height: 64px; padding: 12px; }
     .tile .go { position: absolute; top: 12px; right: 10px; }
@@ -1819,12 +2021,6 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     .posts > li > button,
     .post-row { grid-template-columns: 36px minmax(0, 1fr); row-gap: 8px; align-items: start; }
     .posts .counts { grid-column: 2; }
-
-    .stop .n { font-size: 12px; }
-    .stop.mid { padding-top: 28px; }
-    .stop.mid .t { order: 2; height: auto; margin-top: 8px; }
-    .stop.mid .dot { order: 1; }
-    .stop.mid .n { order: 3; margin-top: 2px; }
 
     .alerts { flex-direction: column; }
     .alerts-label { padding: 10px 14px; }
@@ -1840,10 +2036,14 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
 }
 
 /* Inputs stay at 16px on phones so iOS does not zoom on focus. Unlayered so
-   it beats a text-[13px] utility on the same field. */
+   it beats a text-[13px] utility on the same field. The one-time-code field
+   is already over 16px and keeps its 20px digits. */
 @media (max-width: 47.99rem) {
   .input {
     font-size: 16px;
+  }
+  .input.code {
+    font-size: 20px;
   }
 }
 
@@ -1973,37 +2173,6 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   border-radius: 2px;
 }
 
-/* Mobile map page specific */
-@media (max-width: 1023px) {
-  .map-page-container {
-    display: flex;
-    flex-direction: column;
-    height: calc(100dvh - 3.5rem);
-  }
-
-  .map-sidebar {
-    order: 2;
-    max-height: 40vh;
-    min-height: 0;
-    border-top: 1px solid var(--color-border);
-    border-right: none;
-  }
-
-  .map-content {
-    order: 1;
-    flex: 1;
-    min-height: 50vh;
-  }
-}
-
-/* Mobile transit page specific */
-@media (max-width: 768px) {
-  .transit-map-container {
-    height: 280px !important;
-    min-height: 280px;
-  }
-}
-
 /* Collapsible section for mobile */
 .mobile-collapsible-header {
   display: flex;
@@ -2035,34 +2204,6 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
 .page-enter-active {
   opacity: 1;
   transition: opacity 0.16s var(--ease-snap);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   SIGN-IN AND LANDING BACKDROP (issue #35)
-   Now a still technical grid: the drifting colour fields are switched off
-   (no gradients on surfaces, no ambient drift in this design).
-═══════════════════════════════════════════════════════════════════════════ */
-.hero-bg {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-/* Fine grid, faded toward the edges via a radial mask */
-.hero-bg__grid {
-  position: absolute;
-  inset: -2px;
-  background-image:
-    linear-gradient(to right, var(--color-border) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
-  background-size: 46px 46px;
-  -webkit-mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 0%, transparent 76%);
-  mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 0%, transparent 76%);
-}
-
-.hero-bg__aurora {
-  display: none;
 }
 
 /* ── Task check-off reward ───────────────────────────────────────────────── */
@@ -2190,12 +2331,12 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CAMPUS MAP (theme-aware)
+   The Leaflet maps on /map and /transit carry .purdue-map on their wrapper.
+   leaflet.css is unlayered and loads after this file (with the map page), so
+   these rules are unlayered too and each selector out-ranks the Leaflet rule
+   it replaces; the extra .leaflet-control or .leaflet-popup in a selector is
+   there for that.
 ═══════════════════════════════════════════════════════════════════════════ */
-
-/* Dark basemap: warm treatment so buildings/roads stay legible */
-.purdue-map.is-dark .leaflet-tile-pane {
-  filter: sepia(60%) hue-rotate(-10deg) saturate(300%) brightness(1.15) contrast(95%);
-}
 
 /* Light basemap: gentle tint without washing out */
 .purdue-map.is-light .leaflet-tile-pane {
@@ -2206,27 +2347,6 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
 .building-label-marker {
   background: transparent !important;
   border: none !important;
-}
-
-/* Building codes are small ink plates with amber letters, like the station
-   signs; on the dark basemap they flip to amber plates with ink letters. */
-.building-code-label {
-  padding: 2px 5px;
-  font: 800 10px/1.2 var(--font-display);
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  text-align: center;
-  color: var(--color-ink-signal);
-  background: var(--color-ink);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
-}
-
-.building-code-label.dark {
-  color: var(--color-gold-dark);
-  background: var(--color-ink-signal);
-  border: 1px solid rgba(23, 18, 10, 0.3);
 }
 
 /* Style for the new building outlines */
@@ -2251,14 +2371,61 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   border-radius: var(--radius-lg);
 }
 
-/* Live parking pins on the campus map (issue #14): compact count labels. */
+/* Leaflet's own controls as ink plates, like the floating panels: the zoom
+   buttons, and an attribution strip on the page surface. */
+.purdue-map .leaflet-control.leaflet-bar {
+  overflow: hidden;
+  border-color: var(--color-ink-edge);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.purdue-map .leaflet-control.leaflet-bar a,
+.purdue-map .leaflet-control.leaflet-bar a:first-child,
+.purdue-map .leaflet-control.leaflet-bar a:last-child {
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+  color: var(--color-ink-txt);
+  background-color: var(--color-ink-lift);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+}
+.purdue-map .leaflet-control.leaflet-bar a:hover { background-color: var(--color-ink-lift-2); }
+.purdue-map .leaflet-control.leaflet-bar a.leaflet-disabled { opacity: 0.45; }
+.purdue-map .leaflet-control.leaflet-control-attribution {
+  color: var(--color-txt-2);
+  background: color-mix(in oklab, var(--color-surface) 85%, transparent);
+}
+.purdue-map .leaflet-control-attribution a { color: var(--color-accent); }
+
+/* The popup close cross in the theme's text colours, and a 44px target on
+   phones (the popup text moves in to clear it). */
+.purdue-map .leaflet-popup a.leaflet-popup-close-button,
+.purdue-map .leaflet-popup a.leaflet-popup-close-button:focus {
+  color: var(--color-txt-2);
+}
+.purdue-map .leaflet-popup a.leaflet-popup-close-button:hover { color: var(--color-txt-0); }
+@media (max-width: 47.99rem) {
+  .purdue-map .leaflet-popup a.leaflet-popup-close-button {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+    line-height: 44px;
+  }
+  .purdue-map .leaflet-popup-content { margin-right: 44px; }
+}
+
+/* Live parking pins on the campus map (issue #14): compact count labels on
+   an ink plate, the same in both themes. */
 .leaflet-tooltip.parking-count-tooltip {
   padding: 1px 7px;
   font: 800 11px/1.4 var(--font-display);
   font-variant-numeric: tabular-nums;
+  color: var(--color-ink-txt);
+  background: var(--color-ink-lift);
   border: 0;
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
+  box-shadow: inset 0 0 0 1px var(--color-ink-edge), var(--shadow-md);
 }
 .leaflet-tooltip.parking-count-tooltip::before {
   display: none;

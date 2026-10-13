@@ -125,7 +125,7 @@ export default function AdvertiserResetPassword() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+                  className="btn btn-primary min-h-11 w-full"
                 >
                   <Icon name="briefcase" size={15} />
                   {submitting ? 'Saving…' : 'Reset password'}

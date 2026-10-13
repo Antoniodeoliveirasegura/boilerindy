@@ -102,9 +102,13 @@ export default function AdminLeads() {
         />
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-[13.5px]">
-              <thead>
+          {/* A table from md up. On phones each row stacks as one item, like
+              the other console lists: business and email, the message, then
+              the date beside the status, then the actions on their own line.
+              The header cells stay in the DOM for screen readers. */}
+          <div className="md:overflow-x-auto">
+            <table className="w-full text-left text-[13.5px] max-md:block md:min-w-[760px]">
+              <thead className="max-md:sr-only">
                 <tr className={TABLE_HEAD_ROW}>
                   <th className={TABLE_TH}>Business</th>
                   <th className={TABLE_TH}>Message</th>
@@ -113,41 +117,45 @@ export default function AdminLeads() {
                   <th className={`${TABLE_TH} text-right`}>Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block">
                 {leads.map((lead) => (
-                  <tr key={lead.id} className={`${TABLE_ROW} align-top`}>
-                    <td className="px-4 py-3.5">
+                  <tr
+                    key={lead.id}
+                    className={`${TABLE_ROW} align-top max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-2.5 max-md:px-4 max-md:py-4`}
+                  >
+                    <td className="px-4 py-3.5 max-md:block max-md:basis-full max-md:p-0">
                       <div className="font-display font-bold text-[14px] leading-snug text-[var(--color-txt-0)]">{lead.companyName || '-'}</div>
                       <div className="text-[12.5px] text-[var(--color-txt-2)] mt-0.5">{lead.email}</div>
                     </td>
-                    <td className="px-4 py-3.5 min-w-[12rem] text-[var(--color-txt-1)]">
+                    <td className="px-4 py-3.5 min-w-[12rem] text-[var(--color-txt-1)] max-md:block max-md:basis-full max-md:min-w-0 max-md:p-0 max-md:mt-2">
                       <p className="line-clamp-3 whitespace-pre-wrap leading-snug">{lead.message || '-'}</p>
                     </td>
-                    <td className="px-4 py-3.5 w-[8.75rem] text-[var(--color-txt-2)] tnum">
+                    <td className="px-4 py-3.5 w-[8.75rem] text-[var(--color-txt-2)] tnum max-md:block max-md:w-auto max-md:p-0 max-md:mt-2 max-md:text-[12.5px]">
                       {formatDateTime(lead.createdAt)}
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-3.5 max-md:block max-md:p-0 max-md:mt-2">
                       <StatusBadge status={lead.status} metaMap={LEAD_STATUS_META} />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 max-md:block max-md:basis-full max-md:p-0 max-md:mt-3 max-md:empty:hidden">
                       {/* Same place in every row: the main action (Create account)
                           on the first line, the quieter Mark contacted and Close
-                          on the second. Closed rows have no actions. */}
+                          on the second (one wrapping line on phones). Closed rows
+                          have no actions. */}
                       {lead.status !== 'closed' && (
-                        <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-col items-end gap-1 max-md:flex-row max-md:flex-wrap max-md:items-center max-md:gap-2">
                           <Link
                             to={`/admin/advertisers?lead=${encodeURIComponent(lead.id)}&email=${encodeURIComponent(lead.email)}&company=${encodeURIComponent(lead.companyName || '')}`}
                             className="btn btn-secondary btn-sm no-underline"
                           >
                             Create account
                           </Link>
-                          <div className="flex justify-end gap-1">
+                          <div className="flex justify-end gap-1 max-md:justify-start">
                             {lead.status === 'new' && (
                               <button
                                 type="button"
                                 disabled={busyId === lead.id}
                                 onClick={() => setLeadStatus(lead, 'contacted')}
-                                className="btn btn-ghost btn-sm whitespace-nowrap disabled:opacity-50"
+                                className="btn btn-ghost btn-sm whitespace-nowrap"
                               >
                                 Mark contacted
                               </button>
@@ -156,7 +164,7 @@ export default function AdminLeads() {
                               type="button"
                               disabled={busyId === lead.id}
                               onClick={() => setLeadStatus(lead, 'closed')}
-                              className="btn btn-ghost btn-sm disabled:opacity-50"
+                              className="btn btn-ghost btn-sm"
                             >
                               Close
                             </button>

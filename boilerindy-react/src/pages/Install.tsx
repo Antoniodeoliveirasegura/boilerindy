@@ -72,21 +72,26 @@ export default function Install() {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]" data-testid="install-page">
       <PageTitle>Install the app</PageTitle>
+      {/* The signed-out signage band (as on the landing and the preview
+          bar): the mark, a divider and the way back, on the app's 1200px
+          column at the navbar's height. */}
+      <header className="topbar h-14 md:h-16">
+        <div className="mx-auto flex h-full max-w-[1200px] items-center px-4 md:px-6">
+          <BrandMark size={32} />
+          <span aria-hidden="true" className="topbar-divider" />
+          <Link
+            to="/login"
+            className="inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[14px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+          >
+            {/* The same text arrow the sibling pages carry in their back
+                label; decorative here, so the link's name is unchanged. */}
+            <span aria-hidden="true">←&nbsp;</span>
+            Back to sign in
+          </Link>
+        </div>
+      </header>
       <div className="page flex-1 pb-12 md:pb-16">
         <div className="page-measure">
-          <div className="mb-8 flex items-center gap-3 md:mb-10">
-            <BrandMark size={28} />
-            <span aria-hidden="true" className="h-6 w-px bg-[var(--color-border-2)]" />
-            <Link
-              to="/login"
-              className="-ml-1 inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
-            >
-              {/* The same text arrow the sibling pages carry in their back
-                  label; decorative here, so the link's name is unchanged. */}
-              <span aria-hidden="true">←&nbsp;</span>
-              Back to sign in
-            </Link>
-          </div>
           <div className="page-head">
             <div>
               <h1 className="page-title">Add BoilerIndy to your phone</h1>
@@ -164,7 +169,7 @@ export default function Install() {
                     {index + 1}
                   </span>
                   {index < steps.length - 1 ? (
-                    <span aria-hidden="true" className="absolute bottom-1 left-[11px] top-7 w-0.5 bg-[var(--route)]" />
+                    <span aria-hidden="true" className="absolute bottom-0 left-[11px] top-6 w-0.5 bg-[var(--route)]" />
                   ) : null}
                   <span className="block text-[15px] leading-[1.6] text-[var(--color-txt-1)]">{step}</span>
                 </li>
@@ -179,7 +184,7 @@ export default function Install() {
             Already installed it? Open BoilerIndy from its icon and head to{' '}
             <Link
               to="/settings"
-              className="font-semibold text-[var(--color-accent)] underline decoration-[var(--color-accent)]/45 decoration-[1.5px] underline-offset-[3px] hover:decoration-[var(--color-accent)]"
+              className="prose-link"
             >
               Settings
             </Link>{' '}

@@ -14,6 +14,8 @@ import { loadLocalTasks, saveLocalTasks, taskMetaFromLocalStore } from '../lib/t
 import { isServerRefusal, writeFailureMessage } from '../lib/writeFailure'
 import { loadPriorities, savePriority, PRIORITY_LEVELS } from '../lib/taskPriorityStore'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
+import { splitCourseCode } from '../lib/courseCode'
+import { dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, describeAge, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import {
   startOfLocalDayIso,
@@ -80,17 +82,12 @@ const categoryConfig: Record<string, { label: string; icon: string }> = {
 }
 
 // Titles often lead with the course code ("CS 25100 Project 2"); the code goes
-// on a plate above the rest of the title. Only a Purdue code (2-5 letter
-// subject, 5-digit number) counts, and it splits only on whitespace, so the
-// rest keeps its own punctuation ("CS 25100 - Lab 3" leaves "- Lab 3") and
-// "CS 25100: Project 2" stays whole. A title that is only a code stays whole
-// too. Same rule as Schedule; Home's splitter should move to it too.
-const COURSE_CODE_LEAD = /^([A-Z]{2,5} ?\d{5}[A-Z]?)(?:\s+(\S.*))?$/
-
-function splitCourseCode(text: string): { code: string; rest: string } {
-  const trimmed = text.trim()
-  const match = COURSE_CODE_LEAD.exec(trimmed)
-  return match?.[2] ? { code: match[1], rest: match[2] } : { code: '', rest: trimmed }
+// on a plate above the rest of the title. The rule (a Purdue code, split only
+// on whitespace) lives in lib/courseCode and is shared with Home and Schedule.
+// A title that is only a code stays whole here, so the row keeps a title.
+function titleParts(text: string): { code: string; rest: string } {
+  const split = splitCourseCode(text)
+  return split?.rest ? split : { code: '', rest: text.trim() }
 }
 
 // The departures date block: short weekday over the day of the month.
@@ -98,17 +95,6 @@ function whenParts(dateString: string | null | undefined) {
   if (!dateString) return null
   const date = new Date(dateString)
   return { day: date.toLocaleDateString(undefined, { weekday: 'short' }), date: date.getDate() }
-}
-
-// Urgent: open and due within the next 24 hours. The label is the countdown
-// shown on the amber badge ("Due in 15h"); the hours are rounded with a floor
-// of 1, the same count Home's task rows show.
-const HOUR_MS = 60 * 60 * 1000
-function dueSoonLabel(dateString: string | null | undefined): string | null {
-  if (!dateString) return null
-  const diff = new Date(dateString).getTime() - Date.now()
-  if (diff <= 0 || diff > 24 * HOUR_MS) return null
-  return `Due in ${Math.max(1, Math.round(diff / HOUR_MS))}h`
 }
 
 function formatDate(dateString: string | null | undefined) {
@@ -577,7 +563,7 @@ export default function Assignments() {
 
   const fieldLabel = 'mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]'
   // Same height as the Refresh btn-sm beside them: 44px on phones, 34px up.
-  const toggleLabel = 'pill min-h-[44px] cursor-pointer gap-2 select-none md:min-h-[34px]'
+  const toggleLabel = 'pill cursor-pointer gap-2 select-none md:min-h-[34px]'
   const toggleBox = 'h-4 w-4 shrink-0 accent-[var(--color-txt-0)]'
 
   return (
@@ -627,9 +613,9 @@ export default function Assignments() {
             />
             Show past items
           </label>
-          <button onClick={reloadAssignments} className="btn btn-secondary btn-sm">
+          <button onClick={reloadAssignments} className="btn btn-ghost btn-sm max-md:px-0">
             <Icon name="refresh" size={14} />
-            Refresh
+            <span className="max-md:sr-only">Refresh</span>
           </button>
         </div>
       </header>
@@ -679,7 +665,7 @@ export default function Assignments() {
           <button
             type="submit"
             disabled={addSubmitting || !newTitle.trim()}
-            className="btn btn-primary min-h-[44px] w-full shrink-0 disabled:border-[var(--color-border-2)] disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:shadow-none sm:w-auto"
+            className="btn btn-primary min-h-[44px] w-full shrink-0 sm:w-auto"
           >
             {addSubmitting ? 'Adding…' : 'Add task'}
           </button>
@@ -746,21 +732,35 @@ export default function Assignments() {
 
       {/* AI Insights Panel */}
       {!hasNoSources && !loading && filteredItems.length > 0 && (
-        <section className="card r-ai mb-5 animate-fade-in-up stagger-2">
-          <div
-            className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3.5 md:px-5"
-            onClick={() => setInsightsOpen((v) => !v)}
-          >
-            <div className="flex items-center gap-3">
+        <section className="card card-pad r-ai mb-5 animate-fade-in-up stagger-2">
+          {/* card-head as on Events' Recommended card. The title row is the
+              collapse toggle (a real button, so it works from the keyboard);
+              the Generate action sits at the right while the card is open. */}
+          <header className={`card-head ${insightsOpen ? '' : 'mb-0'}`}>
+            <button
+              type="button"
+              onClick={() => setInsightsOpen((v) => !v)}
+              aria-expanded={insightsOpen}
+              className="-my-1.5 flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[var(--radius-md)] text-left"
+            >
               <span className="route-badge">
                 <Icon name="sparkles" size={18} />
               </span>
               <span className="card-title">AI Insights</span>
-            </div>
-            <Icon name={insightsOpen ? 'chevronUp' : 'chevronDown'} size={18} className="text-[var(--color-txt-2)]" />
-          </div>
+              <Icon name={insightsOpen ? 'chevronUp' : 'chevronDown'} size={18} className="text-[var(--color-txt-2)]" />
+            </button>
+            {insightsOpen && (
+              <button
+                onClick={() => generateInsights(insightsMode)}
+                disabled={insightsLoading}
+                className="head-link disabled:opacity-40"
+              >
+                {insightsLoading ? 'Generating…' : activeInsight ? 'Refresh' : 'Generate'}
+              </button>
+            )}
+          </header>
           {insightsOpen && (
-            <div className="px-4 pb-4 md:px-5 md:pb-5">
+            <div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {/* Ink-only active state: the sparkles badge is this card's one amber. */}
                 {['priority', 'study'].map((m) => (
@@ -772,13 +772,6 @@ export default function Assignments() {
                     {m === 'priority' ? 'Priority Ranking' : 'Study Plan'}
                   </button>
                 ))}
-                <button
-                  onClick={() => generateInsights(insightsMode)}
-                  disabled={insightsLoading}
-                  className="head-link shrink-0 disabled:opacity-40"
-                >
-                  {insightsLoading ? 'Generating…' : activeInsight ? 'Refresh' : 'Generate'}
-                </button>
               </div>
               {insightsLoading && !activeInsight ? (
                 <div className="flex items-center gap-2 py-2 text-[13.5px] text-[var(--color-txt-2)]">
@@ -839,9 +832,11 @@ export default function Assignments() {
                     const config = categoryConfig[item.category ?? ''] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
                     const past = isPastDue(item.startTime)
-                    const { code, rest } = splitCourseCode(item.title ?? '')
+                    const { code, rest } = titleParts(item.title ?? '')
                     const when = whenParts(item.startTime)
-                    const dueSoon = item.completed ? null : dueSoonLabel(item.startTime)
+                    // Urgent: open and due within the next 24 hours (lib/urgency,
+                    // shared with Home). Past-due rows fade instead.
+                    const dueSoon = dueSoonLabel(item.startTime, { completed: item.completed })
 
                     return (
                       <li key={item.id} className={dueSoon ? 'urgent' : undefined}>

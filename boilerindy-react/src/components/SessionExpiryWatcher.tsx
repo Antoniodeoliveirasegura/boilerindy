@@ -85,7 +85,7 @@ export default function SessionExpiryWatcher() {
                   type="button"
                   onClick={handleStaySignedIn}
                   disabled={extending}
-                  className="btn btn-primary text-[12px] px-4 py-2 disabled:opacity-50"
+                  className="btn btn-primary text-[12px] px-4 py-2"
                 >
                   {extending ? 'Extending…' : 'Stay signed in'}
                 </button>

@@ -149,8 +149,8 @@ export default function Parking() {
               {knownCount > 0 ? `${openSpaces.toLocaleString()} spaces open across ${knownCount} garage${knownCount === 1 ? '' : 's'}` : 'No live counts right now'}
             </span>
           ) : null}
-          <button type="button" onClick={() => void parkingQuery.refetch()} className="btn btn-secondary btn-sm">
-            <Icon name="refresh" size={14} /> Refresh
+          <button type="button" onClick={() => void parkingQuery.refetch()} className="btn btn-secondary">
+            <Icon name="refresh" size={15} /> Refresh
           </button>
         </div>
       </header>
@@ -221,17 +221,25 @@ export default function Parking() {
               </div>
             ))}
           </div>
-          <div className="card card-pad mt-4">
-            <ul className="list-none -my-2.5 md:my-0 p-0 grid sm:grid-cols-2 gap-x-6 md:gap-y-2.5 font-display font-bold text-[13.5px]">
+          {/* The permit links as divider rows (a 44px row, the arrow at the
+              right edge), then the notes as plain lines under a rule. */}
+          <div className="card px-5 max-sm:px-4 pt-1 pb-4 mt-4">
+            <ul className="list-none m-0 p-0">
               {permits.links.map((link) => (
-                <li key={link.href}>
-                  <a href={link.href} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline underline-offset-2 inline-flex items-center gap-1 min-h-11 md:min-h-0">
-                    {link.label} <Icon name="arrowUpRight" size={12} />
+                <li key={link.href} className="border-t border-[var(--color-border)] first:border-t-0">
+                  <a
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between gap-3 min-h-11 font-display font-bold text-[13.5px] text-[var(--color-accent)] hover:underline underline-offset-2"
+                  >
+                    {link.label}
+                    <Icon name="arrowUpRight" size={14} className="shrink-0" />
                   </a>
                 </li>
               ))}
             </ul>
-            <ul className="list-disc pl-5 mt-3.5 mb-0 text-[12.5px] text-[var(--color-txt-2)] space-y-1">
+            <ul className="list-none m-0 p-0 pt-3 border-t border-[var(--color-border)] text-[12.5px] leading-relaxed text-[var(--color-txt-3)] space-y-1">
               {permits.notes.map((note) => (
                 <li key={note}>{note}</li>
               ))}

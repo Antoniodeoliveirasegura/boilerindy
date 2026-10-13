@@ -252,7 +252,7 @@ export default function Clubs() {
 
       {result && !result.ok ? (
         <div className="card card-pad mb-6 text-[14px] text-[var(--color-txt-1)] flex items-start gap-3" data-clubs-degraded>
-          <span className="inline-grid place-items-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-2)] shrink-0">
+          <span className="ico">
             <Icon name="info" size={16} />
           </span>
           <p className="m-0 pt-1">
@@ -292,29 +292,31 @@ export default function Clubs() {
       )}
 
       {result && result.ok && !loading && clubs.length === 0 ? (
-        <div className="empty mb-6" data-clubs-empty>
-          <span className="ico shrink-0">
-            <Icon name="search" size={18} />
-          </span>
-          <p className="text-[14px] text-[var(--color-txt-1)] m-0">
-            No organizations match{q ? ` "${q}"` : ''}
-            {category ? ` in ${category}` : ''}
-            {scope === 'indianapolis' ? ' in Indianapolis' : ''}.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {scope === 'indianapolis' ? (
-              <button type="button" onClick={() => updateParams({ scope: 'all' })} className="btn btn-primary btn-sm">
-                Search all of Purdue
-              </button>
-            ) : null}
-            {q || category ? (
-              <button type="button" onClick={clearFilters} className="btn btn-secondary btn-sm">
-                Clear filters
-              </button>
-            ) : null}
-            <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm no-underline">
-              Open BoilerLink <Icon name="arrowUpRight" size={12} />
-            </a>
+        <div className="card card-pad mb-6">
+          <div className="empty" data-clubs-empty>
+            <span className="ico">
+              <Icon name="search" size={18} />
+            </span>
+            <p className="text-[14px] text-[var(--color-txt-1)] m-0">
+              No organizations match{q ? ` "${q}"` : ''}
+              {category ? ` in ${category}` : ''}
+              {scope === 'indianapolis' ? ' in Indianapolis' : ''}.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {scope === 'indianapolis' ? (
+                <button type="button" onClick={() => updateParams({ scope: 'all' })} className="btn btn-primary btn-sm">
+                  Search all of Purdue
+                </button>
+              ) : null}
+              {q || category ? (
+                <button type="button" onClick={clearFilters} className="btn btn-secondary btn-sm">
+                  Clear filters
+                </button>
+              ) : null}
+              <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm no-underline">
+                Open BoilerLink <Icon name="arrowUpRight" size={12} />
+              </a>
+            </div>
           </div>
         </div>
       ) : null}

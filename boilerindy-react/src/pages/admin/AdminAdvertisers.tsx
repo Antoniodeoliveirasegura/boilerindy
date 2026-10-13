@@ -209,7 +209,7 @@ export default function AdminAdvertisers() {
                 >
                   Cancel
                 </button>
-                <button type="submit" disabled={submitting} className="btn btn-primary disabled:opacity-50">
+                <button type="submit" disabled={submitting} className="btn btn-primary">
                   {submitting ? 'Creating…' : 'Create account'}
                 </button>
               </div>
@@ -228,9 +228,12 @@ export default function AdminAdvertisers() {
         />
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-[13.5px]">
-              <thead>
+          {/* A table from md up. On phones each row stacks as one item:
+              company and email, the contact, then the status beside the
+              created date. The header cells stay in the DOM for screen readers. */}
+          <div className="md:overflow-x-auto">
+            <table className="w-full text-left text-[13.5px] max-md:block md:min-w-[640px]">
+              <thead className="max-md:sr-only">
                 <tr className={TABLE_HEAD_ROW}>
                   <th className={TABLE_TH}>Company</th>
                   <th className={TABLE_TH}>Contact</th>
@@ -238,20 +241,23 @@ export default function AdminAdvertisers() {
                   <th className={TABLE_TH}>Created</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block">
                 {advertisers.map((row) => (
-                  <tr key={row.id} className={TABLE_ROW}>
-                    <td className="px-4 py-3.5">
+                  <tr
+                    key={row.id}
+                    className={`${TABLE_ROW} max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-2.5 max-md:px-4 max-md:py-4`}
+                  >
+                    <td className="px-4 py-3.5 max-md:block max-md:basis-full max-md:p-0">
                       <div className="font-display font-bold text-[14px] leading-snug text-[var(--color-txt-0)]">{row.companyName}</div>
                       <div className="text-[12.5px] text-[var(--color-txt-2)] mt-0.5">{row.email}</div>
                     </td>
-                    <td className="px-4 py-3.5 text-[var(--color-txt-1)]">{row.contactName || '-'}</td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-3.5 text-[var(--color-txt-1)] max-md:block max-md:basis-full max-md:p-0 max-md:mt-1.5">{row.contactName || '-'}</td>
+                    <td className="px-4 py-3.5 max-md:block max-md:p-0 max-md:mt-2">
                       <span className={`badge ${row.status === 'active' ? 'badge-route r-din' : ''}`}>
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-[var(--color-txt-2)] whitespace-nowrap tnum">
+                    <td className="px-4 py-3.5 text-[var(--color-txt-2)] whitespace-nowrap tnum max-md:block max-md:p-0 max-md:mt-2 max-md:text-[12.5px]">
                       {formatDateTime(row.createdAt)}
                     </td>
                   </tr>

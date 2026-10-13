@@ -137,9 +137,6 @@ function campaignToForm(c: Campaign): CampaignFormData {
 const inputCls = 'input'
 const labelCls = 'block text-[13px] font-semibold text-[var(--color-txt-1)] mb-1.5'
 const hintCls = 'text-[12px] leading-snug text-[var(--color-txt-3)]'
-// Destructive outline (End): the filled error plate stays for confirmations.
-const dangerBtnCls =
-  'btn btn-secondary btn-sm text-[var(--color-error)] border-[var(--color-error)]/55 hover:border-[var(--color-error)] hover:bg-[var(--color-error)]/8'
 
 function CampaignForm({
   initial,
@@ -219,9 +216,16 @@ function CampaignForm({
           <input className={inputCls} value={form.headline} onChange={set('headline')} placeholder="Headline (your business name)" aria-label="Headline" />
           <textarea className={`${inputCls} resize-none`} rows={2} value={form.body} onChange={set('body')} placeholder="Short description students will see" aria-label="Body" />
 
+          {/* The link and its label read as one pair: the label field sits
+              beside Website URL, bottom-aligned with its input. */}
           <div>
-            <label className={labelCls} htmlFor="cmp-website">Website URL</label>
-            <input id="cmp-website" className={inputCls} value={form.ctaUrl} onChange={set('ctaUrl')} placeholder="https://yourbusiness.com" aria-label="Website URL" />
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-end">
+              <div>
+                <label className={labelCls} htmlFor="cmp-website">Website URL</label>
+                <input id="cmp-website" className={inputCls} value={form.ctaUrl} onChange={set('ctaUrl')} placeholder="https://yourbusiness.com" aria-label="Website URL" />
+              </div>
+              <input className={inputCls} value={form.ctaLabel} onChange={set('ctaLabel')} placeholder="Link label (e.g. Visit website)" aria-label="Link label" />
+            </div>
             <p className={`${hintCls} mt-1.5`}>Students tap the banner to open this link.</p>
           </div>
 
@@ -259,13 +263,11 @@ function CampaignForm({
               </button>
             )}
           </div>
-
-          <input className={inputCls} value={form.ctaLabel} onChange={set('ctaLabel')} placeholder="Link label (e.g. Visit website)" aria-label="Link label" />
         </div>
       </div>
 
       <div className="flex items-center gap-2 pt-1">
-        <button type="submit" disabled={submitting} className="btn btn-primary disabled:opacity-60">
+        <button type="submit" disabled={submitting} className="btn btn-primary">
           {submitting ? 'Saving…' : submitLabel}
         </button>
         <button type="button" onClick={onCancel} className="btn btn-secondary">
@@ -359,7 +361,7 @@ function CampaignCard({
             type="button"
             disabled={busy}
             onClick={onEdit}
-            className="btn btn-secondary btn-sm disabled:opacity-60"
+            className="btn btn-secondary btn-sm"
           >
             <Icon name="edit" size={13} /> Edit
           </button>
@@ -370,7 +372,7 @@ function CampaignCard({
             type="button"
             disabled={busy}
             onClick={() => onStatus(a.to)}
-            className={`${a.primary ? 'btn btn-ink btn-sm' : a.danger ? dangerBtnCls : 'btn btn-secondary btn-sm'} disabled:opacity-60`}
+            className={a.primary ? 'btn btn-ink btn-sm' : a.danger ? 'btn btn-danger btn-sm' : 'btn btn-secondary btn-sm'}
           >
             {a.label}
           </button>
@@ -495,7 +497,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
       </header>
 
       {/* PublicLayout renders the page's <main> (issue #221); this is the content column. */}
-      <div className="page pb-10">
+      <div className="page">
         <div className="page-head">
           <div>
             <h1 className="page-title">Campaigns</h1>

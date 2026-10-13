@@ -20,7 +20,7 @@ import {
 } from '../lib/transitShared'
 import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import PageTitle from '../components/PageTitle'
-import { INK_BUTTON, LEAFLET_CHROME } from '../components/map/mapChrome'
+import { INK_BUTTON } from '../components/map/mapChrome'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -114,6 +114,17 @@ const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contrib
 // markers keep their true colours.
 const DARK_TILES =
   '[&_.leaflet-tile-pane]:[filter:invert(1)_hue-rotate(180deg)_saturate(0.28)_brightness(0.92)_contrast(0.9)]'
+
+// Light theme: the same street map drained to a quiet grey, so the yellow and
+// orange arterials, tan blocks and blue river stop competing with the Yellow,
+// Orange and Crimson lines. Street names stay readable; the JAGLINE colours are
+// the only strong colour on the map, as in dark.
+const LIGHT_TILES = '[&_.leaflet-tile-pane]:[filter:saturate(0.18)_contrast(0.95)_brightness(1.03)]'
+
+// Phones: the tile credit at 10px, so it fits on one line over the map
+// instead of wrapping onto the southern stops (it still wraps, never clips,
+// on a very narrow screen).
+const ATTRIBUTION_PHONE = 'max-sm:[&_.leaflet-control-attribution]:text-[10px]'
 
 // The edge every line, stop and bus wears so it holds on both the light
 // street map and the dark one: near white (--color-ink-txt), and outside it a
@@ -544,8 +555,8 @@ function LiveMap({
 
   return (
     <div
-      className={`purdue-map relative isolate w-full h-[280px] sm:h-[380px] lg:h-[460px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] ${LEAFLET_CHROME} ${
-        dark ? DARK_TILES : 'is-light'
+      className={`purdue-map relative isolate w-full h-[340px] sm:h-[380px] lg:h-[460px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] ${ATTRIBUTION_PHONE} ${
+        dark ? DARK_TILES : LIGHT_TILES
       }`}
     >
       <style>{`
@@ -566,18 +577,18 @@ function LiveMap({
           and sits under the scrim below (same layer, later in the DOM), so it
           reads as a faded corner tag behind the centred "Not in service"
           plate rather than a second plate competing with it. */}
-      <div className="ink-panel absolute top-3 left-3 z-[1000] p-2.5 sm:p-3 max-w-[150px] sm:max-w-none shadow-[var(--shadow-md)]">
-        <div className={`eyebrow bare ${vehicles.length > 0 ? 'mb-2' : ''}`}>
+      <div className="ink-panel absolute top-3 left-3 z-[1000] p-2 sm:p-3 max-w-[150px] sm:max-w-none shadow-[var(--shadow-md)]">
+        <div className={`eyebrow bare max-sm:text-[10.5px] ${vehicles.length > 0 ? 'mb-1.5 sm:mb-2' : ''}`}>
           Active Routes
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1 sm:space-y-1.5">
           {routes.map((route) => {
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
             if (count === 0) return null
             return (
               <div key={route.id} className="flex items-center gap-2">
                 <RouteNum route={route} small />
-                <span className="font-display font-bold text-[11.5px] sm:text-[12.5px] text-[var(--color-ink-txt)] truncate">{route.shortName}</span>
+                <span className="font-display font-bold text-[11px] sm:text-[12.5px] text-[var(--color-ink-txt)] truncate">{route.shortName}</span>
                 <span className="text-[11px] sm:text-[12px] text-[var(--color-ink-dim)] tnum">({count})</span>
               </div>
             )
@@ -860,8 +871,8 @@ export default function Transit() {
             )}
           </p>
         </div>
-        <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary btn-sm">
-          <Icon name="refresh" size={14} />
+        <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary">
+          <Icon name="refresh" size={15} />
           Refresh
         </button>
       </header>
@@ -871,28 +882,32 @@ export default function Transit() {
         <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible scrollbar-hide">
           <button
             onClick={() => setSelectedRoute(null)}
-            className={`pill whitespace-nowrap shrink-0 tnum max-md:min-h-11 ${!selectedRoute ? 'pill-active' : ''}`}
+            className={`pill whitespace-nowrap shrink-0 tnum ${!selectedRoute ? 'pill-active' : ''}`}
           >
             All Routes ({vehicles.length})
           </button>
           {routes.map((route) => {
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
             const running = isRouteRunningForDisplay(route, count)
+            const active = selectedRoute?.id === route.id
+            // Off duty is information, not a disabled control: only the route
+            // square fades (transit.spec pins this opacity-40); the name and
+            // the note stay readable (txt-2 and txt-3 on the idle pill).
             return (
               <button
                 key={route.id}
-                onClick={() => setSelectedRoute(selectedRoute?.id === route.id ? null : route)}
-                className={`pill relative whitespace-nowrap flex items-center gap-2 pl-1.5 pr-2.5 sm:pr-3 max-md:min-h-11 transition-opacity shrink-0
-                  ${selectedRoute?.id === route.id ? 'pill-active' : ''}
-                  ${!running ? 'opacity-40' : ''}`}
+                onClick={() => setSelectedRoute(active ? null : route)}
+                className={`pill relative whitespace-nowrap flex items-center gap-2 pl-1.5 pr-2.5 sm:pr-3 shrink-0
+                  ${active ? 'pill-active' : ''}
+                  ${!running ? '[&>:first-child]:opacity-40' : ''}`}
                 title={route.schedule?.label ?? ''}
               >
                 <RouteNum route={route} />
-                <span className="hidden sm:inline">{route.shortName}</span>
+                <span className={`hidden sm:inline ${!running && !active ? 'text-[var(--color-txt-2)]' : ''}`}>{route.shortName}</span>
                 <span className="sr-only sm:hidden">{route.num}</span>
                 {count > 0 && <span className="tnum opacity-75">({count})</span>}
                 {!running && (
-                  <span className="text-[11px] font-semibold hidden sm:inline">not running now</span>
+                  <span className={`text-[11px] font-semibold hidden sm:inline ${active ? '' : 'text-[var(--color-txt-3)]'}`}>not running now</span>
                 )}
               </button>
             )
@@ -920,7 +935,7 @@ export default function Transit() {
       </div>
 
       {loading ? (
-        <div className="skeleton h-[280px] sm:h-[380px] lg:h-[460px] grid place-items-center">
+        <div className="skeleton h-[340px] sm:h-[380px] lg:h-[460px] grid place-items-center">
           <p className="text-[13px] text-[var(--color-txt-2)]">Loading transit data...</p>
         </div>
       ) : (
@@ -962,11 +977,11 @@ export default function Transit() {
             </div>
           </header>
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-            <div className="eyebrow">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-x-6 mb-3">
+            <div className="eyebrow shrink-0 whitespace-nowrap">
               Stops on this route
             </div>
-            <p className="text-[11.5px] leading-snug text-[var(--color-txt-3)]">
+            <p className="text-[11.5px] leading-snug text-[var(--color-txt-3)] sm:text-right">
               Green pulse = at stop · Filled = reached
               {signedIn && (
                 <>

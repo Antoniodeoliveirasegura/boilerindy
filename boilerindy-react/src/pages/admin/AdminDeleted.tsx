@@ -13,7 +13,7 @@ import {
   type DeletedContentType,
 } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
-import { DANGER_BTN, formatDateTime } from './adminHelpers'
+import { formatDateTime } from './adminHelpers'
 import PageTitle from '../../components/PageTitle'
 
 // Admin moderation for soft-deleted content. Users only ever soft-delete (their
@@ -314,7 +314,7 @@ export default function AdminDeleted() {
           <button
             type="submit"
             disabled={lookupBusy || !lookupId.trim()}
-            className="btn btn-secondary min-h-[44px] disabled:opacity-50"
+            className="btn btn-secondary min-h-[44px]"
           >
             <Icon name="search" size={14} />
             Find
@@ -347,7 +347,7 @@ export default function AdminDeleted() {
               type="button"
               onClick={handleTakeDown}
               disabled={lookupBusy}
-              className={`${DANGER_BTN} shrink-0 self-start disabled:opacity-50`}
+              className="btn btn-danger btn-sm shrink-0 self-start"
             >
               <Icon name="trash" size={14} />
               Take down
@@ -410,7 +410,7 @@ export default function AdminDeleted() {
                   type="button"
                   onClick={() => (hiddenTab ? handleUnhide(row) : handleRestore(row))}
                   disabled={busyId === row.id}
-                  className="btn btn-secondary btn-sm disabled:opacity-50"
+                  className="btn btn-secondary btn-sm"
                 >
                   <Icon name={hiddenTab ? 'eye' : 'refresh'} size={14} />
                   {hiddenTab ? 'Un-hide' : 'Restore'}
@@ -419,7 +419,7 @@ export default function AdminDeleted() {
                   type="button"
                   onClick={() => (hiddenTab ? handleHiddenTakeDown(row) : handleHardDelete(row))}
                   disabled={busyId === row.id}
-                  className={`${DANGER_BTN} disabled:opacity-50`}
+                  className="btn btn-danger btn-sm"
                 >
                   <Icon name="trash" size={14} />
                   {hiddenTab ? 'Take down' : 'Delete'}

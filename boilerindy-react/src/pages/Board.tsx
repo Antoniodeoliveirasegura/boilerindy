@@ -38,9 +38,6 @@ type Post = {
 type LiveCompose = { betterTitle?: string; bodyAddOn?: string; tags?: string[] }
 type BoardPage = { posts?: Post[]; page?: number; hasMore?: boolean }
 
-// A disabled primary drops to a neutral plate: amber marks a live action only.
-const PRIMARY_OFF = 'disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:border-[var(--color-border-2)] disabled:shadow-none'
-
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
@@ -508,6 +505,9 @@ export default function Board() {
         >
           <div className="card card-pad">
             <div className="card-head">
+              <span className="route-badge" aria-hidden="true">
+                <Icon name="edit" size={18} />
+              </span>
               <span className="card-title">Compose</span>
             </div>
             {postError && (
@@ -570,7 +570,7 @@ export default function Board() {
                     <button
                       type="button"
                       onClick={() => setNewTitle(liveCompose?.betterTitle ?? '')}
-                      className="font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] decoration-2"
+                      className="link-btn"
                     >
                       Use this title
                     </button>
@@ -591,7 +591,7 @@ export default function Board() {
                           return `${prev.trim()}\n\n${add}`
                         })
                       }
-                      className="font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] decoration-2"
+                      className="link-btn"
                     >
                       Append to details
                     </button>
@@ -643,7 +643,7 @@ export default function Board() {
                   type="button"
                   onClick={handleImprovePost}
                   disabled={!newTitle.trim() || improving}
-                  className="btn btn-secondary disabled:opacity-50"
+                  className="btn btn-secondary"
                   title="Let AI rewrite your post to be clearer"
                 >
                   <Icon name="sparkles" size={15} />
@@ -653,7 +653,7 @@ export default function Board() {
                   type="button"
                   onClick={handleSubmitPost}
                   disabled={!newTitle.trim() || submitting}
-                  className={`btn btn-primary ${PRIMARY_OFF}`}
+                  className="btn btn-primary"
                 >
                   {submitting ? 'Posting…' : 'Post'}
                   <Icon name="send" size={15} />
@@ -663,57 +663,60 @@ export default function Board() {
           </div>
         </div>
 
-        {/* Search (issue #5) */}
-        <div className="relative mb-4">
-          <Icon
-            name="search"
-            size={16}
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-2)] pointer-events-none"
-          />
-          <label className="sr-only" htmlFor="board-search">
-            Search board posts
-          </label>
-          <input
-            id="board-search"
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search threads by title, details, or tag…"
-            className="input pl-10 pr-11"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-              className="icon-btn absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9"
-            >
-              <Icon name="close" size={14} />
-            </button>
-          )}
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex items-center justify-between gap-3 mb-4">
+        {/* Toolbar: the sort pills and the thread count, then the search
+            (issue #5), in the same row as the Marketplace and Lost and Found
+            filters: right of the pills from lg, full width under them below. */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex gap-2">
             {['recent', 'popular'].map((s) => (
               <button
                 key={s}
                 type="button"
                 onClick={() => setSort(s)}
+                aria-pressed={sort === s}
                 className={`pill capitalize ${sort === s ? 'pill-active' : ''}`}
               >
                 {s}
               </button>
             ))}
           </div>
-          <span className="font-display font-bold text-[13px] text-[var(--color-txt-2)] tnum">
+          <span className="max-lg:ml-auto font-display font-bold text-[13px] text-[var(--color-txt-2)] tnum">
             {sortedPosts.length} {sortedPosts.length === 1 ? 'thread' : 'threads'}
           </span>
+          <div className="relative w-full lg:w-[360px] lg:ml-auto">
+            <Icon
+              name="search"
+              size={16}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-2)] pointer-events-none"
+            />
+            <label className="sr-only" htmlFor="board-search">
+              Search board posts
+            </label>
+            {/* Phones keep the typed text at 16px (no iOS zoom) and set the
+                long placeholder at 14px, ending in an ellipsis if it is cut. */}
+            <input
+              id="board-search"
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search threads by title, details, or tag…"
+              className={`input pl-10 text-ellipsis max-md:placeholder:text-[14px] lg:min-h-[40px] lg:py-2 ${searchQuery ? 'pr-11' : ''}`}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="icon-btn absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {allTags.length > 0 && (
-          <div className="flex gap-2 mb-5 overflow-x-auto scrollbar-hide -mx-1 px-1 py-1 max-md:-mx-4 max-md:px-4">
+          <div className="flex gap-2 mb-5 overflow-x-auto scrollbar-hide -mx-1 px-1 py-1 max-md:-mx-4 max-md:px-4 max-md:[mask-image:linear-gradient(to_right,#000_88%,transparent)]">
             <button
               type="button"
               onClick={() => setFilterTag(null)}
@@ -817,7 +820,7 @@ export default function Board() {
                                   type="button"
                                   onClick={() => handleSaveEdit(post.id)}
                                   disabled={!editTitle.trim() || savingEdit}
-                                  className="btn btn-ink btn-sm disabled:opacity-50"
+                                  className="btn btn-ink btn-sm"
                                 >
                                   {savingEdit ? 'Saving…' : 'Save changes'}
                                 </button>
@@ -854,48 +857,6 @@ export default function Board() {
                                 edited {post.editedTime}
                               </span>
                             )}
-                            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 sm:ml-2">
-                              {post.isMine && editingId !== post.id && (
-                                <button
-                                  type="button"
-                                  onClick={() => startEditPost(post)}
-                                  className="inline-flex items-center gap-1 py-0.5 max-md:min-h-8 font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]"
-                                >
-                                  <Icon name="edit" size={13} />
-                                  Edit
-                                </button>
-                              )}
-                              {post.isMine && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeletePost(post.id)}
-                                  disabled={deletingId === post.id}
-                                  className="inline-flex items-center gap-1 py-0.5 max-md:min-h-8 font-display font-bold text-[var(--color-error)] hover:underline underline-offset-[3px] disabled:opacity-50"
-                                >
-                                  <Icon name="trash" size={13} />
-                                  {deletingId === post.id ? 'Deleting…' : 'Delete'}
-                                </button>
-                              )}
-                              {!post.isMine && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => report({ targetType: 'board_post', targetId: post.id, targetLabel: 'this post' }, e.currentTarget)}
-                                  className="inline-flex items-center gap-1 py-0.5 max-md:min-h-8 font-display font-semibold text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                                >
-                                  <Icon name="flag" size={13} />
-                                  Report
-                                </button>
-                              )}
-                              {canBlockAuthor(post) && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleBlockAuthor('board_post', post.id)}
-                                  className="py-0.5 max-md:min-h-8 font-display font-semibold text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                                >
-                                  Block author
-                                </button>
-                              )}
-                            </span>
                           </div>
                         </div>
 
@@ -946,6 +907,47 @@ export default function Board() {
                         </div>
                       </div>
 
+                      {/* The post's actions line, the last line of its text block (under
+                          the tags and the opened body): Edit and Delete on your own
+                          post, Report and Block author on anyone else's. */}
+                      <div className="mod-actions">
+                        {post.isMine && editingId !== post.id && (
+                          <button
+                            type="button"
+                            onClick={() => startEditPost(post)}
+                            className="font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]"
+                          >
+                            <Icon name="edit" size={13} />
+                            Edit
+                          </button>
+                        )}
+                        {post.isMine && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePost(post.id)}
+                            disabled={deletingId === post.id}
+                            className="font-bold text-[var(--color-error)] hover:underline underline-offset-[3px] disabled:opacity-50"
+                          >
+                            <Icon name="trash" size={13} />
+                            {deletingId === post.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        )}
+                        {!post.isMine && (
+                          <button
+                            type="button"
+                            onClick={(e) => report({ targetType: 'board_post', targetId: post.id, targetLabel: 'this post' }, e.currentTarget)}
+                          >
+                            <Icon name="flag" size={13} />
+                            Report
+                          </button>
+                        )}
+                        {canBlockAuthor(post) && (
+                          <button type="button" onClick={() => void handleBlockAuthor('board_post', post.id)}>
+                            Block author
+                          </button>
+                        )}
+                      </div>
+
                       <div
                         className={`grid ${
                           repliesOpen.has(post.id) ? 'grid-rows-[1fr] mt-3' : 'grid-rows-[0fr]'
@@ -974,7 +976,7 @@ export default function Board() {
                                     type="button"
                                     onClick={() => summarizeThread(post)}
                                     disabled={summarizing.has(post.id)}
-                                    className="btn btn-secondary btn-sm disabled:opacity-50"
+                                    className="btn btn-secondary btn-sm"
                                   >
                                     <Icon name="sparkles" size={14} />
                                     {summarizing.has(post.id) ? 'Summarizing…' : 'Summarize long thread'}
@@ -996,29 +998,25 @@ export default function Board() {
                                     <span className="font-semibold text-[var(--color-txt-1)]">{reply.user}</span>
                                     <span>·</span>
                                     <span>{reply.time}</span>
-                                    {reply.id && !reply.isMine && (
-                                      <span className="ml-auto inline-flex items-center gap-3">
-                                        <button
-                                          type="button"
-                                          onClick={(e) =>
-                                            report({ targetType: 'board_reply', targetId: reply.id as string, targetLabel: 'this reply' }, e.currentTarget)
-                                          }
-                                          className="py-0.5 max-md:min-h-8 font-display font-semibold text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                                        >
-                                          Report
-                                        </button>
-                                        {canBlockAuthor(reply) && (
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleBlockAuthor('board_reply', reply.id as string)}
-                                            className="py-0.5 max-md:min-h-8 font-display font-semibold text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                                          >
-                                            Block author
-                                          </button>
-                                        )}
-                                      </span>
-                                    )}
                                   </div>
+                                  {reply.id && !reply.isMine && (
+                                    <div className="mod-actions">
+                                      <button
+                                        type="button"
+                                        onClick={(e) =>
+                                          report({ targetType: 'board_reply', targetId: reply.id as string, targetLabel: 'this reply' }, e.currentTarget)
+                                        }
+                                      >
+                                        <Icon name="flag" size={13} />
+                                        Report
+                                      </button>
+                                      {canBlockAuthor(reply) && (
+                                        <button type="button" onClick={() => void handleBlockAuthor('board_reply', reply.id as string)}>
+                                          Block author
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -1027,7 +1025,7 @@ export default function Board() {
                                 type="button"
                                 onClick={() => void loadThreadReplies(post.id)}
                                 disabled={loadingReplies.has(post.id)}
-                                className="mt-1 font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] decoration-2 disabled:opacity-50"
+                                className="link-btn mt-1"
                               >
                                 {loadingReplies.has(post.id)
                                   ? 'Loading replies…'
@@ -1056,7 +1054,7 @@ export default function Board() {
                   type="button"
                   onClick={() => void loadMorePosts()}
                   disabled={loadingMore}
-                  className="btn btn-secondary disabled:opacity-50"
+                  className="btn btn-secondary"
                 >
                   {loadingMore ? 'Loading…' : 'Load more posts'}
                 </button>
@@ -1229,7 +1227,7 @@ function ReplyInput({
           type="button"
           onClick={handleSubmit}
           disabled={!text.trim()}
-          className="btn btn-ink shrink-0 disabled:opacity-50"
+          className="btn btn-ink shrink-0"
         >
           <Icon name="send" size={15} />
           Reply

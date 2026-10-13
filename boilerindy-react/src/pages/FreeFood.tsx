@@ -117,16 +117,18 @@ export default function FreeFood() {
       {loading ? (
         <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading free-food events…</div>
       ) : freeFoodItems.length === 0 ? (
-        <div className="empty row">
-          <span className="ico shrink-0">
-            <Icon name="coffee" size={18} />
-          </span>
-          <div>
-            <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No free-food events right now</div>
-            <p className="text-[13px] mt-0.5">
-              When an upcoming event mentions free food, it will appear here automatically.{' '}
-              <Link to="/events" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">Browse all events</Link>.
-            </p>
+        <div className="card card-pad">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="coffee" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No free-food events right now</div>
+              <p className="text-[13px] mt-0.5">
+                When an upcoming event mentions free food, it will appear here automatically.{' '}
+                <Link to="/events" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">Browse all events</Link>.
+              </p>
+            </div>
           </div>
         </div>
       ) : (

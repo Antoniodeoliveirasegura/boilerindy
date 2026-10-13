@@ -9,11 +9,6 @@ import PageTitle from '../components/PageTitle'
 // calendar feed). Contact is privacy@boilerindy.app (Cloudflare email routing).
 // The Contact section links to /delete-account (issue #193).
 
-// In-prose links: underlined, since the accent alone is too close to the body
-// text colour to mark a link on its own.
-const LINK_CLASS =
-  'font-semibold text-[var(--color-accent)] underline decoration-[var(--color-accent)]/45 decoration-[1.5px] underline-offset-[3px] hover:decoration-[var(--color-accent)]'
-
 // Reading column type: Jakarta section heads over 15px/1.6 prose.
 const SECTION_TITLE = 'text-[18px] leading-[1.3] text-[var(--color-txt-0)]'
 const SECTION_BODY = 'mt-2 text-[15px] leading-[1.6] text-[var(--color-txt-1)]'
@@ -127,18 +122,23 @@ export default function Privacy() {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
       <PageTitle>Privacy policy</PageTitle>
+      {/* The signed-out signage band (as on the landing and the preview
+          bar): the mark, a divider and the way back, on the app's 1200px
+          column at the navbar's height. */}
+      <header className="topbar h-14 md:h-16">
+        <div className="mx-auto flex h-full max-w-[1200px] items-center px-4 md:px-6">
+          <BrandMark size={32} />
+          <span aria-hidden="true" className="topbar-divider" />
+          <Link
+            to={back.to}
+            className="inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[14px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+          >
+            {back.label}
+          </Link>
+        </div>
+      </header>
       <div className="page flex-1 pb-12 md:pb-16">
         <div className="page-measure">
-          <div className="mb-8 flex items-center gap-3 md:mb-10">
-            <BrandMark size={28} />
-            <span aria-hidden="true" className="h-6 w-px bg-[var(--color-border-2)]" />
-            <Link
-              to={back.to}
-              className="-ml-1 inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
-            >
-              {back.label}
-            </Link>
-          </div>
           <div className="page-head">
             <div>
               <h1 className="page-title">Privacy policy</h1>
@@ -159,12 +159,12 @@ export default function Privacy() {
                   {String(index + 1).padStart(2, '0')}
                 </span>
                 {index < SECTIONS.length - 1 ? (
-                  <span aria-hidden="true" className="absolute bottom-1 left-[11px] top-7 w-0.5 bg-[var(--route)]" />
+                  <span aria-hidden="true" className="absolute bottom-0 left-[11px] top-6 w-0.5 bg-[var(--route)]" />
                 ) : null}
                 <h2 className={SECTION_TITLE}>{section.title}</h2>
                 <p className={SECTION_BODY}>{section.body}</p>
                 {section.link ? (
-                  <Link to={section.link.to} className={`${LINK_CLASS} mt-2 inline-block text-[15px]`}>
+                  <Link to={section.link.to} className="prose-link mt-2 inline-block text-[15px]">
                     {section.link.label}
                   </Link>
                 ) : null}

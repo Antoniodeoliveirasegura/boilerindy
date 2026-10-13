@@ -39,6 +39,8 @@ import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
+import { splitCourseCode } from '../lib/courseCode'
+import { dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
@@ -167,18 +169,18 @@ function getMinutesBetween(later: Date, earlier: Date) {
   return Math.max(0, Math.round((later.getTime() - earlier.getTime()) / 60000))
 }
 
-const HOUR_MS = 60 * 60 * 1000
-const DAY_MS = 24 * HOUR_MS
 const EVENT_CATEGORIES = ['campus_event', 'event', 'activity']
 const NOT_TASK_CATEGORIES = ['campus_event', 'event', 'activity', 'class']
 const EXAM_CATEGORIES = ['exam', 'quiz', 'midterm']
 
-/** "CS 25100 Data Structures" -> code plate "CS 25100" + name "Data Structures". */
-function splitCourseCode(title: string): { code: string | null; name: string } {
-  const text = String(title || '').trim()
-  const m = text.match(/^([A-Z]{2,5} ?\d{3,5}[A-Z]?)\s+(.+)$/)
-  if (!m) return { code: null, name: text }
-  return { code: m[1], name: m[2] }
+/**
+ * "CS 25100 Data Structures" -> code plate "CS 25100" + name "Data Structures",
+ * by the shared rule in lib/courseCode. A title that is only a code stays whole
+ * as the name, so the board and the rows always have a name to show.
+ */
+function courseParts(title: string): { code: string | null; name: string } {
+  const split = splitCourseCode(title)
+  return split?.rest ? { code: split.code, name: split.rest } : { code: null, name: String(title || '').trim() }
 }
 
 function shortTime(d: Date) {
@@ -930,7 +932,7 @@ export default function Home() {
         return t > nowMs && t < startMs
       })
       .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0]
-    const nextParts = splitCourseCode(next.title)
+    const nextParts = courseParts(next.title)
     const startDay = dayTag(next.startDate)
     let mid = null as null | { left: string; leftNarrow: string; time: string; day: string; name: string }
     let midLabel = ''
@@ -945,7 +947,7 @@ export default function Home() {
         leftNarrow: pct(Math.min(0.5, Math.max(0.26, share))),
         time: shortTime(due),
         day: dayTag(due),
-        name: splitCourseCode(deadline.title).name,
+        name: courseParts(deadline.title).name,
       }
       midLabel = ` ${deadline.title} due ${mid.day ? `${mid.day} ` : ''}${mid.time}.`
     }
@@ -1023,7 +1025,7 @@ export default function Home() {
             >
               {summary}
               {showStrip && (
-                <ol className="week-strip [&_.tags]:max-w-[4.75rem]" aria-label="Your next seven days">
+                <ol className="week-strip" aria-label="Your next seven days">
                   {weekDays.map((day) => (
                     // The detail is real text for screen readers (browse mode
                     // skips an aria-label on a list item); the short visible
@@ -1147,42 +1149,31 @@ export default function Home() {
       render: () => {
         const start = displayClass ? new Date(displayClass.startTime) : null
         const flap = start ? flapParts(start) : null
-        const course = displayClass ? splitCourseCode(displayClass.title) : null
+        const course = displayClass ? courseParts(displayClass.title) : null
         // The big amber countdown is the visual twin of the status line, which
-        // stays in the head for screen readers (and is the only one on phones).
+        // stays in the head for screen readers (and is the only one on a narrow board).
         const countdown = scheduleState.currentClass
           ? { label: 'Ends in', value: formatDuration(getMinutesBetween(scheduleState.currentClass.endDate, now)) }
           : scheduleState.nextClass
             ? { label: 'Starts in', value: formatDuration(scheduleState.freeMinutes) }
             : null
-        // One amber primary per view: Done owns it while customizing, and the
-        // setup banner's button owns it while the banner shows.
-        const directionsPrimary = !!displayClass && !showSetupBanner && !editing
+        // One amber primary per view: the setup banner's button owns it while
+        // the banner shows. Customizing adds none (Done is ink).
+        const directionsPrimary = !!displayClass && !showSetupBanner
         return (
-          // The board's own width picks its layout (it is the container), so a
-          // half-width board on a tablet never squeezes the desktop row:
-          // - 40rem and up: flaps, destination and countdown in one row.
-          // - 30 to 40rem: flaps and countdown, the destination under them.
-          // - under 30rem: the phone single column, with the status line in the
-          //   head instead of the countdown.
-          // Phones (under md) keep the foundation's own rules.
-          <div className="board r-cls @container">
+          // The board's own width picks its layout (index.css, the .board
+          // container tiers), so a half-width board never squeezes the wide row.
+          <div className="board r-cls">
             <div className="board-head flex-wrap gap-y-2">
               <h2 className="board-title">{scheduleState.cardLabel}</h2>
               {/* Amber only while something is counting down; "Schedule clear" stays neutral.
-                  With a countdown on screen the line is for screen readers only. */}
-              <span
-                className={`board-status ${
-                  countdown
-                    ? 'md:inline-flex md:sr-only md:@max-[30rem]:not-sr-only'
-                    : 'md:inline-flex text-[var(--color-ink-dim)]'
-                }`}
-              >
+                  With a countdown on screen the board keeps the line for screen readers only. */}
+              <span className={countdown ? 'board-status' : 'board-status text-[var(--color-ink-dim)]'}>
                 {countdown && <span className="live-dot" aria-hidden="true" />}
                 {scheduleState.statusLabel}
               </span>
             </div>
-            <div className="board-main md:@min-[30rem]:@max-[40rem]:grid-cols-[auto_minmax(0,1fr)] md:@min-[30rem]:@max-[40rem]:gap-y-4 md:@max-[30rem]:grid-cols-1 md:@max-[30rem]:gap-3.5">
+            <div className="board-main">
               {flap && start ? (
                 <div
                   className="flaps"
@@ -1213,7 +1204,7 @@ export default function Home() {
                   <span className="flap">{' '}</span>
                 </div>
               )}
-              <div className="dest md:@min-[30rem]:@max-[40rem]:col-span-2 md:@min-[30rem]:@max-[40rem]:order-last">
+              <div className="dest">
                 {displayClass && course ? (
                   <>
                     {course.code && <span className="code solid">{course.code}</span>}
@@ -1232,13 +1223,13 @@ export default function Home() {
                 )}
               </div>
               {countdown && (
-                <div className="countdown md:@max-[30rem]:hidden" aria-hidden="true">
+                <div className="countdown" aria-hidden="true">
                   <small>{countdown.label}</small>
                   <b>{countdown.value}</b>
                 </div>
               )}
             </div>
-            <div className="board-foot md:@max-[40rem]:flex-col md:@max-[40rem]:items-stretch">
+            <div className="board-foot">
               {displayClass && start && (
                 <dl className="cells">
                   <div>
@@ -1257,7 +1248,7 @@ export default function Home() {
                   </div>
                 </dl>
               )}
-              <div className="board-actions md:@max-[40rem]:grid md:@max-[40rem]:grid-cols-2 md:@max-[30rem]:[&_.btn]:px-2.5">
+              <div className="board-actions">
                 <Link to="/schedule" className="btn btn-onink">
                   <Icon name="calendar" size={16} />
                   Full Schedule
@@ -1275,8 +1266,9 @@ export default function Home() {
     'free-time': {
       title: 'Free time',
       render: () => (
-        // A container: the route line sizes its labels to the card, not the viewport.
-        <div className="card card-pad r-cls @container">
+        // The route line is its own size container (index.css), so its labels
+        // follow the card's width, not the viewport.
+        <div className="card card-pad r-cls">
           <div className="card-head">
             <span className="route-badge">
               <Icon name="clock" size={18} />
@@ -1306,11 +1298,11 @@ export default function Home() {
                 </span>
               </div>
               {freeLine.mid && (
-                // An ink stop (r-ink) for the deadline. Under 32rem of card it
-                // takes the narrow position and moves its time under the dot,
-                // the same arrangement the foundation gives phones.
+                // An ink stop (r-ink) for the deadline. Under 32rem of line it
+                // takes the narrow position; the line's own rule (index.css)
+                // moves its time under the dot there.
                 <div
-                  className="stop mid r-ink left-[var(--mid)] @max-[32rem]:left-[var(--mid-narrow)] @max-[32rem]:pt-7 @max-[32rem]:[&>.t]:order-2 @max-[32rem]:[&>.t]:h-auto @max-[32rem]:[&>.t]:mt-2 @max-[32rem]:[&>.dot]:order-1 @max-[32rem]:[&>.n]:order-3 @max-[32rem]:[&>.n]:mt-0.5"
+                  className="stop mid r-ink left-[var(--mid)] @max-[32rem]:left-[var(--mid-narrow)]"
                   aria-hidden="true"
                   style={{ '--mid': freeLine.mid.left, '--mid-narrow': freeLine.mid.leftNarrow } as React.CSSProperties}
                 >
@@ -1373,7 +1365,7 @@ export default function Home() {
             <ul className="rows mt-2">
               {suggestions.map(({ icon, text, time, sub }, idx) => (
                 <li key={idx}>
-                  <span className="inline-grid place-items-center w-8 h-8 shrink-0 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-1)]">
+                  <span className="ico">
                     <Icon name={icon} size={16} />
                   </span>
                   <span className="txt">
@@ -1625,11 +1617,13 @@ export default function Home() {
             )}
 
             <div className="eyebrow mb-1">{diningPreview ? "Today's menu" : 'Sample items'}</div>
+            {/* Rules sit only between rows: none above the first row, none
+                under the last, so an odd count leaves no short column. */}
             <ul className="grid grid-cols-2 gap-x-5">
               {menuSnapshot.items.map((item) => (
                 <li
                   key={item}
-                  className="flex items-start gap-2 py-2 border-b border-[var(--color-border)] text-[14px] leading-snug text-[var(--color-txt-1)] min-w-0"
+                  className="flex items-start gap-2 py-2 border-t border-[var(--color-border)] [&:nth-child(-n+2)]:border-t-0 text-[14px] leading-snug text-[var(--color-txt-1)] min-w-0"
                 >
                   <span className="mt-[6px] w-1.5 h-1.5 shrink-0 rounded-[1px] bg-[var(--route)]" aria-hidden="true" />
                   <span className="min-w-0 [overflow-wrap:anywhere]">{item}</span>
@@ -1703,7 +1697,7 @@ export default function Home() {
                     </span>
                     <div className="min-w-0">
                       <div className="flex items-start gap-2">
-                        <h3 className="ttl line-clamp-2 min-w-0">{post.title}</h3>
+                        <h3 className="ttl row-title line-clamp-2 min-w-0">{post.title}</h3>
                         {post.hot && <span className="badge shrink-0 mt-0.5">Hot</span>}
                       </div>
                       <span className="by">{post.user}</span>
@@ -1758,11 +1752,12 @@ export default function Home() {
             <ol className="dep -my-3">
               {tasksDuePreview.map((item) => {
                 const due = new Date(item.startTime)
-                const msLeft = due.getTime() - now.getTime()
-                const urgent = msLeft < DAY_MS
-                const { code, name } = splitCourseCode(item.title)
+                // Urgent: due within the next 24 hours (lib/urgency, shared
+                // with Assignments). Overdue items get no "Due in" label.
+                const dueSoon = dueSoonLabel(due, { now })
+                const { code, name } = courseParts(item.title)
                 return (
-                  <li key={item.id} className={urgent ? 'urgent' : undefined}>
+                  <li key={item.id} className={dueSoon ? 'urgent' : undefined}>
                     <Link to="/assignments">
                       <span className="when" aria-hidden="true">
                         <span>{shortWeekdayCaps(due)}</span>
@@ -1778,9 +1773,9 @@ export default function Home() {
                           {due.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                         </span>
                       </span>
-                      {urgent ? (
+                      {dueSoon ? (
                         <span className="badge badge-signal" aria-hidden="true">
-                          {Math.max(1, Math.round(msLeft / HOUR_MS))}h left
+                          {dueSoon}
                         </span>
                       ) : (
                         <span className="end" aria-hidden="true">
@@ -1837,8 +1832,8 @@ export default function Home() {
       {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
       <SourceErrorNotice className="mb-5" />
       <FeaturedDeal />
-      <header className="page-head">
-        <div className="flex-1 max-md:basis-full">
+      <header className={`page-head ${editing ? '' : 'max-md:flex-nowrap max-md:items-start'}`}>
+        <div className={`flex-1 ${editing ? 'max-md:basis-full' : ''}`}>
           <p className="eyebrow signal">
             <time dateTime={localIsoDate(now)}>{getCurrentDate(now)}</time>
           </p>
@@ -1847,8 +1842,11 @@ export default function Home() {
           </h1>
           <p className="page-sub">Here's what's happening on campus today.</p>
         </div>
-        {/* Customize toolbar: toggles widget edit mode. On phones it wraps
-            under the subtitle, as in the prototype. */}
+        {/* Customize toolbar: toggles widget edit mode, the same as Services'.
+            On phones the idle button is a compact square beside the title whose
+            accessible name stays "Customize"; while customizing the toolbar
+            wraps under the subtitle. Done is ink, not amber, so customizing
+            never adds a second amber primary to the view. */}
         <div className="flex items-center gap-2 shrink-0">
           {editing && (
             <button type="button" onClick={() => setShowResetConfirm(true)} className="btn btn-secondary">
@@ -1860,10 +1858,10 @@ export default function Home() {
             type="button"
             onClick={() => setEditing(!editing)}
             aria-pressed={editing}
-            className={`btn ${editing ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn ${editing ? 'btn-ink' : 'btn-secondary max-md:px-0'}`}
           >
             <Icon name={editing ? 'check' : 'settings'} size={16} />
-            {editing ? 'Done' : 'Customize'}
+            <span className={editing ? undefined : 'max-md:sr-only'}>{editing ? 'Done' : 'Customize'}</span>
           </button>
         </div>
       </header>
@@ -1902,8 +1900,8 @@ export default function Home() {
                     : 'Your Purdue identity is linked, but classes only appear after you attach the Purdue Timetabling iCalendar export.'}
               </p>
             </div>
-            {/* The route badge already carries the icon. Done owns the amber while customizing. */}
-            <Link to="/setup" className={`btn ${editing ? 'btn-secondary' : 'btn-primary'} w-fit shrink-0`}>
+            {/* The route badge already carries the icon. */}
+            <Link to="/setup" className="btn btn-primary w-fit shrink-0">
               {needsPurdueConnection ? 'Link Purdue' : 'Connect schedule'}
             </Link>
           </div>

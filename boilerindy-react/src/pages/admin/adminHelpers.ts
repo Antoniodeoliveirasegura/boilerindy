@@ -49,8 +49,3 @@ export const TABLE_HEAD_ROW = 'bg-[var(--color-stat)] border-b border-[var(--col
 export const TABLE_TH = 'eyebrow bare table-cell text-[10.5px] px-4 py-3 whitespace-nowrap'
 export const TABLE_ROW =
   'border-t border-[var(--color-border)] first:border-t-0 transition-colors hover:bg-[var(--color-surface-hover)]'
-
-// A destructive action that stays an outline (End, Take down, Delete): the
-// filled error plate is kept for the confirmation dialog itself.
-export const DANGER_BTN =
-  'btn btn-secondary btn-sm text-[var(--color-error)] border-[var(--color-error)]/55 hover:border-[var(--color-error)] hover:bg-[var(--color-error)]/8'

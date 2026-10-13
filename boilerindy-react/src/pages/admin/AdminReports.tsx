@@ -14,7 +14,7 @@ import {
 } from '../../lib/adminApi'
 import { reportReasonLabel } from '../../lib/reportReasons'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
-import { DANGER_BTN, formatDateTime } from './adminHelpers'
+import { formatDateTime } from './adminHelpers'
 import PageTitle from '../../components/PageTitle'
 
 // The report queue (issue #192): everything students reported, newest first.
@@ -274,7 +274,7 @@ export default function AdminReports() {
                         onClick={() => handleOpen(report)}
                         disabled={busyId === report.id}
                         aria-expanded={open}
-                        className="btn btn-secondary btn-sm disabled:opacity-50"
+                        className="btn btn-secondary btn-sm"
                       >
                         <Icon name="eye" size={14} />
                         {open ? 'Close' : 'Open'}
@@ -285,7 +285,7 @@ export default function AdminReports() {
                         type="button"
                         onClick={() => handleTakeDown(report)}
                         disabled={busyId === report.id}
-                        className={`${DANGER_BTN} disabled:opacity-50`}
+                        className="btn btn-danger btn-sm"
                       >
                         <Icon name="trash" size={14} />
                         Take down
@@ -297,7 +297,7 @@ export default function AdminReports() {
                           type="button"
                           onClick={() => handleClose(report, 'resolved')}
                           disabled={busyId === report.id}
-                          className="btn btn-secondary btn-sm disabled:opacity-50"
+                          className="btn btn-secondary btn-sm"
                         >
                           <Icon name="check" size={14} />
                           Resolve
@@ -306,7 +306,7 @@ export default function AdminReports() {
                           type="button"
                           onClick={() => handleClose(report, 'dismissed')}
                           disabled={busyId === report.id}
-                          className="btn btn-ghost btn-sm disabled:opacity-50"
+                          className="btn btn-ghost btn-sm"
                         >
                           Dismiss
                         </button>

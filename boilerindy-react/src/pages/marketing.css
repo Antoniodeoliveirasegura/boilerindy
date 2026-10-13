@@ -6,23 +6,6 @@
    Tuesday route line and the onboarding line on the closing sign panel.
    Motion is one short fade on load, and none under reduced motion. */
 
-/* Dotted grain on the ink band and the amber panel: flat dots in the
-   panel's own text colour (white on ink, ink on amber), no fade. */
-.mkt-grain {
-  position: relative;
-  isolation: isolate;
-}
-.mkt-grain::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: radial-gradient(currentColor 1px, transparent 1.5px);
-  background-size: 22px 22px;
-  opacity: 0.07;
-}
-
 /* The second headline line on an amber sign plate. Inline with a cloned
    box per line, so on phones each wrapped line gets its own plate that hugs
    its words. The relative shift moves every cloned fragment by the plate's

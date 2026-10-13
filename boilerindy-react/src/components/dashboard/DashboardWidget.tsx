@@ -168,7 +168,7 @@ export default function DashboardWidget({
       <div className="relative z-20 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-2 px-1">
         <div className="flex items-center gap-2 min-w-0">
           <span
-            className="inline-grid place-items-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-2)] cursor-grab active:cursor-grabbing shrink-0"
+            className="ico cursor-grab active:cursor-grabbing"
             aria-hidden="true"
             title="Drag to reorder"
           >

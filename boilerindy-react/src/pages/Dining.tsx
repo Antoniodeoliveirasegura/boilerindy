@@ -317,7 +317,7 @@ export default function Dining() {
               onClick={askWhatToEat}
               disabled={aiLoading || loading}
               title="AI meal recommendation"
-              className="btn btn-secondary r-ai whitespace-nowrap disabled:opacity-50"
+              className="btn btn-secondary r-ai whitespace-nowrap"
             >
               <Icon name="sparkles" size={15} className="text-[var(--route-text)]" />
               {aiLoading ? 'Thinking…' : 'What should I eat?'}
@@ -329,7 +329,7 @@ export default function Dining() {
             disabled={refreshing || loading}
             title="Force-refresh menu"
             aria-label="Refresh menus"
-            className="btn btn-secondary w-11 md:w-10 px-0 disabled:opacity-50"
+            className="btn btn-secondary w-11 md:w-10 px-0"
           >
             <Icon name="refresh" size={15} className={refreshing ? 'animate-spin' : ''} />
           </button>
@@ -359,8 +359,8 @@ export default function Dining() {
       {signedIn && favoritesToday.length > 0 && (
         <div className="card card-pad r-din mb-4 animate-fade-in-up" data-dining-favorites>
           <div className="card-head mb-2">
-            <span className="route-badge sm">
-              <Icon name="star" size={14} className="fill-current" />
+            <span className="route-badge">
+              <Icon name="star" size={18} className="fill-current" />
             </span>
             <span className="card-title">Your favorites on today&apos;s menu</span>
           </div>
@@ -433,7 +433,7 @@ export default function Dining() {
                     onClick={() => setSelectedId(loc.id)}
                     aria-pressed={Boolean(isSelected)}
                     data-dining-location={loc.slug}
-                    className={`pill shrink-0 whitespace-nowrap gap-2.5 min-h-11 md:min-h-[40px] px-4 text-[13.5px] ${isSelected ? 'pill-active' : ''}`}
+                    className={`pill shrink-0 whitespace-nowrap gap-2.5 md:min-h-[40px] px-4 text-[13.5px] ${isSelected ? 'pill-active' : ''}`}
                   >
                     {/* On the inverted active pill the dot keeps a surface
                         halo, so it still reads on ink (light) and white (dark). */}
@@ -507,7 +507,7 @@ export default function Dining() {
                   <p className="max-w-md -mt-1">{empty.body}</p>
                 </div>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
                   {(selected.stations || []).map((station, i) => (
                     <StationCard
                       key={station.name}
@@ -542,7 +542,7 @@ export default function Dining() {
                     </div>
                     {/* A week strip: a 4px rule per day, amber for the campus
                         day. Phones list the days as rows with the rule on the left. */}
-                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-4 sm:gap-x-2 sm:gap-y-3 lg:grid-cols-7">
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-4 sm:gap-x-2 sm:gap-y-3 md:grid-cols-7">
                       {WEEKDAY_ORDER.map((day) => {
                         const hrs = loc.weekly_hours?.[day] || 'Not posted'
                         const isToday = day === weekday
@@ -559,7 +559,7 @@ export default function Dining() {
                               {SHORT_DAY[day]}
                             </div>
                             <div
-                              className={`font-display text-[13px] leading-snug tnum ${
+                              className={`font-display text-[13px] md:max-lg:text-[12.5px] leading-snug tnum text-balance ${
                                 isClosed ? 'font-semibold text-[var(--color-txt-3)]' : 'font-bold text-[var(--color-txt-0)]'
                               }`}
                             >

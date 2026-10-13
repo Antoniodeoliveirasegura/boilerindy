@@ -11,6 +11,9 @@ import PageTitle from '../components/PageTitle'
 // Matches and connections can be reported, and anyone here, a request's sender
 // included, can be blocked (issue #192).
 
+// The shared field label (as on Lost and Found and Settings).
+const FIELD_LABEL = 'text-[13px] font-semibold text-[var(--color-txt-1)] block mb-1.5'
+
 type Match = {
   userId: string
   displayName?: string
@@ -20,9 +23,6 @@ type Match = {
 }
 type Connection = { userId: string; displayName?: string; email?: string }
 type IncomingRequest = { userId: string; displayName?: string }
-
-// A disabled primary drops to a neutral plate: amber marks a live action only.
-const PRIMARY_OFF = 'disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:border-[var(--color-border-2)] disabled:shadow-none'
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
@@ -150,7 +150,6 @@ export default function Friends() {
     loadConnections()
   }
 
-  const personAction = 'py-1 font-display font-semibold text-[13px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]'
   const initial = (name?: string) => (name || '').trim().charAt(0).toUpperCase()
 
   return (
@@ -178,21 +177,29 @@ export default function Friends() {
               Turn on “discoverable” to appear to classmates in your courses. Until you accept a request, others only see
               your name, interests, and how many courses you share - never your email or schedule. Default is off.
             </p>
+            {/* Visible labels (the copy the placeholders used to carry), so
+                a filled-in profile still says what each field is. */}
             <div className="grid gap-3.5">
-              <textarea
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                maxLength={300}
-                rows={2}
-                placeholder="Short bio (optional)"
-                className="input resize-y"
-              />
-              <input
-                value={interests}
-                onChange={(e) => setInterests(e.target.value)}
-                placeholder="Interests, comma-separated (e.g. chess, hiking)"
-                className="input"
-              />
+              <div>
+                <label htmlFor="friends-bio" className={FIELD_LABEL}>Short bio (optional)</label>
+                <textarea
+                  id="friends-bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  maxLength={300}
+                  rows={2}
+                  className="input resize-y block"
+                />
+              </div>
+              <div>
+                <label htmlFor="friends-interests" className={FIELD_LABEL}>Interests, comma-separated (e.g. chess, hiking)</label>
+                <input
+                  id="friends-interests"
+                  value={interests}
+                  onChange={(e) => setInterests(e.target.value)}
+                  className="input"
+                />
+              </div>
             </div>
             <label className="flex items-center gap-2.5 min-h-[40px] text-[14px] text-[var(--color-txt-1)] cursor-pointer">
               <input
@@ -204,7 +211,7 @@ export default function Friends() {
               Discoverable to classmates
             </label>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" disabled={savingProfile} className={`btn btn-primary ${PRIMARY_OFF}`}>
+              <button type="submit" disabled={savingProfile} className="btn btn-primary">
                 {savingProfile ? 'Saving…' : 'Save profile'}
               </button>
               {profileMsg && <span className="text-[13px] text-[var(--color-txt-2)]">{profileMsg}</span>}
@@ -229,12 +236,18 @@ export default function Friends() {
                 {incoming.map((req) => (
                   <li key={req.userId} className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-x-3.5 py-3 border-t border-[var(--color-border)] first:border-t-0">
                     <span className="ava" aria-hidden="true">{initial(req.displayName)}</span>
-                    <div className="min-w-0 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-2">
-                      <span className="min-h-9 min-w-0 flex items-center font-display font-bold text-[15px] text-[var(--color-txt-0)] [overflow-wrap:anywhere]">{req.displayName} wants to connect</span>
+                    <div className="min-w-0 flex flex-wrap items-start justify-between gap-x-3.5 gap-y-2">
+                      {/* The name line keeps the avatar's 36px height, so the
+                          actions line under it needs no top margin of its own. */}
+                      <div className="min-w-0">
+                        <span className="min-h-9 min-w-0 flex items-center font-display font-bold text-[15px] text-[var(--color-txt-0)] [overflow-wrap:anywhere]">{req.displayName} wants to connect</span>
+                        <div className="mod-actions mt-0">
+                          <button type="button" onClick={() => void handleBlock(req)}>Block</button>
+                        </div>
+                      </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button type="button" onClick={() => respond(req, 'accept')} className="btn btn-ink btn-sm">Accept</button>
                         <button type="button" onClick={() => respond(req, 'decline')} className="btn btn-secondary btn-sm">Decline</button>
-                        <button type="button" onClick={() => void handleBlock(req)} className={`${personAction} px-1.5`}>Block</button>
                       </div>
                     </div>
                   </li>
@@ -256,14 +269,17 @@ export default function Friends() {
                 {accepted.map((c) => (
                   <li key={c.userId} className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-x-3.5 py-3 border-t border-[var(--color-border)] first:border-t-0">
                     <span className="ava" aria-hidden="true">{initial(c.displayName)}</span>
-                    <div className="min-w-0 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-1">
+                    <div className="min-w-0">
                       <div className="min-h-9 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
                         <span className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{c.displayName}</span>
                         {c.email && <a href={`mailto:${c.email}`} className="text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] [overflow-wrap:anywhere]">{c.email}</a>}
                       </div>
-                      <div className="flex items-center gap-4">
-                        <button type="button" onClick={(e) => reportUser(c, e.currentTarget)} className={personAction}>Report user</button>
-                        <button type="button" onClick={() => void handleBlock(c)} className={personAction}>Block</button>
+                      <div className="mod-actions mt-0">
+                        <button type="button" onClick={(e) => reportUser(c, e.currentTarget)}>
+                          <Icon name="flag" size={13} />
+                          Report user
+                        </button>
+                        <button type="button" onClick={() => void handleBlock(c)}>Block</button>
                       </div>
                     </div>
                   </li>
@@ -285,7 +301,7 @@ export default function Friends() {
               <p className="text-[14px] text-[var(--color-txt-2)]">Loading…</p>
             ) : !discoverable ? (
               <div className="empty row">
-                <span className="ico shrink-0">
+                <span className="ico">
                   <Icon name="eyeOff" size={18} />
                 </span>
                 <div>
@@ -295,7 +311,7 @@ export default function Friends() {
               </div>
             ) : matches.length === 0 ? (
               <div className="empty row">
-                <span className="ico shrink-0">
+                <span className="ico">
                   <Icon name="users" size={18} />
                 </span>
                 <div>
@@ -311,7 +327,7 @@ export default function Friends() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
                         <div className="min-w-0">
-                          <h3 className="text-[15px] leading-snug text-[var(--color-txt-0)] break-words">{m.displayName}</h3>
+                          <h3 className="row-title break-words">{m.displayName}</h3>
                           <div className="text-[13px] font-semibold text-[var(--color-txt-1)] mt-0.5 tnum">
                             {m.sharedCount} shared course{m.sharedCount === 1 ? '' : 's'}
                             {Array.isArray(m.sharedCourses) && m.sharedCourses.length > 0 && (
@@ -319,7 +335,7 @@ export default function Friends() {
                             )}
                           </div>
                         </div>
-                        <button type="button" onClick={() => connect(m)} className="btn btn-ink btn-sm shrink-0">
+                        <button type="button" onClick={() => connect(m)} className="btn btn-secondary btn-sm shrink-0">
                           <Icon name="plus" size={14} />
                           Connect
                         </button>
@@ -331,9 +347,12 @@ export default function Friends() {
                           ))}
                         </div>
                       )}
-                      <div className="flex gap-4 mt-2">
-                        <button type="button" onClick={(e) => reportUser(m, e.currentTarget)} className={personAction}>Report user</button>
-                        <button type="button" onClick={() => void handleBlock(m)} className={personAction}>Block</button>
+                      <div className="mod-actions">
+                        <button type="button" onClick={(e) => reportUser(m, e.currentTarget)}>
+                          <Icon name="flag" size={13} />
+                          Report user
+                        </button>
+                        <button type="button" onClick={() => void handleBlock(m)}>Block</button>
                       </div>
                     </div>
                   </li>

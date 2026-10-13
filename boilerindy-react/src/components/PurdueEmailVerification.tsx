@@ -22,6 +22,12 @@ type Props = {
   allowDevLink?: boolean
   /** Called once the address is linked. */
   onLinked?: (email: string) => void
+  /**
+   * The look of Send code and Verify code. 'secondary' on a view that already
+   * has its own amber primary (Settings, the setup page's calendar step), so
+   * each view keeps one.
+   */
+  submitVariant?: 'primary' | 'secondary'
 }
 
 type Notice = { tone: 'error' | 'success'; text: string }
@@ -60,7 +66,15 @@ function formatWait(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default function PurdueEmailVerification({ allowDevLink = false, onLinked }: Props) {
+export default function PurdueEmailVerification({ allowDevLink = false, onLinked, submitVariant = 'primary' }: Props) {
+  // The primary submit is the one action of the narrow setup step, so it
+  // spans that card like the sign-in forms. The secondary submit sits in wide
+  // cards (Settings, the setup page's optional step): full width on phones
+  // only, then it hugs its label so it does not read as a second field.
+  const submitClass =
+    submitVariant === 'secondary'
+      ? 'btn btn-secondary min-h-11 flex w-full sm:w-fit'
+      : 'btn btn-primary min-h-11 w-full'
   const { refreshSession } = useAuth()
   const queryClient = useQueryClient()
   const userId = useUserId()
@@ -229,13 +243,13 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
             inputMode="numeric"
             autoComplete="one-time-code"
             disabled={busy !== null}
-            className="input pl-[calc(12px+0.4em)] text-center font-display text-[20px]! font-bold tracking-[0.4em] tnum"
+            className="input code"
           />
         </div>
         <button
           type="submit"
           disabled={code.length !== 6 || busy !== null}
-          className="btn btn-primary min-h-11 w-full disabled:opacity-50"
+          className={submitClass}
         >
           <Icon name="check" size={15} />
           {busy === 'verify' ? 'Checking…' : 'Verify code'}
@@ -288,7 +302,7 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
       <button
         type="submit"
         disabled={!typed || waitSeconds > 0 || busy !== null}
-        className="btn btn-primary min-h-11 w-full disabled:opacity-50"
+        className={submitClass}
       >
         <Icon name="mail" size={15} />
         {busy === 'send' ? 'Sending…' : waitSeconds > 0 ? `Send code in ${formatWait(waitSeconds)}` : 'Send code'}
@@ -298,7 +312,7 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
           type="button"
           onClick={() => void devLink(typed)}
           disabled={!typed || busy !== null}
-          className="mx-auto flex w-fit min-h-10 items-center text-[12.5px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] underline underline-offset-2 disabled:no-underline disabled:opacity-60"
+          className={`mx-auto flex w-fit min-h-10 items-center text-[12.5px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] underline underline-offset-2 disabled:no-underline disabled:opacity-60 ${submitVariant === 'secondary' ? 'sm:mx-0' : ''}`}
         >
           {busy === 'dev' ? 'Linking…' : 'Link without a code (development)'}
         </button>

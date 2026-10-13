@@ -201,13 +201,15 @@ export default function Events() {
             type="button"
             onClick={() => setFreeFoodOnly((v) => !v)}
             aria-pressed={freeFoodOnly}
-            className={`pill min-h-[44px] md:min-h-[34px] whitespace-nowrap ${freeFoodOnly ? 'pill-active' : ''}`}
+            className={`pill md:min-h-[34px] whitespace-nowrap ${freeFoodOnly ? 'pill-active' : ''}`}
             title="Show only events with free food"
           >
-            <span aria-hidden="true">🍕</span>
+            <span aria-hidden="true" className="flex">
+              <Icon name="coffee" size={14} />
+            </span>
             Free food
           </button>
-          <label className="pill min-h-[44px] cursor-pointer gap-2 select-none whitespace-nowrap md:min-h-[34px]">
+          <label className="pill cursor-pointer gap-2 select-none whitespace-nowrap md:min-h-[34px]">
             <input
               type="checkbox"
               checked={showPast}
@@ -216,7 +218,7 @@ export default function Events() {
             />
             Show past events
           </label>
-          <button onClick={() => void calendarQuery.refetch()} className="btn btn-secondary btn-sm max-md:px-0">
+          <button onClick={() => void calendarQuery.refetch()} className="btn btn-ghost btn-sm max-md:px-0">
             <Icon name="refresh" size={14} />
             <span className="max-md:sr-only">Refresh</span>
           </button>
@@ -259,7 +261,7 @@ export default function Events() {
               <button
                 key={cat.id}
                 onClick={() => toggleCategory(cat.id)}
-                className={`pill whitespace-nowrap tnum ${isActive ? 'pill-active' : ''}`}
+                className={`pill whitespace-nowrap tnum capitalize ${isActive ? 'pill-active' : ''}`}
               >
                 {cat.label} ({cat.count})
               </button>
@@ -276,7 +278,7 @@ export default function Events() {
               <Icon name="sparkles" size={18} />
             </span>
             <div>
-              <div className="card-title">Recommended for You</div>
+              <div className="card-title lowercase first-letter:uppercase">Recommended for You</div>
             </div>
             <button
               onClick={generateRecs}
@@ -306,19 +308,21 @@ export default function Events() {
           Loading events...
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="empty row">
-          <span className="ico shrink-0">
-            <Icon name="calendar" size={18} />
-          </span>
-          <div>
-            <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No events found</div>
-            <p className="text-[13px] mt-0.5">
-              {hasNoSources 
-                ? 'Connect your Brightspace calendar to see campus events.'
-                : selectedCategories.length > 0 
-                  ? 'Try selecting different categories or showing past events.'
-                  : 'No upcoming campus events in your calendar.'}
-            </p>
+        <div className="card card-pad">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No events found</div>
+              <p className="text-[13px] mt-0.5">
+                {hasNoSources
+                  ? 'Connect your Brightspace calendar to see campus events.'
+                  : selectedCategories.length > 0
+                    ? 'Try selecting different categories or showing past events.'
+                    : 'No upcoming campus events in your calendar.'}
+              </p>
+            </div>
           </div>
         </div>
       ) : (
@@ -329,7 +333,7 @@ export default function Events() {
                 <div className="eyebrow bare">
                   {date}
                 </div>
-                <ol className="dep -mx-3">
+                <ol className="dep">
                   {dateItems.map(item => {
                     const config = categoryConfig[item.category ?? 'event'] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
@@ -340,7 +344,7 @@ export default function Events() {
                       <li key={item.id} className={isToday(item.startTime) ? 'urgent' : undefined}>
                         <button
                           onClick={() => setSelectedItem(item)}
-                          className={`px-3 rounded-[var(--radius-md)] transition-colors ${
+                          className={`-mx-3 w-[calc(100%+24px)] px-3 rounded-[var(--radius-md)] transition-colors ${
                             isSelected
                               ? 'bg-[var(--route-tint)] shadow-[inset_3px_0_0_var(--route)]'
                               : 'hover:bg-[var(--color-surface-hover)]'
@@ -360,7 +364,9 @@ export default function Events() {
                                   className="badge"
                                   title="This event mentions free food"
                                 >
-                                  <span aria-hidden="true">🍕</span>
+                                  <span aria-hidden="true" className="flex">
+                                    <Icon name="coffee" size={12} />
+                                  </span>
                                   Free food
                                 </span>
                               )}
@@ -392,7 +398,10 @@ export default function Events() {
             ))}
           </section>
 
-          <div className="lg:sticky lg:top-24 min-w-0">
+          {/* On phones and tablets this column stacks under the whole list, so
+              the empty placeholder only shows from lg; a selected event still
+              shows. As on Assignments. */}
+          <div className={`lg:sticky lg:top-24 min-w-0 ${selectedItem ? '' : 'hidden lg:block'}`}>
             {selectedItem ? (
               <div className="card card-pad r-evt min-w-0 overflow-hidden">
                 <div className="flex items-center justify-between gap-3 mb-3">
@@ -413,7 +422,7 @@ export default function Events() {
                 
                 <div className="space-y-3 mb-5">
                   <div className="flex items-center gap-3 text-[14px]">
-                    <span className="inline-grid place-items-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-2)] shrink-0">
+                    <span className="ico">
                       <Icon name="calendar" size={15} />
                     </span>
                     <div>
@@ -424,7 +433,7 @@ export default function Events() {
                   
                   {selectedItem.location && (
                     <div className="flex items-start gap-3 text-[14px] min-w-0">
-                      <span className="inline-grid place-items-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-2)] shrink-0">
+                      <span className="ico">
                         <Icon name="mapPin" size={15} />
                       </span>
                       <div className="text-[var(--color-txt-1)] min-w-0 pt-1 break-words [overflow-wrap:anywhere]">
@@ -447,7 +456,7 @@ export default function Events() {
                   )}
                   
                   <div className="flex items-center gap-3 text-[14px]">
-                    <span className="inline-grid place-items-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-2)] shrink-0">
+                    <span className="ico">
                       <Icon name="clock" size={15} />
                     </span>
                     <div className={`tnum ${isPast(selectedItem.startTime) ? 'text-[var(--color-txt-3)]' : 'text-[var(--color-txt-1)]'}`}>
@@ -478,11 +487,13 @@ export default function Events() {
                 )}
               </div>
             ) : (
-              <div className="empty row">
-                <span className="ico shrink-0">
-                  <Icon name="users" size={18} />
-                </span>
-                <p className="text-[13px]">Select an event to view details</p>
+              <div className="card card-pad">
+                <div className="empty">
+                  <span className="ico">
+                    <Icon name="users" size={18} />
+                  </span>
+                  <p>Select an event to view details</p>
+                </div>
               </div>
             )}
           </div>

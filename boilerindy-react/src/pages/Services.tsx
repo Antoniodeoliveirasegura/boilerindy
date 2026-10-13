@@ -156,7 +156,7 @@ function openCampusAssistantForResources() {
 function ResourceCard({ item }: { item: ResourceItem }) {
   const content = (
     <span className="group flex items-start gap-3 min-w-0 flex-1">
-      <span className="inline-grid place-items-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-2)] group-hover:bg-[var(--route)] group-hover:text-[var(--route-on)] transition-colors shrink-0">
+      <span className="ico group-hover:bg-[var(--route)] group-hover:text-[var(--route-on)] transition-colors">
         <Icon name={item.icon} size={16} />
       </span>
       <span className="flex-1 min-w-0">
@@ -191,7 +191,7 @@ function ResourceGroupCard({ group, size }: { group: ResourceGroup; size: string
           <Icon name={group.icon} size={18} />
         </span>
         <div>
-          <div className="card-title">{group.category}</div>
+          <div className="card-title lowercase first-letter:uppercase">{group.category}</div>
         </div>
       </div>
       <ul className={`rows grid gap-x-6 ${resourceItemsGridClass(size)}`}>

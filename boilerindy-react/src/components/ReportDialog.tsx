@@ -217,10 +217,10 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
             </StatusBanner>
           ) : null}
           <div className="flex justify-end gap-2 mt-5">
-            <button type="button" onClick={onClose} disabled={sending} className="btn btn-secondary disabled:opacity-60">
+            <button type="button" onClick={onClose} disabled={sending} className="btn btn-secondary">
               Cancel
             </button>
-            <button type="submit" disabled={!reason || sending} className="btn btn-primary disabled:opacity-60">
+            <button type="submit" disabled={!reason || sending} className="btn btn-primary">
               {sending ? 'Sending…' : 'Submit report'}
             </button>
           </div>

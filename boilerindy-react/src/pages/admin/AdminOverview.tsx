@@ -193,7 +193,7 @@ export default function AdminOverview() {
                 <button
                   type="submit"
                   disabled={releasing || !purdueReleaseEmail.trim()}
-                  className="btn btn-secondary min-h-[44px] disabled:opacity-50"
+                  className="btn btn-secondary min-h-[44px]"
                 >
                   {releasing ? 'Releasing…' : 'Release link'}
                 </button>

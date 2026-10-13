@@ -262,7 +262,7 @@ export default function AdvertiserLogin() {
                 <button
                   type="submit"
                   disabled={forgotSubmitting}
-                  className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+                  className="btn btn-primary min-h-11 w-full"
                 >
                   <Icon name="send" size={15} />
                   {forgotSubmitting ? 'Sending…' : 'Send reset link'}
@@ -315,7 +315,7 @@ export default function AdvertiserLogin() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+                className="btn btn-primary min-h-11 w-full"
               >
                 <Icon name="briefcase" size={15} />
                 {submitting ? 'Signing in…' : 'Sign in to portal'}
@@ -379,7 +379,7 @@ export default function AdvertiserLogin() {
                   <button
                     type="submit"
                     disabled={reqSubmitting}
-                    className="btn btn-secondary min-h-11 w-full disabled:opacity-60"
+                    className="btn btn-secondary min-h-11 w-full"
                   >
                     <Icon name="send" size={15} />
                     {reqSubmitting ? 'Sending…' : 'Submit request'}

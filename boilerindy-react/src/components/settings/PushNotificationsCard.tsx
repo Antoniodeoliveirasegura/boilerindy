@@ -218,6 +218,14 @@ export default function PushNotificationsCard() {
 
     body = (
       <div className="space-y-4">
+        {/* Blocked: the reason the turn-on control is missing, as the neutral
+            notice Parking and Dining use, where that control would be. */}
+        {blocked && (
+          <div className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3">
+            <Icon name="info" size={16} className="mt-0.5 shrink-0 text-[var(--color-txt-2)]" />
+            <p className="text-[13.5px] leading-relaxed text-[var(--color-txt-1)]">{BLOCKED_MESSAGE}</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           {support.supported && thisDeviceOn && (
             <button
@@ -225,7 +233,7 @@ export default function PushNotificationsCard() {
               data-testid="push-disable"
               onClick={handleDisable}
               disabled={busy !== null}
-              className="btn btn-secondary disabled:opacity-50"
+              className="btn btn-secondary"
             >
               <Icon name="close" size={14} />
               {busy === 'unsubscribe' ? 'Turning off…' : 'Turn off on this device'}
@@ -237,7 +245,7 @@ export default function PushNotificationsCard() {
               data-testid="push-enable"
               onClick={handleEnable}
               disabled={busy !== null}
-              className="btn btn-ink disabled:opacity-50"
+              className="btn btn-ink"
             >
               <Icon name="bell" size={14} />
               {busy === 'subscribe' ? 'Turning on…' : 'Turn on for this device'}
@@ -257,7 +265,7 @@ export default function PushNotificationsCard() {
                 {' '}
                 <Link
                   to="/install"
-                  className="font-semibold text-[var(--color-accent)] underline decoration-[var(--color-accent)]/45 decoration-[1.5px] underline-offset-[3px] hover:decoration-[var(--color-accent)]"
+                  className="prose-link"
                 >
                   See the step-by-step guide
                 </Link>
@@ -266,7 +274,6 @@ export default function PushNotificationsCard() {
             )}
           </p>
         )}
-        {blocked && <p className={BODY_CLASS}>{BLOCKED_MESSAGE}</p>}
 
         <div className="space-y-4 border-t border-[var(--color-border)] pt-4">
           <label className="flex cursor-pointer select-none items-start gap-3">
@@ -313,7 +320,7 @@ export default function PushNotificationsCard() {
           data-testid="push-test"
           onClick={handleTest}
           disabled={!thisDeviceOn || busy !== null}
-          className="btn btn-secondary disabled:opacity-50"
+          className="btn btn-secondary"
         >
           <Icon name="send" size={14} />
           {busy === 'test' ? 'Sending…' : 'Send a test notification'}
@@ -333,9 +340,9 @@ export default function PushNotificationsCard() {
         </span>
         <div>
           <h2 className="card-title">Push notifications</h2>
-          <p className="card-sub">Get a heads-up before assignments are due, even when BoilerIndy is closed.</p>
         </div>
       </header>
+      <p className={`${BODY_CLASS} mb-4`}>Get a heads-up before assignments are due, even when BoilerIndy is closed.</p>
       {body}
     </section>
   )

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker } from 'react-leaflet'
+import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker, ZoomControl } from 'react-leaflet'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
@@ -11,7 +11,7 @@ import MapLayerToggle from '../components/map/MapLayerToggle'
 import ParkingGarageLayer from '../components/map/ParkingGarageLayer'
 import { useMapLayers, type MapLayerId } from '../components/map/mapLayers'
 import PageTitle from '../components/PageTitle'
-import { INK_BUTTON, LEAFLET_CHROME } from '../components/map/mapChrome'
+import { INK_BUTTON } from '../components/map/mapChrome'
 
 const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
@@ -61,8 +61,11 @@ const LABEL_IDLE = 'bg-[var(--color-map-color)] text-[var(--color-on-route)] sha
 const LABEL_SELECTED = 'bg-[var(--color-txt-0)] text-[var(--color-surface)] shadow-[0_0_0_2px_var(--color-surface)]'
 
 // From md the assistant button floats over the map's bottom right corner;
-// keep the tile credit clear of it.
-const ATTRIBUTION_CLEAR_FAB = 'md:[&_.leaflet-control-attribution]:mr-[72px]!'
+// keep the tile credit and the zoom buttons above it (bottom right, as on
+// /transit) clear of it. Phones hide the zoom buttons (index.css), and below
+// lg the search button and layer chips own the top left corner.
+const CONTROLS_CLEAR_FAB =
+  'md:[&_.leaflet-control-attribution]:mr-[72px]! md:[&_.leaflet-control-zoom]:mr-[72px]!'
 
 // The dark gray canvas is a flat mid gray. Push it apart, darker ground and
 // lighter streets, so it sits in the dark theme without tinting it (the old
@@ -377,10 +380,11 @@ export default function Map() {
       {/* `isolate` keeps Leaflet's pane z-indexes (400 to 1000) inside the
           map, so the assistant button and the tab bar stay on top of it. */}
       <div className="relative isolate flex-1 p-2 md:p-3 min-h-0">
-        <div className={`h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] purdue-map ${LEAFLET_CHROME} ${ATTRIBUTION_CLEAR_FAB} ${
+        <div className={`h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] purdue-map ${CONTROLS_CLEAR_FAB} ${
           dark ? DARK_TILES : 'is-light'
         }`}>
-          <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full bg-[var(--color-bg-2)]!">
+          <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} zoomControl={false} className="h-full w-full bg-[var(--color-bg-2)]!">
+            <ZoomControl position="bottomright" />
             <TileLayer
               key={dark ? 'dark' : 'light'}
               url={dark ? TILE_DARK : TILE_LIGHT}

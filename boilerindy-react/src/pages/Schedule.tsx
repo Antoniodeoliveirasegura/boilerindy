@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { extractBuildingCode } from '../lib/buildingCode'
+import { splitCourseCode } from '../lib/courseCode'
 import { errorMessage } from '../lib/queries/publicData'
 import { useMyClasses } from '../lib/queries/userData'
 import Icon from '../components/Icons'
@@ -67,21 +68,12 @@ type EditForm = {
 }
 
 // Course titles from the feed often lead with the course code ("CS 25100
-// Data Structures"); the code goes on a plate and the rest stays as text.
-// Only a Purdue code (2-5 letter subject, 5-digit number) counts, and it splits
-// only on whitespace, so the rest keeps its own punctuation ("CS 25100 - Lab 3"
-// leaves "- Lab 3") and "CS 25100: Project 2" stays whole. Same rule as
-// Assignments; Home's splitter should move to it too.
-const COURSE_CODE_LEAD = /^([A-Z]{2,5} ?\d{5}[A-Z]?)(?:\s+(\S.*))?$/
-
-function splitCourseCode(text: string): { code: string; rest: string } {
-  const trimmed = text.trim()
-  const match = COURSE_CODE_LEAD.exec(trimmed)
-  return match ? { code: match[1], rest: match[2] ?? '' } : { code: '', rest: trimmed }
-}
-
+// Data Structures"); the code goes on a plate and the rest stays as text. The
+// rule (a Purdue code, split only on whitespace) lives in lib/courseCode and is
+// shared with Home and Assignments. A title that is only a code shows just the
+// plate here.
 function CourseCode({ text, className = '' }: { text: string; className?: string }) {
-  const { code, rest } = splitCourseCode(text)
+  const { code, rest } = splitCourseCode(text) ?? { code: '', rest: text.trim() }
   return (
     <>
       {code ? <span className="code solid">{code}</span> : null}

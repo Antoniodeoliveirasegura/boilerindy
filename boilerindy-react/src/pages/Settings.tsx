@@ -22,17 +22,16 @@ const STAT_VALUE = 'font-display text-[22px] font-extrabold leading-none tnum te
 const CHECKBOX = 'mt-0.5 size-[18px] shrink-0 accent-[var(--color-txt-0)]'
 
 // Card head for each settings section: an ink route badge (or the error fill
-// for the danger zone), the title, an optional sub and a head link.
+// for the danger zone), the title and an optional head link. A card's
+// description is a body paragraph under the head, never a sub in it.
 function CardHead({
   icon,
   title,
-  sub,
   danger = false,
   children,
 }: {
   icon: string
   title: string
-  sub?: string
   danger?: boolean
   children?: ReactNode
 }) {
@@ -46,7 +45,6 @@ function CardHead({
       </span>
       <div>
         <h2 className="card-title">{title}</h2>
-        {sub ? <p className="card-sub">{sub}</p> : null}
       </div>
       {children}
     </header>
@@ -347,7 +345,7 @@ export default function Settings() {
               </div>
             </div>
             <div className="mt-5">
-              <button type="submit" disabled={saving} className="btn btn-primary disabled:opacity-50">
+              <button type="submit" disabled={saving} className="btn btn-primary">
                 <Icon name="check" size={16} />
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
@@ -370,7 +368,7 @@ export default function Settings() {
                 <p className={`${BODY} mt-3`}>
                   Purdue is connected as a linked identity. Purdue-specific sources like timetable feeds can now be attached from setup.
                 </p>
-                <Link to="/setup" className="btn btn-secondary btn-sm mt-4">
+                <Link to="/setup" className="btn btn-secondary mt-4">
                   <Icon name="calendar" size={14} />
                   Manage calendar sources
                 </Link>
@@ -391,12 +389,12 @@ export default function Settings() {
                     sm+ hold them to a form-sized column so its submit does not
                     become a 700px bar next to the page's Save changes. */}
                 <div className="sm:max-w-[400px]">
-                  <PurdueEmailVerification />
+                  <PurdueEmailVerification submitVariant="secondary" />
                   {authConfig?.purdueAuthMode === 'cas' ? (
                     <button
                       type="button"
                       onClick={() => startPurdueLink('/settings')}
-                      className="btn btn-secondary mt-3 w-full"
+                      className="btn btn-secondary mt-3 w-full sm:w-fit"
                     >
                       <Icon name="graduation" size={14} />
                       Sign in with Purdue instead
@@ -426,11 +424,11 @@ export default function Settings() {
               </div>
             </dl>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link to="/setup" className="btn btn-secondary btn-sm">
+              <Link to="/setup" className="btn btn-secondary">
                 <Icon name="calendar" size={14} />
                 Calendar sources
               </Link>
-              <Link to="/schedule" className="btn btn-secondary btn-sm">
+              <Link to="/schedule" className="btn btn-secondary">
                 <Icon name="schedule" size={14} />
                 View schedule
               </Link>
@@ -463,7 +461,7 @@ export default function Settings() {
                   type="button"
                   onClick={handleGenerateFeed}
                   disabled={feedBusy}
-                  className="btn btn-ghost btn-sm -ml-3 text-[var(--color-txt-2)] hover:text-[var(--color-error)] disabled:opacity-50"
+                  className="btn btn-ghost btn-sm -ml-3 text-[var(--color-txt-2)] hover:text-[var(--color-error)]"
                 >
                   <Icon name="refresh" size={14} />
                   {feedBusy ? 'Regenerating…' : 'Regenerate link (invalidates the old one)'}
@@ -474,7 +472,7 @@ export default function Settings() {
                 type="button"
                 onClick={handleGenerateFeed}
                 disabled={feedBusy || !feedLoaded}
-                className="btn btn-secondary mt-4 disabled:opacity-50"
+                className="btn btn-secondary mt-4"
               >
                 <Icon name="calendar" size={14} />
                 {feedBusy ? 'Creating…' : 'Create calendar link'}
@@ -511,11 +509,10 @@ export default function Settings() {
           <BlockedUsersCard />
 
           <section className="card card-pad r-ink">
-            <CardHead
-              icon={theme === 'dark' ? 'moon' : 'sun'}
-              title="Appearance"
-              sub="Choose how BoilerIndy looks on this device. Your preference is saved between sessions."
-            />
+            <CardHead icon={theme === 'dark' ? 'moon' : 'sun'} title="Appearance" />
+            <p className={`${BODY} mb-4`}>
+              Choose how BoilerIndy looks on this device. Your preference is saved between sessions.
+            </p>
             <div className="flex flex-wrap gap-2">
               {['light', 'dark'].map((mode) => (
                 <button
@@ -585,7 +582,7 @@ export default function Settings() {
               <button
                 type="submit"
                 disabled={deleting}
-                className="btn mt-4 border-transparent bg-[var(--color-error)] text-[var(--color-on-route)] hover:bg-[color-mix(in_srgb,var(--color-error)_86%,var(--color-txt-0))] disabled:opacity-50"
+                className="btn btn-danger mt-4"
               >
                 <Icon name="trash" size={14} />
                 {deleting ? 'Deleting…' : 'Delete my account'}

@@ -181,7 +181,7 @@ export default function ResetPassword() {
             <button
               type="submit"
               disabled={submitting}
-              className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+              className="btn btn-primary min-h-11 w-full"
             >
               {submitting ? 'Saving…' : 'Update password'}
             </button>

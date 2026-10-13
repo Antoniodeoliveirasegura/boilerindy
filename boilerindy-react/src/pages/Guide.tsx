@@ -284,7 +284,7 @@ export default function Guide() {
               </label>
             </div>
             {formError && <p className="text-[13px] text-[var(--color-error)]">{formError}</p>}
-            <button type="submit" disabled={submitting} className="btn btn-primary disabled:opacity-60">
+            <button type="submit" disabled={submitting} className="btn btn-primary">
               {submitting ? 'Posting…' : 'Post recommendation'}
             </button>
           </form>
@@ -339,13 +339,15 @@ export default function Guide() {
         {loading ? (
           <p className="text-[13px] text-[var(--color-txt-3)]">Loading…</p>
         ) : recs.length === 0 ? (
-          <div className="empty row">
-            <span className="ico shrink-0">
-              <Icon name="mapPin" size={18} />
-            </span>
-            <div>
-              <p className="font-display font-bold text-[var(--color-txt-0)]">No recommendations yet</p>
-              <p className="text-[13px] mt-0.5">Be the first to add a tip for this category.</p>
+          <div className="card card-pad">
+            <div className="empty row">
+              <span className="ico">
+                <Icon name="mapPin" size={18} />
+              </span>
+              <div>
+                <p className="font-display font-bold text-[var(--color-txt-0)]">No recommendations yet</p>
+                <p className="text-[13px] mt-0.5">Be the first to add a tip for this category.</p>
+              </div>
             </div>
           </div>
         ) : (
@@ -402,22 +404,17 @@ export default function Guide() {
                       Delete
                     </button>
                   ) : (
-                    <>
+                    <span className="mod-actions mt-0">
                       <button
                         type="button"
                         onClick={(e) => report({ targetType: 'guide', targetId: rec.id, targetLabel: 'this recommendation' }, e.currentTarget)}
-                        className="btn btn-ghost btn-sm text-[var(--color-txt-2)]"
                       >
                         <Icon name="flag" size={13} /> Report
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleBlockAuthor(rec)}
-                        className="btn btn-ghost btn-sm text-[var(--color-txt-2)]"
-                      >
+                      <button type="button" onClick={() => void handleBlockAuthor(rec)}>
                         Block author
                       </button>
-                    </>
+                    </span>
                   )}
                 </div>
               </div>

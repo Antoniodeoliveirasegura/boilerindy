@@ -243,7 +243,7 @@ export default function Perks() {
           </div>
           {formError && <p className="text-[13px] text-[var(--color-error)]">{formError}</p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={submitting} className="btn btn-primary disabled:opacity-60">{submitting ? 'Saving…' : 'Save deal'}</button>
+            <button type="submit" disabled={submitting} className="btn btn-primary">{submitting ? 'Saving…' : 'Save deal'}</button>
             <button type="button" onClick={() => setShowForm(false)} className="btn btn-ghost">Cancel</button>
           </div>
         </form>
@@ -262,12 +262,15 @@ export default function Perks() {
             </button>
           ))}
         </div>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search deals…"
-          className="input sm:ml-auto sm:w-[240px]"
-        />
+        <div className="relative sm:ml-auto sm:w-[240px]">
+          <Icon name="search" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-3)] pointer-events-none" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search deals…"
+            className="input pl-10"
+          />
+        </div>
       </div>
 
       {error && <div className="card p-4 mb-4 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30">{error}</div>}
@@ -275,13 +278,15 @@ export default function Perks() {
       {loading ? (
         <p className="text-[13px] text-[var(--color-txt-3)]">Loading deals…</p>
       ) : filtered.length === 0 ? (
-        <div className="empty row">
-          <span className="ico shrink-0">
-            <Icon name="tag" size={18} />
-          </span>
-          <div>
-            <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No deals right now</p>
-            <p className="text-[13px] mt-0.5">Check back soon for new campus perks.</p>
+        <div className="card card-pad">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="tag" size={18} />
+            </span>
+            <div>
+              <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No deals right now</p>
+              <p className="text-[13px] mt-0.5">Check back soon for new campus perks.</p>
+            </div>
           </div>
         </div>
       ) : (

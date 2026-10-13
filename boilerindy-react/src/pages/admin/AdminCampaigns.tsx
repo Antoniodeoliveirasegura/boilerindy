@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Icon from '../../components/Icons'
 import { listAdminCampaigns, updateAdminCampaign } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader, StatusBadge } from './adminShared'
-import { CAMPAIGN_STATUS_META, DANGER_BTN, formatDateTime } from './adminHelpers'
+import { CAMPAIGN_STATUS_META, formatDateTime } from './adminHelpers'
 import { useConfirm } from '../../hooks/useConfirm'
 import PageTitle from '../../components/PageTitle'
 
@@ -151,7 +151,7 @@ export default function AdminCampaigns() {
                           type="button"
                           disabled={busyId === campaign.id}
                           onClick={() => setStatus(campaign, 'active')}
-                          className="btn btn-ink btn-sm disabled:opacity-50"
+                          className="btn btn-ink btn-sm"
                         >
                           Approve & go live
                         </button>
@@ -159,7 +159,7 @@ export default function AdminCampaigns() {
                           type="button"
                           disabled={busyId === campaign.id}
                           onClick={() => setStatus(campaign, 'draft')}
-                          className="btn btn-secondary btn-sm disabled:opacity-50"
+                          className="btn btn-secondary btn-sm"
                         >
                           Send back
                         </button>
@@ -170,7 +170,7 @@ export default function AdminCampaigns() {
                         type="button"
                         disabled={busyId === campaign.id}
                         onClick={() => setStatus(campaign, 'paused')}
-                        className="btn btn-secondary btn-sm disabled:opacity-50"
+                        className="btn btn-secondary btn-sm"
                       >
                         Pause
                       </button>
@@ -180,7 +180,7 @@ export default function AdminCampaigns() {
                         type="button"
                         disabled={busyId === campaign.id}
                         onClick={() => setStatus(campaign, 'active')}
-                        className="btn btn-ink btn-sm disabled:opacity-50"
+                        className="btn btn-ink btn-sm"
                       >
                         Resume
                       </button>
@@ -190,7 +190,7 @@ export default function AdminCampaigns() {
                         type="button"
                         disabled={busyId === campaign.id}
                         onClick={() => setStatus(campaign, 'ended')}
-                        className={`${DANGER_BTN} disabled:opacity-50`}
+                        className="btn btn-danger btn-sm"
                       >
                         End
                       </button>

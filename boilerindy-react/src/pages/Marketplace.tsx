@@ -58,9 +58,6 @@ const STEP_TEXT: Record<PhotoStep, string> = {
   uploading: 'Uploading',
 }
 
-// A disabled primary drops to a neutral plate: amber marks a live action only.
-const PRIMARY_OFF = 'disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:border-[var(--color-border-2)] disabled:shadow-none'
-
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
@@ -565,7 +562,7 @@ export default function Marketplace() {
                 <span className="badge bg-[var(--color-txt-0)] text-[var(--color-surface)]">Sold</span>
               ) : null}
             </div>
-            <h3 className="text-[14px] sm:text-[15px] leading-snug text-[var(--color-txt-0)] mt-2 line-clamp-2 break-words group-hover:underline underline-offset-[3px] decoration-2">{listing.title}</h3>
+            <h3 className="row-title text-[14px] sm:text-[15px] mt-2 line-clamp-2 break-words group-hover:underline underline-offset-[3px] decoration-2">{listing.title}</h3>
             <div className="text-[12.5px] sm:text-[13px] text-[var(--color-txt-2)] mt-1">{labelForCategory(listing.category)}</div>
           </div>
         </button>
@@ -735,7 +732,7 @@ export default function Marketplace() {
             </p>
           ) : null}
           <div className="pt-1">
-            <button type="submit" disabled={busy} className={`btn btn-primary ${PRIMARY_OFF}`}>
+            <button type="submit" disabled={busy} className="btn btn-primary">
               {submitting ? (editing ? 'Saving…' : 'Posting…') : editing ? 'Save changes' : 'Post listing'}
             </button>
           </div>
@@ -768,9 +765,9 @@ export default function Marketplace() {
               </a>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3">
+          <div className="mod-actions mt-3">
             {selected.isMine ? (
-              <button type="button" onClick={() => openEdit(selected)} className="inline-flex items-center gap-1 py-1 font-display font-bold text-[13px] text-[var(--color-txt-1)] hover:text-[var(--color-accent)]">
+              <button type="button" onClick={() => openEdit(selected)} className="py-1 font-bold text-[13px] text-[var(--color-txt-1)] hover:text-[var(--color-accent)]">
                 <Icon name="edit" size={13} /> Edit listing
               </button>
             ) : (
@@ -778,15 +775,10 @@ export default function Marketplace() {
                 <button
                   type="button"
                   onClick={(e) => report({ targetType: 'marketplace', targetId: selected.id, targetLabel: 'this listing' }, e.currentTarget)}
-                  className="inline-flex items-center gap-1 py-1 font-display font-semibold text-[13px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
                 >
                   <Icon name="flag" size={13} /> Report listing
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void blockSeller(selected)}
-                  className="py-1 font-display font-semibold text-[13px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                >
+                <button type="button" onClick={() => void blockSeller(selected)}>
                   Block author
                 </button>
               </>
@@ -795,18 +787,15 @@ export default function Marketplace() {
         </div>
       ) : null}
 
-      {/* Tabs */}
-      <div className="flex gap-6 mb-5 border-b border-[var(--color-border-2)]">
+      {/* Browse / My listings: the same pill pair as the Board's sort. */}
+      <div className="flex gap-2 mb-4">
         {['browse', 'mine'].map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`-mb-px min-h-[44px] font-display font-bold text-[15px] border-b-[3px] transition-colors ${
-              tab === t
-                ? 'text-[var(--color-txt-0)] border-[var(--color-gold)] shadow-[0_1px_0_var(--color-txt-0)] dark:shadow-none'
-                : 'text-[var(--color-txt-2)] border-transparent hover:text-[var(--color-txt-0)] hover:border-[var(--color-border-3)]'
-            }`}
+            aria-pressed={tab === t}
+            className={`pill ${tab === t ? 'pill-active' : ''}`}
           >
             {t === 'browse' ? 'Browse' : 'My listings'}
           </button>
@@ -823,7 +812,7 @@ export default function Marketplace() {
       {tab === 'browse' ? (
         <>
           <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-5">
-            <div className="flex gap-2 max-lg:overflow-x-auto scrollbar-hide max-lg:-mx-4 max-lg:px-4 max-md:py-1 md:max-lg:-mx-6 md:max-lg:px-6 lg:flex-wrap">
+            <div className="flex gap-2 max-lg:overflow-x-auto scrollbar-hide max-lg:-mx-4 max-lg:px-4 max-md:py-1 md:max-lg:-mx-6 md:max-lg:px-6 lg:flex-wrap max-md:[mask-image:linear-gradient(to_right,#000_88%,transparent)]">
               {['all', ...MARKETPLACE_CATEGORIES.map((c) => c.slug)].map((c) => (
                 <button
                   key={c}
@@ -851,7 +840,7 @@ export default function Marketplace() {
             <p className="text-[14px] text-[var(--color-txt-2)]">Loading…</p>
           ) : listings.length === 0 ? (
             <div className="empty row">
-              <span className="ico shrink-0">
+              <span className="ico">
                 <Icon name="tag" size={18} />
               </span>
               <div>
@@ -861,14 +850,14 @@ export default function Marketplace() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">{listings.map((l) => listingCard(l, 'browse'))}</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{listings.map((l) => listingCard(l, 'browse'))}</div>
               <div className="flex items-center justify-between gap-3 mt-5">
-                <button type="button" onClick={() => changePage(-1)} disabled={page === 0} className="btn btn-secondary btn-sm disabled:opacity-50">
+                <button type="button" onClick={() => changePage(-1)} disabled={page === 0} className="btn btn-secondary btn-sm">
                   <Icon name="chevronLeft" size={15} />
                   Prev
                 </button>
                 <span className="font-display font-bold text-[13px] text-[var(--color-txt-2)] tnum">Page {page + 1}</span>
-                <button type="button" onClick={() => changePage(1)} disabled={!hasMore} className="btn btn-secondary btn-sm disabled:opacity-50">
+                <button type="button" onClick={() => changePage(1)} disabled={!hasMore} className="btn btn-secondary btn-sm">
                   Next
                   <Icon name="chevronRight" size={15} />
                 </button>
@@ -878,7 +867,7 @@ export default function Marketplace() {
         </>
       ) : mine.length === 0 ? (
         <div className="empty row">
-          <span className="ico shrink-0">
+          <span className="ico">
             <Icon name="tag" size={18} />
           </span>
           <div>
@@ -887,7 +876,7 @@ export default function Marketplace() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">{mine.map((l) => listingCard(l, 'mine'))}</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{mine.map((l) => listingCard(l, 'mine'))}</div>
       )}
     </div>
   )

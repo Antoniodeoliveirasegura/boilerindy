@@ -42,11 +42,11 @@ export default function BlockedUsersCard() {
         </span>
         <div>
           <h2 className="card-title">Blocked users</h2>
-          <p className="card-sub">
-            You and the people you block stop seeing each other&apos;s posts, matches and requests.
-          </p>
         </div>
       </header>
+      <p className="mb-4 text-[14px] leading-relaxed text-[var(--color-txt-1)]">
+        You and the people you block stop seeing each other&apos;s posts, matches and requests.
+      </p>
       {error ? (
         <StatusBanner tone="error" className="mb-3">
           {error}
@@ -77,7 +77,7 @@ export default function BlockedUsersCard() {
                   onClick={() => void unblock(row.userId)}
                   disabled={unblocking !== null}
                   aria-label={`Unblock ${row.displayName}`}
-                  className="btn btn-secondary btn-sm shrink-0 disabled:opacity-50"
+                  className="btn btn-secondary btn-sm shrink-0"
                 >
                   {unblocking === row.userId ? 'Unblocking…' : 'Unblock'}
                 </button>

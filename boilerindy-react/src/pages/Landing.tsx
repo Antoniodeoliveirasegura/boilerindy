@@ -13,8 +13,8 @@ import './marketing.css'
 // action and the closing sign panel.
 
 // The app's own 1200px column (.page), on the nav's edges, minus its top
-// padding: each landing section sets its own vertical rhythm.
-const wrap = 'page pt-0'
+// and bottom padding: each landing section sets its own vertical rhythm.
+const wrap = 'page py-0'
 
 const bentoTiles = [
   {
@@ -179,7 +179,7 @@ export default function Landing() {
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section className="mkt-reveal pt-9 md:pt-16">
         <div className={wrap}>
-          <div className="ink-panel r-map inline-flex items-center overflow-hidden rounded-[4px] font-display text-[13px] font-extrabold tracking-[0.02em]">
+          <div className="ink-panel inline-flex items-center overflow-hidden rounded-[4px] font-display text-[13px] font-extrabold tracking-[0.02em]">
             <span className="route-badge size-[34px] rounded-none">
               <Icon name="mapPin" size={18} />
             </span>
@@ -374,7 +374,7 @@ export default function Landing() {
       </section>
 
       {/* ── A day on campus: an ink band with the day as a route line ────── */}
-      <section id="day" className="mkt-grain ink-panel rounded-none border-x-0 scroll-mt-28 lg:scroll-mt-20 py-16 md:py-[88px]">
+      <section id="day" className="ink-panel rounded-none border-x-0 scroll-mt-28 lg:scroll-mt-20 py-16 md:py-[88px]">
         <div className={wrap}>
           <div className="max-w-[720px]">
             <div className="eyebrow">A Tuesday, narrated</div>
@@ -425,7 +425,7 @@ export default function Landing() {
       {/* ── CTA: the amber sign panel ───────────────────────────────────── */}
       <section className="pb-16 md:pb-[72px]">
         <div className={wrap}>
-          <div className="mkt-cta mkt-grain overflow-hidden rounded-2xl md:rounded-3xl border-[1.5px] border-[var(--color-gold-dark)]/25 bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-[22px] pt-10 md:px-14 md:pt-16">
+          <div className="mkt-cta overflow-hidden rounded-2xl md:rounded-3xl border-[1.5px] border-[var(--color-gold-dark)]/25 bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-[22px] pt-10 md:px-14 md:pt-16">
             <h2 className="section-title md:text-[56px] leading-none max-w-[720px] text-[var(--color-gold-dark)]">
               Your campus is ready when you are.
             </h2>
@@ -438,8 +438,8 @@ export default function Landing() {
                 Get started free
               </Link>
               {/* The live pages a signed-out visitor can open (issue #366). */}
-              <Link to="/dining" className="inline-flex items-center gap-2 text-[14px] font-semibold text-[var(--color-gold-dark)] border border-[var(--color-gold-dark)]/30 px-7 py-3.5 rounded-xl no-underline hover:bg-[var(--color-gold-dark)]/10 hover:-translate-y-0.5 transition-all">
-                <Icon name="dining" size={16} />
+              <Link to="/dining" className="btn btn-lg no-underline max-sm:w-full bg-transparent border-[var(--color-gold-dark)]/40 text-[var(--color-gold-dark)] hover:bg-[var(--color-gold-dark)]/10">
+                <Icon name="dining" size={18} />
                 See live dining and buses
               </Link>
             </div>

@@ -388,20 +388,21 @@ export default function ConnectSchedule() {
             it, and a verified address opens Marketplace posting (issue #181). */}
         {!user?.hasPurdueLinked ? (
           <section className="card card-pad r-cls mb-5" data-testid="setup-purdue-email">
-            <div className="card-head items-start">
+            <header className="card-head items-start">
               <span className="route-badge">
                 <Icon name="graduation" size={18} />
               </span>
               <div>
                 <h2 className="card-title">Link your Purdue email</h2>
-                <p className="mt-1 text-[13.5px] leading-relaxed text-[var(--color-txt-2)]">
+                <p className="card-sub">
                   Optional. Verify your @purdue.edu address to post on the Marketplace; your calendars work without it.
                 </p>
               </div>
-            </div>
+            </header>
             <PurdueEmailVerification
               allowDevLink={usesMockPurdue}
               onLinked={() => handlePurdueLinked('Purdue email linked. You can post on the Marketplace now.')}
+              submitVariant="secondary"
             />
           </section>
         ) : null}
@@ -414,7 +415,7 @@ export default function ConnectSchedule() {
                 <Icon name="refresh" size={18} />
               </span>
               <div>
-                <h2 className="card-title">
+                <h2 className="card-title lowercase first-letter:uppercase">
                   Connected Sources
                 </h2>
               </div>
@@ -422,7 +423,7 @@ export default function ConnectSchedule() {
                 type="button"
                 onClick={handleSyncAll}
                 disabled={syncingAll}
-                className="btn btn-secondary btn-sm ml-auto shrink-0 disabled:opacity-50"
+                className="btn btn-secondary btn-sm ml-auto shrink-0"
               >
                 {syncingAll ? (
                   <span className="inline-flex items-center gap-2">
@@ -441,7 +442,7 @@ export default function ConnectSchedule() {
               {sources.map((source) => (
                 <div key={source.id} className="flex flex-col gap-3 py-3.5 sm:flex-row sm:items-center">
                   <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-1)]">
+                    <span className="ico h-9 w-9">
                       <Icon name={getSourceIcon(source.sourceType)} size={18} />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -469,7 +470,7 @@ export default function ConnectSchedule() {
                     </div>
                   </div>
                   <div className="ml-12 flex shrink-0 gap-1.5 sm:ml-0">
-                    <button type="button" onClick={() => handleSync(source.id)} disabled={syncingAll} className="btn btn-secondary btn-sm flex-1 disabled:opacity-50 sm:flex-none">
+                    <button type="button" onClick={() => handleSync(source.id)} disabled={syncingAll} className="btn btn-secondary btn-sm flex-1 sm:flex-none">
                       Sync
                     </button>
                     <button type="button" onClick={() => handleDelete(source.id)} className="icon-btn hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] md:h-[34px] md:w-[34px]">
@@ -484,9 +485,16 @@ export default function ConnectSchedule() {
 
         {/* Add New Source */}
         <section className="card card-pad r-cls">
-          <h2 className="card-title mb-4">
-            Add Calendar Source
-          </h2>
+          <header className="card-head">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">
+                Add Calendar Source
+              </h2>
+            </div>
+          </header>
 
           {/* Source Type Toggle: two option cards, one choice. The chosen one
               takes an ink edge and a filled ink dot, never amber; the round
@@ -602,7 +610,7 @@ export default function ConnectSchedule() {
             <button
               type="submit"
               disabled={!icsUrl.trim() || saving}
-              className="btn btn-primary w-full disabled:border-[var(--color-border-2)] disabled:bg-[var(--color-stat)] disabled:text-[var(--color-txt-3)] disabled:shadow-none sm:w-auto"
+              className="btn btn-primary w-full sm:w-auto"
             >
               <Icon name={config.icon} size={16} />
               {saving ? 'Connecting…' : `Connect ${sourceType === 'brightspace' ? 'Brightspace' : 'Schedule'}`}

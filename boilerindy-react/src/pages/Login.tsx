@@ -457,7 +457,7 @@ export default function Login() {
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={oauthSubmitting || submitting}
-                className="btn btn-secondary min-h-11 w-full disabled:opacity-60"
+                className="btn btn-secondary min-h-11 w-full"
               >
                 <Icon name="google" size={18} />
                 {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
@@ -477,7 +477,7 @@ export default function Login() {
                 <label htmlFor="code" className={labelClass}>Verification code</label>
                 <input
                   id="code"
-                  className={`${fieldClass(fieldErr.code)} pl-[calc(12px+0.5em)] text-center font-display text-[20px]! font-bold tracking-[0.5em] tnum`}
+                  className={`${fieldClass(fieldErr.code)} code`}
                   value={code}
                   onChange={(ev) => setCode(ev.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="000000"
@@ -500,7 +500,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={submitting || code.length !== 6}
-                className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+                className="btn btn-primary min-h-11 w-full"
               >
                 <Icon name="check" size={16} />
                 {submitting ? 'Verifying…' : 'Verify and continue'}
@@ -533,7 +533,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+                className="btn btn-primary min-h-11 w-full"
               >
                 <Icon name="mail" size={16} />
                 {submitting ? 'Sending…' : 'Email me a reset link'}
@@ -606,7 +606,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={submitting}
-              className="btn btn-primary min-h-11 w-full disabled:opacity-60"
+              className="btn btn-primary min-h-11 w-full"
             >
               <Icon name={isSignup ? 'sparkles' : 'mail'} size={16} />
               {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}

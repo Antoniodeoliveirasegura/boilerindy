@@ -355,7 +355,7 @@ export default function CampusAssistant() {
                   aria-pressed={listening}
                   aria-label={listening ? 'Stop voice input' : 'Start voice input'}
                   title={listening ? 'Stop dictation' : 'Dictate'}
-                  className={`btn btn-secondary w-11 px-0 shrink-0 disabled:opacity-50
+                  className={`btn btn-secondary w-11 px-0 shrink-0
                     ${listening
                       ? 'bg-[var(--color-error)]/15 border-[var(--color-error)] text-[var(--color-error)] animate-pulse'
                       : ''
@@ -367,7 +367,7 @@ export default function CampusAssistant() {
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isTyping}
-                className="btn btn-primary w-11 px-0 shrink-0 disabled:opacity-50"
+                className="btn btn-primary w-11 px-0 shrink-0"
               >
                 <Icon name="send" size={16} />
               </button>
