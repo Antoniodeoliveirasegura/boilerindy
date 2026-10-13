@@ -1,8 +1,10 @@
 import { Link, useSearchParams } from 'react-router-dom'
-import { getBackTarget } from '../lib/privacyNav'
+import { getBackTarget, withFrom } from '../lib/privacyNav'
+import { useAuth } from '../context/AuthContext'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import BrandMark from '../components/BrandMark'
 import PageTitle from '../components/PageTitle'
+import SkipLink from '../components/SkipLink'
 
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
 // (account, imported schedule, grades, posts, AI features, analytics, the
@@ -117,10 +119,15 @@ we will respond there. You can also open an issue on the BoilerIndy GitHub repos
 
 export default function Privacy() {
   const [searchParams] = useSearchParams()
-  const back = getBackTarget(searchParams.get('from'))
+  const { user } = useAuth()
+  const from = searchParams.get('from')
+  const back = getBackTarget(from, Boolean(user))
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
+      {/* This page renders outside AppLayout and PublicLayout, so it
+          carries its own skip link and main landmark (issue #221). */}
+      <SkipLink />
       <PageTitle>Privacy policy</PageTitle>
       {/* The signed-out signage band (as on the landing and the preview
           bar): the mark, a divider and the way back, on the app's 1200px
@@ -137,7 +144,7 @@ export default function Privacy() {
           </Link>
         </div>
       </header>
-      <div className="page flex-1 pb-12 md:pb-16">
+      <main id="main" tabIndex={-1} className="page flex-1 pb-12 md:pb-16 focus:outline-none">
         <div className="page-measure">
           <div className="page-head">
             <div>
@@ -164,7 +171,7 @@ export default function Privacy() {
                 <h2 className={SECTION_TITLE}>{section.title}</h2>
                 <p className={SECTION_BODY}>{section.body}</p>
                 {section.link ? (
-                  <Link to={section.link.to} className="prose-link mt-2 inline-block text-[15px]">
+                  <Link to={withFrom(section.link.to, from)} className="prose-link mt-2 inline-block text-[15px]">
                     {section.link.label}
                   </Link>
                 ) : null}
@@ -172,9 +179,9 @@ export default function Privacy() {
             ))}
           </div>
         </div>
-      </div>
+      </main>
 
-      <SiteDisclaimer rule />
+      <SiteDisclaimer rule from={from} />
     </div>
   )
 }

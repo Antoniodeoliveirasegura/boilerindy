@@ -38,6 +38,7 @@ import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
+import { mapHrefForRoom } from '../lib/buildingCode'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonLabel } from '../lib/urgency'
@@ -1253,7 +1254,12 @@ export default function Home() {
                   <Icon name="calendar" size={16} />
                   Full Schedule
                 </Link>
-                <Link to="/map" className={`btn ${directionsPrimary ? 'btn-primary' : 'btn-onink'}`}>
+                {/* Opens the map on the class's building (?building=&room=), as
+                    Schedule's Find Room does, rather than on an empty map. */}
+                <Link
+                  to={mapHrefForRoom(displayClass?.location)}
+                  className={`btn ${directionsPrimary ? 'btn-primary' : 'btn-onink'}`}
+                >
                   <Icon name="navigation" size={16} />
                   Get Directions
                 </Link>

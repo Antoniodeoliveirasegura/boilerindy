@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { getBackTarget } from '../lib/privacyNav'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import BrandMark from '../components/BrandMark'
@@ -12,10 +14,15 @@ import {
   type InstallPlatform,
 } from '../lib/install'
 import PageTitle from '../components/PageTitle'
+import SkipLink from '../components/SkipLink'
 
 // Public "add BoilerIndy to your phone" walkthrough (issue #9 follow-up).
 // Picks the visitor's platform up front, offers the native install prompt
 // where Chrome exposes one, and points installed visitors at Settings.
+// Reached from the sign-in page (?from=signin), Settings' push card
+// (?from=settings) and the landing footer (no from), so the back link comes
+// from getBackTarget like the legal pages' instead of always saying
+// "Back to sign in".
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -32,6 +39,10 @@ const PLATFORM_ICON: Record<InstallPlatform, string> = {
 }
 
 export default function Install() {
+  const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+  const from = searchParams.get('from')
+  const back = getBackTarget(from, Boolean(user))
   const [env] = useState(readInstallEnv)
   const [platform, setPlatform] = useState<InstallPlatform>(() => detectInstallPlatform(env))
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
@@ -71,6 +82,9 @@ export default function Install() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]" data-testid="install-page">
+      {/* This page renders outside AppLayout and PublicLayout, so it
+          carries its own skip link and main landmark (issue #221). */}
+      <SkipLink />
       <PageTitle>Install the app</PageTitle>
       {/* The signed-out signage band (as on the landing and the preview
           bar): the mark, a divider and the way back, on the app's 1200px
@@ -80,17 +94,14 @@ export default function Install() {
           <BrandMark size={32} />
           <span aria-hidden="true" className="topbar-divider" />
           <Link
-            to="/login"
+            to={back.to}
             className="inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[14px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
           >
-            {/* The same text arrow the sibling pages carry in their back
-                label; decorative here, so the link's name is unchanged. */}
-            <span aria-hidden="true">←&nbsp;</span>
-            Back to sign in
+            {back.label}
           </Link>
         </div>
       </header>
-      <div className="page flex-1 pb-12 md:pb-16">
+      <main id="main" tabIndex={-1} className="page flex-1 pb-12 md:pb-16 focus:outline-none">
         <div className="page-measure">
           <div className="page-head">
             <div>
@@ -191,9 +202,9 @@ export default function Install() {
             to turn on notifications.
           </p>
         </div>
-      </div>
+      </main>
 
-      <SiteDisclaimer rule />
+      <SiteDisclaimer rule from={from} />
     </div>
   )
 }

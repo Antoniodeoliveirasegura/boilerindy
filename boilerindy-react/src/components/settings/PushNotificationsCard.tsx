@@ -263,8 +263,9 @@ export default function PushNotificationsCard() {
             {support.reason === 'ios-not-installed' && (
               <>
                 {' '}
+                {/* from=settings so the guide's back link returns here, not to sign-in. */}
                 <Link
-                  to="/install"
+                  to="/install?from=settings"
                   className="prose-link"
                 >
                   See the step-by-step guide

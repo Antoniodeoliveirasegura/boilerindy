@@ -348,6 +348,11 @@ export default function Map() {
     // gone and the nav band is 64px.
     <div className="flex flex-col lg:grid lg:grid-cols-[340px_1fr] h-[calc(100dvh_-_118px_-_env(safe-area-inset-bottom))] md:h-[calc(100dvh-4rem)] overflow-hidden bg-[var(--color-bg-1)]">
       <PageTitle>Campus Map</PageTitle>
+      {/* The visible h1 lives in the desktop sidebar, which is display:none
+          below lg, so phones and tablets had no page heading at all. This
+          one is for screen readers there and is gone from lg, so exactly one
+          h1 is exposed at every width. */}
+      <h1 className="sr-only lg:hidden">Campus Map</h1>
       {/* Desktop Sidebar */}
       <aside className="r-map hidden lg:flex flex-col z-10 min-h-0 border-r border-[var(--color-border-2)] bg-[var(--color-surface)]">
         <div className="px-5 pt-6 pb-4 border-b border-[var(--color-border)] space-y-4 shrink-0">

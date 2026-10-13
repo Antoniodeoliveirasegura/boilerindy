@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { withFrom } from '../lib/privacyNav'
 
 // Single source of truth for the "not affiliated with Purdue" disclaimer
 // (issue #112). Replaces the wording that used to be duplicated inline across
@@ -8,15 +9,19 @@ import { Link } from 'react-router-dom'
 // `rule` draws a 1px top rule; the app and public layouts set it, while a page
 // that places the disclaimer inside its own footer (Landing) already has one.
 // The Support link (issue #193) keeps the contact the app stores ask for one
-// tap away from every route.
+// tap away from every route. `from` is the legal pages' incoming ?from=,
+// passed on so a hop through these links keeps their back target (see
+// lib/privacyNav.ts); every other caller leaves it unset.
 export default function SiteDisclaimer({
   note,
   className = '',
   rule = false,
+  from,
 }: {
   note?: string
   className?: string
   rule?: boolean
+  from?: string | null
 }) {
   return (
     <div
@@ -27,15 +32,15 @@ export default function SiteDisclaimer({
         BoilerIndy is an independent, student-built project. It is not affiliated with, endorsed
         by, sponsored by, or officially connected to Purdue University. &ldquo;Purdue&rdquo;,
         &ldquo;Boilermaker&rdquo; and related marks are trademarks of Purdue University.{' '}
-        <Link to="/terms" className="font-semibold text-[var(--color-txt-2)] no-underline hover:underline underline-offset-2">
+        <Link to={withFrom('/terms', from)} className="font-semibold text-[var(--color-txt-2)] no-underline hover:underline underline-offset-2">
           Terms
         </Link>
         {' · '}
-        <Link to="/privacy" className="font-semibold text-[var(--color-txt-2)] no-underline hover:underline underline-offset-2">
+        <Link to={withFrom('/privacy', from)} className="font-semibold text-[var(--color-txt-2)] no-underline hover:underline underline-offset-2">
           Privacy
         </Link>
         {' · '}
-        <Link to="/support" className="font-semibold text-[var(--color-txt-2)] no-underline hover:underline underline-offset-2">
+        <Link to={withFrom('/support', from)} className="font-semibold text-[var(--color-txt-2)] no-underline hover:underline underline-offset-2">
           Support
         </Link>
       </p>

@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
+import { useAuth } from '../context/AuthContext'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import PageTitle from '../components/PageTitle'
+import SkipLink from '../components/SkipLink'
+import LegalLink from '../components/LegalLink'
 
 // Account and data deletion page (issue #193). Google Play's Data Safety form
 // needs a public URL where someone can ask for deletion without the app, so
@@ -89,13 +92,13 @@ const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
     body: (
       <>
         The{' '}
-        <Link to="/privacy" className="prose-link">
+        <LegalLink to="/privacy">
           Privacy policy
-        </Link>{' '}
+        </LegalLink>{' '}
         explains everything BoilerIndy collects and why. For anything else, visit the{' '}
-        <Link to="/support" className="prose-link">
+        <LegalLink to="/support">
           support page
-        </Link>
+        </LegalLink>
         .
       </>
     ),
@@ -104,10 +107,15 @@ const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
 
 export default function DeleteAccount() {
   const [searchParams] = useSearchParams()
-  const back = getBackTarget(searchParams.get('from'))
+  const { user } = useAuth()
+  const from = searchParams.get('from')
+  const back = getBackTarget(from, Boolean(user))
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
+      {/* This page renders outside AppLayout and PublicLayout, so it
+          carries its own skip link and main landmark (issue #221). */}
+      <SkipLink />
       <PageTitle>Delete your account</PageTitle>
       {/* The signed-out signage band (as on the landing and the preview
           bar): the mark, a divider and the way back, on the app's 1200px
@@ -124,7 +132,7 @@ export default function DeleteAccount() {
           </Link>
         </div>
       </header>
-      <div className="page flex-1 pb-12 md:pb-16">
+      <main id="main" tabIndex={-1} className="page flex-1 pb-12 md:pb-16 focus:outline-none">
         <div className="page-measure">
           <div className="page-head">
             <div>
@@ -150,9 +158,9 @@ export default function DeleteAccount() {
             ))}
           </div>
         </div>
-      </div>
+      </main>
 
-      <SiteDisclaimer rule />
+      <SiteDisclaimer rule from={from} />
     </div>
   )
 }

@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getBackTarget } from '../lib/privacyNav'
+import { useAuth } from '../context/AuthContext'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import PageTitle from '../components/PageTitle'
+import SkipLink from '../components/SkipLink'
+import LegalLink from '../components/LegalLink'
 
 // Support and contact page (issue #193). Apple needs a support URL and both
 // stores want a published contact for apps with user-generated content. The
@@ -51,9 +54,9 @@ const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
     body: (
       <>
         To report a post, listing, or user that breaks the{' '}
-        <Link to="/terms" className="prose-link">
+        <LegalLink to="/terms">
           Terms of Service
-        </Link>
+        </LegalLink>
         , email{' '}
         <a href="mailto:abuse@boilerindy.app" className="prose-link">
           abuse@boilerindy.app
@@ -68,13 +71,13 @@ const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
     body: (
       <>
         The{' '}
-        <Link to="/privacy" className="prose-link">
+        <LegalLink to="/privacy">
           Privacy policy
-        </Link>{' '}
+        </LegalLink>{' '}
         explains what BoilerIndy collects. To remove your account and its data, see{' '}
-        <Link to="/delete-account" className="prose-link">
+        <LegalLink to="/delete-account">
           Delete your account
-        </Link>
+        </LegalLink>
         . Privacy questions can go to{' '}
         <a href="mailto:privacy@boilerindy.app" className="prose-link">
           privacy@boilerindy.app
@@ -87,10 +90,15 @@ const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
 
 export default function Support() {
   const [searchParams] = useSearchParams()
-  const back = getBackTarget(searchParams.get('from'))
+  const { user } = useAuth()
+  const from = searchParams.get('from')
+  const back = getBackTarget(from, Boolean(user))
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
+      {/* This page renders outside AppLayout and PublicLayout, so it
+          carries its own skip link and main landmark (issue #221). */}
+      <SkipLink />
       <PageTitle>Support</PageTitle>
       {/* The signed-out signage band (as on the landing and the preview
           bar): the mark, a divider and the way back, on the app's 1200px
@@ -107,7 +115,7 @@ export default function Support() {
           </Link>
         </div>
       </header>
-      <div className="page flex-1 pb-12 md:pb-16">
+      <main id="main" tabIndex={-1} className="page flex-1 pb-12 md:pb-16 focus:outline-none">
         <div className="page-measure">
           <div className="page-head">
             <div>
@@ -133,9 +141,9 @@ export default function Support() {
             ))}
           </div>
         </div>
-      </div>
+      </main>
 
-      <SiteDisclaimer rule />
+      <SiteDisclaimer rule from={from} />
     </div>
   )
 }
