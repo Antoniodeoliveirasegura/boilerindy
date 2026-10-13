@@ -1,184 +1,354 @@
 @import "tailwindcss";
 
-@theme {
-  /* ═══════════════════════════════════════════════════════════════════════════
-     PURDUE INDY HUB - PREMIUM DESIGN SYSTEM
-     A sophisticated color palette inspired by Purdue gold with modern accents
-  ═══════════════════════════════════════════════════════════════════════════ */
-  
-  /* Primary Brand */
-  --color-gold: #D4A84B;
-  --color-gold-light: #E8C878;
-  --color-gold-dark: #1A1408;
-  --color-gold-muted: #B8943F;
-  
-  /* Backgrounds - Cool slate neutrals */
-  --color-bg-0: #F9F9FA;
-  --color-bg-1: #EEEFF5;
-  --color-bg-2: #E5E6EF;
-  --color-bg-3: #D2D4DD;
+/* The app's theme lives on <html class="dark"> (theme-init.js and ThemeContext),
+   so `dark:` utilities follow that class and the in-app toggle, not the device
+   setting Tailwind would read by default. */
+@custom-variant dark (&:where(.dark, .dark *));
 
-  /* Text hierarchy - Slate ramp */
-  --color-txt-0: #474C6B;
-  --color-txt-1: #565B7A;
-  --color-txt-2: #656988;
-  --color-txt-3: #9295A8;
+/* ═══════════════════════════════════════════════════════════════════════════
+   BOILERINDY - TRANSIT WAYFINDING
+   Campus is a transit system: every category is a line with its own colour,
+   shown as square route badges and line motifs. Flat, squarish, high
+   contrast, tabular numbers. Plus Jakarta Sans 800 headings over the system
+   sans; amber is the single signal colour ("now", the primary action and
+   urgency). The page recipes for this layer are in the guidance the revamp
+   handed to the page work; the classes below are the whole vocabulary.
+═══════════════════════════════════════════════════════════════════════════ */
 
-  /* Borders & surfaces */
-  --color-border: rgba(71, 76, 107, 0.10);
-  --color-border-2: rgba(71, 76, 107, 0.18);
-  --color-border-3: rgba(71, 76, 107, 0.28);
+/* Plus Jakarta Sans (SIL OFL 1.1, public/fonts/OFL.txt), self-hosted so the
+   CSP keeps font-src 'self'. Only 800 is preloaded (index.html); 600 and 700
+   swap in when first used. */
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans-ExtraBold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+/* Jakarta 800 sets . , : ; and ! with a 0.11 to 0.13em left sidebearing, so
+   at display sizes the mark reads as a stray space ("apps ."). This face holds
+   only those five glyphs from the same 800 file, with the sidebearings trimmed
+   (scripts/fonts/display-punct.py, under 1 KB). --font-headline puts it in
+   front of Plus Jakarta Sans for the 800 headings; unicode-range keeps every
+   other character on the main font. */
+@font-face {
+  font-family: "Jakarta Display Punct";
+  src: url("/fonts/JakartaDisplayPunct-ExtraBold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0021, U+002C, U+002E, U+003A, U+003B;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKENS - LIGHT (the `.dark` block below swaps the values, never the names)
+   `static` emits every token even when only index.css reads it.
+═══════════════════════════════════════════════════════════════════════════ */
+@theme static {
+  /* Type */
+  --font-sans: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* 800 headings only (h1-h3, .card-title, .page-title, .section-title,
+     .display): the display face with trimmed trailing punctuation. Never on
+     600/700 text, where the 800 punctuation would show heavier. */
+  --font-headline: "Jakarta Display Punct", "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Signal amber. A fill colour: never body text on light (use gold-muted). */
+  --color-gold: #F4A51C;
+  --color-gold-light: #FFD27A;
+  --color-gold-dark: #17120A;      /* ink that sits on gold */
+  --color-gold-muted: #8A5700;     /* text-safe brass for gold words on paper */
+
+  /* Platform concrete */
+  --color-bg-0: #F7F8F9;
+  --color-bg-1: #ECEDF0;           /* page background */
+  --color-bg-2: #E2E4E8;           /* sunken fills, secondary hover */
+  --color-bg-3: #D2D5DB;           /* strongest neutral fill, week strip rules */
+
+  /* Text */
+  --color-txt-0: #0F1217;          /* headings, primary text, ink */
+  --color-txt-1: #2B3039;          /* body */
+  --color-txt-2: #474E5A;          /* secondary, labels */
+  --color-txt-3: #5F6673;          /* hints, disclaimer (AA on every surface) */
+
+  /* Edges and surfaces */
+  --color-border: rgba(15, 18, 23, 0.10);    /* row dividers */
+  --color-border-2: rgba(15, 18, 23, 0.16);  /* card edges */
+  --color-border-3: rgba(15, 18, 23, 0.48);  /* input and button outlines (3:1) */
   --color-surface: #FFFFFF;
-  --color-surface-hover: #F1F2F7;
-  --color-stat: #E9EAF1;
-  
-  /* Accent - Deep blue with warmth */
-  --color-accent: #2D5A87;
-  --color-accent-light: #4A7BA8;
-  --color-accent-bg: #E8F0F6;
-  
-  /* Semantic - Refined category colors */
-  --color-cls-bg: #E6F0F8;
-  --color-cls-title: #1E4D73;
-  --color-cls-sub: #3D7AAD;
-  
-  --color-bus-bg: #FDF5E8;
-  --color-bus-title: #6B4D1A;
-  --color-bus-sub: #9A7832;
-  
-  --color-map-bg: #E6F0F8;
-  --color-map-color: #2D5A87;
-  
-  --color-dining-bg: #E8F5EA;
-  --color-dining-color: #2E6B35;
-  
-  --color-events-bg: #F8E8F0;
-  --color-events-color: #7A3055;
-  
+  --color-surface-hover: #F4F5F7;
+  --color-stat: #F0F1F4;           /* chips, date blocks, count pills */
+
+  /* Links and info */
+  --color-accent: #1D4FD0;
+  --color-accent-light: #3D6BE6;
+  --color-accent-bg: #E5ECFC;
+
+  /* Route lines: -bg is the tint, the other value is the line colour. Every
+     line colour passes 4.5:1 as text on the surface, on its own tint, and as a
+     solid fill under --color-on-route. */
+  --color-cls-bg: #E5ECFC;
+  --color-cls-title: #123A9E;
+  --color-cls-sub: #1D4FD0;        /* Classes line */
+
+  --color-bus-bg: #FDECE0;
+  --color-bus-title: #B03F05;      /* Shuttles line */
+  --color-bus-sub: #B03F05;
+
+  --color-map-bg: #DDF2F1;
+  --color-map-color: #08706F;      /* Map line */
+
+  --color-dining-bg: #E2F3E8;
+  --color-dining-color: #12763A;   /* Dining line */
+
+  --color-events-bg: #FAE6F0;
+  --color-events-color: #B0166A;   /* Events line */
+
+  --color-tasks-bg: #EEE8FC;
+  --color-tasks-color: #5B35CC;    /* Tasks line */
+
   /* Status */
-  --color-success: #2E8B40;
-  --color-warning: #D4A84B;
-  --color-error: #C45A5A;
-  
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(45, 49, 71, 0.05), 0 1px 4px rgba(45, 49, 71, 0.07);
-  --shadow-md: 0 2px 4px rgba(45, 49, 71, 0.05), 0 4px 12px rgba(45, 49, 71, 0.09);
-  --shadow-lg: 0 4px 8px rgba(45, 49, 71, 0.05), 0 8px 24px rgba(45, 49, 71, 0.11);
-  --shadow-xl: 0 8px 16px rgba(45, 49, 71, 0.07), 0 16px 48px rgba(45, 49, 71, 0.13);
-  --shadow-glow: 0 0 0 3px rgba(212, 168, 75, 0.15);
-  
-  /* Animation timing */
+  --color-success: #12763A;
+  --color-warning: #8A5700;
+  --color-error: #C1261A;
+
+  /* The ink layer: departure boards, plates and (dark theme) the nav band.
+     Ink stays ink in both themes. */
+  --color-ink: #111419;            /* chrome bands: dark nav, tab bar, assistant header */
+  --color-ink-2: #1E232B;          /* board cells, flap tiles */
+  /* Ink panels that sit on the page (.ink-panel, .board, .plate). The same
+     ink in light; in dark they lift above the near-black page (see .dark). */
+  --color-ink-lift: #111419;
+  --color-ink-lift-2: #1E232B;     /* tiles inside a lifted panel */
+  --color-ink-edge: rgba(255, 255, 255, 0.10);
+  --color-ink-txt: #F3F4F6;
+  --color-ink-dim: #A9B0BA;
+  --color-ink-signal: #FFB938;     /* amber on ink */
+  --color-on-route: #FFFFFF;       /* icon or text on a solid route fill */
+
+  /* Shadows: a hairline at rest, a short drop for menus, deeper for modals. */
+  --shadow-sm: 0 1px 0 rgba(15, 18, 23, 0.05);
+  --shadow-md: 0 1px 0 rgba(15, 18, 23, 0.06), 0 6px 14px -8px rgba(15, 18, 23, 0.22);
+  --shadow-lg: 0 2px 0 rgba(15, 18, 23, 0.06), 0 14px 30px -12px rgba(15, 18, 23, 0.32);
+  --shadow-xl: 0 2px 0 rgba(15, 18, 23, 0.08), 0 28px 60px -18px rgba(15, 18, 23, 0.42);
+  --shadow-glow: 0 0 0 3px rgba(244, 165, 28, 0.55);
+
+  /* Radius: squarish. rounded-full stays round (avatars, status dots, stops). */
+  --radius: 3px;          /* bare `rounded` */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;       /* route badges, chips */
+  --radius-lg: 5px;       /* buttons, inputs */
+  --radius-xl: 6px;       /* cards and tiles */
+  --radius-2xl: 8px;      /* boards, preview frames, the assistant button */
+  --radius-3xl: 10px;     /* marketing panels only */
+
+  /* Motion: colour changes only, 120ms. */
+  --ease-snap: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DARK MODE
+   TOKENS - DARK
 ═══════════════════════════════════════════════════════════════════════════ */
 .dark {
   color-scheme: dark;
 
-  --color-gold: #E8C878;
-  --color-gold-light: #F2D98C;
-  --color-gold-dark: #2A1E0A;
-  --color-gold-muted: #C4A856;
-  
-  --color-bg-0: #0F0F0E;
-  --color-bg-1: #151514;
-  --color-bg-2: #1C1C1A;
-  --color-bg-3: #252523;
-  
-  /* Muted text: lifted from older values so body copy, labels, and hints stay readable on #0F0F0E */
-  --color-txt-0: #F5F4F1;
-  --color-txt-1: #C9C6BE;
-  --color-txt-2: #A9A6A0;
-  --color-txt-3: #8F8B84;
-  
-  --color-border: rgba(255, 255, 255, 0.06);
-  --color-border-2: rgba(255, 255, 255, 0.10);
-  --color-border-3: rgba(255, 255, 255, 0.16);
-  --color-surface: #1A1A18;
-  --color-surface-hover: #222220;
-  --color-stat: #1E1E1C;
-  
-  --color-accent: #6AABE8;
-  --color-accent-light: #8BC4F2;
-  --color-accent-bg: #162535;
-  
-  --color-cls-bg: #162535;
-  --color-cls-title: #8BC4F2;
-  --color-cls-sub: #6AABE8;
-  
-  --color-bus-bg: #251C0A;
-  --color-bus-title: #E8C878;
-  --color-bus-sub: #C4A856;
-  
-  --color-map-bg: #162535;
-  --color-map-color: #8BC4F2;
-  
-  --color-dining-bg: #142518;
-  --color-dining-color: #7AC484;
-  
-  --color-events-bg: #2A1420;
-  --color-events-color: #E88AB8;
-  
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.3), 0 16px 48px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 0 3px rgba(232, 200, 120, 0.12);
+  --color-gold: #FFB938;
+  --color-gold-light: #FFD27A;
+  --color-gold-dark: #17120A;
+  --color-gold-muted: #F0A830;
+
+  --color-bg-0: #08090B;
+  --color-bg-1: #0D0F12;
+  --color-bg-2: #181B21;
+  --color-bg-3: #232730;
+
+  --color-txt-0: #F3F4F6;
+  --color-txt-1: #CDD2D9;
+  --color-txt-2: #A9B0BA;
+  --color-txt-3: #8B929D;
+
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-2: rgba(255, 255, 255, 0.13);
+  --color-border-3: rgba(255, 255, 255, 0.38);
+  --color-surface: #14171C;
+  --color-surface-hover: #1B1F25;
+  --color-stat: #191C22;
+
+  --color-accent: #86A8FF;
+  --color-accent-light: #A9C1FF;
+  --color-accent-bg: #15213F;
+
+  --color-cls-bg: #15213F;
+  --color-cls-title: #B9CCFF;
+  --color-cls-sub: #86A8FF;
+
+  --color-bus-bg: #2E1A0E;
+  --color-bus-title: #FF9B5E;
+  --color-bus-sub: #FF9B5E;
+
+  --color-map-bg: #0D2A2A;
+  --color-map-color: #4ECDC4;
+
+  --color-dining-bg: #0F2918;
+  --color-dining-color: #5FD38A;
+
+  --color-events-bg: #331428;
+  --color-events-color: #FF85BD;
+
+  --color-tasks-bg: #221A42;
+  --color-tasks-color: #B7A0FF;
+
+  --color-success: #5FD38A;
+  --color-warning: #FFB938;
+  --color-error: #FF7468;
+
+  --color-ink: #050608;
+  --color-ink-2: #15181D;
+  /* Lifted ink: plain ink is a 1.06:1 step from bg-1 and sinks into the page,
+     so panels use a lighter ink with a brighter edge. */
+  --color-ink-lift: #1B1F27;
+  --color-ink-lift-2: #2A303A;
+  --color-ink-edge: rgba(255, 255, 255, 0.14);
+  --color-on-route: #0A0B0E;
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 1px 0 rgba(0, 0, 0, 0.5), 0 6px 14px -8px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 2px 0 rgba(0, 0, 0, 0.5), 0 14px 30px -12px rgba(0, 0, 0, 0.8);
+  --shadow-xl: 0 2px 0 rgba(0, 0, 0, 0.55), 0 28px 60px -18px rgba(0, 0, 0, 0.9);
+  --shadow-glow: 0 0 0 3px rgba(255, 185, 56, 0.5);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   BASE STYLES
+   BASE
 ═══════════════════════════════════════════════════════════════════════════ */
-* {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    background: var(--color-bg-1);
+    color: var(--color-txt-0);
+  }
+
+  /* Tracking sits in the base layer so a page's tracking-* utility (the caps
+     labels) still wins. Display sizes never go tighter than -0.04em. */
+  h1, h2, h3 {
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+  }
+  h1 {
+    letter-spacing: -0.025em;
+  }
+
+  /* Headings are Jakarta 800 everywhere, with no markup edit. In the base
+     layer so a component class or a utility can still set a lighter weight:
+     row-level h3 titles use .row-title (Jakarta 700), and a page's
+     font-* utility wins over this default. */
+  h1, h2, h3, .card-title {
+    font-family: var(--font-headline);
+    font-weight: 800;
+  }
+
+  /* Tabular numerals for every time, date, count and countdown. */
+  time, .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: var(--color-gold);
+    color: var(--color-gold-dark);
+  }
 }
 
-html {
-  scroll-behavior: smooth;
+/* Focus: amber outer ring (reads on ink, dark and gold) around an ink inner
+   ring (reads on paper). Inside ink panels the inner ring turns ink. */
+:focus-visible {
+  outline: 3px solid var(--color-gold);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-txt-0);
+}
+.on-ink :focus-visible,
+.on-ink:focus-visible,
+.ink-panel :focus-visible,
+.board :focus-visible {
+  box-shadow: 0 0 0 2px var(--color-ink);
+}
+/* Text fields always match :focus-visible, so the ring above would hide the
+   field focus the spec asks for: an ink border plus the amber glow. These
+   exceptions stay unlayered so they beat the global ring and a page's
+   focus:ring-* / focus:border-* utilities alike. Checkboxes, radios and the
+   other non-text inputs keep the ring. */
+.input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"]):focus-visible {
+  outline: none;
+  border-color: var(--color-txt-0);
+  box-shadow: var(--shadow-glow);
+}
+/* Programmatic focus targets (main#main after the skip link, dialog
+   containers) are not controls: no ring around the whole region. */
+[tabindex="-1"]:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--color-bg-1);
-  color: var(--color-txt-0);
-  line-height: 1.5;
-  letter-spacing: -0.01em;
-  transition: background-color 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo);
-}
-
-/* Light/dark switch: crossfade colours app-wide for the duration of the toggle.
-   Added to <html> by ThemeContext only on user switches, removed after 450ms. */
+/* Light/dark switch: a short crossfade, added to <html> by ThemeContext only
+   on user switches and removed after 450ms. */
 .theme-transition,
 .theme-transition *,
 .theme-transition *::before,
 .theme-transition *::after {
-  transition: background-color 0.4s var(--ease-out-expo),
-              border-color 0.4s var(--ease-out-expo),
-              color 0.4s var(--ease-out-expo),
-              fill 0.4s var(--ease-out-expo),
-              stroke 0.4s var(--ease-out-expo),
-              box-shadow 0.4s var(--ease-out-expo) !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .theme-transition,
-  .theme-transition * {
-    transition: none !important;
-  }
-}
-
-::selection {
-  background: var(--color-gold);
-  color: var(--color-gold-dark);
+  transition: background-color 0.2s var(--ease-snap),
+              border-color 0.2s var(--ease-snap),
+              color 0.2s var(--ease-snap),
+              fill 0.2s var(--ease-snap),
+              stroke 0.2s var(--ease-snap) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ANIMATIONS
+   Motion rules: colour transitions and a 1px press only. No hover lifts, no
+   parallax, no drifting. Entrances are a short fade. The global
+   reduced-motion block at the end of this file stops all of it.
 ═══════════════════════════════════════════════════════════════════════════ */
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -186,168 +356,105 @@ body {
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fadeInScale {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes slideInBottom {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  50% { transform: translateY(-3px); }
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }
 
 @keyframes pulse-ring {
-  0% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.5);
-    opacity: 0;
-  }
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.5); opacity: 0; }
 }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+@keyframes stop-ring {
+  0% { box-shadow: 0 0 0 0 rgba(244, 165, 28, 0.55); }
+  70%, 100% { box-shadow: 0 0 0 10px rgba(244, 165, 28, 0); }
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-@keyframes wave {
-  0% { transform: rotate(0deg); }
-  10% { transform: rotate(14deg); }
-  20% { transform: rotate(-8deg); }
-  30% { transform: rotate(14deg); }
-  40% { transform: rotate(-4deg); }
-  50% { transform: rotate(10deg); }
-  60% { transform: rotate(0deg); }
-  100% { transform: rotate(0deg); }
-}
-
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+/* Kept for markup that still names them; they no longer move anything. */
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 /* Animation classes */
 .animate-fade-in {
-  animation: fadeIn 0.4s var(--ease-out-expo) forwards;
+  animation: fadeIn 0.16s var(--ease-snap) both;
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.5s var(--ease-out-expo) forwards;
+  animation: fadeInUp 0.18s var(--ease-snap) both;
 }
 
 .animate-fade-in-down {
-  animation: fadeInDown 0.5s var(--ease-out-expo) forwards;
+  animation: fadeInDown 0.18s var(--ease-snap) both;
 }
 
 .animate-fade-in-scale {
-  animation: fadeInScale 0.4s var(--ease-out-expo) forwards;
+  animation: fadeInScale 0.16s var(--ease-snap) both;
 }
 
 .animate-slide-in-right {
-  animation: slideInRight 0.5s var(--ease-out-expo) forwards;
+  animation: slideInRight 0.18s var(--ease-snap) both;
 }
 
 .animate-slide-in-left {
-  animation: slideInLeft 0.5s var(--ease-out-expo) forwards;
+  animation: slideInLeft 0.18s var(--ease-snap) both;
 }
 
 .animate-slide-in-bottom {
-  animation: slideInBottom 0.6s var(--ease-out-expo) forwards;
+  animation: slideInBottom 0.2s var(--ease-snap) both;
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.3s var(--ease-out-back) forwards;
+  animation: scaleIn 0.16s var(--ease-snap) both;
 }
 
 .animate-bounce {
-  animation: bounce 2s ease-in-out infinite;
+  animation: bounce 1.2s ease-in-out infinite;
 }
 
 .animate-pulse {
@@ -359,251 +466,1607 @@ body {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
 
-.animate-float {
-  animation: float 3s ease-in-out infinite;
+/* No floating, waving or gradient drift in this design. */
+.animate-float,
+.animate-wave,
+.animate-gradient {
+  animation: none;
+}
+
+.animate-wave {
+  display: inline-block;
 }
 
 .animate-spin {
   animation: spin 1s linear infinite;
 }
 
-.animate-wave {
-  animation: wave 2.5s ease-in-out infinite;
-  transform-origin: 70% 70%;
-  display: inline-block;
-}
-
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-shift 3s ease infinite;
-}
-
-/* Stagger animation delays */
-.stagger-1 { animation-delay: 0.05s; }
-.stagger-2 { animation-delay: 0.1s; }
-.stagger-3 { animation-delay: 0.15s; }
-.stagger-4 { animation-delay: 0.2s; }
-.stagger-5 { animation-delay: 0.25s; }
-.stagger-6 { animation-delay: 0.3s; }
-.stagger-7 { animation-delay: 0.35s; }
-.stagger-8 { animation-delay: 0.4s; }
+/* Stagger delays: kept short so a list settles inside 200ms. */
+.stagger-1 { animation-delay: 0.02s; }
+.stagger-2 { animation-delay: 0.04s; }
+.stagger-3 { animation-delay: 0.06s; }
+.stagger-4 { animation-delay: 0.08s; }
+.stagger-5 { animation-delay: 0.1s; }
+.stagger-6 { animation-delay: 0.12s; }
+.stagger-7 { animation-delay: 0.14s; }
+.stagger-8 { animation-delay: 0.16s; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   COMPONENT UTILITIES
+   SHARED COMPONENTS
+   In the components layer so a page's utilities (p-4, rounded-*, text-[13px],
+   bg-*) still win over these defaults.
 ═══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+  /* ── Route helpers ─────────────────────────────────────────────────────
+     One class on a card colours its badge, chips, line and markers:
+     --route (line colour, also a solid fill), --route-tint (the pale fill),
+     --route-on (icon or text on the solid fill), --route-text (the line
+     colour as text; brass for the amber line). At most one per card. */
+  .r-cls { --route: var(--color-cls-sub); --route-tint: var(--color-cls-bg); --route-on: var(--color-on-route); --route-text: var(--color-cls-sub); }
+  .r-bus { --route: var(--color-bus-title); --route-tint: var(--color-bus-bg); --route-on: var(--color-on-route); --route-text: var(--color-bus-title); }
+  .r-map { --route: var(--color-map-color); --route-tint: var(--color-map-bg); --route-on: var(--color-on-route); --route-text: var(--color-map-color); }
+  .r-din { --route: var(--color-dining-color); --route-tint: var(--color-dining-bg); --route-on: var(--color-on-route); --route-text: var(--color-dining-color); }
+  .r-evt { --route: var(--color-events-color); --route-tint: var(--color-events-bg); --route-on: var(--color-on-route); --route-text: var(--color-events-color); }
+  .r-tsk { --route: var(--color-tasks-color); --route-tint: var(--color-tasks-bg); --route-on: var(--color-on-route); --route-text: var(--color-tasks-color); }
+  .r-ai  { --route: var(--color-gold); --route-tint: color-mix(in srgb, var(--color-gold) 16%, var(--color-surface)); --route-on: var(--color-gold-dark); --route-text: var(--color-gold-muted); }
+  .r-ink { --route: var(--color-txt-0); --route-tint: var(--color-stat); --route-on: var(--color-surface); --route-text: var(--color-txt-0); }
 
-/* Glass effect */
-.glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  /* ── Route badge: the square that replaces every pastel icon tile ─────── */
+  .route-badge {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    background: var(--route, var(--color-txt-0));
+    color: var(--route-on, var(--color-surface));
+  }
+  .route-badge svg { width: 18px; height: 18px; }
+  .route-badge.sm { width: 24px; height: 24px; border-radius: var(--radius-sm); }
+  .route-badge.sm svg { width: 14px; height: 14px; }
+  .route-badge.lg { width: 40px; height: 40px; }
+  .route-badge.lg svg { width: 22px; height: 22px; }
+
+  /* ── Page header: eyebrow + h1 + sub, optional action on the right ───── */
+  .page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px 16px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .page-head > :first-child { min-width: 0; }
+  .page-title {
+    font: 800 44px/1.02 var(--font-headline);
+    letter-spacing: -0.035em;
+    color: var(--color-txt-0);
+    overflow-wrap: anywhere;
+  }
+  .page-title.compact { font-size: 32px; line-height: 1.06; letter-spacing: -0.03em; }
+  .eyebrow + .page-title { margin-top: 10px; }
+  .page-sub {
+    margin-top: 8px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--color-txt-2);
+  }
+  .section-title {
+    font: 800 46px/1.04 var(--font-headline);
+    letter-spacing: -0.035em;
+    color: var(--color-txt-0);
+  }
+  .eyebrow + .section-title { margin-top: 16px; }
+  .display {
+    font: 800 104px/0.94 var(--font-headline);
+    letter-spacing: -0.04em;
+    color: var(--color-txt-0);
+  }
+  .page-title .dim,
+  .section-title .dim,
+  .display .dim { color: var(--color-txt-3); }
+  .big-stat {
+    font: 800 48px/1 var(--font-display);
+    letter-spacing: -0.035em;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-txt-0);
+  }
+  /* The headline face already trims . , : ; and ! (see --font-headline), so
+     headings need no markup for those. .pn is for any other trailing mark that
+     still sits loose at 32px and up (a closing quote or bracket), or for a
+     mark in display text that is not set in --font-headline. Never wrap a
+     trimmed mark in .pn: it would touch the letter. */
+  .pn { margin-left: -0.08em; }
+  .display .pn { margin-left: -0.09em; }
+
+  /* ── Page container: the app's 1200px column, on the same edges as the
+     nav band (brand on the left, avatar on the right). The bottom padding
+     keeps the last card off the disclaimer rule under it (40px, 56px from
+     md); AppLayout's disclaimer already clears the tab bar and the assistant
+     button, so pages add no bottom padding of their own. .page-measure is a
+     760px reading column inside it for feed and form pages (Board,
+     Settings). It is centred only from lg, where it clearly narrows the
+     column. On tablets the page is barely wider than 760px, so a centred
+     measure sat a few px in from the nav brand and the wide pages and the
+     left edge jumped between pages; there it keeps the shared left edge.
+     ─────────────────────────────────────────────────────────────────── */
+  .page {
+    width: 100%;
+    max-width: 1200px;
+    margin-inline: auto;
+    padding: 24px 16px 40px;
+  }
+  .page-measure {
+    width: 100%;
+    max-width: 760px;
+  }
+  @media (min-width: 48rem) {
+    .page { padding: 32px 24px 56px; }
+  }
+  @media (min-width: 64rem) {
+    .page-measure { margin-inline: auto; }
+  }
+
+  /* ── Eyebrow: caps label led by a 10px square. Neutral (txt-0) by default
+     and the route colour inside an r-* card; .signal makes the square amber
+     for the rare kicker that really is "now" or urgent. ──────────────────── */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 800 11.5px/1 var(--font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-txt-2);
+  }
+  .eyebrow::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--route, var(--color-txt-0));
+    flex: none;
+  }
+  .eyebrow.signal::before { background: var(--color-gold); }
+  .eyebrow.bare::before { display: none; }
+
+  /* ── Card ──────────────────────────────────────────────────────────────
+     Flat: a 1px edge and a hairline, no hover lift. Interactive cards only
+     change edge and fill. .lined (a 4px top line in the route colour) is
+     opt-in and should be rare. */
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+  }
+  .card.lined { box-shadow: inset 0 4px 0 var(--route, var(--color-txt-0)), var(--shadow-sm); }
+  .card-pad { padding: 20px; }
+  .card.lined.card-pad { padding-top: 22px; }
+  .card-interactive,
+  a.card,
+  button.card {
+    transition: border-color 120ms var(--ease-snap), background-color 120ms var(--ease-snap);
+  }
+  .card-interactive { cursor: pointer; }
+  .card-interactive:hover,
+  a.card:hover,
+  button.card:hover {
+    border-color: var(--color-border-3);
+    background-color: var(--color-surface-hover);
+  }
+  .card-interactive:active { transform: translateY(1px); }
+
+  /* Card head: route badge, title (+ sub), head link pushed right. */
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    min-width: 0;
+  }
+  .card-head > div { min-width: 0; }
+  .card-title {
+    font: 800 16px/1.2 var(--font-headline);
+    letter-spacing: -0.01em;
+    color: var(--color-txt-0);
+  }
+  /* Row title: the h3 of one row in a list (a group, a person, a listing, a
+     post). Jakarta 700, so a list of rows does not read as a stack of card
+     titles; page, section and card titles stay 800. */
+  .row-title {
+    font: 700 15px/1.3 var(--font-display);
+    color: var(--color-txt-0);
+  }
+  .card-sub {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: var(--color-txt-2);
+  }
+  .head-link {
+    margin-left: auto;
+    margin-right: -8px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 36px;
+    padding: 0 8px;
+    font: 700 13px/1 var(--font-display);
+    color: var(--color-accent);
+    text-decoration: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    cursor: pointer;
+  }
+  .head-link:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
+  /* Link-style action inside a card body ("Use this title", "Append to
+     details"): the head link's type, with no hit-area padding of its own. */
+  .link-btn {
+    padding: 0;
+    font: 700 13px/1.5 var(--font-display);
+    color: var(--color-accent);
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .link-btn:hover:not(:disabled) {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Moderation actions (Report, Block) on anything students post: one quiet
+     line of text buttons in a single fixed slot, the last line of the row's
+     text block, left aligned under its meta or tags. Report leads with the
+     13px flag; Block has no icon; hover turns error. The button rules are
+     wrapped in :where() so a .link-btn sharing the line (StudyGroups' "See
+     all" link) or an owner action's own utilities keep their look. */
+  .mod-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    margin-top: 6px;
+  }
+  :where(.mod-actions) > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+    font: 600 12.5px/1.2 var(--font-display);
+    color: var(--color-txt-3);
+    background: none;
+    border: 0;
+    transition: color 120ms var(--ease-snap);
+  }
+  :where(.mod-actions) > button:where(:hover:not(:disabled)) { color: var(--color-error); }
+  :where(.mod-actions) > button > svg { width: 13px; height: 13px; }
+
+  /* In-prose link: always underlined (the accent alone sits too close to the
+     body text to mark a link), a 1.5px line at 3px that firms up on hover. */
+  .prose-link {
+    font-weight: 600;
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+  }
+  .prose-link:hover { text-decoration-color: var(--color-accent); }
+
+  /* ── Buttons ───────────────────────────────────────────────────────────
+     Sign plates: flat fills, a 1.5px edge, 1px down on press. */
+  .btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 16px;
+    font: 700 14px/1.15 var(--font-display);
+    letter-spacing: -0.005em;
+    text-decoration: none;
+    border: 1.5px solid transparent;
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: background-color 120ms var(--ease-snap), border-color 120ms var(--ease-snap),
+      color 120ms var(--ease-snap), transform 120ms var(--ease-snap);
+  }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+
+  /* Primary: amber plate with an ink edge, the same in both themes. */
+  .btn-primary {
+    background: var(--color-gold);
+    color: var(--color-gold-dark);
+    border-color: rgba(23, 18, 10, 0.22);
+    box-shadow: inset 0 -2px 0 rgba(23, 18, 10, 0.2);
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--color-gold-light); }
+
+  .btn-secondary {
+    background: var(--color-surface);
+    color: var(--color-txt-0);
+    border-color: var(--color-border-3);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    border-color: var(--color-txt-0);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-txt-1);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--color-bg-2);
+    color: var(--color-txt-0);
+  }
+
+  /* Ink: the strongest neutral action (txt-0 fill, inverts in dark). */
+  .btn-ink {
+    background: var(--color-txt-0);
+    color: var(--color-surface);
+  }
+  .btn-ink:hover:not(:disabled) { background: var(--color-txt-1); }
+
+  /* On ink panels (boards, plates): outline on ink. */
+  .btn-onink {
+    background: transparent;
+    color: var(--color-ink-txt);
+    border-color: rgba(255, 255, 255, 0.32);
+  }
+  .btn-onink:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+
+  /* Danger: a destructive action that stays an outline (End, Take down,
+     Delete). The filled error plate is kept for the confirmation dialog. */
+  .btn-danger {
+    background: var(--color-surface);
+    color: var(--color-error);
+    border-color: color-mix(in oklab, var(--color-error) 55%, transparent);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-error) 8%, transparent);
+    border-color: var(--color-error);
+  }
+
+  /* Disabled: an outline button fades to half. A disabled solid button
+     (primary, ink) instead drops to the same neutral plate in both themes: a
+     faded amber turns a muddy brown on dark, and a faded ink fill reads as a
+     grey slab, a broken primary. Amber and ink mark a live action only. On
+     an ink panel the plate is the panel's own tile. */
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary:disabled,
+  .btn-ink:disabled {
+    background: var(--color-stat);
+    color: var(--color-txt-3);
+    border-color: var(--color-border-2);
+    box-shadow: none;
+    opacity: 1;
+  }
+  .btn-onink:disabled {
+    background: var(--color-ink-lift-2);
+    color: var(--color-ink-dim);
+    border-color: var(--color-ink-edge);
+    opacity: 1;
+  }
+
+  .btn-sm { min-height: 34px; padding: 0 12px; font-size: 13px; gap: 6px; }
+  .btn-lg { min-height: 52px; padding: 0 22px; font-size: 16px; }
+
+  /* ── Inputs ───────────────────────────────────────────────────────────── */
+  .input {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    background: var(--color-surface);
+    color: var(--color-txt-0);
+    border: 1.5px solid var(--color-border-3);
+    border-radius: var(--radius-lg);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    transition: border-color 120ms var(--ease-snap);
+  }
+  .input:hover { border-color: var(--color-txt-2); }
+  .input:focus {
+    outline: none;
+    border-color: var(--color-txt-0);
+    box-shadow: var(--shadow-glow);
+  }
+  .input::placeholder { color: var(--color-txt-3); }
+  .input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* Selects drop the platform arrow, which sat against the border, for the
+     icon set's chevronDown in txt-2, 14px in from the right edge. A select
+     cannot hold a pseudo-element, so the chevron is a background image, one
+     per theme. */
+  select.input {
+    appearance: none;
+    padding-right: 40px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23474E5A' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px 16px;
+  }
+  .dark select.input {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23A9B0BA' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  }
+
+  /* ── Pills (filters, tabs) ──────────────────────────────────────────────
+     Active pill is ink with an amber underline; it inverts cleanly in dark. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    font: 700 12.5px/1 var(--font-display);
+    color: var(--color-txt-1);
+    background: var(--color-surface);
+    border: 1.5px solid var(--color-border-2);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color 120ms var(--ease-snap), background-color 120ms var(--ease-snap), color 120ms var(--ease-snap);
+  }
+  .pill:hover {
+    border-color: var(--color-border-3);
+    color: var(--color-txt-0);
+  }
+  .pill-active,
+  .pill-active:hover {
+    background: var(--color-txt-0);
+    color: var(--color-surface);
+    border-color: var(--color-txt-0);
+    box-shadow: inset 0 -3px 0 var(--color-gold);
+  }
+
+  /* ── Badges, chips, course codes ────────────────────────────────────── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 7px;
+    font: 800 10.5px/1 var(--font-display);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-txt-1);
+    background: var(--color-stat);
+    border-radius: var(--radius-sm);
+  }
+  /* Amber for urgency and "new" only. */
+  .badge-signal { background: var(--color-gold); color: var(--color-gold-dark); }
+  .badge-route { background: var(--route-tint, var(--color-stat)); color: var(--route-text, var(--color-txt-1)); }
+
+  /* Hours, durations, walk times. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    font: 700 12px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-txt-1);
+    background: var(--color-stat);
+    border-radius: var(--radius-sm);
+  }
+  .chip.tint { background: var(--route-tint, var(--color-stat)); color: var(--route-text, var(--color-txt-1)); }
+
+  /* Course code plate: CS 25100. .solid fills it with the route colour. */
+  .code {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 6px;
+    font: 800 11px/1 var(--font-display);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-txt-1);
+    border-radius: var(--radius-sm);
+    box-shadow: inset 0 0 0 1.5px var(--color-border-3);
+  }
+  .code.solid {
+    background: var(--route, var(--color-txt-0));
+    color: var(--route-on, var(--color-surface));
+    box-shadow: none;
+  }
+
+  /* One-time-code field: an .input with the code's digits in Jakarta 700
+     20px, tabular, centred and spaced (the left padding takes the last
+     digit's trailing letter-space back so the digits sit centred). It undoes
+     the course code plate's look, and an unlayered rule below keeps it at
+     20px under the phone 16px input rule. */
+  .input.code {
+    display: inline-block;
+    padding: 10px 12px 10px calc(12px + 0.4em);
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: inherit;
+    letter-spacing: 0.4em;
+    text-align: center;
+    white-space: normal;
+    color: var(--color-txt-0);
+    border-radius: var(--radius-lg);
+    box-shadow: none;
+  }
+
+  /* Ink plate with amber caps: "Not in service", signage notes. */
+  .plate {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font: 800 12px/1 var(--font-display);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-ink-signal);
+    background: var(--color-ink-lift);
+    border-radius: var(--radius-sm);
+    box-shadow: inset 0 0 0 1px var(--color-ink-edge);
+  }
+
+  /* ── Status dot and live dot ────────────────────────────────────────── */
+  .status-dot {
+    position: relative;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .status-open { background: var(--color-success); }
+  .status-closed { background: var(--color-error); }
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--color-ink-signal);
+  }
+
+  /* ── Solid surfaces (the old frosted glass, now opaque) ─────────────── */
+  .glass {
+    background: var(--color-surface);
+  }
+
+  .divider {
+    height: 1px;
+    margin: 16px 0;
+    background: var(--color-border);
+  }
+
+  .skeleton {
+    background: var(--color-bg-2);
+    border-radius: var(--radius-md);
+  }
+
+  /* ── Lists ─────────────────────────────────────────────────────────────
+     Rows are divided by 1px rules, none above the first row. */
+
+  /* Departures row (tasks, events, dated listings): date block, then code
+     plate + title + meta, then a badge or chevron. */
+  .dep > li + li { border-top: 1px solid var(--color-border); }
+  .dep > li > a,
+  .dep > li > button,
+  .dep-row {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 64px;
+    padding: 12px 0;
+    color: inherit;
+    text-align: left;
+    text-decoration: none;
+    background: none;
+    border: 0;
+  }
+  .dep > li > a:hover .ttl,
+  .dep > li > button:hover .ttl {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .when {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md);
+    background: var(--color-stat);
+  }
+  .when > span {
+    font: 800 10px/1 var(--font-display);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-txt-2);
+  }
+  .when > b {
+    font: 800 19px/1.1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-txt-0);
+  }
+  .urgent .when { background: var(--route, var(--color-tasks-color)); }
+  .urgent .when > span,
+  .urgent .when > b { color: var(--route-on, var(--color-on-route)); }
+  .dep .body { min-width: 0; }
+  .dep .ttl {
+    display: block;
+    margin-top: 4px;
+    font: 700 15px/1.3 var(--font-display);
+    color: var(--color-txt-0);
+    overflow-wrap: anywhere;
+  }
+  .dep .body > .ttl:first-child { margin-top: 0; }
+  .dep .meta {
+    display: block;
+    margin-top: 3px;
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: var(--color-txt-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .dep .end { display: flex; align-items: center; color: var(--color-txt-3); }
+
+  /* Suggestion row: route badge + title (optional caps kicker) + chip. */
+  .rows > li {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    padding: 12px 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .rows > li:first-child { border-top: 0; }
+  .rows .txt { flex: 1; min-width: 0; }
+  .rows .txt b {
+    display: block;
+    font: 700 15px/1.3 var(--font-display);
+    color: var(--color-txt-0);
+  }
+  .rows .txt small {
+    display: block;
+    margin-bottom: 5px;
+    font: 800 10.5px/1 var(--font-display);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-txt-2);
+  }
+
+  /* Post row: round avatar + title + author + count pills. */
+  .posts > li + li { border-top: 1px solid var(--color-border); }
+  .posts > li > a,
+  .posts > li > button,
+  .post-row {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 60px;
+    padding: 12px 0;
+    color: inherit;
+    text-align: left;
+    text-decoration: none;
+    background: none;
+    border: 0;
+  }
+  .posts > li > a:hover .ttl,
+  .posts > li > button:hover .ttl {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .posts .ttl {
+    display: block;
+    font: 700 15px/1.3 var(--font-display);
+    color: var(--color-txt-0);
+    overflow-wrap: anywhere;
+  }
+  .posts .by {
+    display: block;
+    margin-top: 2px;
+    font-size: 12.5px;
+    color: var(--color-txt-2);
+  }
+  .ava {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 50%;
+    font: 800 13px/1 var(--font-display);
+    color: var(--color-txt-1);
+    background: var(--color-stat);
+    box-shadow: inset 0 0 0 1.5px var(--color-border-2);
+  }
+  .counts { display: flex; gap: 6px; }
+  .counts > * {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 44px;
+    height: 28px;
+    padding: 0 8px;
+    font: 700 12.5px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-txt-1);
+    background: var(--color-stat);
+    border-radius: var(--radius-sm);
+  }
+
+  /* ── Empty states ──────────────────────────────────────────────────────
+     A dashed box sized to its content (it does not grow to fill a stretched
+     card). Variants: the "Not in service" ink plate for live feeds with
+     nothing running, and blank flaps for numeric widgets with no data yet. */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px 16px;
+    border: 1.5px dashed var(--color-border-3);
+    border-radius: var(--radius-lg);
+  }
+  .empty p {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--color-txt-2);
+  }
+  .empty .ico { width: 36px; height: 36px; }
+  /* Row: the icon beside the copy, aligned to the start so a paragraph or a
+     title over a line of copy reads from the top; the first line of copy
+     sits on the icon's centre line. */
+  .empty.row { flex-direction: row; align-items: flex-start; }
+  .empty.row > .ico + * { padding-top: 8px; padding-top: max(0px, calc((36px - 1lh) / 2)); }
+
+  /* Neutral icon square: a stat fill with a txt-2 icon, for an icon that
+     labels a row or a detail without a route colour (the empty state uses
+     it at 36px). It never shrinks in a flex row. */
+  .ico {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    color: var(--color-txt-2);
+    background: var(--color-stat);
+  }
+
+  /* ── Ink panel: a panel that is ink in both themes and sits on the page
+     (a help card, a band, a departures board). Plain ink in light; in dark
+     the lifted ink (--color-ink-lift) with a brighter edge, so it does not
+     sink into the near-black page. Chrome bands (dark nav, tab bar, the
+     assistant header) keep plain --color-ink. For a full-bleed band add
+     `rounded-none border-x-0`. Inside, use text-[var(--color-ink-txt)],
+     text-[var(--color-ink-dim)] and .btn-onink; the focus ring, eyebrows and
+     route colours adapt on their own. */
+  .ink-panel,
+  .board {
+    --board-bg: var(--color-ink-lift);
+    --board-tile: var(--color-ink-lift-2);
+    color: var(--color-ink-txt);
+    background: var(--color-ink-lift);
+    border: 1px solid var(--color-ink-edge);
+  }
+  .ink-panel { border-radius: var(--radius-xl); }
+  :is(.ink-panel, .board, .on-ink) .eyebrow { color: var(--color-ink-dim); }
+  :is(.ink-panel, .board, .on-ink) .eyebrow:not(.signal)::before { background: var(--route, var(--color-ink-txt)); }
+
+  /* Route lines on ink always take the dark-theme line values, because the
+     ink does not change with the theme. Covers an r-* class on the ink
+     panel, inside it, or on a card around it. */
+  .r-cls :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-cls, :is(.ink-panel, .board, .on-ink) .r-cls {
+    --route: #86A8FF; --route-tint: #15213F; --route-text: #86A8FF; --route-on: #0A0B0E;
+  }
+  .r-bus :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-bus, :is(.ink-panel, .board, .on-ink) .r-bus {
+    --route: #FF9B5E; --route-tint: #2E1A0E; --route-text: #FF9B5E; --route-on: #0A0B0E;
+  }
+  .r-map :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-map, :is(.ink-panel, .board, .on-ink) .r-map {
+    --route: #4ECDC4; --route-tint: #0D2A2A; --route-text: #4ECDC4; --route-on: #0A0B0E;
+  }
+  .r-din :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-din, :is(.ink-panel, .board, .on-ink) .r-din {
+    --route: #5FD38A; --route-tint: #0F2918; --route-text: #5FD38A; --route-on: #0A0B0E;
+  }
+  .r-evt :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-evt, :is(.ink-panel, .board, .on-ink) .r-evt {
+    --route: #FF85BD; --route-tint: #331428; --route-text: #FF85BD; --route-on: #0A0B0E;
+  }
+  .r-tsk :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-tsk, :is(.ink-panel, .board, .on-ink) .r-tsk {
+    --route: #B7A0FF; --route-tint: #221A42; --route-text: #B7A0FF; --route-on: #0A0B0E;
+  }
+  .r-ai :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-ai, :is(.ink-panel, .board, .on-ink) .r-ai {
+    --route: var(--color-ink-signal); --route-tint: rgba(255, 185, 56, 0.16); --route-text: var(--color-ink-signal); --route-on: var(--color-gold-dark);
+  }
+  .r-ink :is(.ink-panel, .board, .on-ink), :is(.ink-panel, .board, .on-ink).r-ink, :is(.ink-panel, .board, .on-ink) .r-ink {
+    --route: var(--color-ink-txt); --route-tint: rgba(255, 255, 255, 0.08); --route-text: var(--color-ink-txt); --route-on: var(--color-ink-lift);
+  }
+  /* With no route set, badges and code plates on ink fall back to white
+     rather than txt-0 (which is ink itself in light). */
+  :is(.ink-panel, .board, .on-ink) :is(.route-badge, .code.solid) {
+    background: var(--route, var(--color-ink-txt));
+    color: var(--route-on, var(--color-ink-lift));
+  }
+  :is(.ink-panel, .board, .on-ink) .code:not(.solid) {
+    color: var(--color-ink-txt);
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.38);
+  }
+
+  /* ── Departures board: an ink panel with split-flap digits ─────────────
+     In dark it also carries a thin amber rule along the top: the board is
+     the one "now" panel on a page. It keeps its own height (fit-content),
+     so a stretched grid row cannot open dead bands inside it. It is a size
+     container: its own width picks the layout (see the tiers below). */
+  .board {
+    container: board / inline-size;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: fit-content;
+    padding: 18px 22px;
+    border-radius: var(--radius-2xl);
+  }
+  .dark .board {
+    box-shadow: inset 0 2px 0 var(--color-ink-signal);
+  }
+  .board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .board-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font: 800 12px/1 var(--font-display);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-ink-dim);
+  }
+  .board-title::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--route, #86A8FF);
+  }
+  .board-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 800 13px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-signal);
+  }
+  .board-main {
+    flex: none;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 24px;
+    padding: 16px 0;
+  }
+  .flaps { display: flex; align-items: stretch; gap: 4px; }
+  .flap {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-width: 52px;
+    padding: 10px 8px 8px;
+    font: 800 60px/0.9 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--color-ink-txt);
+    background: var(--board-tile, var(--color-ink-2));
+    border-radius: var(--radius-md);
+  }
+  .flap::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(50% - 1px);
+    height: 2px;
+    background: var(--board-bg, var(--color-ink));
+  }
+  .flap-sep {
+    align-self: center;
+    padding: 0 1px;
+    font: 800 44px/1 var(--font-display);
+    color: var(--color-ink-dim);
+  }
+  .flap-meta {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 4px 0 4px 8px;
+  }
+  .flap-meta b { font: 800 18px/1 var(--font-display); }
+  .flap-meta span {
+    font: 800 14px/1 var(--font-display);
+    letter-spacing: 0.14em;
+    color: var(--color-ink-signal);
+  }
+  .dest { min-width: 0; }
+  .dest .code.solid { margin-bottom: 10px; }
+  .dest-name {
+    font: 800 30px/1.08 var(--font-display);
+    letter-spacing: -0.025em;
+    color: var(--color-ink-txt);
+    overflow-wrap: anywhere;
+  }
+  .dest-sub {
+    margin-top: 6px;
+    font-size: 14px;
+    color: var(--color-ink-dim);
+  }
+  .countdown { text-align: right; }
+  .countdown small {
+    display: block;
+    margin-bottom: 8px;
+    font: 800 11px/1 var(--font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-dim);
+  }
+  .countdown b {
+    font: 800 34px/1 var(--font-display);
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink-signal);
+  }
+  .board-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px 16px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .cells { display: flex; flex-wrap: wrap; gap: 8px 28px; }
+  .cells > div { display: flex; flex-direction: column; gap: 6px; }
+  .cells dt {
+    font: 800 10.5px/1 var(--font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-dim);
+  }
+  .cells dd {
+    font: 700 15px/1.1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink-txt);
+  }
+  .board-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* Board tiers, by the board's own width rather than the viewport, so a
+     half-width board on a tablet never squeezes the wide row:
+     - 40rem and up: flaps, destination and countdown in one row.
+     - 30 to 40rem: flaps and countdown, the destination under them; the foot
+       stacks and the two actions share the width.
+     - under 30rem: one column. The countdown goes and the status line in the
+       head stands in for it.
+     From 30rem the status line is the countdown's twin, so while a countdown
+     shows it is hidden visually and still read by screen readers. */
+  @container board (width >= 30rem) {
+    .board:has(.countdown) .board-status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border-width: 0;
+    }
+  }
+  @container board (width < 40rem) {
+    .board-foot { flex-direction: column; align-items: stretch; }
+    .board-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  }
+  @container board (30rem <= width < 40rem) {
+    .board-main { grid-template-columns: auto minmax(0, 1fr); row-gap: 16px; }
+    .dest { grid-column: span 2; order: 1; }
+  }
+  @container board (width < 30rem) {
+    .board-main { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px 0; }
+    .countdown { display: none; }
+    .board .cells { gap: 14px 22px; }
+    .board-actions .btn { padding: 0 10px; }
+  }
+
+  /* Blank flaps: the empty state for a number that has no data yet. */
+  .flaps.blank .flap {
+    min-width: 40px;
+    height: 54px;
+    padding: 0;
+    background: var(--color-stat);
+    box-shadow: inset 0 0 0 1px var(--color-border-2);
+  }
+  .flaps.blank .flap::after { background: var(--color-surface); }
+  .flaps.blank .flap-sep { align-self: flex-end; font-size: 34px; color: var(--color-txt-3); }
+
+  /* ── Route line: the day as a line with stops ──────────────────────────
+     Track and stop rings take the card's single route colour; "now" is the
+     amber stop with an ink ring. Place stops with style={{ left: '61%' }}
+     in proportion to time; .first and .last pin the ends. The line is a size
+     container, so a narrow card (not only a phone) gets the compact stops. */
+  .line {
+    container: line / inline-size;
+    position: relative;
+    height: 92px;
+    margin: 16px 4px 4px;
+  }
+  .line-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 36px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--route, var(--color-txt-0));
+  }
+  .stop {
+    position: absolute;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    white-space: nowrap;
+    transform: translateX(-50%);
+  }
+  .stop.first { left: 0; transform: none; align-items: flex-start; text-align: left; }
+  .stop.last { right: 0; transform: none; align-items: flex-end; text-align: right; }
+  .stop .t {
+    display: flex;
+    align-items: flex-start;
+    height: 26px;
+    font: 800 12.5px/1 var(--font-display);
+    letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-txt-0);
+  }
+  .stop .t em {
+    margin-right: 4px;
+    font-style: normal;
+    letter-spacing: 0.1em;
+    color: var(--color-txt-2);
+  }
+  .stop .dot {
+    width: 22px;
+    height: 22px;
+    margin-top: 2px;
+    border-radius: 50%;
+    background: var(--color-surface);
+    border: 5px solid var(--route, var(--color-txt-0));
+  }
+  .stop.now .dot {
+    background: var(--color-gold);
+    border-color: var(--color-txt-0);
+  }
+  .stop.first .dot { margin-left: -2px; }
+  .stop.last .dot { width: 26px; height: 26px; margin-top: 0; margin-right: -2px; border-width: 6px; }
+  .stop .n {
+    margin-top: 8px;
+    font-size: 12.5px;
+    line-height: 1.3;
+    color: var(--color-txt-2);
+  }
+  .stop .n b {
+    display: block;
+    font: 800 13px/1.25 var(--font-display);
+    color: var(--color-txt-0);
+  }
+  /* Under 32rem of line the names step down and each middle stop moves its
+     time under the dot, so its labels clear the end stops'. */
+  @container line (width < 32rem) {
+    .stop .n { font-size: 12px; }
+    .stop.mid { padding-top: 28px; }
+    .stop.mid .t { order: 2; height: auto; margin-top: 8px; }
+    .stop.mid .dot { order: 1; }
+    .stop.mid .n { order: 3; margin-top: 2px; }
+  }
+
+  /* ── Week strip: seven days, a 4px rule each (amber for today), caps day,
+     tabular date and short neutral tags for what lands that day. Tags stay
+     about five characters ('Class', '1 due', 'Quiz') and at most 76px wide,
+     so they stay compact in a full-width strip. The detail is real text for
+     screen readers: each li starts with an sr-only span holding the day's
+     full description, and the visible .d, .n and .tags are aria-hidden
+     (browse mode skips an aria-label on a list item). ─────────────────── */
+  .week-strip {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .week-strip > li {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    padding-top: 8px;
+    border-top: 4px solid var(--color-bg-3);
+  }
+  .week-strip > li.today { border-top-color: var(--color-gold); }
+  .week-strip .d {
+    font: 800 10.5px/1 var(--font-display);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-txt-2);
+  }
+  .week-strip .n {
+    font: 800 18px/1.2 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-txt-0);
+  }
+  .week-strip .tags {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    width: 100%;
+    max-width: 76px;
+    margin-top: 4px;
+  }
+  .week-strip .tag {
+    display: block;
+    overflow: hidden;
+    padding: 3px 2px;
+    font: 700 10.5px/1.1 var(--font-display);
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-txt-1);
+    background: var(--color-stat);
+    border-radius: var(--radius-xs);
+  }
+  .week-strip .tag:is(.r-cls, .r-bus, .r-map, .r-din, .r-evt, .r-tsk, .r-ai, .r-ink) {
+    background: var(--route-tint);
+    color: var(--route-text);
+  }
+  .week-strip .today .tag.due { background: var(--color-gold); color: var(--color-gold-dark); }
+  .week-strip .quiet { font-size: 10.5px; line-height: 1.6; color: var(--color-txt-3); }
+
+  /* ── Quick tiles: route badge, title + sub, arrow. No coloured bar. ──── */
+  .tile {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    min-height: 72px;
+    padding: 14px 16px;
+    color: var(--color-txt-0);
+    text-decoration: none;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--radius-xl);
+    transition: border-color 120ms var(--ease-snap), background-color 120ms var(--ease-snap);
+  }
+  .tile:hover {
+    border-color: var(--color-border-3);
+    background: var(--color-surface-hover);
+  }
+  .tile > span:not(.route-badge) { flex: 1; min-width: 0; }
+  .tile b { display: block; font: 800 15px/1.2 var(--font-display); }
+  .tile small {
+    display: block;
+    margin-top: 3px;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--color-txt-2);
+  }
+  .tile .go { flex: none; color: var(--color-txt-3); }
+
+  /* ── Heads-up strip: amber label block, amber edge, items. ───────────── */
+  .alerts {
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+    background: var(--color-surface);
+    border: 1.5px solid var(--color-gold);
+    border-radius: var(--radius-xl);
+  }
+  .alerts-label {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    font: 800 12px/1 var(--font-display);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-gold-dark);
+    background: var(--color-gold);
+  }
+  .alerts ul {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 28px;
+    min-width: 0;
+    padding: 12px 18px;
+  }
+  .alerts li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    font-size: 14.5px;
+    color: var(--color-txt-1);
+  }
+  .alerts li b { font-weight: 650; color: var(--color-txt-0); }
+
+  /* ── Floating assistant button ─────────────────────────────────────── */
+  .fab {
+    position: fixed;
+    right: 16px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    color: var(--color-gold-dark);
+    background: var(--color-gold);
+    border: 1.5px solid rgba(23, 18, 10, 0.25);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-lg), inset 0 -3px 0 rgba(23, 18, 10, 0.2);
+    text-decoration: none;
+    transition: background-color 120ms var(--ease-snap), border-color 120ms var(--ease-snap);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .fab:hover { background: var(--color-gold-light); }
+  .fab.is-open {
+    color: var(--color-txt-0);
+    background: var(--color-surface);
+    border-color: var(--color-border-3);
+    box-shadow: var(--shadow-lg);
+  }
+  .fab.is-open:hover { background: var(--color-surface-hover); }
+
+  /* ═════════════════════════════════════════════════════════════════════
+     SHELL (Navbar): the top bar, the phone tab bar and the drawer.
+     Light theme: a paper band with a 4px ink rule. Dark theme: the ink band.
+  ═════════════════════════════════════════════════════════════════════ */
+  .topbar {
+    --bar-rule: 4px;
+    color: var(--color-txt-0);
+    background: var(--color-surface);
+    border-bottom: var(--bar-rule) solid var(--color-txt-0);
+  }
+  .dark .topbar {
+    --bar-rule: 1px;
+    color: var(--color-ink-txt);
+    background: var(--color-ink);
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+  .topbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font: 800 18px/1 var(--font-display);
+    letter-spacing: -0.02em;
+    color: inherit;
+    text-decoration: none;
+  }
+  .topbar-divider { align-self: stretch; width: 1px; margin: 14px 4px 14px 16px; background: var(--color-border-2); }
+  .dark .topbar-divider { background: rgba(255, 255, 255, 0.12); }
+
+  .topnav-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 14px;
+    font: 700 14px/1 var(--font-display);
+    color: var(--color-txt-2);
+    text-decoration: none;
+    transition: color 120ms var(--ease-snap), background-color 120ms var(--ease-snap);
+  }
+  .topnav-link:hover { color: var(--color-txt-0); background: var(--color-surface-hover); }
+  .topnav-link.is-active { color: var(--color-txt-0); }
+  .topnav-link.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(-1 * var(--bar-rule, 4px));
+    height: 4px;
+    background: var(--color-gold);
+  }
+  .dark .topnav-link { color: var(--color-ink-dim); }
+  .dark .topnav-link:hover { color: var(--color-ink-txt); background: rgba(255, 255, 255, 0.06); }
+  .dark .topnav-link.is-active { color: var(--color-ink-txt); }
+  .dark .topnav-link.is-active svg { color: var(--color-ink-signal); }
+
+  .icon-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    color: var(--color-txt-1);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color 120ms var(--ease-snap), color 120ms var(--ease-snap);
+  }
+  .icon-btn:hover { color: var(--color-txt-0); background: var(--color-bg-2); }
+  .dark .topbar .icon-btn,
+  :is(.on-ink, .ink-panel) .icon-btn { color: var(--color-ink-dim); }
+  .dark .topbar .icon-btn:hover,
+  :is(.on-ink, .ink-panel) .icon-btn:hover { color: var(--color-ink-txt); background: rgba(255, 255, 255, 0.08); }
+
+  /* Account avatar: an amber disc with ink initials and an online dot ringed
+     in the band colour. */
+  .avatar {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    font: 800 13px/1 var(--font-display);
+    letter-spacing: 0.02em;
+    color: var(--color-gold-dark);
+    background: var(--color-gold);
+    border: 0;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px rgba(23, 18, 10, 0.22);
+  }
+  .dark .avatar { background: var(--color-ink-signal); }
+  .avatar-online {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 0 2px var(--color-surface);
+    pointer-events: none;
+  }
+  .dark .topbar .avatar-online { box-shadow: 0 0 0 2px var(--color-ink); }
+
+  /* Menus hanging off the bar. */
+  .menu-panel {
+    padding: 4px 0;
+    text-align: left;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-2);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 14px;
+    text-align: left;
+    text-decoration: none;
+    color: var(--color-txt-1);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .menu-item:hover { color: var(--color-txt-0); background: var(--color-bg-2); }
+
+  /* Phone tab bar. Light: a paper band with a 1px top edge. Inactive tabs
+     are txt-3 so the ink active tab differs from them by 3.2:1, and the 3px
+     amber bar sits on a 1px ink line (amber alone is 2:1 on white, short of
+     the 3:1 an indicator needs). Dark: the ink band with an amber active tab
+     (11.8:1 on ink, no line needed). */
+  .tabbar {
+    color: var(--color-txt-3);
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border-2);
+  }
+  .dark .tabbar {
+    color: var(--color-ink-dim);
+    background: var(--color-ink);
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+  .tabbar-link {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 62px;
+    font: 700 11px/1 var(--font-display);
+    letter-spacing: 0.02em;
+    color: inherit;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabbar-link.is-active { color: var(--color-txt-0); }
+  .dark .tabbar-link.is-active { color: var(--color-ink-signal); }
+  .tabbar-link.is-active::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--color-gold);
+    box-shadow: 0 1px 0 var(--color-txt-0);
+  }
+  .dark .tabbar-link.is-active::before { box-shadow: none; }
+
+  /* Legacy names for the same tab bar (no current markup). */
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    display: grid;
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    color: var(--color-txt-2);
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border-2);
+  }
+  .dark .mobile-bottom-nav { color: var(--color-ink-dim); background: var(--color-ink); border-top-color: rgba(255, 255, 255, 0.1); }
+  .mobile-bottom-nav-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 62px;
+    font: 700 11px/1 var(--font-display);
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-bottom-nav-item span { font-size: 11px; font-weight: 700; }
+  .mobile-bottom-nav-item.active { color: var(--color-txt-0); box-shadow: inset 0 3px 0 var(--color-gold); }
+  .dark .mobile-bottom-nav-item.active { color: var(--color-ink-signal); }
+
+  /* Drawer rows (phone menu). The active row is an ink plate with an amber
+     edge, like .pill-active, so it stands out from the surface by far more
+     than 3:1 in both themes (a tint and an amber bar alone did not). */
+  .drawer-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 14px;
+    font: 700 15px/1 var(--font-display);
+    text-align: left;
+    text-decoration: none;
+    color: var(--color-txt-1);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+  }
+  .drawer-link:hover { color: var(--color-txt-0); background: var(--color-bg-2); }
+  .drawer-link.is-active,
+  .drawer-link.is-active:hover {
+    color: var(--color-surface);
+    background: var(--color-txt-0);
+    box-shadow: inset 4px 0 0 var(--color-gold);
+  }
+
+  @media (min-width: 48rem) {
+    .fab { right: 24px; bottom: 24px; }
+    .mobile-bottom-nav { display: none; }
+  }
+
+  /* Phones: 44px touch targets and tighter cards. */
+  @media (max-width: 47.99rem) {
+    .btn,
+    .btn-sm { min-height: 44px; min-width: 44px; }
+    .head-link { min-height: 44px; }
+    :where(.mod-actions) > button { min-height: 32px; }
+    .pill { min-height: 44px; padding: 0 14px; font-size: 13px; }
+    .card-pad { padding: 16px; }
+    .card.lined.card-pad { padding-top: 20px; }
+    .page-title { font-size: 32px; letter-spacing: -0.03em; }
+    .page-title.compact { font-size: 26px; }
+    .section-title { font-size: 34px; }
+    .display { font-size: 50px; letter-spacing: -0.035em; }
+    .big-stat { font-size: 40px; }
+
+    /* The board's layout follows its own width (the container tiers above);
+       only its padding and type scale step down with the phone. */
+    .board { padding: 16px; }
+    .flap { min-width: 44px; font-size: 50px; }
+    .flap-sep { font-size: 38px; }
+    .dest-name { font-size: 24px; }
+
+    .tile { position: relative; flex-direction: column; align-items: flex-start; gap: 10px; min-height: 64px; padding: 12px; }
+    .tile .go { position: absolute; top: 12px; right: 10px; }
+
+    .rows > li { flex-wrap: wrap; row-gap: 8px; }
+    .rows .txt { flex: 1 1 calc(100% - 46px); }
+    .rows .chip { margin-left: 46px; }
+
+    .posts > li > a,
+    .posts > li > button,
+    .post-row { grid-template-columns: 36px minmax(0, 1fr); row-gap: 8px; align-items: start; }
+    .posts .counts { grid-column: 2; }
+
+    .alerts { flex-direction: column; }
+    .alerts-label { padding: 10px 14px; }
+    .alerts ul { flex-direction: column; align-items: stretch; gap: 0; padding: 4px 14px; }
+    .alerts li { align-items: flex-start; padding: 10px 0; }
+    .alerts li + li { border-top: 1px solid var(--color-border); }
+  }
+
+  @media (max-width: 380px) {
+    .display { font-size: 44px; }
+    .flap { min-width: 40px; font-size: 44px; }
+  }
 }
 
-.dark .glass {
-  background: rgba(15, 15, 14, 0.8);
+/* Inputs stay at 16px on phones so iOS does not zoom on focus. Unlayered so
+   it beats a text-[13px] utility on the same field. The one-time-code field
+   is already over 16px and keeps its 20px digits. */
+@media (max-width: 47.99rem) {
+  .input {
+    font-size: 16px;
+  }
+  .input.code {
+    font-size: 20px;
+  }
 }
 
-/* Card styles */
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.3s var(--ease-out-expo);
+/* Ambient motion, only for people who have not asked for less: the "now"
+   stop ring, the live dot and the open/closed status dot. */
+@media (prefers-reduced-motion: no-preference) {
+  .live-dot { animation: pulse 2s var(--ease-snap) infinite; }
+  .stop.now .dot { animation: stop-ring 2.4s var(--ease-snap) infinite; }
+  .status-dot::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    background: inherit;
+    opacity: 0.3;
+    animation: pulse-ring 2.4s ease-out infinite;
+  }
+  .skeleton { animation: pulse 1.6s ease-in-out infinite; }
 }
 
-.card:hover {
-  border-color: var(--color-border-2);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-.card-interactive {
-  cursor: pointer;
-}
-
-.card-interactive:hover {
-  transform: translateY(-3px);
-}
-
-.card-interactive:active {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-/* Button styles */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-weight: 500;
-  border-radius: 10px;
-  transition: all 0.25s var(--ease-out-expo);
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-}
-
-.btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%);
-  opacity: 0;
-  transition: opacity 0.25s;
-}
-
-.btn:hover::before {
-  opacity: 1;
-}
-
-.btn-primary {
-  /* Light mode: a warm gold button with dark text, so it reads as the primary
-     action instead of dropping a heavy near-black block onto a light page. */
-  background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-muted) 100%);
-  color: var(--color-gold-dark);
-  border: 1px solid rgba(26, 20, 8, 0.16);
-}
-
-.dark .btn-primary {
-  /* Dark mode: the premium near-black button with gold text. */
-  background: linear-gradient(135deg, var(--color-gold-dark) 0%, #2A1E0A 100%);
-  color: var(--color-gold);
-  border: 1px solid rgba(212, 168, 75, 0.2);
-}
-
-.btn-primary:hover {
-  box-shadow: var(--shadow-glow), var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-.btn-primary:active {
-  transform: translateY(0);
-}
-
-.btn-secondary {
-  background: var(--color-bg-2);
-  color: var(--color-txt-0);
-  border: 1px solid var(--color-border-2);
-}
-
-.btn-secondary:hover {
-  background: var(--color-bg-3);
-  border-color: var(--color-border-3);
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--color-txt-1);
-  border: 1px solid transparent;
-}
-
-.btn-ghost:hover {
-  background: var(--color-bg-2);
-  color: var(--color-txt-0);
-}
-
-/* Input styles */
-.input {
-  background: var(--color-bg-2);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  color: var(--color-txt-0);
-  transition: all 0.25s var(--ease-out-expo);
-}
-
-.input:hover {
-  border-color: var(--color-border-2);
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--color-gold);
-  box-shadow: var(--shadow-glow);
-  background: var(--color-surface);
-}
-
-.input::placeholder {
-  color: var(--color-txt-3);
-}
-
-/* Badge styles */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 20px;
-  letter-spacing: 0.02em;
-}
-
-/* Pill/Tab styles */
-.pill {
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-2);
-  color: var(--color-txt-1);
-  transition: all 0.25s var(--ease-out-expo);
-  cursor: pointer;
-}
-
-.pill:hover {
-  background: var(--color-bg-3);
-  border-color: var(--color-border-2);
-  color: var(--color-txt-0);
-}
-
-.pill-active {
-  background: var(--color-gold-dark);
-  color: var(--color-gold);
-  border-color: var(--color-gold-dark);
-}
-
-/* Status dot */
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  position: relative;
-}
-
-.status-dot::after {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  background: inherit;
-  opacity: 0.3;
-  animation: pulse-ring 2s ease-out infinite;
-}
-
-.status-open {
-  background: var(--color-success);
-}
-
-.status-closed {
-  background: var(--color-error);
-}
-
-/* Divider */
-.divider {
-  height: 1px;
-  background: var(--color-border);
-  margin: 16px 0;
-}
-
-/* Scrollbar */
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBARS
+═══════════════════════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -622,12 +2085,6 @@ body {
   background: var(--color-border-3);
 }
 
-/* Focus visible */
-:focus-visible {
-  outline: 2px solid var(--color-gold);
-  outline-offset: 2px;
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════
    RESPONSIVE UTILITIES
 ═══════════════════════════════════════════════════════════════════════════ */
@@ -642,10 +2099,6 @@ body {
     display: none !important;
   }
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   MOBILE-FIRST IMPROVEMENTS
-═══════════════════════════════════════════════════════════════════════════ */
 
 /* Safe area insets for notched phones */
 @supports (padding-top: env(safe-area-inset-top)) {
@@ -662,33 +2115,6 @@ body {
 @media (max-width: 767px) {
   .leaflet-control-zoom {
     display: none;
-  }
-}
-
-/* Touch-friendly minimum sizes */
-@media (max-width: 768px) {
-  /* Ensure buttons are at least 44px for touch */
-  .btn {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  
-  /* Larger touch targets for pills/tabs */
-  .pill {
-    min-height: 40px;
-    padding: 10px 16px;
-    font-size: 13px;
-  }
-  
-  /* Larger input fields on mobile */
-  .input {
-    min-height: 48px;
-    font-size: 16px; /* Prevents iOS zoom on focus */
-  }
-  
-  /* Reduce padding on mobile */
-  .card {
-    border-radius: 12px;
   }
 }
 
@@ -717,21 +2143,22 @@ body {
   display: none;
 }
 
-/* Mobile bottom sheet styles */
+/* Mobile bottom sheet */
 .mobile-sheet {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  background: var(--color-surface);
-  border-top-left-radius: 20px;
-  border-top-right-radius: 20px;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
   z-index: 50;
   max-height: 70vh;
   overflow-y: auto;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-2);
+  border-top-left-radius: var(--radius-2xl);
+  border-top-right-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
   transform: translateY(100%);
-  transition: transform 0.3s var(--ease-out-expo);
+  transition: transform 0.2s var(--ease-snap);
 }
 
 .mobile-sheet.open {
@@ -741,40 +2168,9 @@ body {
 .mobile-sheet-handle {
   width: 36px;
   height: 4px;
-  background: var(--color-border-2);
-  border-radius: 2px;
   margin: 8px auto 4px;
-}
-
-/* Mobile map page specific */
-@media (max-width: 1023px) {
-  .map-page-container {
-    display: flex;
-    flex-direction: column;
-    height: calc(100dvh - 3.5rem);
-  }
-  
-  .map-sidebar {
-    order: 2;
-    max-height: 40vh;
-    min-height: 0;
-    border-top: 1px solid var(--color-border);
-    border-right: none;
-  }
-  
-  .map-content {
-    order: 1;
-    flex: 1;
-    min-height: 50vh;
-  }
-}
-
-/* Mobile transit page specific */
-@media (max-width: 768px) {
-  .transit-map-container {
-    height: 280px !important;
-    min-height: 280px;
-  }
+  background: var(--color-border-3);
+  border-radius: 2px;
 }
 
 /* Collapsible section for mobile */
@@ -792,7 +2188,7 @@ body {
 .mobile-collapsible-content {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.3s var(--ease-out-expo);
+  transition: max-height 0.2s var(--ease-snap);
 }
 
 .mobile-collapsible-content.expanded {
@@ -800,160 +2196,20 @@ body {
   overflow-y: auto;
 }
 
-/* Bottom navigation for mobile */
-.mobile-bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-around;
-  padding: 8px 0;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
-  z-index: 40;
-}
-
-.mobile-bottom-nav-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 12px;
-  min-width: 64px;
-  border-radius: 12px;
-  transition: all 0.2s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.mobile-bottom-nav-item.active {
-  background: var(--color-gold)/15;
-  color: var(--color-gold);
-}
-
-.mobile-bottom-nav-item span {
-  font-size: 10px;
-  font-weight: 500;
-}
-
-/* Floating action button */
-.fab {
-  position: fixed;
-  bottom: 80px;
-  right: 16px;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: var(--color-gold);
-  color: var(--color-gold-dark);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(212, 168, 75, 0.4);
-  z-index: 30;
-  -webkit-tap-highlight-color: transparent;
-}
-
-@media (min-width: 769px) {
-  .mobile-bottom-nav {
-    display: none;
-  }
-  
-  .fab {
-    bottom: 24px;
-    right: 24px;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   PAGE TRANSITIONS
-═══════════════════════════════════════════════════════════════════════════ */
+/* Page transitions (no current markup): a fade only. */
 .page-enter {
   opacity: 0;
-  transform: translateY(8px);
 }
 
 .page-enter-active {
   opacity: 1;
-  transform: translateY(0);
-  transition: all 0.4s var(--ease-out-expo);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   LOADING SKELETON
-═══════════════════════════════════════════════════════════════════════════ */
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--color-bg-2) 0%,
-    var(--color-bg-3) 50%,
-    var(--color-bg-2) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 8px;
-}
-
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   LANDING HERO BACKGROUND (issue #35) - drifting aurora + technical grid
-═══════════════════════════════════════════════════════════════════════════ */
-.hero-bg {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-/* Fine grid, faded toward the edges via a radial mask */
-.hero-bg__grid {
-  position: absolute;
-  inset: -2px;
-  background-image:
-    linear-gradient(to right, var(--color-border-2) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-border-2) 1px, transparent 1px);
-  background-size: 46px 46px;
-  -webkit-mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 0%, transparent 76%);
-  mask-image: radial-gradient(ellipse 78% 62% at 50% 32%, #000 0%, transparent 76%);
-}
-
-/* Soft drifting colour fields */
-.hero-bg__aurora {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(72px);
-  opacity: 0.55;
-  will-change: transform;
-}
-.hero-bg__aurora--gold {
-  width: 620px; height: 620px; top: -16%; left: 50%; margin-left: -310px;
-  background: radial-gradient(circle at center, rgba(212, 168, 75, 0.45), transparent 65%);
-  animation: heroDrift1 19s var(--ease-in-out) infinite alternate;
-}
-.hero-bg__aurora--accent {
-  width: 520px; height: 520px; top: 4%; left: 16%;
-  background: radial-gradient(circle at center, color-mix(in srgb, var(--color-accent) 38%, transparent), transparent 65%);
-  animation: heroDrift2 23s var(--ease-in-out) infinite alternate;
-}
-.hero-bg__aurora--gold2 {
-  width: 460px; height: 460px; bottom: -8%; right: 10%;
-  background: radial-gradient(circle at center, rgba(212, 168, 75, 0.26), transparent 65%);
-  animation: heroDrift3 27s var(--ease-in-out) infinite alternate;
-}
-
-@keyframes heroDrift1 { from { transform: translate(0, 0) scale(1); } to { transform: translate(-42px, 30px) scale(1.08); } }
-@keyframes heroDrift2 { from { transform: translate(0, 0) scale(1); } to { transform: translate(52px, -26px) scale(1.1); } }
-@keyframes heroDrift3 { from { transform: translate(0, 0) scale(1); } to { transform: translate(-30px, -38px) scale(1.06); } }
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-bg__aurora { animation: none !important; }
+  transition: opacity 0.16s var(--ease-snap);
 }
 
 /* ── Task check-off reward ───────────────────────────────────────────────── */
 @keyframes taskCheckPop {
-  0% { transform: scale(0.7); }
-  55% { transform: scale(1.18); }
+  0% { transform: scale(0.8); }
+  60% { transform: scale(1.08); }
   100% { transform: scale(1); }
 }
 
@@ -969,34 +2225,22 @@ body {
   }
   100% {
     opacity: 0;
-    transform: rotate(calc(var(--i) * 45deg)) translateY(-42px) scale(0.35);
+    transform: rotate(calc(var(--i) * 45deg)) translateY(-36px) scale(0.35);
   }
 }
 
 @keyframes taskRewardToastIn {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 10px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @keyframes taskRewardToastOut {
-  from {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translate(-50%, -8px) scale(0.98);
-  }
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to { opacity: 0; transform: translate(-50%, -4px); }
 }
 
 .task-check-pop {
-  animation: taskCheckPop 0.38s var(--ease-out-back);
+  animation: taskCheckPop 0.3s var(--ease-snap);
 }
 
 .task-reward-burst {
@@ -1014,10 +2258,11 @@ body {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 2px solid var(--color-gold, #d4a84b);
-  animation: taskRewardBurstRing 0.55s var(--ease-out-expo) forwards;
+  border: 2px solid var(--color-gold);
+  animation: taskRewardBurstRing 0.5s var(--ease-snap) forwards;
 }
 
+/* Square confetti, in the signal amber and the tasks line. */
 .task-reward-burst__particle {
   position: absolute;
   left: 0;
@@ -1025,19 +2270,19 @@ body {
   width: 6px;
   height: 6px;
   margin: -3px 0 0 -3px;
-  border-radius: 999px;
-  background: var(--color-gold, #d4a84b);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent, #8e6f3e) 35%, transparent);
-  animation: taskRewardParticle 0.7s var(--ease-out-expo) forwards;
+  border-radius: 1px;
+  background: var(--color-gold);
+  animation: taskRewardParticle 0.6s var(--ease-snap) forwards;
   animation-delay: calc(var(--i) * 12ms);
 }
 
 .task-reward-burst__particle:nth-child(odd) {
-  background: var(--color-accent, #8e6f3e);
   width: 5px;
   height: 5px;
+  background: var(--color-tasks-color);
 }
 
+/* The toast is an ink plate in both themes, above the phone tab bar. */
 .task-reward-toast {
   position: fixed;
   left: 50%;
@@ -1045,20 +2290,18 @@ body {
   z-index: 81;
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.55rem 0.9rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-gold, #d4a84b) 45%, var(--color-border));
-  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-gold, #d4a84b));
-  color: var(--color-txt-0);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  box-shadow: 0 10px 28px color-mix(in srgb, #000 18%, transparent);
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem 0.5rem 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-ink);
+  color: var(--color-ink-txt);
+  font: 700 13px/1.2 var(--font-display);
+  box-shadow: var(--shadow-lg);
   pointer-events: none;
   animation:
-    taskRewardToastIn 0.28s var(--ease-out-back) forwards,
-    taskRewardToastOut 0.28s var(--ease-out-expo) 1.05s forwards;
+    taskRewardToastIn 0.2s var(--ease-snap) forwards,
+    taskRewardToastOut 0.2s var(--ease-snap) 1.05s forwards;
 }
 
 .task-reward-toast__check {
@@ -1067,9 +2310,9 @@ body {
   justify-content: center;
   width: 1.25rem;
   height: 1.25rem;
-  border-radius: 999px;
-  background: var(--color-accent, #8e6f3e);
-  color: var(--color-bg-0, #fff);
+  border-radius: var(--radius-sm);
+  background: var(--color-ink-signal);
+  color: var(--color-gold-dark);
   font-size: 11px;
   line-height: 1;
 }
@@ -1087,15 +2330,15 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PURDUE GOLD MAP - ARCHITECTURAL EDITION (theme-aware)
+   CAMPUS MAP (theme-aware)
+   The Leaflet maps on /map and /transit carry .purdue-map on their wrapper.
+   leaflet.css is unlayered and loads after this file (with the map page), so
+   these rules are unlayered too and each selector out-ranks the Leaflet rule
+   it replaces; the extra .leaflet-control or .leaflet-popup in a selector is
+   there for that.
 ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Dark basemap: warm gold treatment so buildings/roads stay legible */
-.purdue-map.is-dark .leaflet-tile-pane {
-  filter: sepia(60%) hue-rotate(-10deg) saturate(300%) brightness(1.15) contrast(95%);
-}
-
-/* Light basemap: gentle warm tint to match the brand without washing out */
+/* Light basemap: gentle tint without washing out */
 .purdue-map.is-light .leaflet-tile-pane {
   filter: saturate(102%) brightness(1.02);
 }
@@ -1106,30 +2349,9 @@ body {
   border: none !important;
 }
 
-.building-code-label {
-  background: rgba(62, 34, 0, 0.85);
-  color: #FFD700;
-  font-weight: 800;
-  font-size: 10px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  white-space: nowrap;
-  text-align: center;
-  letter-spacing: 0.5px;
-  border: 1px solid rgba(212, 168, 75, 0.4);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
-}
-
-.building-code-label.dark {
-  background: rgba(232, 200, 120, 0.95);
-  color: #1A1408;
-  border: 1px solid rgba(26, 20, 8, 0.3);
-}
-
 /* Style for the new building outlines */
 .building-outline {
   pointer-events: none;
-  filter: drop-shadow(0 0 2px rgba(212, 168, 75, 0.5));
 }
 
 .purdue-map .leaflet-marker-pane,
@@ -1145,25 +2367,89 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
-/* Glow the GeoJSON building outlines on the dark basemap */
-.purdue-map.is-dark .leaflet-overlay-pane svg path {
-  filter: drop-shadow(0 0 3px rgba(255, 215, 0, 0.4));
+.purdue-map .leaflet-popup-content-wrapper {
+  border-radius: var(--radius-lg);
 }
 
-/* Subtle outline definition on the light basemap */
-.purdue-map.is-light .leaflet-overlay-pane svg path {
-  filter: drop-shadow(0 0 1px rgba(120, 80, 0, 0.35));
+/* Leaflet's own controls as ink plates, like the floating panels: the zoom
+   buttons, and an attribution strip on the page surface. */
+.purdue-map .leaflet-control.leaflet-bar {
+  overflow: hidden;
+  border-color: var(--color-ink-edge);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.purdue-map .leaflet-control.leaflet-bar a,
+.purdue-map .leaflet-control.leaflet-bar a:first-child,
+.purdue-map .leaflet-control.leaflet-bar a:last-child {
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+  color: var(--color-ink-txt);
+  background-color: var(--color-ink-lift);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+}
+.purdue-map .leaflet-control.leaflet-bar a:hover { background-color: var(--color-ink-lift-2); }
+.purdue-map .leaflet-control.leaflet-bar a.leaflet-disabled { opacity: 0.45; }
+.purdue-map .leaflet-control.leaflet-control-attribution {
+  color: var(--color-txt-2);
+  background: color-mix(in oklab, var(--color-surface) 85%, transparent);
+}
+.purdue-map .leaflet-control-attribution a { color: var(--color-accent); }
+
+/* The popup close cross in the theme's text colours, and a 44px target on
+   phones (the popup text moves in to clear it). */
+.purdue-map .leaflet-popup a.leaflet-popup-close-button,
+.purdue-map .leaflet-popup a.leaflet-popup-close-button:focus {
+  color: var(--color-txt-2);
+}
+.purdue-map .leaflet-popup a.leaflet-popup-close-button:hover { color: var(--color-txt-0); }
+@media (max-width: 47.99rem) {
+  .purdue-map .leaflet-popup a.leaflet-popup-close-button {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+    line-height: 44px;
+  }
+  .purdue-map .leaflet-popup-content { margin-right: 44px; }
 }
 
-/* Live parking pins on the campus map (issue #14): compact count labels. */
+/* Live parking pins on the campus map (issue #14): compact count labels on
+   an ink plate, the same in both themes. */
 .leaflet-tooltip.parking-count-tooltip {
   padding: 1px 7px;
-  font-size: 11px;
-  font-weight: 700;
+  font: 800 11px/1.4 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-txt);
+  background: var(--color-ink-lift);
   border: 0;
-  border-radius: 999px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--color-ink-edge), var(--shadow-md);
 }
 .leaflet-tooltip.parking-count-tooltip::before {
   display: none;
+}
+
+/* Stopgap until each page is restyled: white text on an accent or status fill
+   fails in dark, where those fills are light. --color-on-route is white in
+   light and ink in dark; new markup should use text-[var(--color-on-route)]. */
+.dark :is(.bg-\[var\(--color-accent\)\], .bg-\[var\(--color-success\)\], .bg-\[var\(--color-error\)\]).text-white {
+  color: var(--color-on-route);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REDUCED MOTION: stop every animation and transition. Durations collapse to
+   nearly zero (rather than `animation: none`) so anything that rests on an
+   animation's end state still lands there.
+═══════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

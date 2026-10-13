@@ -34,7 +34,7 @@ export default function RequireAdvertiser({
 
   if (state.status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center text-[var(--color-txt-2)] text-sm bg-[var(--color-bg-0)]">
+      <div className="flex-1 min-h-[60vh] flex items-center justify-center text-[var(--color-txt-2)] text-[14px]">
         Loading…
       </div>
     )

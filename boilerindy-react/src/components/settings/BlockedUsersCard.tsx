@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import Icon from '../Icons'
 import StatusBanner from '../StatusBanner'
 import { authRequest } from '../../lib/authApi'
 import { invalidateUserQueries, useMyBlocks } from '../../lib/queries/userData'
@@ -10,8 +11,6 @@ import { writeFailureMessage } from '../../lib/writeFailure'
 // seeing each other's posts, matches and requests; unblocking lifts that but
 // does not bring back a connection the block ended (docs/moderation.md).
 // Blocks other people made take effect and are never listed here.
-
-const LABEL_CLASS = 'text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4'
 
 export default function BlockedUsersCard() {
   const queryClient = useQueryClient()
@@ -36,30 +35,49 @@ export default function BlockedUsersCard() {
   const rows = blocks.data
 
   return (
-    <div className="card p-5" data-testid="blocked-users-card">
-      <div className={LABEL_CLASS}>Blocked users</div>
-      <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+    <section className="card card-pad r-ink" data-testid="blocked-users-card">
+      <header className="card-head">
+        <span aria-hidden="true" className="route-badge">
+          <Icon name="users" />
+        </span>
+        <div>
+          <h2 className="card-title">Blocked users</h2>
+        </div>
+      </header>
+      <p className="mb-4 text-[14px] leading-relaxed text-[var(--color-txt-1)]">
         You and the people you block stop seeing each other&apos;s posts, matches and requests.
       </p>
       {error ? (
-        <StatusBanner tone="error" className="mt-3">
+        <StatusBanner tone="error" className="mb-3">
           {error}
         </StatusBanner>
       ) : null}
       {rows ? (
         rows.length === 0 ? (
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-3">You have not blocked anyone.</p>
+          <div className="empty row">
+            {/* The head badge already shows the people glyph; the empty
+                state reads as all clear instead. */}
+            <span aria-hidden="true" className="ico">
+              <Icon name="check" size={18} />
+            </span>
+            <p>You have not blocked anyone.</p>
+          </div>
         ) : (
-          <ul className="mt-3 divide-y divide-[var(--color-border)]">
+          <ul className="-mt-1 divide-y divide-[var(--color-border)]">
             {rows.map((row) => (
-              <li key={row.userId} className="flex items-center justify-between gap-3 py-2.5">
-                <span className="min-w-0 truncate text-[13px] font-medium text-[var(--color-txt-0)]">{row.displayName}</span>
+              <li
+                key={row.userId}
+                className="flex min-h-14 items-center justify-between gap-3 py-2"
+              >
+                <span className="min-w-0 truncate font-display text-[15px] font-bold text-[var(--color-txt-0)]">
+                  {row.displayName}
+                </span>
                 <button
                   type="button"
                   onClick={() => void unblock(row.userId)}
                   disabled={unblocking !== null}
                   aria-label={`Unblock ${row.displayName}`}
-                  className="btn btn-secondary text-[12px] px-3 py-1.5 shrink-0 disabled:opacity-50"
+                  className="btn btn-secondary btn-sm shrink-0"
                 >
                   {unblocking === row.userId ? 'Unblocking…' : 'Unblock'}
                 </button>
@@ -68,12 +86,12 @@ export default function BlockedUsersCard() {
           </ul>
         )
       ) : blocks.isError ? (
-        <StatusBanner tone="error" className="mt-3">
+        <StatusBanner tone="error">
           Could not load your blocked users. Please try again later.
         </StatusBanner>
       ) : (
-        <p className="text-[13px] text-[var(--color-txt-3)] mt-3">Loading…</p>
+        <p className="text-[14px] text-[var(--color-txt-3)]">Loading…</p>
       )}
-    </div>
+    </section>
   )
 }

@@ -23,7 +23,8 @@ type ResourceGroup = {
   id: string
   category: string
   icon: string
-  color: string
+  // The group's line (route helper class); one route per section card.
+  route: string
   items: ResourceItem[]
 }
 
@@ -32,7 +33,7 @@ const resourceGroups: ResourceGroup[] = [
     id: 'academic-support',
     category: 'Academic Support',
     icon: 'graduation',
-    color: 'map',
+    route: 'r-cls',
     items: [
       { name: 'Online Writing Lab', desc: 'Writing help, citation support, and academic writing guides from Purdue OWL.', icon: 'library', href: 'https://owl.purdue.edu/index.html' },
       { name: 'Disability Resource Center', desc: 'Accessibility accommodations, campus access support, and student disability services.', icon: 'help', href: 'https://www.purdue.edu/drc/' },
@@ -47,7 +48,7 @@ const resourceGroups: ResourceGroup[] = [
     id: 'transit-and-dining',
     category: 'Transit And Dining',
     icon: 'bus',
-    color: 'bus',
+    route: 'r-bus',
     items: [
       { name: 'Campus Connect Shuttle', desc: 'Official Purdue shuttle information for campus mobility connections.', icon: 'bus', href: 'https://www.purdue.edu/operations/campus-mobility/home/campus-connect-shuttle/' },
       { name: 'Indianapolis Bus Routes', desc: 'IU Indianapolis bus transportation details and route information.', icon: 'mapPin', href: 'https://parking.indianapolis.iu.edu/transportation/bus/index.html' },
@@ -62,7 +63,7 @@ const resourceGroups: ResourceGroup[] = [
     id: 'campus-life-and-careers',
     category: 'Campus Life And Careers',
     icon: 'users',
-    color: 'events',
+    route: 'r-evt',
     items: [
       { name: 'Clubs & Organizations', desc: 'Browse every BoilerLink student org, Indianapolis groups first, inside the app.', icon: 'users', link: '/clubs' },
       { name: 'BoilerLink', desc: 'Student organizations, campus involvement, and Purdue community engagement.', icon: 'users', href: 'https://boilerlink.purdue.edu/' },
@@ -77,7 +78,7 @@ const resourceGroups: ResourceGroup[] = [
     id: 'health-and-wellness',
     category: 'Health And Wellness',
     icon: 'heart',
-    color: 'dining',
+    route: 'r-din',
     items: [
       { name: 'Campus Recreation', desc: 'Fitness, recreation, and wellness resources for Indianapolis students.', icon: 'heart', href: 'https://studentaffairs.indianapolis.iu.edu/health/campus-rec/index.html' },
       { name: 'PUSH Indianapolis', desc: 'Schedule appointments and access Purdue student health services in Indianapolis.', icon: 'health', href: 'https://www.purdue.edu/push/appointments/indianapolis.php' },
@@ -86,57 +87,54 @@ const resourceGroups: ResourceGroup[] = [
 ]
 
 const quickLinks = [
-  { name: 'Writing Help', desc: 'Open Purdue OWL', icon: 'library', href: 'https://owl.purdue.edu/index.html', color: 'map' },
-  { name: 'Meal Plans', desc: 'View Indianapolis plans', icon: 'dining', href: 'https://mealplans.indianapolis.iu.edu/plans/purdue-university-in-indianapolis/index.html', color: 'events' },
-  { name: 'BoilerLink', desc: 'Student orgs and clubs', icon: 'users', href: 'https://boilerlink.purdue.edu/', color: 'bus' },
-  { name: 'Career Support', desc: 'Purdue Indianapolis CCO', icon: 'rocket', href: 'https://www.cco.purdue.edu/PurdueIndianapolis', color: 'dining' },
+  { name: 'Writing Help', desc: 'Open Purdue OWL', icon: 'library', href: 'https://owl.purdue.edu/index.html', route: 'r-cls' },
+  { name: 'Meal Plans', desc: 'View Indianapolis plans', icon: 'dining', href: 'https://mealplans.indianapolis.iu.edu/plans/purdue-university-in-indianapolis/index.html', route: 'r-din' },
+  { name: 'BoilerLink', desc: 'Student orgs and clubs', icon: 'users', href: 'https://boilerlink.purdue.edu/', route: 'r-evt' },
+  { name: 'Career Support', desc: 'Purdue Indianapolis CCO', icon: 'rocket', href: 'https://www.cco.purdue.edu/PurdueIndianapolis', route: 'r-ink' },
 ]
 
 // In-App Shortcuts: the navigational tiles that lead into other app pages. Data
 // driven so the card can lay them out in a size-aware grid (more columns when
 // the widget is widened), mirroring the home dashboard's quick-actions widget.
-type Shortcut = { to: string; label: string; desc: string; icon?: string; emoji?: string }
+// Each tile wears the line of the page it opens (one route badge per tile).
+type Shortcut = { to: string; label: string; desc: string; icon: string; route: string }
 
 const shortcuts: Shortcut[] = [
-  { to: '/schedule', icon: 'schedule', label: 'Schedule', desc: 'View imported classes and weekly meetings.' },
-  { to: '/grade-tracker', icon: 'graduation', label: 'Grade Tracker', desc: 'Track courses and your term & cumulative GPA.' },
-  { to: '/transit', icon: 'bus', label: 'Transit', desc: 'Open campus movement tools and shuttle info.' },
-  { to: '/parking', icon: 'parking', label: 'Parking', desc: 'Live garage counts and ST permit rules.' },
-  { to: '/clubs', icon: 'users', label: 'Clubs', desc: 'Student orgs in Indianapolis and across Purdue.' },
-  { to: '/dining', icon: 'dining', label: 'Dining', desc: 'Check menus, hours, and dining context.' },
-  { to: '/free-food', emoji: '🍕', label: 'Free Food', desc: 'Upcoming events serving free food on campus.' },
-  { to: '/lost-found', icon: 'search', label: 'Lost & Found', desc: 'Report or find lost items around campus.' },
-  { to: '/guide', icon: 'mapPin', label: 'Neighborhood Guide', desc: 'Student tips for food, study spots, parking, and safety.' },
-  { to: '/study-groups', icon: 'users', label: 'Study Groups', desc: 'Find classmates and form study groups by course.' },
-  { to: '/perks', icon: 'sparkles', label: 'Campus Perks', desc: 'Local deals and discounts for students.' },
-  { to: '/marketplace', icon: 'grid', label: 'Marketplace', desc: 'Buy and sell textbooks, furniture, and more.' },
-  { to: '/friends', icon: 'users', label: 'People', desc: 'Meet classmates who share your courses.' },
-  { to: '/settings', icon: 'settings', label: 'Settings', desc: 'Manage account, Purdue link, and source setup.' },
+  { to: '/schedule', icon: 'schedule', route: 'r-cls', label: 'Schedule', desc: 'View imported classes and weekly meetings.' },
+  { to: '/grade-tracker', icon: 'graduation', route: 'r-cls', label: 'Grade Tracker', desc: 'Track courses and your term & cumulative GPA.' },
+  { to: '/transit', icon: 'bus', route: 'r-bus', label: 'Transit', desc: 'Open campus movement tools and shuttle info.' },
+  { to: '/parking', icon: 'parking', route: 'r-bus', label: 'Parking', desc: 'Live garage counts and ST permit rules.' },
+  { to: '/clubs', icon: 'users', route: 'r-evt', label: 'Clubs', desc: 'Student orgs in Indianapolis and across Purdue.' },
+  { to: '/dining', icon: 'dining', route: 'r-din', label: 'Dining', desc: 'Check menus, hours, and dining context.' },
+  { to: '/free-food', icon: 'coffee', route: 'r-din', label: 'Free Food', desc: 'Upcoming events serving free food on campus.' },
+  { to: '/lost-found', icon: 'search', route: 'r-ink', label: 'Lost & Found', desc: 'Report or find lost items around campus.' },
+  { to: '/guide', icon: 'mapPin', route: 'r-map', label: 'Neighborhood Guide', desc: 'Student tips for food, study spots, parking, and safety.' },
+  { to: '/study-groups', icon: 'users', route: 'r-cls', label: 'Study Groups', desc: 'Find classmates and form study groups by course.' },
+  { to: '/perks', icon: 'tag', route: 'r-ink', label: 'Campus Perks', desc: 'Local deals and discounts for students.' },
+  { to: '/marketplace', icon: 'grid', route: 'r-ink', label: 'Marketplace', desc: 'Buy and sell textbooks, furniture, and more.' },
+  { to: '/friends', icon: 'users', route: 'r-ink', label: 'People', desc: 'Meet classmates who share your courses.' },
+  { to: '/settings', icon: 'settings', route: 'r-ink', label: 'Settings', desc: 'Manage account, Purdue link, and source setup.' },
 ]
-
-const colorConfig: Record<string, { bg: string; text: string }> = {
-  map: { bg: 'bg-[var(--color-map-bg)]', text: 'text-[var(--color-map-color)]' },
-  events: { bg: 'bg-[var(--color-events-bg)]', text: 'text-[var(--color-events-color)]' },
-  bus: { bg: 'bg-[var(--color-bus-bg)]', text: 'text-[var(--color-bus-title)]' },
-  dining: { bg: 'bg-[var(--color-dining-bg)]', text: 'text-[var(--color-dining-color)]' },
-}
 
 // Internal grid columns by widget width. Full class strings keep Tailwind's
 // scanner happy (it cannot read computed names). Services widgets are clamped to
-// half..full, so only those keys are needed (with a sensible fallback).
+// half..full, so only those keys are needed (with a sensible fallback). Phones
+// keep two columns of stacked tiles.
 const SHORTCUTS_GRID_CLASS: Record<string, string> = {
-  half: 'sm:grid-cols-2',
-  'three-quarter': 'sm:grid-cols-2 lg:grid-cols-3',
-  full: 'sm:grid-cols-2 lg:grid-cols-4',
+  half: 'grid-cols-2',
+  'three-quarter': 'grid-cols-2 lg:grid-cols-3',
+  full: 'grid-cols-2 lg:grid-cols-4',
 }
 function shortcutsGridClass(size: string) {
   return SHORTCUTS_GRID_CLASS[size] || SHORTCUTS_GRID_CLASS.full
 }
 
+// Resource rows are divided by 1px rules; in two columns the second row of the
+// first line loses its rule too, so no rule sits above either column.
 const RESOURCE_ITEMS_GRID_CLASS: Record<string, string> = {
   half: 'grid-cols-1',
-  'three-quarter': 'grid-cols-1 lg:grid-cols-2',
-  full: 'grid-cols-1 sm:grid-cols-2',
+  'three-quarter': 'grid-cols-1 lg:grid-cols-2 lg:[&>li:nth-child(2)]:border-t-0',
+  full: 'grid-cols-1 sm:grid-cols-2 sm:[&>li:nth-child(2)]:border-t-0',
 }
 function resourceItemsGridClass(size: string) {
   return RESOURCE_ITEMS_GRID_CLASS[size] || RESOURCE_ITEMS_GRID_CLASS.half
@@ -153,85 +151,84 @@ function openCampusAssistantForResources() {
   )
 }
 
+// One resource link as a divided row: a neutral icon square that takes the
+// card's line colour on hover, the name with its link mark, and the summary.
 function ResourceCard({ item }: { item: ResourceItem }) {
   const content = (
-    <div className="flex items-start gap-3 p-3 -mx-2 rounded-xl hover:bg-[var(--color-stat)] transition-all duration-200 group">
-      <div className="w-9 h-9 rounded-xl bg-[var(--color-stat)] group-hover:bg-[var(--color-bg-3)] flex items-center justify-center shrink-0 transition-colors">
-        <Icon name={item.icon} size={17} className="text-[var(--color-txt-2)]" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium text-[var(--color-txt-0)] group-hover:text-[var(--color-accent)] flex items-center gap-1.5 transition-colors">
+    <span className="group flex items-start gap-3 min-w-0 flex-1">
+      <span className="ico group-hover:bg-[var(--route)] group-hover:text-[var(--route-on)] transition-colors">
+        <Icon name={item.icon} size={16} />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="font-display font-bold text-[14px] leading-snug text-[var(--color-txt-0)] group-hover:underline underline-offset-[3px] flex items-center gap-1.5">
           {item.name}
-          <Icon
-            name={item.href ? 'external' : 'arrowUpRight'}
-            size={12}
-            className="text-[var(--color-txt-3)] group-hover:text-[var(--color-accent)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all"
-          />
-        </div>
-        <div className="text-[11px] text-[var(--color-txt-2)] mt-0.5">{item.desc}</div>
-      </div>
-    </div>
+          <Icon name={item.href ? 'external' : 'arrowUpRight'} size={12} className="text-[var(--color-txt-3)]" />
+        </span>
+        <span className="block text-[12.5px] leading-[1.35] text-[var(--color-txt-2)] mt-0.5">{item.desc}</span>
+      </span>
+    </span>
   )
 
   if (item.href) {
-    return <a key={item.name} href={item.href} target="_blank" rel="noreferrer" className="no-underline">{content}</a>
+    return <a key={item.name} href={item.href} target="_blank" rel="noreferrer" className="flex flex-1 min-w-0 no-underline">{content}</a>
   }
 
   if (item.link) {
-    return <Link key={item.name} to={item.link}>{content}</Link>
+    return <Link key={item.name} to={item.link} className="flex flex-1 min-w-0 no-underline">{content}</Link>
   }
 
-  return <div key={item.name}>{content}</div>
+  return <div key={item.name} className="flex flex-1 min-w-0">{content}</div>
 }
 
-// One resource group rendered as a customizable widget body. Item columns grow
-// with the widget's width so a widened card fills its space instead of leaving a
-// tall single column.
+// One resource group rendered as a customizable widget body: a section card on
+// the group's line. Item columns grow with the widget's width so a widened card
+// fills its space instead of leaving a tall single column.
 function ResourceGroupCard({ group, size }: { group: ResourceGroup; size: string }) {
-  const config = colorConfig[group.color]
   return (
-    <div className="card p-5">
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`w-8 h-8 rounded-lg ${config.bg} flex items-center justify-center`}>
-          <Icon name={group.icon} size={16} className={config.text} />
-        </div>
-        <span className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-          {group.category}
+    <section className={`card card-pad ${group.route}`}>
+      <div className="card-head">
+        <span className="route-badge">
+          <Icon name={group.icon} size={18} />
         </span>
+        <div>
+          <div className="card-title lowercase first-letter:uppercase">{group.category}</div>
+        </div>
       </div>
-      <div className={`grid gap-x-4 gap-y-0.5 ${resourceItemsGridClass(size)}`}>
+      <ul className={`rows grid gap-x-6 ${resourceItemsGridClass(size)}`}>
         {group.items.map((item) => (
-          <ResourceCard key={item.name} item={item} />
+          <li key={item.name}>
+            <ResourceCard item={item} />
+          </li>
         ))}
-      </div>
-    </div>
+      </ul>
+    </section>
   )
 }
 
-// In-App Shortcuts widget body. Tile columns follow the widget width so a
-// full-width card spreads the shortcuts out instead of squeezing them.
+// In-App Shortcuts widget body: quick tiles straight on the page, each on the
+// line of the page it opens. They are the dense secondary set (small badge,
+// tighter tiles, top-aligned so titles line up when a summary wraps) under the
+// larger external quick links. Tile columns follow the widget width so a
+// full-width board spreads the shortcuts out instead of squeezing them.
 function InAppShortcutsCard({ size }: { size: string }) {
   return (
-    <div className="card p-5 sm:p-6">
-      <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-        In-App Shortcuts
-      </div>
-      <div className={`grid gap-3 ${shortcutsGridClass(size)}`}>
+    <section>
+      <div className="eyebrow mb-3">In-App Shortcuts</div>
+      <div className={`grid gap-2 ${shortcutsGridClass(size)}`}>
         {shortcuts.map((s) => (
-          <Link
-            key={s.to}
-            to={s.to}
-            className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-surface)] hover:bg-[var(--color-stat)] transition-colors no-underline"
-          >
-            <div className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-txt-0)]">
-              {s.emoji ? <span aria-hidden="true">{s.emoji}</span> : <Icon name={s.icon as string} size={16} />}
-              {s.label}
-            </div>
-            <div className="text-[12px] text-[var(--color-txt-2)] mt-1">{s.desc}</div>
+          <Link key={s.to} to={s.to} className={`tile ${s.route} items-start gap-3 min-h-0 px-3.5 py-3`}>
+            <span className="route-badge sm">
+              <Icon name={s.icon} size={14} />
+            </span>
+            <span>
+              <b className="text-[14px]">{s.label}</b>
+              <small className="text-[12.5px]">{s.desc}</small>
+            </span>
+            <Icon name="arrowUpRight" size={16} className="go" />
           </Link>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -265,64 +262,28 @@ export default function Services() {
     .map((w) => ({ id: w.id, title: servicesWidgets[w.id].title }))
 
   return (
-    <div className="max-w-[1080px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+    <div className="page">
       <PageTitle>Student Services</PageTitle>
-      <div className="mb-6 animate-fade-in-up">
-        <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
-          Purdue Indianapolis
+      <header className={`page-head ${editing ? '' : 'max-md:flex-nowrap max-md:items-start'}`}>
+        <div className={`flex-1 ${editing ? 'max-md:basis-full' : ''}`}>
+          <p className="eyebrow">Purdue Indianapolis</p>
+          <h1 className="page-title">Student Services And Resources</h1>
+          <p className="page-sub max-w-[760px]">
+            Official academic, campus life, transit, dining, career, and wellness links gathered into one screen so you do not have to keep hunting through Purdue and Indianapolis sites.
+          </p>
         </div>
-        <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Student Services And Resources</h1>
-        <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[760px]">
-          Official academic, campus life, transit, dining, career, and wellness links gathered into one screen so you do not have to keep hunting through Purdue and Indianapolis sites.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8 animate-fade-in-up stagger-1">
-        {quickLinks.map((link) => {
-          const config = colorConfig[link.color]
-          return (
-            <a
-              key={link.name}
-              href={link.href}
-              target="_blank"
-              rel="noreferrer"
-              className="card card-interactive p-5 text-center group no-underline"
-            >
-              <div className={`w-12 h-12 rounded-xl ${config.bg} flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform duration-300`}>
-                <Icon name={link.icon} size={22} className={config.text} />
-              </div>
-              <div className="text-[14px] font-medium text-[var(--color-txt-0)] group-hover:text-[var(--color-accent)] transition-colors flex items-center justify-center gap-1.5">
-                {link.name}
-                <Icon name="external" size={12} />
-              </div>
-              <div className="text-[12px] text-[var(--color-txt-2)] mt-0.5">{link.desc}</div>
-            </a>
-          )
-        })}
-      </div>
-
-      {/* Customize toolbar - toggles widget edit mode for the resource board. */}
-      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
-        {/* A refused layout save (issue #202) replaces the hint until the next change. */}
-        {saveError ? (
-          <p role="alert" className="text-[12px] text-[var(--color-error)] min-h-[1rem]">
-            {saveError}
-          </p>
-        ) : (
-          <p className="text-[12px] text-[var(--color-txt-3)] min-h-[1rem]">
-            {editing
-              ? 'Drag a card or use the arrows to reorder. Resize with − / +, hide with ×; add hidden cards below.'
-              : ''}
-          </p>
-        )}
+        {/* Customize toolbar - toggles widget edit mode for the resource board.
+            Same size and phone treatment as Home's: on phones the idle button
+            is a compact square whose accessible name stays "Customize". Done
+            is ink, not amber: the help panel's button is this view's primary. */}
         <div className="flex items-center gap-2 shrink-0">
           {editing && (
             <button
               type="button"
               onClick={() => setShowResetConfirm(true)}
-              className="btn btn-secondary text-[12px] px-4 py-2"
+              className="btn btn-secondary"
             >
-              <Icon name="refresh" size={14} />
+              <Icon name="refresh" size={16} />
               Reset
             </button>
           )}
@@ -330,13 +291,49 @@ export default function Services() {
             type="button"
             onClick={() => setEditing(!editing)}
             aria-pressed={editing}
-            className={`btn text-[12px] px-4 py-2 ${editing ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn ${editing ? 'btn-ink' : 'btn-secondary max-md:px-0'}`}
           >
-            <Icon name={editing ? 'check' : 'settings'} size={14} />
-            {editing ? 'Done' : 'Customize'}
+            <Icon name={editing ? 'check' : 'settings'} size={16} />
+            <span className={editing ? undefined : 'max-md:sr-only'}>{editing ? 'Done' : 'Customize'}</span>
           </button>
         </div>
+      </header>
+
+      {/* The four external quick links are the page's primary row: larger
+          tiles and badges than the in-app shortcuts below. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+        {quickLinks.map((link) => (
+          <a
+            key={link.name}
+            href={link.href}
+            target="_blank"
+            rel="noreferrer"
+            className={`tile ${link.route} min-h-[88px]`}
+          >
+            <span className="route-badge lg">
+              <Icon name={link.icon} size={22} />
+            </span>
+            <span>
+              <b className="text-[16px]">{link.name}</b>
+              <small>{link.desc}</small>
+            </span>
+            <Icon name="external" size={16} className="go" />
+          </a>
+        ))}
       </div>
+
+      {/* A refused layout save (issue #202) replaces the hint until the next change. */}
+      {saveError ? (
+        <p role="alert" className="text-[13px] text-[var(--color-error)] mb-4">
+          {saveError}
+        </p>
+      ) : (
+        <p className="text-[13px] text-[var(--color-txt-2)] mb-4 empty:hidden">
+          {editing
+            ? 'Drag a card or use the arrows to reorder. Resize with − / +, hide with ×; add hidden cards below.'
+            : ''}
+        </p>
+      )}
 
       <div
         className={
@@ -376,16 +373,16 @@ export default function Services() {
         <AddWidgetPicker hiddenWidgets={hiddenWidgets} onAdd={(id) => setVisible(id, true)} />
       )}
 
-      <div className="card p-5 sm:p-6 mt-8 bg-gradient-to-br from-[var(--color-gold-dark)] to-[#2A1E0A] border-[var(--color-gold)]/20 animate-fade-in-up">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
-          <div className="w-14 h-14 rounded-2xl bg-[var(--color-gold)]/20 flex items-center justify-center shrink-0 mx-auto sm:mx-0">
-            <Icon name="sparkles" size={28} className="text-[var(--color-gold)]" />
-          </div>
-          <div className="flex-1 min-w-0 text-center sm:text-left">
-            <div className="text-[15px] sm:text-[16px] font-semibold text-[var(--color-gold)] leading-snug">
+      <div className="ink-panel p-5 sm:p-6 mt-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+          <span className="route-badge lg">
+            <Icon name="sparkles" size={22} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="card-title text-[17px] text-[var(--color-ink-txt)]">
               Need help finding something?
             </div>
-            <p className="text-[13px] sm:text-[14px] text-[var(--color-gold)]/75 mt-1.5 leading-relaxed max-w-xl mx-auto sm:mx-0">
+            <p className="text-[14px] text-[var(--color-ink-dim)] mt-1.5 leading-relaxed max-w-xl">
               Open the Campus Assistant to get directed to official Purdue and Indianapolis resources-writing, advising,
               health, transit, dining, careers, and more.
             </p>
@@ -393,9 +390,9 @@ export default function Services() {
           <button
             type="button"
             onClick={openCampusAssistantForResources}
-            className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--color-gold)] text-[var(--color-gold-dark)] border border-[var(--color-gold)]/30 text-[13px] sm:text-[14px] px-5 py-3 sm:py-2.5 font-semibold hover:bg-[var(--color-gold-light)] active:scale-[0.98] transition-all min-h-[44px] sm:min-h-0"
+            className="btn btn-primary w-full sm:w-auto shrink-0"
           >
-            <Icon name="sparkles" size={16} className="text-[var(--color-gold-dark)]" />
+            <Icon name="sparkles" size={16} />
             Open Campus Assistant
           </button>
         </div>

@@ -9,10 +9,20 @@
 // SKIP_WAITING when the student accepts; the reload that follows the
 // controllerchange loads the new shell and assets together.
 
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const CACHE_NAME = `boilerindy-${CACHE_VERSION}`
 const SHELL_URL = '/index.html'
-const PRECACHE_URLS = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
+// The heading face (and its trimmed punctuation, under 1 KB) is precached so
+// an offline visit still renders headings in it; the other font weights are
+// cached on first use like any static asset.
+const PRECACHE_URLS = [
+  '/',
+  '/index.html',
+  '/favicon.svg',
+  '/manifest.webmanifest',
+  '/fonts/PlusJakartaSans-ExtraBold.woff2',
+  '/fonts/JakartaDisplayPunct-ExtraBold.woff2',
+]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)))

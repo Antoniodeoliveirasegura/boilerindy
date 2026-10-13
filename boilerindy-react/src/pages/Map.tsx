@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker } from 'react-leaflet'
+import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker, ZoomControl } from 'react-leaflet'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
@@ -11,6 +11,7 @@ import MapLayerToggle from '../components/map/MapLayerToggle'
 import ParkingGarageLayer from '../components/map/ParkingGarageLayer'
 import { useMapLayers, type MapLayerId } from '../components/map/mapLayers'
 import PageTitle from '../components/PageTitle'
+import { INK_BUTTON } from '../components/map/mapChrome'
 
 const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
@@ -39,11 +40,43 @@ const SECTIONS = [
   { key: 'other', label: 'Other', icon: 'mapPin' },
 ]
 
+// Leaflet writes shape colours into SVG attributes, which cannot read CSS
+// variables, so these mirror the tokens in index.css for each theme: the Map
+// line (teal) for the buildings layer, the signal amber for "you are here"
+// (it is now), and txt-0 for that stop's ring (ink on paper, white on the
+// dark basemap).
+const LINE = {
+  light: { map: '#08706F', gold: '#F4A51C', ring: '#0F1217' },
+  dark: { map: '#4ECDC4', gold: '#FFB938', ring: '#F3F4F6' },
+}
+// The selected building's outline; map.spec finds the lit shapes by it.
+const SELECTED_STROKE = '#FFD700'
+
+// Building codes are small square plates on the Map line, like route badges.
+// Selection is not amber (amber is for now): the selected building's plate
+// inverts to txt-0, ink on the light map and white on the dark one.
+const LABEL_BASE =
+  'w-fit min-w-[24px] mx-auto px-[5px] py-[3px] rounded-[3px] font-display font-extrabold text-[10px] leading-none tracking-[0.06em] whitespace-nowrap text-center'
+const LABEL_IDLE = 'bg-[var(--color-map-color)] text-[var(--color-on-route)] shadow-[0_0_0_1.5px_var(--color-surface)]'
+const LABEL_SELECTED = 'bg-[var(--color-txt-0)] text-[var(--color-surface)] shadow-[0_0_0_2px_var(--color-surface)]'
+
+// From md the assistant button floats over the map's bottom right corner;
+// keep the tile credit and the zoom buttons above it (bottom right, as on
+// /transit) clear of it. Phones hide the zoom buttons (index.css), and below
+// lg the search button and layer chips own the top left corner.
+const CONTROLS_CLEAR_FAB =
+  'md:[&_.leaflet-control-attribution]:mr-[72px]! md:[&_.leaflet-control-zoom]:mr-[72px]!'
+
+// The dark gray canvas is a flat mid gray. Push it apart, darker ground and
+// lighter streets, so it sits in the dark theme without tinting it (the old
+// sepia wash in index.css turned the whole map brown).
+const DARK_TILES = '[&_.leaflet-tile-pane]:[filter:brightness(0.94)_contrast(1.44)]'
+
 /** Create a custom div icon for building labels */
-function createLabelIcon(label: string, dark: boolean) {
+function createLabelIcon(label: string, selected: boolean) {
   return L.divIcon({
     className: 'building-label-marker',
-    html: `<div class="building-code-label ${dark ? 'dark' : ''}">${label}</div>`,
+    html: `<div class="${LABEL_BASE} ${selected ? LABEL_SELECTED : LABEL_IDLE}">${label}</div>`,
     iconSize: [50, 20],
     iconAnchor: [25, 10],
   })
@@ -51,11 +84,9 @@ function createLabelIcon(label: string, dark: boolean) {
 
 function BuildingLabels({
   buildings,
-  dark,
   selectedId,
 }: {
   buildings: Building[]
-  dark: boolean
   selectedId: string | null
 }) {
   return (
@@ -67,8 +98,9 @@ function BuildingLabels({
           <Marker
             key={bldg.id}
             position={[bldg.lat, bldg.lng]}
-            icon={createLabelIcon(bldg.displayCode, dark)}
-            opacity={isSelected ? 1 : 0.9}
+            icon={createLabelIcon(bldg.displayCode, isSelected)}
+            opacity={isSelected ? 1 : 0.92}
+            zIndexOffset={isSelected ? 1000 : 0}
             interactive={false}
           />
         )
@@ -88,8 +120,72 @@ function MapController({ flyRequest }: { flyRequest: FlyRequest }) {
       map.flyTo([flyRequest.lat, flyRequest.lng], flyRequest.zoom, { duration: 0.85 })
     }
   }, [flyRequest, map])
-  
+
   return null
+}
+
+type Section = (typeof SECTIONS)[number] & { items: Building[] }
+
+/** The grouped building list, shared by the desktop sidebar and the phone sheet. */
+function BuildingList({
+  sections,
+  selectedId,
+  onSelect,
+  heading: Heading,
+  roomy = false,
+}: {
+  sections: Section[]
+  selectedId: string | null
+  onSelect: (b: Building) => void
+  heading: 'h2' | 'h3'
+  roomy?: boolean
+}) {
+  return (
+    <>
+      {sections.map((section) => section.items.length > 0 && (
+        <div key={section.key} className="mt-4 first:mt-1">
+          <div className="sticky top-0 z-[1] flex items-center gap-2.5 px-2 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+            <span className="route-badge sm"><Icon name={section.icon} size={14} /></span>
+            <Heading className="eyebrow bare m-0 text-[var(--color-txt-1)]">
+              {section.label} ({section.items.length})
+            </Heading>
+          </div>
+          <ul className="list-none m-0 p-0">
+            {section.items.map((b) => {
+              const isSelected = selectedId === b.id
+              return (
+                <li key={b.id} className="border-b border-[var(--color-border)] last:border-b-0">
+                  <button
+                    onClick={() => onSelect(b)}
+                    className={`w-full text-left flex gap-3 transition-colors ${roomy ? 'px-3 py-3.5' : 'px-2.5 py-2.5'} ${
+                      isSelected
+                        ? 'bg-[var(--route-tint)] shadow-[inset_4px_0_0_var(--route)]'
+                        : 'hover:bg-[var(--color-surface-hover)] active:bg-[var(--color-bg-2)]'
+                    }`}
+                  >
+                    <span className={`mt-0.5 shrink-0 ${isSelected ? 'text-[var(--route-text)]' : 'text-[var(--color-txt-3)]'}`}>
+                      <Icon name="mapPin" size={roomy ? 16 : 14} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block font-display font-semibold leading-snug text-[var(--color-txt-0)] ${roomy ? 'text-[14.5px]' : 'text-[13.5px]'}`}>
+                        {b.name}
+                      </span>
+                      {b.displayCode && (
+                        <span className={`code mt-1.5 ${isSelected ? 'solid' : ''}`}>
+                          {b.displayCode}
+                        </span>
+                      )}
+                    </span>
+                    {roomy && <Icon name="arrowUpRight" size={16} className="text-[var(--color-txt-3)] shrink-0 mt-0.5" />}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
+    </>
+  )
 }
 
 export default function Map() {
@@ -176,8 +272,8 @@ export default function Map() {
   const filteredBuildings = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return buildings
-    return buildings.filter(b => 
-      b.name.toLowerCase().includes(q) || 
+    return buildings.filter(b =>
+      b.name.toLowerCase().includes(q) ||
       b.abbr.toLowerCase().includes(q) ||
       (b.displayCode && b.displayCode.toLowerCase().includes(q)) ||
       (b.address && b.address.toLowerCase().includes(q))
@@ -199,19 +295,20 @@ export default function Map() {
   }, [filteredBuildings])
 
   const selectedBuilding = buildings.find(b => b.id === selectedId) ?? null
+  const line = LINE[dark ? 'dark' : 'light']
 
   // Shapes and list entries share buildingKey, so selecting a building lights
   // up every one of its shapes. PU_ABBR alone missed the 30 features that have
   // none (issue #374).
   const geoJsonStyle = (feature: any) => {
     const isSelected = selectedId != null && buildingKey(feature.properties) === selectedId
-    
+
     return {
-      color: isSelected ? '#FFD700' : '#E8C878',
+      color: isSelected ? SELECTED_STROKE : line.map,
       weight: isSelected ? 3 : 1.5,
-      fillOpacity: isSelected ? 0.5 : 0.25,
-      fillColor: isSelected ? '#FFD700' : '#C9A227',
-      opacity: 1,
+      fillOpacity: isSelected ? 0.4 : 0.16,
+      fillColor: line.map,
+      opacity: isSelected ? 1 : 0.85,
     }
   }
 
@@ -220,16 +317,16 @@ export default function Map() {
     const name = props.BUILDING_NAME || 'Building'
     const code = props.BuildingLabels || props.PU_ABBR || ''
     const address = props.add_full || ''
-    
+
     const popupContent = `
-      <div style="color:var(--color-txt-0);min-width:180px;">
-        <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${name}</div>
-        ${code ? `<div style="font-size:12px;color:var(--color-txt-2);margin-bottom:2px;">Code: <strong style="color:var(--color-gold);">${code}</strong></div>` : ''}
-        ${address ? `<div style="font-size:11px;color:var(--color-txt-3);">${address}</div>` : ''}
+      <div style="color:var(--color-txt-0);min-width:180px;font-family:var(--font-sans);">
+        <div style="font-family:var(--font-display);font-weight:800;font-size:14px;line-height:1.25;margin-bottom:6px;">${name}</div>
+        ${code ? `<div style="font-size:12px;color:var(--color-txt-2);margin-bottom:3px;">Code: <strong style="font-family:var(--font-display);font-weight:800;color:var(--color-map-color);">${code}</strong></div>` : ''}
+        ${address ? `<div style="font-size:12px;color:var(--color-txt-2);">${address}</div>` : ''}
       </div>
     `
     layer.bindPopup(popupContent)
-    
+
     layer.on('click', () => {
       const key = buildingKey(props)
       if (key && buildings.some(b => b.id === key)) {
@@ -246,78 +343,48 @@ export default function Map() {
   }
 
   return (
-    <div className="flex flex-col lg:grid lg:grid-cols-[320px_1fr] h-[calc(100dvh-3.5rem)] overflow-hidden bg-[var(--color-bg-1)]">
+    // Phones: the map stops above the fixed tab bar (62px plus the safe area)
+    // so nothing pinned to its bottom edge hides behind it. From md the bar is
+    // gone and the nav band is 64px.
+    <div className="flex flex-col lg:grid lg:grid-cols-[340px_1fr] h-[calc(100dvh_-_118px_-_env(safe-area-inset-bottom))] md:h-[calc(100dvh-4rem)] overflow-hidden bg-[var(--color-bg-1)]">
       <PageTitle>Campus Map</PageTitle>
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col z-10 border-r border-[var(--color-border-2)] bg-[var(--color-surface)] shadow-md min-h-0">
-        <div className="p-4 border-b border-[var(--color-border)] space-y-3 shrink-0">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-bold">Campus Map</h1>
+      <aside className="r-map hidden lg:flex flex-col z-10 min-h-0 border-r border-[var(--color-border-2)] bg-[var(--color-surface)]">
+        <div className="px-5 pt-6 pb-4 border-b border-[var(--color-border)] space-y-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="route-badge lg"><Icon name="mapPin" size={22} /></span>
+            <h1 className="page-title compact">Campus Map</h1>
           </div>
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search buildings..."
-            className="w-full px-3 py-2.5 rounded-xl text-sm bg-[var(--color-bg-2)] border border-[var(--color-border-2)] outline-none focus:border-[var(--color-gold)] transition-colors"
+            className="input"
           />
           <MapLayerToggle layers={layers} onToggle={toggleLayer} />
           {loading && (
-            <div className="text-xs text-[var(--color-txt-2)]">Loading buildings...</div>
+            <div className="text-[12.5px] text-[var(--color-txt-2)]">Loading buildings...</div>
           )}
           {error && (
-            <div className="text-xs text-[var(--color-error)]">Error: {error}</div>
+            <div className="text-[12.5px] text-[var(--color-error)]">Error: {error}</div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 pb-6">
-          {grouped.map((section) => section.items.length > 0 && (
-            <div key={section.key} className="mt-4 first:mt-2">
-              <div className="flex items-center gap-2 px-2 pb-2 border-b border-[var(--color-border)] mb-1">
-                <span className="text-[var(--color-gold-muted)]"><Icon name={section.icon} size={16} /></span>
-                <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-txt-2)] m-0">
-                  {section.label} ({section.items.length})
-                </h2>
-              </div>
-              <ul className="list-none m-0 p-0">
-                {section.items.map((b) => (
-                  <li key={b.id}>
-                    <button
-                      onClick={() => handleBuildingSelect(b)}
-                      className={`w-full text-left px-3 py-2.5 rounded-xl transition-all flex gap-3 ${
-                        selectedId === b.id
-                          ? 'bg-[var(--color-gold)]/15 ring-1 ring-[var(--color-gold)]'
-                          : 'hover:bg-[var(--color-surface-hover)]'
-                      }`}
-                    >
-                      <span className="text-[var(--color-txt-3)] mt-0.5 shrink-0">
-                        <Icon name="mapPin" size={14} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-medium leading-tight">
-                          {b.name}
-                        </span>
-                        {b.displayCode && (
-                          <span className="inline-block mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
-                            {b.displayCode}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+        <div className="flex-1 overflow-y-auto px-3 pb-6">
+          <BuildingList sections={grouped} selectedId={selectedId} onSelect={handleBuildingSelect} heading="h2" />
         </div>
       </aside>
 
       {/* Map Container */}
-      <div className="relative flex-1 p-2 lg:p-3 bg-[var(--color-bg-2)] min-h-0">
-        <div className={`h-full w-full rounded-2xl overflow-hidden border shadow-lg purdue-map ${
-          dark ? 'is-dark border-[#2A1E0A]' : 'is-light border-[var(--color-border-2)]'
+      {/* `isolate` keeps Leaflet's pane z-indexes (400 to 1000) inside the
+          map, so the assistant button and the tab bar stay on top of it. */}
+      <div className="relative isolate flex-1 p-2 md:p-3 min-h-0">
+        <div className={`h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] purdue-map ${CONTROLS_CLEAR_FAB} ${
+          dark ? DARK_TILES : 'is-light'
         }`}>
-          <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full">
+          <MapContainer center={CAMPUS_CENTER} zoom={DEFAULT_ZOOM} zoomControl={false} className="h-full w-full bg-[var(--color-bg-2)]!">
+            <ZoomControl position="bottomright" />
             <TileLayer
               key={dark ? 'dark' : 'light'}
               url={dark ? TILE_DARK : TILE_LIGHT}
@@ -325,41 +392,41 @@ export default function Map() {
               maxNativeZoom={TILE_MAX_NATIVE_ZOOM}
               maxZoom={19}
             />
-            
+
             {geoData && layers.buildings && (
               <GeoJSON
-                key={`geojson-${selectedId}`}
+                key={`geojson-${selectedId}-${dark ? 'dark' : 'light'}`}
                 data={geoData}
                 style={geoJsonStyle}
                 onEachFeature={onEachFeature}
               />
             )}
-            
-            {layers.buildings && <BuildingLabels buildings={buildings} dark={dark} selectedId={selectedId} />}
-            <ParkingGarageLayer visible={layers.parking} />
+
+            {layers.buildings && <BuildingLabels buildings={buildings} selectedId={selectedId} />}
+            <ParkingGarageLayer visible={layers.parking} dark={dark} />
             <MapController flyRequest={flyRequest} />
-            
-            {/* User location marker */}
+
+            {/* User location: the amber "you are here" stop with a txt-0 ring */}
             {userLocation && (
               <>
                 <CircleMarker
                   center={[userLocation.lat, userLocation.lng]}
                   radius={20}
                   pathOptions={{
-                    fillColor: '#3b82f6',
-                    fillOpacity: 0.15,
-                    color: '#3b82f6',
-                    weight: 2,
-                    opacity: 0.4,
+                    fillColor: line.gold,
+                    fillOpacity: 0.18,
+                    color: line.gold,
+                    weight: 1.5,
+                    opacity: 0.7,
                   }}
                 />
                 <CircleMarker
                   center={[userLocation.lat, userLocation.lng]}
                   radius={8}
                   pathOptions={{
-                    fillColor: '#3b82f6',
+                    fillColor: line.gold,
                     fillOpacity: 1,
-                    color: '#ffffff',
+                    color: line.ring,
                     weight: 3,
                   }}
                 />
@@ -367,19 +434,27 @@ export default function Map() {
             )}
           </MapContainer>
         </div>
-        
+
         {/* Mobile: Search FAB */}
         <button
           onClick={() => setSidebarOpen(true)}
-          className="lg:hidden absolute top-4 left-4 w-12 h-12 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg flex items-center justify-center text-[var(--color-txt-1)] z-[1000]"
+          className={`lg:hidden absolute top-4 left-4 z-[1000] ${INK_BUTTON}`}
           aria-label="Search buildings"
         >
           <Icon name="search" size={20} />
         </button>
-        
-        {/* Mobile: layer chips next to the search button (desktop has them in the sidebar) */}
-        <div className="lg:hidden absolute top-4 left-20 right-20 z-[1000]">
-          <MapLayerToggle layers={layers} onToggle={toggleLayer} />
+
+        {/* Mobile: layer chips next to the search button (desktop has them in
+            the sidebar). Each chip is its own 44px ink plate, level with the
+            search and locate buttons; the empty part of the strip lets map
+            drags through. */}
+        <div className="lg:hidden absolute top-4 left-[68px] right-[68px] z-[1000] pointer-events-none">
+          <MapLayerToggle
+            layers={layers}
+            onToggle={toggleLayer}
+            tone="ink"
+            className="flex-nowrap gap-1.5 w-fit max-w-[calc(100%+12px)] overflow-x-auto scrollbar-hide p-1.5 pb-3 -m-1.5 -mb-3 pointer-events-auto"
+          />
         </div>
 
         {/* Locate Me Button */}
@@ -387,35 +462,34 @@ export default function Map() {
           type="button"
           onClick={locateUser}
           disabled={locationLoading}
-          className={`absolute top-4 right-4 w-11 h-11 rounded-xl shadow-lg z-[1000] flex items-center justify-center transition-all border-2 ${
-            userLocation
-              ? 'bg-blue-500 text-white border-blue-400'
-              : 'bg-white dark:bg-[var(--color-surface)] border-[var(--color-border)] text-gray-700 dark:text-[var(--color-txt-1)] hover:text-blue-500 hover:border-blue-400'
+          className={`absolute top-4 right-4 z-[1000] ${INK_BUTTON} ${
+            userLocation ? 'text-[var(--color-ink-signal)]' : ''
           } ${locationLoading ? 'animate-pulse' : ''}`}
           title={locationError || 'Show my location'}
           aria-label="Show my location"
         >
           <Icon name="locateMe" size={22} />
         </button>
-        
-        {/* Selected building info card */}
+
+        {/* Selected building info card. On phones it stops short of the
+            assistant button; from md it sits bottom left, clear of it. */}
         {selectedBuilding && (
-          <div className="absolute bottom-4 left-4 right-4 lg:left-auto lg:right-6 lg:bottom-6 lg:w-80 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] shadow-lg p-4 animate-fade-in-up z-[1000]">
+          <div className="r-map ink-panel absolute z-[1000] bottom-4 left-4 right-[80px] md:right-auto md:bottom-5 md:left-5 md:w-80 p-4 shadow-[var(--shadow-lg)] animate-fade-in-up">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-[var(--color-txt-0)] text-[15px]">{selectedBuilding.name}</h3>
                 {selectedBuilding.displayCode && (
-                  <span className="inline-block mt-1.5 text-[11px] font-bold px-2 py-0.5 rounded bg-[var(--color-gold)] text-[var(--color-gold-dark)]">
+                  <span className="code solid mb-2.5">
                     {selectedBuilding.displayCode}
                   </span>
                 )}
+                <h3 className="text-[17px] leading-tight text-[var(--color-ink-txt)]">{selectedBuilding.name}</h3>
                 {selectedBuilding.address && (
-                  <p className="text-[12px] text-[var(--color-txt-2)] mt-2 leading-relaxed">{selectedBuilding.address}</p>
+                  <p className="text-[12.5px] text-[var(--color-ink-dim)] mt-1.5 leading-relaxed">{selectedBuilding.address}</p>
                 )}
               </div>
-              <button 
+              <button
                 onClick={() => setSelectedId(null)}
-                className="p-2 rounded-lg hover:bg-[var(--color-bg-2)] text-[var(--color-txt-2)] shrink-0"
+                className="icon-btn -mr-2 -mt-2 shrink-0"
               >
                 <Icon name="close" size={18} />
               </button>
@@ -426,26 +500,29 @@ export default function Map() {
 
       {/* Mobile: Bottom Sheet Sidebar */}
       {sidebarOpen && (
-        <div 
+        <div
           className="lg:hidden fixed inset-0 bg-black/40 z-[1001]"
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] rounded-t-2xl shadow-xl z-[1002] transition-transform duration-300 ${
+      <div className={`r-map lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] border-t border-[var(--color-border-2)] rounded-t-[var(--radius-2xl)] shadow-[var(--shadow-xl)] z-[1002] transition-transform duration-300 ${
         sidebarOpen ? 'translate-y-0' : 'translate-y-full'
       }`} style={{ maxHeight: '75vh' }}>
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 bg-[var(--color-border-2)] rounded-full" />
+          <div className="w-10 h-1 bg-[var(--color-border-3)] rounded-[2px]" />
         </div>
-        
+
         {/* Search Header */}
         <div className="px-4 pb-3 border-b border-[var(--color-border)]">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[16px] font-semibold text-[var(--color-txt-0)]">Find Building</h2>
-            <button 
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="route-badge sm"><Icon name="mapPin" size={14} /></span>
+              <h2 className="card-title text-[18px]">Find Building</h2>
+            </div>
+            <button
               onClick={() => setSidebarOpen(false)}
-              className="p-2 rounded-lg hover:bg-[var(--color-bg-2)] text-[var(--color-txt-2)]"
+              className="icon-btn -mr-2"
             >
               <Icon name="close" size={20} />
             </button>
@@ -455,52 +532,14 @@ export default function Map() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search buildings..."
-            className="w-full px-4 py-3 rounded-xl text-[15px] bg-[var(--color-bg-2)] border border-[var(--color-border-2)] outline-none focus:border-[var(--color-gold)] transition-colors"
+            className="input"
             autoFocus={sidebarOpen}
           />
         </div>
-        
+
         {/* Building List */}
         <div className="overflow-y-auto px-2 pb-8" style={{ maxHeight: 'calc(75vh - 120px)' }}>
-          {grouped.map((section) => section.items.length > 0 && (
-            <div key={section.key} className="mt-4 first:mt-2">
-              <div className="flex items-center gap-2 px-2 pb-2 border-b border-[var(--color-border)] mb-1">
-                <span className="text-[var(--color-gold-muted)]"><Icon name={section.icon} size={16} /></span>
-                <h3 className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-txt-2)] m-0">
-                  {section.label} ({section.items.length})
-                </h3>
-              </div>
-              <ul className="list-none m-0 p-0">
-                {section.items.map((b) => (
-                  <li key={b.id}>
-                    <button
-                      onClick={() => handleBuildingSelect(b)}
-                      className={`w-full text-left px-4 py-3.5 rounded-xl transition-all flex gap-3 active:scale-[0.98] ${
-                        selectedId === b.id
-                          ? 'bg-[var(--color-gold)]/15 ring-1 ring-[var(--color-gold)]'
-                          : 'hover:bg-[var(--color-surface-hover)] active:bg-[var(--color-bg-2)]'
-                      }`}
-                    >
-                      <span className="text-[var(--color-txt-3)] mt-0.5 shrink-0">
-                        <Icon name="mapPin" size={16} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[14px] font-medium leading-tight">
-                          {b.name}
-                        </span>
-                        {b.displayCode && (
-                          <span className="inline-block mt-1.5 text-[11px] font-bold px-2 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
-                            {b.displayCode}
-                          </span>
-                        )}
-                      </span>
-                      <Icon name="arrowUpRight" size={16} className="text-[var(--color-txt-3)] shrink-0 mt-0.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          <BuildingList sections={grouped} selectedId={selectedId} onSelect={handleBuildingSelect} heading="h3" roomy />
         </div>
       </div>
     </div>

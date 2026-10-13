@@ -139,7 +139,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
       aria-describedby="report-dialog-message"
     >
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
+        className="absolute inset-0 bg-black/55 animate-fade-in"
         onClick={() => {
           if (!sending) onClose()
         }}
@@ -151,32 +151,32 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
       >
         <form onSubmit={(e) => void submit(e)} data-report-form>
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[var(--color-stat)] border border-[var(--color-border)] flex items-center justify-center shrink-0">
-              <Icon name="flag" size={17} className="text-[var(--color-txt-2)]" />
+            <div className="route-badge r-ink shrink-0">
+              <Icon name="flag" size={17} />
             </div>
             <div className="min-w-0">
-              <h2 id="report-dialog-title" className="text-[15px] font-semibold text-[var(--color-txt-0)] leading-snug break-words">
+              <h2 id="report-dialog-title" className="text-[17px] tracking-[-0.01em] text-[var(--color-txt-0)] leading-snug break-words">
                 Report {targetLabel}
               </h2>
-              <p id="report-dialog-message" className="text-[13px] text-[var(--color-txt-2)] mt-1.5 leading-relaxed">
+              <p id="report-dialog-message" className="text-[14px] text-[var(--color-txt-2)] mt-1.5 leading-relaxed">
                 Our moderators review every report. Only they can see who sent it.
               </p>
             </div>
           </div>
           <fieldset disabled={sending} className="m-0 mt-4 p-0 border-0 min-w-0">
-            <legend className="text-[12px] font-semibold text-[var(--color-txt-1)] mb-2 break-words">
+            <legend className="text-[13px] font-semibold text-[var(--color-txt-1)] mb-2.5 break-words">
               Why are you reporting {targetLabel}?
             </legend>
             <div className="flex flex-col gap-2">
               {REPORT_REASON_OPTIONS.map((r) => (
-                <label key={r.value} className="flex items-center gap-2 text-[13px] text-[var(--color-txt-1)] cursor-pointer select-none">
+                <label key={r.value} className="flex items-center gap-2.5 min-h-[32px] text-[14px] text-[var(--color-txt-1)] cursor-pointer select-none">
                   <input
                     type="radio"
                     name="report-reason"
                     value={r.value}
                     checked={reason === r.value}
                     onChange={() => setReason(r.value)}
-                    className="w-4 h-4 border-[var(--color-border-2)] accent-[var(--color-accent)]"
+                    className="w-4 h-4 border-[var(--color-border-3)] accent-[var(--color-txt-0)]"
                   />
                   {r.label}
                 </label>
@@ -185,7 +185,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
           </fieldset>
           {showDetails ? (
             <div className="mt-3">
-              <label className="block text-[12px] text-[var(--color-txt-2)] mb-1" htmlFor="report-details">
+              <label className="block text-[13px] font-semibold text-[var(--color-txt-1)] mb-1.5" htmlFor="report-details">
                 Tell us more (optional)
               </label>
               <textarea
@@ -198,7 +198,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
                 // Only when the student asked for the box; choosing "Something
                 // else" shows it without taking focus off the reasons.
                 autoFocus={addingDetails}
-                className="input w-full text-[13px] px-3 py-2 resize-y"
+                className="input w-full text-[14px] resize-y"
               />
             </div>
           ) : (
@@ -206,7 +206,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
               type="button"
               onClick={() => setAddingDetails(true)}
               disabled={sending}
-              className="mt-3 text-[12px] font-medium text-[var(--color-accent)] hover:underline disabled:opacity-60"
+              className="head-link ml-0 mr-0 px-0 mt-2 disabled:opacity-60"
             >
               Add details (optional)
             </button>
@@ -217,10 +217,10 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
             </StatusBanner>
           ) : null}
           <div className="flex justify-end gap-2 mt-5">
-            <button type="button" onClick={onClose} disabled={sending} className="btn btn-secondary text-[13px] px-4 py-2 disabled:opacity-60">
+            <button type="button" onClick={onClose} disabled={sending} className="btn btn-secondary">
               Cancel
             </button>
-            <button type="submit" disabled={!reason || sending} className="btn btn-primary text-[13px] px-4 py-2 disabled:opacity-60">
+            <button type="submit" disabled={!reason || sending} className="btn btn-primary">
               {sending ? 'Sending…' : 'Submit report'}
             </button>
           </div>

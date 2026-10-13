@@ -18,7 +18,6 @@ import {
   parseImageLinks,
   parsePriceInput,
   priceModeOf,
-  type CategoryTone,
   type Listing,
   type PriceMode,
 } from '../lib/marketplace'
@@ -52,14 +51,6 @@ type PhotoState =
   | { status: 'working'; step: PhotoStep; previewUrl: string | null }
   | { status: 'ready'; photo: ReadyPhoto }
   | { status: 'error'; message: string; retryable: boolean; previewUrl: string | null; file: Blob | null }
-
-// Full class strings so Tailwind's scanner sees them.
-const TONE_CLASS: Record<CategoryTone, string> = {
-  map: 'bg-[var(--color-map-bg)] text-[var(--color-map-color)]',
-  events: 'bg-[var(--color-events-bg)] text-[var(--color-events-color)]',
-  bus: 'bg-[var(--color-bus-bg)] text-[var(--color-bus-title)]',
-  dining: 'bg-[var(--color-dining-bg)] text-[var(--color-dining-color)]',
-}
 
 const STEP_TEXT: Record<PhotoStep, string> = {
   preparing: 'Preparing photo',
@@ -97,17 +88,19 @@ function photoPreview(photo: PhotoState): string | null {
 }
 
 /** Category tile with the cover on top, so a slow or broken URL shows the tile. */
-function ListingImage({ listing, className, iconSize = 28 }: { listing: Listing; className: string; iconSize?: number }) {
+function ListingImage({ listing, className }: { listing: Listing; className: string }) {
   const url = listingImage(listing)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const cat = categoryFor(listing.category)
   const showImage = Boolean(url) && failedUrl !== url
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden ${TONE_CLASS[cat.tone]} ${className}`}
+      className={`relative flex items-center justify-center overflow-hidden bg-[var(--color-stat)] ${className}`}
       data-listing-image={showImage ? 'photo' : 'placeholder'}
     >
-      <Icon name={cat.icon} size={iconSize} />
+      <span className="route-badge lg" aria-hidden="true">
+        <Icon name={cat.icon} size={22} />
+      </span>
       {showImage && url ? (
         <img src={url} alt="" loading="lazy" decoding="async" onError={() => setFailedUrl(url)} className="absolute inset-0 w-full h-full object-cover" />
       ) : null}
@@ -118,7 +111,7 @@ function ListingImage({ listing, className, iconSize = 28 }: { listing: Listing;
 /** Every photo of a listing, cover first, the way the app's detail screen shows them. */
 function ListingGallery({ listing }: { listing: Listing }) {
   const images = listingImages(listing)
-  if (images.length === 0) return <ListingImage listing={listing} className="w-full rounded-xl mb-4 h-28" iconSize={44} />
+  if (images.length === 0) return <ListingImage listing={listing} className="w-full rounded-[var(--radius-lg)] mb-4 h-32" />
   const title = listing.title || 'Listing'
   return (
     <div className="flex gap-3 overflow-x-auto mb-4 -mx-1 px-1 pb-1" data-listing-gallery={images.length}>
@@ -129,7 +122,7 @@ function ListingGallery({ listing }: { listing: Listing }) {
           alt={`${title} photo ${i + 1}`}
           loading={i === 0 ? 'eager' : 'lazy'}
           decoding="async"
-          className={`rounded-xl object-cover bg-[var(--color-stat)] shrink-0 ${images.length === 1 ? 'w-full h-56 sm:h-72' : 'h-48 sm:h-64 max-w-[85%]'}`}
+          className={`rounded-[var(--radius-lg)] object-cover bg-[var(--color-stat)] shrink-0 ${images.length === 1 ? 'w-full h-56 sm:h-72' : 'h-48 sm:h-64 max-w-[85%]'}`}
         />
       ))}
     </div>
@@ -155,7 +148,7 @@ function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, o
   const count = linkUrls.length + (photo.status === 'ready' ? 1 : 0)
 
   let message: string
-  let messageTone = 'text-[var(--color-txt-3)]'
+  let messageTone = 'text-[var(--color-txt-2)]'
   if (photo.status === 'working') {
     message = `${STEP_TEXT[photo.step]}…`
   } else if (photo.status === 'ready') {
@@ -171,24 +164,24 @@ function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, o
   }
 
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-3 sm:p-4" data-photo-status={photo.status} data-photo-count={count}>
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-border-2)] p-3 sm:p-4" data-photo-status={photo.status} data-photo-count={count}>
       <div className="flex items-start gap-4">
-        <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-[var(--color-stat)] flex items-center justify-center shrink-0">
+        <div className="relative w-24 h-24 rounded-[var(--radius-md)] overflow-hidden bg-[var(--color-stat)] flex items-center justify-center shrink-0">
           {preview ? <img src={preview} alt="" className="w-full h-full object-cover" data-photo-preview /> : <Icon name="image" size={26} className="text-[var(--color-txt-3)]" />}
           {busy ? (
-            <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
-              <Icon name="refresh" size={18} className="text-white animate-spin" />
+            <div className="absolute inset-0 bg-[var(--color-ink)]/60 flex items-center justify-center">
+              <Icon name="refresh" size={18} className="text-[var(--color-ink-txt)] animate-spin" />
             </div>
           ) : null}
         </div>
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="text-[12px] font-semibold text-[var(--color-txt-1)]">Photos (up to {MAX_LISTING_PHOTOS}, the first is the cover)</div>
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <div className="text-[13px] font-semibold text-[var(--color-txt-1)]">Photos (up to {MAX_LISTING_PHOTOS}, the first is the cover)</div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               id="listing-photo"
               type="file"
               accept={PHOTO_ACCEPT}
-              className="sr-only"
+              className="peer sr-only"
               aria-label="Listing photo"
               disabled={disabled || busy}
               onChange={(e) => {
@@ -197,21 +190,24 @@ function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, o
                 e.target.value = ''
               }}
             />
-            <label htmlFor="listing-photo" className={`btn btn-secondary text-[12px] px-3 py-1.5 cursor-pointer ${disabled || busy ? 'opacity-60 pointer-events-none' : ''}`}>
+            <label
+              htmlFor="listing-photo"
+              className={`btn btn-secondary btn-sm cursor-pointer peer-focus-visible:outline-3 peer-focus-visible:outline-[var(--color-gold)] peer-focus-visible:outline-offset-2 peer-focus-visible:shadow-[0_0_0_2px_var(--color-txt-0)] ${disabled || busy ? 'opacity-50 pointer-events-none' : ''}`}
+            >
               <Icon name="camera" size={14} /> {hasPicked ? 'Change photo' : 'Upload a photo'}
             </label>
             {photo.status === 'error' && photo.retryable ? (
-              <button type="button" onClick={onRetry} disabled={disabled} className="btn btn-secondary text-[12px] px-3 py-1.5">
+              <button type="button" onClick={onRetry} disabled={disabled} className="btn btn-secondary btn-sm">
                 <Icon name="refresh" size={14} /> Retry
               </button>
             ) : null}
             {hasPicked && !busy ? (
-              <button type="button" onClick={onRemove} disabled={disabled} className="btn btn-ghost text-[12px] px-3 py-1.5 text-[var(--color-error)]">
+              <button type="button" onClick={onRemove} disabled={disabled} className="btn btn-ghost btn-sm text-[var(--color-error)] hover:text-[var(--color-error)]">
                 <Icon name="trash" size={14} /> Remove
               </button>
             ) : null}
           </div>
-          <p className={`text-[12px] m-0 min-h-[1rem] ${messageTone}`} aria-live="polite" data-photo-message>
+          <p className={`text-[12.5px] m-0 min-h-[1rem] ${messageTone}`} aria-live="polite" data-photo-message>
             {message}
           </p>
         </div>
@@ -227,7 +223,7 @@ function PhotoField({ photo, disabled, verb, links, onPick, onRetry, onRemove, o
           disabled={disabled}
           rows={2}
           placeholder={`Image links, one per line (optional, up to ${MAX_LISTING_PHOTOS})`}
-          className="input w-full text-[13px] px-3 py-2 resize-y"
+          className="input text-[14px] resize-y"
         />
       </div>
     </div>
@@ -556,26 +552,26 @@ export default function Marketplace() {
 
   function listingCard(listing: Listing, context: 'browse' | 'mine') {
     return (
-      <article key={listing.id} className="card p-0 overflow-hidden flex flex-col" data-listing-id={listing.id} data-listing-status={listing.status || 'active'}>
-        <button type="button" onClick={() => openListing(listing)} className="text-left flex flex-col">
-          <ListingImage listing={listing} className="aspect-[1.35] w-full" />
-          <div className="p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[15px] font-bold text-[var(--color-txt-0)]">{formatPrice(listing.priceCents, listing.priceMode)}</span>
+      <article key={listing.id} className="card flex flex-col" data-listing-id={listing.id} data-listing-status={listing.status || 'active'}>
+        <button type="button" onClick={() => openListing(listing)} className="group flex-1 text-left flex flex-col rounded-[var(--radius-xl)]">
+          <ListingImage listing={listing} className="aspect-[4/3] w-full rounded-t-[5px] border-b border-[var(--color-border)]" />
+          <div className="px-3 pt-3 pb-3.5 sm:px-4 sm:pt-3.5 sm:pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-display font-extrabold text-[19px] sm:text-[22px] leading-none tracking-[-0.02em] tnum text-[var(--color-txt-0)]">{formatPrice(listing.priceCents, listing.priceMode)}</span>
               {listing.status === 'sold' ? (
-                <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-error)]/15 text-[var(--color-error)]">Sold</span>
+                <span className="badge bg-[var(--color-txt-0)] text-[var(--color-surface)]">Sold</span>
               ) : null}
             </div>
-            <h3 className="text-[13px] font-medium text-[var(--color-txt-1)] mt-1 line-clamp-2 break-words">{listing.title}</h3>
-            <div className="text-[11px] text-[var(--color-txt-3)] mt-1">{labelForCategory(listing.category)}</div>
+            <h3 className="row-title text-[14px] sm:text-[15px] mt-2 line-clamp-2 break-words group-hover:underline underline-offset-[3px] decoration-2">{listing.title}</h3>
+            <div className="text-[12.5px] sm:text-[13px] text-[var(--color-txt-2)] mt-1">{labelForCategory(listing.category)}</div>
           </div>
         </button>
         {context === 'mine' && listing.hidden ? (
           <div
-            className="px-3 pb-2 text-[11px] text-[var(--color-error)] flex items-start gap-1.5"
+            className="px-3 sm:px-4 pb-3 text-[12.5px] text-[var(--color-error)] flex items-start gap-1.5"
             data-listing-hidden="true"
           >
-            <Icon name="eyeOff" size={12} />
+            <Icon name="eyeOff" size={13} className="mt-0.5" />
             <span>
               Hidden after {listing.reportCount ?? 0} report{listing.reportCount === 1 ? '' : 's'}. Only you can see it
               while an admin reviews it.
@@ -583,16 +579,16 @@ export default function Marketplace() {
           </div>
         ) : null}
         {context === 'mine' ? (
-          <div className="flex flex-wrap gap-3 px-3 pb-3 pt-2 mt-auto border-t border-[var(--color-border)]">
-            <button type="button" onClick={() => openEdit(listing)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)] inline-flex items-center gap-1">
-              <Icon name="edit" size={12} /> Edit
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 sm:px-4 py-2 sm:py-2.5 mt-auto border-t border-[var(--color-border)]">
+            <button type="button" onClick={() => openEdit(listing)} className="inline-flex items-center gap-1 py-1 font-display font-bold text-[13px] text-[var(--color-txt-1)] hover:text-[var(--color-accent)]">
+              <Icon name="edit" size={13} /> Edit
             </button>
             {listing.status !== 'sold' ? (
-              <button type="button" onClick={() => markSold(listing)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)]">
+              <button type="button" onClick={() => markSold(listing)} className="py-1 font-display font-bold text-[13px] text-[var(--color-txt-1)] hover:text-[var(--color-accent)]">
                 Mark sold
               </button>
             ) : null}
-            <button type="button" onClick={() => deleteListing(listing)} className="text-[12px] text-[var(--color-error)] hover:underline">
+            <button type="button" onClick={() => deleteListing(listing)} className="py-1 font-display font-bold text-[13px] text-[var(--color-error)] hover:underline underline-offset-[3px]">
               Delete
             </button>
           </div>
@@ -605,31 +601,34 @@ export default function Marketplace() {
   const busy = submitting || photo.status === 'working'
 
   return (
-    <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24">
+    <div className="page r-ink">
       <PageTitle>Marketplace</PageTitle>
       {confirmDialog}
       {moderationUi}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+      <header className="page-head">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Marketplace</h1>
-          <p className="text-[14px] text-[var(--color-txt-2)] mt-1">Buy and sell with other students. Contact is shared on each listing.</p>
+          <h1 className="page-title">Marketplace</h1>
+          <p className="page-sub">Buy and sell with other students. Contact is shared on each listing.</p>
         </div>
         {canPost ? (
-          <button type="button" onClick={() => (showForm ? closeForm() : openCreate())} className="btn btn-primary px-4 py-2.5 text-[13px] w-fit">
+          <button type="button" onClick={() => (showForm ? closeForm() : openCreate())} className={`btn w-fit ${showForm ? 'btn-secondary' : 'btn-primary'}`}>
             <Icon name={showForm ? 'close' : 'plus'} size={16} />
             {showForm ? 'Close' : 'Post a listing'}
           </button>
         ) : (
-          <span className="text-[12px] text-[var(--color-txt-3)]">Link Purdue in setup to post.</span>
+          <span className="text-[13px] text-[var(--color-txt-2)]">Link Purdue in setup to post.</span>
         )}
-      </div>
+      </header>
 
       {formOpen ? (
-        <form ref={formRef} onSubmit={submitForm} className="card p-5 mb-6 space-y-3 scroll-mt-24" data-listing-form={editing ? 'edit' : 'create'}>
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[15px] font-semibold text-[var(--color-txt-0)] m-0">{editing ? 'Edit listing' : 'Post a listing'}</h2>
+        <form ref={formRef} onSubmit={submitForm} className="card card-pad mb-6 space-y-3 scroll-mt-24" data-listing-form={editing ? 'edit' : 'create'}>
+          <div className="card-head mb-3.5">
+            <span className="route-badge" aria-hidden="true">
+              <Icon name={editing ? 'edit' : 'tag'} size={18} />
+            </span>
+            <h2 className="card-title m-0">{editing ? 'Edit listing' : 'Post a listing'}</h2>
             {editing ? (
-              <button type="button" onClick={closeForm} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
+              <button type="button" onClick={closeForm} className="head-link">
                 Cancel
               </button>
             ) : null}
@@ -645,7 +644,7 @@ export default function Marketplace() {
               maxLength={120}
               placeholder="What are you selling?"
               disabled={submitting}
-              className="input w-full text-[13px] px-3 py-2"
+              className="input text-[15px]"
             />
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
@@ -658,7 +657,7 @@ export default function Marketplace() {
                 value={form.priceMode}
                 onChange={(e) => setForm((f) => ({ ...f, priceMode: e.target.value as PriceMode }))}
                 disabled={submitting}
-                className="input w-full text-[13px] px-3 py-2"
+                className="input text-[15px]"
               >
                 {PRICE_MODES.map((mode) => (
                   <option key={mode.value} value={mode.value}>
@@ -679,11 +678,11 @@ export default function Marketplace() {
                   inputMode="decimal"
                   placeholder="Price in $ (blank for unspecified)"
                   disabled={submitting}
-                  className="input w-full text-[13px] px-3 py-2"
+                  className="input text-[15px] tnum"
                 />
               </div>
             ) : (
-              <p className="text-[12px] text-[var(--color-txt-2)] self-center m-0" data-price-hint>
+              <p className="text-[13px] text-[var(--color-txt-2)] self-center m-0" data-price-hint>
                 {form.priceMode === 'free' ? 'Listed as Free.' : 'Buyers will send offers.'}
               </p>
             )}
@@ -696,11 +695,9 @@ export default function Marketplace() {
                 aria-pressed={form.category === c.slug}
                 onClick={() => setForm((f) => ({ ...f, category: c.slug }))}
                 disabled={submitting}
-                className={`text-[12px] px-3 py-1.5 rounded-full border inline-flex items-center gap-1.5 ${
-                  form.category === c.slug ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]' : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
-                }`}
+                className={`pill ${form.category === c.slug ? 'pill-active' : ''}`}
               >
-                <Icon name={c.icon} size={12} /> {c.label}
+                <Icon name={c.icon} size={13} /> {c.label}
               </button>
             ))}
           </div>
@@ -716,7 +713,7 @@ export default function Marketplace() {
               rows={3}
               placeholder="Description (condition, pickup, anything a buyer should know)"
               disabled={submitting}
-              className="input w-full text-[13px] px-3 py-2 resize-y"
+              className="input text-[15px] resize-y"
             />
           </div>
           <PhotoField
@@ -730,61 +727,58 @@ export default function Marketplace() {
             onLinksChange={(value) => setForm((f) => ({ ...f, imageLinks: value }))}
           />
           {formError ? (
-            <p className="text-[12px] text-[var(--color-error)]" data-form-error>
+            <p className="text-[13px] text-[var(--color-error)]" data-form-error>
               {formError}
             </p>
           ) : null}
-          <button type="submit" disabled={busy} className="btn btn-primary px-4 py-2.5 text-[13px] disabled:opacity-60">
-            {submitting ? (editing ? 'Saving…' : 'Posting…') : editing ? 'Save changes' : 'Post listing'}
-          </button>
+          <div className="pt-1">
+            <button type="submit" disabled={busy} className="btn btn-primary">
+              {submitting ? (editing ? 'Saving…' : 'Posting…') : editing ? 'Save changes' : 'Post listing'}
+            </button>
+          </div>
         </form>
       ) : null}
 
       {/* Detail panel */}
       {selected ? (
-        <div className="card p-5 mb-6 border-[var(--color-accent)]/30" data-listing-detail={selected.id}>
+        <div className="card card-pad mb-6 border-[var(--color-accent)]/30" data-listing-detail={selected.id}>
           <ListingGallery listing={selected} />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)]">{labelForCategory(selected.category)}</span>
-              <h2 className="text-[18px] font-semibold text-[var(--color-txt-0)] mt-1.5 break-words">
-                {selected.title} <span className="text-[var(--color-txt-2)] font-normal">&middot; {formatPrice(selected.priceCents, selected.priceMode)}</span>
+              <span className="badge">{labelForCategory(selected.category)}</span>
+              <h2 className="text-[24px] leading-tight text-[var(--color-txt-0)] mt-2.5 break-words">
+                {selected.title} <span className="font-display font-bold text-[var(--color-txt-2)] tnum">&middot; {formatPrice(selected.priceCents, selected.priceMode)}</span>
               </h2>
             </div>
-            <button type="button" onClick={closeListing} aria-label="Close listing" className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)]">
+            <button type="button" onClick={closeListing} aria-label="Close listing" className="icon-btn -mr-2 -mt-1 shrink-0">
               <Icon name="close" size={18} />
             </button>
           </div>
-          {selected.description ? <p className="text-[13px] text-[var(--color-txt-1)] mt-2 whitespace-pre-wrap">{selected.description}</p> : null}
-          <div className="mt-3 pt-3 border-t border-[var(--color-border)] text-[13px]">
+          {selected.description ? <p className="text-[15px] text-[var(--color-txt-1)] mt-2.5 whitespace-pre-wrap leading-relaxed">{selected.description}</p> : null}
+          <div className="mt-4 pt-4 border-t border-[var(--color-border)] text-[14px]">
             <div className="text-[var(--color-txt-2)]">
-              Contact: <span className="text-[var(--color-txt-0)] font-medium">{selected.sellerName}</span>
+              Contact: <span className="text-[var(--color-txt-0)] font-semibold">{selected.sellerName}</span>
             </div>
             {selected.sellerEmail ? (
-              <a href={`mailto:${selected.sellerEmail}`} className="text-[var(--color-accent)] hover:underline">
+              <a href={`mailto:${selected.sellerEmail}`} className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px] decoration-2">
                 {selected.sellerEmail}
               </a>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-4 mt-3">
+          <div className="mod-actions mt-3">
             {selected.isMine ? (
-              <button type="button" onClick={() => openEdit(selected)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)] inline-flex items-center gap-1">
-                <Icon name="edit" size={12} /> Edit listing
+              <button type="button" onClick={() => openEdit(selected)} className="py-1 font-bold text-[13px] text-[var(--color-txt-1)] hover:text-[var(--color-accent)]">
+                <Icon name="edit" size={13} /> Edit listing
               </button>
             ) : (
               <>
                 <button
                   type="button"
                   onClick={(e) => report({ targetType: 'marketplace', targetId: selected.id, targetLabel: 'this listing' }, e.currentTarget)}
-                  className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)] inline-flex items-center gap-1"
                 >
-                  <Icon name="flag" size={12} /> Report listing
+                  <Icon name="flag" size={13} /> Report listing
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void blockSeller(selected)}
-                  className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-                >
+                <button type="button" onClick={() => void blockSeller(selected)}>
                   Block author
                 </button>
               </>
@@ -793,16 +787,15 @@ export default function Marketplace() {
         </div>
       ) : null}
 
-      {/* Tabs */}
+      {/* Browse / My listings: the same pill pair as the Board's sort. */}
       <div className="flex gap-2 mb-4">
         {['browse', 'mine'].map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`text-[13px] px-3 py-1.5 rounded-lg border ${
-              tab === t ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]' : 'border-[var(--color-border-2)] text-[var(--color-txt-1)]'
-            }`}
+            aria-pressed={tab === t}
+            className={`pill ${tab === t ? 'pill-active' : ''}`}
           >
             {t === 'browse' ? 'Browse' : 'My listings'}
           </button>
@@ -811,23 +804,21 @@ export default function Marketplace() {
 
       {/* One banner for both tabs: load errors and failed listing actions. */}
       {error ? (
-        <div role="alert" className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">
+        <div role="alert" className="card px-4 py-3 mb-4 border-[var(--color-error)]/40 text-[14px] text-[var(--color-error)]">
           {error}
         </div>
       ) : null}
 
       {tab === 'browse' ? (
         <>
-          <div className="flex flex-col sm:flex-row gap-3 mb-5">
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-5">
+            <div className="flex gap-2 max-lg:overflow-x-auto scrollbar-hide max-lg:-mx-4 max-lg:px-4 max-md:py-1 md:max-lg:-mx-6 md:max-lg:px-6 lg:flex-wrap max-md:[mask-image:linear-gradient(to_right,#000_88%,transparent)]">
               {['all', ...MARKETPLACE_CATEGORIES.map((c) => c.slug)].map((c) => (
                 <button
                   key={c}
                   type="button"
                   onClick={() => applyFilter(c, query)}
-                  className={`text-[12px] px-3 py-1.5 rounded-full border ${
-                    category === c ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]' : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
-                  }`}
+                  className={`pill shrink-0 ${category === c ? 'pill-active' : ''}`}
                 >
                   {c === 'all' ? 'All' : labelForCategory(c)}
                 </button>
@@ -838,41 +829,54 @@ export default function Marketplace() {
                 e.preventDefault()
                 applyFilter(category, query)
               }}
-              className="sm:ml-auto"
+              className="relative lg:ml-auto"
             >
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="input text-[13px] px-3 py-2 w-full sm:w-[200px]" />
+              <Icon name="search" size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-2)] pointer-events-none" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="input pl-10 lg:w-[240px] lg:min-h-[40px] lg:py-2" />
             </form>
           </div>
 
           {loading ? (
-            <p className="text-[13px] text-[var(--color-txt-3)]">Loading…</p>
+            <p className="text-[14px] text-[var(--color-txt-2)]">Loading…</p>
           ) : listings.length === 0 ? (
-            <div className="card p-10 text-center">
-              <p className="text-[14px] font-medium text-[var(--color-txt-0)]">No listings found</p>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1">Try another category or be the first to post.</p>
+            <div className="empty row">
+              <span className="ico">
+                <Icon name="tag" size={18} />
+              </span>
+              <div>
+                <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No listings found</p>
+                <p className="mt-0.5">Try another category or be the first to post.</p>
+              </div>
             </div>
           ) : (
             <>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{listings.map((l) => listingCard(l, 'browse'))}</div>
-              <div className="flex items-center justify-between mt-5">
-                <button type="button" onClick={() => changePage(-1)} disabled={page === 0} className="text-[13px] px-3 py-2 rounded-lg border border-[var(--color-border-2)] disabled:opacity-40">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{listings.map((l) => listingCard(l, 'browse'))}</div>
+              <div className="flex items-center justify-between gap-3 mt-5">
+                <button type="button" onClick={() => changePage(-1)} disabled={page === 0} className="btn btn-secondary btn-sm">
+                  <Icon name="chevronLeft" size={15} />
                   Prev
                 </button>
-                <span className="text-[12px] text-[var(--color-txt-3)]">Page {page + 1}</span>
-                <button type="button" onClick={() => changePage(1)} disabled={!hasMore} className="text-[13px] px-3 py-2 rounded-lg border border-[var(--color-border-2)] disabled:opacity-40">
+                <span className="font-display font-bold text-[13px] text-[var(--color-txt-2)] tnum">Page {page + 1}</span>
+                <button type="button" onClick={() => changePage(1)} disabled={!hasMore} className="btn btn-secondary btn-sm">
                   Next
+                  <Icon name="chevronRight" size={15} />
                 </button>
               </div>
             </>
           )}
         </>
       ) : mine.length === 0 ? (
-        <div className="card p-10 text-center">
-          <p className="text-[14px] font-medium text-[var(--color-txt-0)]">You have no listings</p>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">{canPost ? 'Post one above.' : 'Link Purdue in setup to post.'}</p>
+        <div className="empty row">
+          <span className="ico">
+            <Icon name="tag" size={18} />
+          </span>
+          <div>
+            <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">You have no listings</p>
+            <p className="mt-0.5">{canPost ? 'Post one above.' : 'Link Purdue in setup to post.'}</p>
+          </div>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{mine.map((l) => listingCard(l, 'mine'))}</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{mine.map((l) => listingCard(l, 'mine'))}</div>
       )}
     </div>
   )

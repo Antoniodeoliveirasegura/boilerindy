@@ -79,7 +79,7 @@ export default function ConfirmDialog({
 
   const confirmTone =
     tone === 'danger'
-      ? 'text-white bg-[var(--color-error)] border border-[var(--color-error)] hover:opacity-90'
+      ? 'text-[var(--color-on-route)] bg-[var(--color-error)] border-[var(--color-error)] hover:opacity-90'
       : 'btn-primary'
 
   return createPortal(
@@ -91,37 +91,37 @@ export default function ConfirmDialog({
       aria-describedby={message ? 'confirm-dialog-message' : undefined}
     >
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
+        className="absolute inset-0 bg-black/55 animate-fade-in"
         onClick={onCancel}
         aria-hidden="true"
       />
       <div className="relative card w-full max-w-sm p-5 shadow-[var(--shadow-xl)] animate-fade-in-up">
         <div className="flex items-start gap-3">
           {icon && (
-            <div className="w-9 h-9 rounded-xl bg-[var(--color-stat)] border border-[var(--color-border)] flex items-center justify-center shrink-0">
-              <Icon name={icon} size={17} className="text-[var(--color-txt-2)]" />
+            <div className={`route-badge shrink-0 ${tone === 'danger' ? 'bg-[var(--color-error)] text-[var(--color-on-route)]' : 'r-ink'}`}>
+              <Icon name={icon} size={17} />
             </div>
           )}
           <div className="min-w-0">
-            <h2 id="confirm-dialog-title" className="text-[15px] font-semibold text-[var(--color-txt-0)] leading-snug">
+            <h2 id="confirm-dialog-title" className="text-[17px] tracking-[-0.01em] text-[var(--color-txt-0)] leading-snug">
               {title}
             </h2>
             {message && (
-              <p id="confirm-dialog-message" className="text-[13px] text-[var(--color-txt-2)] mt-1.5 leading-relaxed">
+              <p id="confirm-dialog-message" className="text-[14px] text-[var(--color-txt-2)] mt-1.5 leading-relaxed">
                 {message}
               </p>
             )}
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
-          <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-secondary">
             {cancelLabel}
           </button>
           <button
             ref={confirmRef}
             type="button"
             onClick={onConfirm}
-            className={`btn text-[13px] px-4 py-2 ${confirmTone}`}
+            className={`btn ${confirmTone}`}
           >
             {confirmLabel}
           </button>

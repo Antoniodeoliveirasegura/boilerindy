@@ -93,7 +93,8 @@ describe('AppLayout on a preview route', () => {
   test('while auth loads: the navbar slot is held, with no bar and no navbar yet', () => {
     renderLayout({ loading: true, user: null }, '/dining')
     expect(screen.getByText('page outlet')).toBeInTheDocument()
-    expect(screen.getByTestId('navbar-slot')).toHaveClass('h-16')
+    // The navbar's own height: 56 px on phones, 64 px from md.
+    expect(screen.getByTestId('navbar-slot')).toHaveClass('h-14', 'md:h-16')
     expect(screen.queryByTestId('preview-bar')).toBeNull()
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
   })

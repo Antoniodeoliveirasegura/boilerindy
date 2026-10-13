@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, updateUserPassword } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { parseNextPath } from '../lib/authApi'
+import BrandMark from '../components/BrandMark'
+import Icon from '../components/Icons'
 import StatusBanner from '../components/StatusBanner'
 import PageTitle from '../components/PageTitle'
 
@@ -11,6 +13,17 @@ import PageTitle from '../components/PageTitle'
 // password here - a normal signed-in session is redirected to Settings.
 
 const LINK_CHECK_TIMEOUT_MS = 6000
+
+// The same mark-and-name lockup as the advertiser reset page. The name is
+// decorative here (aria-hidden), since this page never had a brand link.
+function BrandLockup() {
+  return (
+    <div aria-hidden="true" className="topbar-brand mb-6">
+      <BrandMark size={32} />
+      BoilerIndy
+    </div>
+  )
+}
 
 function readRecoveryError() {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
@@ -61,8 +74,7 @@ export default function ResetPassword() {
     }
   }, [linkState])
 
-  const inputBase =
-    'w-full py-2.5 px-3.5 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-bg-0)] dark:bg-[var(--color-bg-2)] text-[var(--color-txt-0)] text-sm outline-none focus:border-[var(--color-gold)] focus:shadow-[var(--shadow-glow)]'
+  const labelClass = 'block mb-1.5 text-[13px] font-semibold text-[var(--color-txt-1)]'
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -93,82 +105,91 @@ export default function ResetPassword() {
 
   if (linkState === 'invalid') {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)] text-center">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 sm:px-6">
         <PageTitle>Reset your password</PageTitle>
-        <h1 className="text-xl font-semibold text-[var(--color-txt-0)] mb-2">Link expired or invalid</h1>
-        <p className="text-sm text-[var(--color-txt-1)] mb-6 max-w-sm">
-          Reset links only work once and expire after a short while. Request a new one from the sign-in page.
-        </p>
-        <Link to="/login" className="text-[var(--color-accent)] font-medium">
-          Back to sign in
-        </Link>
+        <div className="w-full max-w-[420px]">
+          <BrandLockup />
+          <div className="card card-pad">
+            <h1 className="page-title compact">Link expired or invalid</h1>
+            <p className="page-sub mb-6">
+              Reset links only work once and expire after a short while. Request a new one from the sign-in page.
+            </p>
+            <Link to="/login" className="btn btn-secondary min-h-11 w-full">
+              <Icon name="arrowUpRight" size={14} className="rotate-[225deg]" />
+              Back to sign in
+            </Link>
+          </div>
+        </div>
       </div>
     )
   }
 
   if (linkState === 'checking') {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-1)]">
+      <div className="flex-1 flex items-center justify-center px-4 py-12">
         <PageTitle>Reset your password</PageTitle>
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <div className="text-[var(--color-txt-1)]">Checking your reset link…</div>
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--color-border-2)] border-t-[var(--color-txt-0)]" />
+          <div className="text-[14px] text-[var(--color-txt-1)]">Checking your reset link…</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 bg-[var(--color-bg-1)]">
+    <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 sm:px-6">
       <PageTitle>Reset your password</PageTitle>
-      <div className="w-full max-w-[400px]">
-        <h1 className="text-2xl font-bold text-[var(--color-txt-0)] mb-1">Set a new password</h1>
-        <p className="text-[13px] text-[var(--color-txt-1)] mb-6">Choose a strong password for your account.</p>
+      <div className="w-full max-w-[420px]">
+        <BrandLockup />
+        <div className="card card-pad">
+          <h1 className="page-title compact">Set a new password</h1>
+          <p className="page-sub mb-6">Choose a strong password for your account.</p>
 
-        {message && (
-          <StatusBanner tone="error" className="mb-4">
-            {message}
-          </StatusBanner>
-        )}
+          {message && (
+            <StatusBanner tone="error" className="mb-4">
+              {message}
+            </StatusBanner>
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="np" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
-              New password
-            </label>
-            <input
-              id="np"
-              type="password"
-              className={inputBase}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-          <div>
-            <label htmlFor="npc" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
-              Confirm password
-            </label>
-            <input
-              id="npc"
-              type="password"
-              className={inputBase}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-3 rounded-[10px] border-0 bg-[var(--color-gold-dark)] text-[var(--color-gold)] text-sm font-semibold hover:brightness-110 disabled:opacity-60"
-          >
-            {submitting ? 'Saving…' : 'Update password'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="np" className={labelClass}>
+                New password
+              </label>
+              <input
+                id="np"
+                type="password"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div>
+              <label htmlFor="npc" className={labelClass}>
+                Confirm password
+              </label>
+              <input
+                id="npc"
+                type="password"
+                className="input"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn btn-primary min-h-11 w-full"
+            >
+              {submitting ? 'Saving…' : 'Update password'}
+            </button>
+          </form>
+        </div>
 
-        <p className="text-center mt-6 text-[13px]">
-          <Link to="/login" className="text-[var(--color-accent)]">
+        <p className="mt-5 text-center text-[13px]">
+          <Link to="/login" className="font-semibold text-[var(--color-accent)] hover:underline underline-offset-2">
             Back to sign in
           </Link>
         </p>

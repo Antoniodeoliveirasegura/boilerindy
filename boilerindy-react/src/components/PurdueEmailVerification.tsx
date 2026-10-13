@@ -22,6 +22,12 @@ type Props = {
   allowDevLink?: boolean
   /** Called once the address is linked. */
   onLinked?: (email: string) => void
+  /**
+   * The look of Send code and Verify code. 'secondary' on a view that already
+   * has its own amber primary (Settings, the setup page's calendar step), so
+   * each view keeps one.
+   */
+  submitVariant?: 'primary' | 'secondary'
 }
 
 type Notice = { tone: 'error' | 'success'; text: string }
@@ -60,7 +66,15 @@ function formatWait(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default function PurdueEmailVerification({ allowDevLink = false, onLinked }: Props) {
+export default function PurdueEmailVerification({ allowDevLink = false, onLinked, submitVariant = 'primary' }: Props) {
+  // The primary submit is the one action of the narrow setup step, so it
+  // spans that card like the sign-in forms. The secondary submit sits in wide
+  // cards (Settings, the setup page's optional step): full width on phones
+  // only, then it hugs its label so it does not read as a second field.
+  const submitClass =
+    submitVariant === 'secondary'
+      ? 'btn btn-secondary min-h-11 flex w-full sm:w-fit'
+      : 'btn btn-primary min-h-11 w-full'
   const { refreshSession } = useAuth()
   const queryClient = useQueryClient()
   const userId = useUserId()
@@ -196,7 +210,7 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
 
   if (status.isLoading && !sentTo && !changingAddress) {
     return (
-      <div data-testid="purdue-email-verification" data-state="loading" className="text-[13px] text-[var(--color-txt-3)]">
+      <div data-testid="purdue-email-verification" data-state="loading" className="text-[13px] text-[var(--color-txt-2)]">
         Loading…
       </div>
     )
@@ -215,11 +229,11 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
       >
         {noticeEl}
         <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
-          We sent a 6-digit code to <span className="font-medium text-[var(--color-txt-0)] break-all">{pendingEmail}</span>. It
+          We sent a 6-digit code to <span className="font-semibold text-[var(--color-txt-0)] break-all">{pendingEmail}</span>. It
           expires in 10 minutes.
         </p>
         <div>
-          <label htmlFor="purdue-code" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
+          <label htmlFor="purdue-code" className="block mb-1.5 text-[13px] font-semibold text-[var(--color-txt-1)]">
             Verification code
           </label>
           <input
@@ -229,27 +243,27 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
             inputMode="numeric"
             autoComplete="one-time-code"
             disabled={busy !== null}
-            className="input w-full px-4 py-3 text-[16px] tracking-[0.3em] font-mono"
+            className="input code"
           />
         </div>
         <button
           type="submit"
           disabled={code.length !== 6 || busy !== null}
-          className="btn btn-primary w-full justify-center text-[13px] px-4 py-2.5 disabled:opacity-50"
+          className={submitClass}
         >
-          <Icon name="check" size={14} />
+          <Icon name="check" size={15} />
           {busy === 'verify' ? 'Checking…' : 'Verify code'}
         </button>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 text-[13px]">
           <button
             type="button"
             onClick={() => void sendCode(pendingEmail)}
             disabled={waitSeconds > 0 || busy !== null}
-            className="font-medium text-[var(--color-accent)] hover:underline disabled:text-[var(--color-txt-3)] disabled:no-underline"
+            className="inline-flex min-h-11 items-center font-semibold text-[var(--color-accent)] hover:underline underline-offset-2 disabled:text-[var(--color-txt-3)] disabled:no-underline tnum"
           >
             {busy === 'send' ? 'Sending…' : waitSeconds > 0 ? `Send a new code in ${formatWait(waitSeconds)}` : 'Send a new code'}
           </button>
-          <button type="button" onClick={changeAddress} disabled={busy !== null} className="text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
+          <button type="button" onClick={changeAddress} disabled={busy !== null} className="inline-flex min-h-11 items-center font-semibold text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]">
             Use a different address
           </button>
         </div>
@@ -270,7 +284,7 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
     >
       {noticeEl}
       <div>
-        <label htmlFor="purdue-email-address" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
+        <label htmlFor="purdue-email-address" className="block mb-1.5 text-[13px] font-semibold text-[var(--color-txt-1)]">
           Purdue email address
         </label>
         <input
@@ -281,16 +295,16 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
           placeholder="you@purdue.edu"
           autoComplete="email"
           disabled={busy !== null}
-          className="input w-full px-4 py-3 text-[16px] sm:text-[14px]"
+          className="input"
         />
-        <p className="text-[12px] text-[var(--color-txt-3)] mt-1.5">We will email you a 6-digit code to prove the address is yours.</p>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-txt-2)]">We will email you a 6-digit code to prove the address is yours.</p>
       </div>
       <button
         type="submit"
         disabled={!typed || waitSeconds > 0 || busy !== null}
-        className="btn btn-primary w-full justify-center text-[13px] px-4 py-2.5 disabled:opacity-50"
+        className={submitClass}
       >
-        <Icon name="mail" size={14} />
+        <Icon name="mail" size={15} />
         {busy === 'send' ? 'Sending…' : waitSeconds > 0 ? `Send code in ${formatWait(waitSeconds)}` : 'Send code'}
       </button>
       {allowDevLink ? (
@@ -298,7 +312,7 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
           type="button"
           onClick={() => void devLink(typed)}
           disabled={!typed || busy !== null}
-          className="block mx-auto text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] underline underline-offset-2 disabled:no-underline disabled:opacity-60"
+          className={`mx-auto flex w-fit min-h-10 items-center text-[12.5px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] underline underline-offset-2 disabled:no-underline disabled:opacity-60 ${submitVariant === 'secondary' ? 'sm:mx-0' : ''}`}
         >
           {busy === 'dev' ? 'Linking…' : 'Link without a code (development)'}
         </button>

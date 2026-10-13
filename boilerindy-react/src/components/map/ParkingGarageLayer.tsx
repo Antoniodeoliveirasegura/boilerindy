@@ -10,11 +10,12 @@ import {
 } from '../../lib/parking'
 import { useParking } from '../../lib/queries/publicData'
 
-const FILL: Record<GarageStatus, string> = {
-  open: '#16a34a',
-  busy: '#f59e0b',
-  full: '#dc2626',
-  unknown: '#9ca3af',
+// Leaflet writes these into SVG fill attributes, which cannot read CSS
+// variables, so they mirror the status tokens in index.css: success, the
+// signal amber, error and txt-3, light then dark.
+const FILL: Record<'light' | 'dark', Record<GarageStatus, string>> = {
+  light: { open: '#12763A', busy: '#F4A51C', full: '#C1261A', unknown: '#5F6673' },
+  dark: { open: '#5FD38A', busy: '#FFB938', full: '#FF7468', unknown: '#8B929D' },
 }
 
 /**
@@ -24,11 +25,13 @@ const FILL: Record<GarageStatus, string> = {
  * whatever was last drawn. Renders nothing when the layer is off, so it costs
  * nothing until a student asks for it.
  */
-export default function ParkingGarageLayer({ visible }: { visible: boolean }) {
+export default function ParkingGarageLayer({ visible, dark = false }: { visible: boolean; dark?: boolean }) {
   const parkingQuery = useParking({ enabled: visible })
   const garages: Garage[] = parkingQuery.data?.garages ?? []
 
   if (!visible) return null
+
+  const fill = FILL[dark ? 'dark' : 'light']
 
   return (
     <>
@@ -38,28 +41,30 @@ export default function ParkingGarageLayer({ visible }: { visible: boolean }) {
           <CircleMarker
             key={g.id}
             center={[g.lat, g.lng]}
-            radius={11}
-            pathOptions={{ color: '#ffffff', weight: 2, fillColor: FILL[g.status], fillOpacity: 0.95 }}
+            radius={10}
+            pathOptions={{ color: '#ffffff', weight: 2.5, fillColor: fill[g.status], fillOpacity: 1 }}
           >
             <Tooltip permanent direction="top" offset={[0, -8]} className="parking-count-tooltip">
               {g.available != null ? g.available.toLocaleString() : '?'}
             </Tooltip>
             <Popup>
-              <div style={{ minWidth: 180 }}>
-                <strong>{g.name}</strong>
-                {g.code ? <span style={{ opacity: 0.7 }}> ({g.code})</span> : null}
-                <div style={{ marginTop: 4 }}>
+              <div className="min-w-[180px] font-sans text-[13px] leading-[1.45]">
+                <strong className="font-display font-extrabold text-[14px]">{g.name}</strong>
+                {g.code ? <span className="text-[var(--color-txt-2)]"> ({g.code})</span> : null}
+                <div className="mt-1 tnum">
                   {STATUS_LABEL[g.status]}
                   {' · '}
                   {availabilityLabel(g)}
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>{formatUpdated(g.updatedAt)}</div>
-                {g.stRule ? <div style={{ fontSize: 12, marginTop: 4 }}>ST permit: {g.stRule}</div> : null}
-                <div style={{ marginTop: 8, display: 'flex', gap: 10, fontSize: 12 }}>
-                  <a href={directionsUrl(g)} target="_blank" rel="noopener noreferrer">
+                <div className="mt-0.5 text-[12px] text-[var(--color-txt-2)]">{formatUpdated(g.updatedAt)}</div>
+                {g.stRule ? <div className="mt-1 text-[12px]">ST permit: {g.stRule}</div> : null}
+                <div className="mt-2 flex gap-3 font-display font-bold text-[12.5px]">
+                  <a href={directionsUrl(g)} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)]!">
                     Directions
                   </a>
-                  <Link to="/parking">All garages</Link>
+                  <Link to="/parking" className="text-[var(--color-accent)]!">
+                    All garages
+                  </Link>
                 </div>
               </div>
             </Popup>

@@ -34,8 +34,9 @@ function renderPage() {
   )
 }
 
+// Each post is one row of the list (the list itself is the card).
 function card(title: string) {
-  return within(screen.getByText(title).closest('.card') as HTMLElement)
+  return within(screen.getByText(title).closest('li') as HTMLElement)
 }
 
 describe('Lost & Found report and block', () => {

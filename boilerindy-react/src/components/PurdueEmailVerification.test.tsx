@@ -57,7 +57,9 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function renderCard(props: { allowDevLink?: boolean; onLinked?: (email: string) => void } = {}) {
+function renderCard(
+  props: { allowDevLink?: boolean; onLinked?: (email: string) => void; submitVariant?: 'primary' | 'secondary' } = {},
+) {
   return render(
     <QueryClientProvider client={client}>
       <PurdueEmailVerification {...props} />
@@ -194,5 +196,21 @@ describe('PurdueEmailVerification', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(`Verified. ${EMAIL} is linked to your account.`)
     expect(bodiesSentTo('/api/purdue/mock-link')).toEqual([{ email: EMAIL }])
     expect(bodiesSentTo('/api/me/purdue-email/request')).toEqual([])
+  })
+
+  it('keeps Send code and Verify code amber by default, and secondary on a view with its own primary', async () => {
+    queue('/api/me/purdue-email/request', sent, sent)
+    const { unmount } = renderCard()
+    expect(await screen.findByRole('button', { name: 'Send code' })).toHaveClass('btn-primary')
+    unmount()
+
+    renderCard({ submitVariant: 'secondary' })
+    const send = await screen.findByRole('button', { name: 'Send code' })
+    expect(send).toHaveClass('btn-secondary')
+    expect(send).not.toHaveClass('btn-primary')
+    await requestCode()
+    const verify = await screen.findByRole('button', { name: 'Verify code' })
+    expect(verify).toHaveClass('btn-secondary')
+    expect(verify).not.toHaveClass('btn-primary')
   })
 })

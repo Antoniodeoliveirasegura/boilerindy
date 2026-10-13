@@ -60,10 +60,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     root.classList.toggle('dark', theme === 'dark')
     // Mirrors public/theme-init.js: the installed app paints the status bar
-    // with this colour, so a light theme must not sit under a dark strip.
+    // with this colour, the top band's (paper #FFFFFF in light, ink #050608 in
+    // dark), so the status bar and the header read as one strip.
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', theme === 'dark' ? '#151514' : '#EEEFF5')
+      ?.setAttribute('content', theme === 'dark' ? '#050608' : '#FFFFFF')
     try {
       localStorage.setItem(STORAGE_KEY, theme)
       localStorage.setItem(LEGACY_KEY, theme === 'dark' ? '1' : '0')

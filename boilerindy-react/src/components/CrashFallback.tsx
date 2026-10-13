@@ -6,14 +6,14 @@ export default function CrashFallback() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
       <div>
-        <h1 style={{ fontSize: 20, marginBottom: 8 }}>Something went wrong</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 8 }}>Something went wrong</h1>
         <p style={{ fontSize: 14, opacity: 0.75, marginBottom: 16 }}>
           The error has been reported. Reloading usually fixes it.
         </p>
         <button
           type="button"
           onClick={() => window.location.reload()}
-          style={{ padding: '10px 18px', borderRadius: 10, border: 0, background: '#D4A84B', color: '#3E2200', fontWeight: 600, cursor: 'pointer' }}
+          style={{ minHeight: 44, padding: '0 18px', borderRadius: 5, border: '1.5px solid rgba(23, 18, 10, 0.22)', background: '#F4A51C', color: '#17120A', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
         >
           Reload BoilerIndy
         </button>

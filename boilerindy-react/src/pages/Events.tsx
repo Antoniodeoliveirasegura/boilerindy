@@ -19,31 +19,12 @@ type EventItem = {
   freeFood?: boolean
 }
 
-const categoryConfig: Record<
-  string,
-  { label: string; bg: string; text: string; border: string; icon: string }
-> = {
-  campus_event: {
-    label: 'Campus Event',
-    bg: 'bg-pink-50 dark:bg-pink-900/20', 
-    text: 'text-pink-700 dark:text-pink-400', 
-    border: 'border-pink-200 dark:border-pink-800',
-    icon: 'users'
-  },
-  event: { 
-    label: 'Event',
-    bg: 'bg-indigo-50 dark:bg-indigo-900/20', 
-    text: 'text-indigo-700 dark:text-indigo-400', 
-    border: 'border-indigo-200 dark:border-indigo-800',
-    icon: 'calendar'
-  },
-  deadline: { 
-    label: 'Deadline',
-    bg: 'bg-yellow-50 dark:bg-yellow-900/20', 
-    text: 'text-yellow-700 dark:text-yellow-400', 
-    border: 'border-yellow-200 dark:border-yellow-800',
-    icon: 'clock'
-  },
+// Category labels. Every event row sits on the Events line (one route per
+// card), so a category is a label, not a colour.
+const categoryConfig: Record<string, { label: string }> = {
+  campus_event: { label: 'Campus Event' },
+  event: { label: 'Event' },
+  deadline: { label: 'Deadline' },
 }
 
 function formatDate(dateString: string) {
@@ -83,6 +64,16 @@ function getRelativeTime(dateString: string) {
 
 function isPast(dateString: string) {
   return new Date(dateString) < new Date()
+}
+
+function isToday(dateString: string) {
+  return new Date(dateString).toDateString() === new Date().toDateString()
+}
+
+// The departures-row date block: short weekday over the day of the month.
+function dateBlock(dateString: string) {
+  const date = new Date(dateString)
+  return { day: date.toLocaleDateString(undefined, { weekday: 'short' }), date: date.getDate() }
 }
 
 // Keyed by user (issue #219) and the local calendar day; lib/localDate explains
@@ -193,66 +184,74 @@ export default function Events() {
   const hasNoSources = onboarding?.linkedSourceCount === 0
 
   return (
-    <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+    <div className="page">
       <PageTitle>Campus Events</PageTitle>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6 animate-fade-in-up">
+      <header className="page-head">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Events</h1>
-          <p className="text-[14px] text-[var(--color-txt-2)] mt-1">
+          <h1 className="page-title">Campus Events</h1>
+          <p className="page-sub tnum">
             {filteredItems.length} upcoming events from your calendar
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        {/* Filter toggles as one row of plates, the same height as the
+            Refresh btn-sm (44px on phones, 34px up), as on Assignments. On
+            phones Refresh is a square so the row fits; its name stays "Refresh". */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setFreeFoodOnly((v) => !v)}
             aria-pressed={freeFoodOnly}
-            className={`pill whitespace-nowrap inline-flex items-center gap-1.5 ${freeFoodOnly ? 'pill-active' : ''}`}
+            className={`pill md:min-h-[34px] whitespace-nowrap ${freeFoodOnly ? 'pill-active' : ''}`}
             title="Show only events with free food"
           >
-            <span aria-hidden="true">🍕</span>
+            <span aria-hidden="true" className="flex">
+              <Icon name="coffee" size={14} />
+            </span>
             Free food
           </button>
-          <label className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)] cursor-pointer">
+          <label className="pill cursor-pointer gap-2 select-none whitespace-nowrap md:min-h-[34px]">
             <input
               type="checkbox"
               checked={showPast}
               onChange={(e) => setShowPast(e.target.checked)}
-              className="w-4 h-4 rounded border-[var(--color-border-2)]"
+              className="h-4 w-4 shrink-0 accent-[var(--color-txt-0)]"
             />
             Show past events
           </label>
-          <button onClick={() => void calendarQuery.refetch()} className="btn btn-secondary text-[13px] px-4 py-2">
+          <button onClick={() => void calendarQuery.refetch()} className="btn btn-ghost btn-sm max-md:px-0">
             <Icon name="refresh" size={14} />
-            Refresh
+            <span className="max-md:sr-only">Refresh</span>
           </button>
         </div>
-      </div>
+      </header>
 
       {hasNoSources && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 animate-fade-in-up">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">
+        <section className="card card-pad r-evt mb-6">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div className="flex-1 min-w-[200px]">
+              <div className="card-title">
                 Connect your Brightspace calendar
               </div>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
+              <p className="card-sub text-[13px] max-w-[640px]">
                 Import campus events, career fairs, workshops, and more from Brightspace.
               </p>
             </div>
-            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
+            <Link to="/setup" className="btn btn-primary w-fit">
               <Icon name="calendar" size={15} />
               Connect Brightspace
             </Link>
           </div>
-        </div>
+        </section>
       )}
 
       {categoryCounts.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6 animate-fade-in-up stagger-1">
+        <div className="flex flex-wrap gap-2 mb-5">
           <button
             onClick={() => setSelectedCategories([])}
-            className={`pill whitespace-nowrap ${selectedCategories.length === 0 ? 'pill-active' : ''}`}
+            className={`pill whitespace-nowrap tnum ${selectedCategories.length === 0 ? 'pill-active' : ''}`}
           >
             All ({items.length})
           </button>
@@ -262,7 +261,7 @@ export default function Events() {
               <button
                 key={cat.id}
                 onClick={() => toggleCategory(cat.id)}
-                className={`pill whitespace-nowrap ${isActive ? 'pill-active' : ''}`}
+                className={`pill whitespace-nowrap tnum capitalize ${isActive ? 'pill-active' : ''}`}
               >
                 {cat.label} ({cat.count})
               </button>
@@ -273,159 +272,171 @@ export default function Events() {
 
       {/* AI Event Recommendations */}
       {!hasNoSources && !loading && items.length > 0 && (
-        <div className="card p-4 mb-6 border-[var(--color-gold)]/20 animate-fade-in-up stagger-2">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
-                <Icon name="sparkles" size={12} className="text-[var(--color-gold-dark)]" />
-              </div>
-              <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Recommended for You</span>
+        <section className="card card-pad r-ai mb-6">
+          <div className="card-head mb-2">
+            <span className="route-badge">
+              <Icon name="sparkles" size={18} />
+            </span>
+            <div>
+              <div className="card-title lowercase first-letter:uppercase">Recommended for You</div>
             </div>
             <button
               onClick={generateRecs}
               disabled={recsLoading}
-              className="text-[11px] text-[var(--color-accent)] hover:underline disabled:opacity-40 shrink-0"
+              className="head-link disabled:opacity-40"
             >
               {recsLoading ? 'Thinking…' : eventRecs ? 'Refresh' : 'Get Picks'}
             </button>
           </div>
           {recsLoading && !eventRecs ? (
-            <div className="flex items-center gap-2 text-[13px] text-[var(--color-txt-2)]">
-              <div className="w-3.5 h-3.5 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin shrink-0" />
+            <div className="flex items-center gap-2 text-[14px] text-[var(--color-txt-2)]">
+              <div className="w-3.5 h-3.5 border-2 border-[var(--color-txt-2)] border-t-transparent rounded-full animate-spin shrink-0" />
               Finding events that fit your schedule…
             </div>
           ) : eventRecs ? (
-            <AiMarkdown className="text-[13px] text-[var(--color-txt-1)]">{eventRecs}</AiMarkdown>
+            <AiMarkdown className="text-[14px] text-[var(--color-txt-1)]">{eventRecs}</AiMarkdown>
           ) : (
-            <p className="text-[12px] text-[var(--color-txt-3)]">
+            <p className="text-[13px] text-[var(--color-txt-2)]">
               AI picks campus events that fit your free time. Tap &ldquo;Get Picks&rdquo; to try it.
             </p>
           )}
-        </div>
+        </section>
       )}
 
       {loading ? (
-        <div className="card p-8 text-center text-[var(--color-txt-2)]">
+        <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">
           Loading events...
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="card p-8 text-center">
-          <Icon name="calendar" size={32} className="mx-auto text-[var(--color-txt-3)] mb-3" />
-          <div className="text-[var(--color-txt-1)] font-medium">No events found</div>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
-            {hasNoSources 
-              ? 'Connect your Brightspace calendar to see campus events.'
-              : selectedCategories.length > 0 
-                ? 'Try selecting different categories or showing past events.'
-                : 'No upcoming campus events in your calendar.'}
-          </p>
+        <div className="card card-pad">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No events found</div>
+              <p className="text-[13px] mt-0.5">
+                {hasNoSources
+                  ? 'Connect your Brightspace calendar to see campus events.'
+                  : selectedCategories.length > 0
+                    ? 'Try selecting different categories or showing past events.'
+                    : 'No upcoming campus events in your calendar.'}
+              </p>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="grid lg:grid-cols-[1fr_340px] gap-6">
-          <div className="space-y-6 animate-fade-in-up stagger-2">
-            {Object.entries(groupedItems).map(([date, dateItems]) => (
-              <div key={date}>
-                <div className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4 lg:gap-6 items-start">
+          <section className="card card-pad r-evt min-w-0">
+            {Object.entries(groupedItems).map(([date, dateItems], groupIdx) => (
+              <div key={date} className={groupIdx > 0 ? 'mt-2' : ''}>
+                <div className="eyebrow bare">
                   {date}
                 </div>
-                <div className="space-y-2">
+                <ol className="dep">
                   {dateItems.map(item => {
                     const config = categoryConfig[item.category ?? 'event'] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
                     const past = isPast(item.startTime)
-                    
+                    const block = dateBlock(item.startTime)
+
                     return (
-                      <button
-                        key={item.id}
-                        onClick={() => setSelectedItem(item)}
-                        className={`w-full text-left card-interactive p-4 transition-all ${
-                          isSelected ? 'ring-2 ring-[var(--color-gold)]' : ''
-                        } ${past ? 'opacity-60' : ''}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-10 h-10 rounded-xl ${config.bg} flex items-center justify-center shrink-0`}>
-                            <Icon name={config.icon} size={18} className={config.text} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="font-medium text-[var(--color-txt-0)] text-[14px] line-clamp-2">
-                                {item.title}
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {item.freeFood && (
-                                  <span
-                                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 inline-flex items-center gap-1"
-                                    title="This event mentions free food"
-                                  >
-                                    <span aria-hidden="true">🍕</span>
-                                    Free food
+                      <li key={item.id} className={isToday(item.startTime) ? 'urgent' : undefined}>
+                        <button
+                          onClick={() => setSelectedItem(item)}
+                          className={`-mx-3 w-[calc(100%+24px)] px-3 rounded-[var(--radius-md)] transition-colors ${
+                            isSelected
+                              ? 'bg-[var(--route-tint)] shadow-[inset_3px_0_0_var(--route)]'
+                              : 'hover:bg-[var(--color-surface-hover)]'
+                          } ${past ? 'opacity-60' : ''}`}
+                        >
+                          <span className="when" aria-hidden="true">
+                            <span>{block.day}</span>
+                            <b>{block.date}</b>
+                          </span>
+                          <span className="body">
+                            <span className="ttl line-clamp-2">
+                              {item.title}
+                            </span>
+                            <span className="meta flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5">
+                              {item.freeFood && (
+                                <span
+                                  className="badge"
+                                  title="This event mentions free food"
+                                >
+                                  <span aria-hidden="true" className="flex">
+                                    <Icon name="coffee" size={12} />
                                   </span>
-                                )}
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full ${config.bg} ${config.text}`}>
-                                  {config.label}
+                                  Free food
                                 </span>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[var(--color-txt-2)]">
-                              <span className="flex items-center gap-1">
+                              )}
+                              {/* On the selected row's route tint the label keeps a surface plate. */}
+                              <span className={`badge badge-route ${isSelected ? 'bg-[var(--color-surface)]' : ''}`}>
+                                {config.label}
+                              </span>
+                              <span className="inline-flex items-center gap-1">
                                 <Icon name="clock" size={12} />
                                 {formatTime(item.startTime)}
                               </span>
                               {item.location && (
-                                <span className="flex items-center gap-1 truncate">
+                                <span className="inline-flex items-center gap-1 min-w-0 max-w-full truncate">
                                   <Icon name="mapPin" size={12} />
                                   {item.location.split(' (')[0].slice(0, 30)}
                                 </span>
                               )}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
+                            </span>
+                          </span>
+                          <span className="end">
+                            <Icon name="chevronRight" size={18} />
+                          </span>
+                        </button>
+                      </li>
                     )
                   })}
-                </div>
+                </ol>
               </div>
             ))}
-          </div>
+          </section>
 
-          <div className="lg:sticky lg:top-24 h-fit min-w-0 animate-fade-in-up stagger-3">
+          {/* On phones and tablets this column stacks under the whole list, so
+              the empty placeholder only shows from lg; a selected event still
+              shows. As on Assignments. */}
+          <div className={`lg:sticky lg:top-24 min-w-0 ${selectedItem ? '' : 'hidden lg:block'}`}>
             {selectedItem ? (
-              <div className="card p-5 min-w-0 overflow-hidden">
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <span className={`text-[11px] px-2.5 py-1 rounded-full ${
-                    (categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).bg
-                  } ${(categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).text}`}>
+              <div className="card card-pad r-evt min-w-0 overflow-hidden">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <span className="badge badge-route">
                     {(categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).label}
                   </span>
-                  <button 
+                  <button
                     onClick={() => setSelectedItem(null)}
-                    className="text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)]"
+                    className="btn btn-ghost btn-sm px-2 text-[var(--color-txt-2)]"
                   >
                     <Icon name="close" size={18} />
                   </button>
                 </div>
                 
-                <h3 className="text-[18px] font-semibold text-[var(--color-txt-0)] mb-4">
+                <h3 className="text-[20px] leading-tight text-[var(--color-txt-0)] mb-4 break-words">
                   {selectedItem.title}
                 </h3>
                 
                 <div className="space-y-3 mb-5">
-                  <div className="flex items-center gap-3 text-[13px]">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-2)] flex items-center justify-center">
-                      <Icon name="calendar" size={15} className="text-[var(--color-txt-2)]" />
-                    </div>
+                  <div className="flex items-center gap-3 text-[14px]">
+                    <span className="ico">
+                      <Icon name="calendar" size={15} />
+                    </span>
                     <div>
-                      <div className="text-[var(--color-txt-1)]">{formatDate(selectedItem.startTime)}</div>
-                      <div className="text-[var(--color-txt-3)] text-[12px]">{formatTime(selectedItem.startTime)}</div>
+                      <div className="text-[var(--color-txt-0)] font-display font-bold">{formatDate(selectedItem.startTime)}</div>
+                      <div className="text-[var(--color-txt-2)] text-[12.5px] tnum">{formatTime(selectedItem.startTime)}</div>
                     </div>
                   </div>
                   
                   {selectedItem.location && (
-                    <div className="flex items-start gap-3 text-[13px] min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-2)] flex items-center justify-center shrink-0">
-                        <Icon name="mapPin" size={15} className="text-[var(--color-txt-2)]" />
-                      </div>
-                      <div className="text-[var(--color-txt-1)] min-w-0 break-words [overflow-wrap:anywhere]">
+                    <div className="flex items-start gap-3 text-[14px] min-w-0">
+                      <span className="ico">
+                        <Icon name="mapPin" size={15} />
+                      </span>
+                      <div className="text-[var(--color-txt-1)] min-w-0 pt-1 break-words [overflow-wrap:anywhere]">
                         {/^https?:\/\//i.test(selectedItem.location.trim()) ? (
                           <a
                             href={selectedItem.location.trim()}
@@ -444,11 +455,11 @@ export default function Events() {
                     </div>
                   )}
                   
-                  <div className="flex items-center gap-3 text-[13px]">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-2)] flex items-center justify-center">
-                      <Icon name="clock" size={15} className="text-[var(--color-txt-2)]" />
-                    </div>
-                    <div className={`${isPast(selectedItem.startTime) ? 'text-[var(--color-txt-3)]' : 'text-[var(--color-txt-1)]'}`}>
+                  <div className="flex items-center gap-3 text-[14px]">
+                    <span className="ico">
+                      <Icon name="clock" size={15} />
+                    </span>
+                    <div className={`tnum ${isPast(selectedItem.startTime) ? 'text-[var(--color-txt-3)]' : 'text-[var(--color-txt-1)]'}`}>
                       {isPast(selectedItem.startTime) ? 'Event has passed' : `In ${getRelativeTime(selectedItem.startTime)}`}
                     </div>
                   </div>
@@ -456,10 +467,10 @@ export default function Events() {
                 
                 {selectedItem.description && (
                   <div className="pt-4 border-t border-[var(--color-border)] min-w-0">
-                    <div className="text-[12px] font-medium text-[var(--color-txt-3)] uppercase tracking-wider mb-2">
+                    <div className="eyebrow mb-2.5">
                       Details
                     </div>
-                    <div className="text-[13px] text-[var(--color-txt-1)] leading-relaxed min-w-0 max-w-full break-words [overflow-wrap:anywhere]">
+                    <div className="text-[14px] text-[var(--color-txt-1)] leading-relaxed min-w-0 max-w-full break-words [overflow-wrap:anywhere]">
                       {(() => {
                         const full = stripHtml(selectedItem.description)
                         const truncated = full.length > 800
@@ -476,9 +487,13 @@ export default function Events() {
                 )}
               </div>
             ) : (
-              <div className="card p-5 text-center text-[var(--color-txt-2)]">
-                <Icon name="users" size={24} className="mx-auto mb-2 text-[var(--color-txt-3)]" />
-                <p className="text-[13px]">Select an event to view details</p>
+              <div className="card card-pad">
+                <div className="empty">
+                  <span className="ico">
+                    <Icon name="users" size={18} />
+                  </span>
+                  <p>Select an event to view details</p>
+                </div>
               </div>
             )}
           </div>

@@ -38,28 +38,28 @@ export default function UpdateToast({
 
   if (!ready || dismissed) return null
 
-  // Sits above the mobile bottom nav (z-40) and below dialogs (z-[2000]), like
-  // ServerWakeNotice. On phones the bottom offset clears the nav (64px), the
-  // assistant button that floats 20px above it (56px) and an 8px gap, so the
-  // toast never covers the button (issue #249).
+  // Sits above the mobile tab bar (z-40) and below dialogs (z-[2000]), like
+  // ServerWakeNotice. On phones the bottom offset clears the assistant button,
+  // which floats 76px up over the 62px tab bar (56px tall), plus an 8px gap,
+  // so the toast never covers the button (issue #249).
   return (
-    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+148px)] z-[1200] flex justify-center px-4 md:bottom-6">
+    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] z-[1200] flex justify-center px-4 md:bottom-6">
       <div
         role="status"
         aria-live="polite"
         data-testid="sw-update-toast"
-        className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-4 py-3 text-[13px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-md)]"
+        className="flex w-full max-w-md items-center gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-txt-0)] bg-[var(--color-surface)] py-2.5 pl-4 pr-2.5 text-[13.5px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-lg)]"
       >
         <p className="flex-1">
-          <span className="font-semibold text-[var(--color-txt-0)]">A new version of BoilerIndy is ready.</span> Refresh to get it.
+          <span className="font-display font-extrabold text-[var(--color-txt-0)]">A new version of BoilerIndy is ready.</span> Refresh to get it.
         </p>
-        <button type="button" onClick={refresh} className="btn btn-primary shrink-0 px-3 py-1.5 text-[12px]">
+        <button type="button" onClick={refresh} className="btn btn-primary btn-sm shrink-0">
           Refresh
         </button>
         <button
           type="button"
           onClick={() => setDismissed(true)}
-          className="btn shrink-0 px-2 py-1.5 text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]"
+          className="btn btn-ghost btn-sm shrink-0"
         >
           Later
         </button>
