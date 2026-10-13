@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
@@ -442,9 +443,13 @@ function LiveMap({
     })
   }, [stops, routes, selectedRoute, mapReady, stopHighlights, canonicalRouteId])
 
+  // Waits for mapReady like the line and stop effects. The map is created a
+  // microtask after mount, when the vehicles are usually already loaded, and a
+  // poll that returns the same feed keeps the same array, so without mapReady
+  // here the buses were never drawn until one of them moved.
   useEffect(() => {
     const map = mapInstanceRef.current
-    if (!map || !window.L) return
+    if (!map || !window.L || !mapReady) return
 
     const L = window.L
 
@@ -551,7 +556,7 @@ function LiveMap({
       )
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 })
     }
-  }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes])
+  }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes, mapReady])
 
   return (
     <div
@@ -671,7 +676,32 @@ export default function Transit() {
     [vehiclesQuery.data],
   )
   const stops = useMemo<Stop[]>(() => (Array.isArray(stopsQuery.data) ? (stopsQuery.data as Stop[]) : []), [stopsQuery.data])
-  const [selectedRoute, setSelectedRoute] = useState<TransitRoute | null>(null)
+  // The selected route lives in the URL (?route=31), not in component state:
+  // leaving the page and coming Back remounted it on All Routes, which also
+  // left the saved "my stop" alert unarmed until the route was picked again.
+  // Replace, not push, so each pill is not a Back step of its own. The
+  // preview bar's Sign in link carries the search, so the route also
+  // survives signing in from the signed-out preview.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const routeParam = searchParams.get('route')
+  const selectedRoute = useMemo<TransitRoute | null>(
+    () => routes.find((r) => String(r.id) === routeParam) ?? null,
+    [routeParam],
+  )
+  const setSelectedRoute = useCallback(
+    (route: TransitRoute | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (route) next.set('route', String(route.id))
+          else next.delete('route')
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
   const [selectedBus, setSelectedBus] = useState<Vehicle | null>(null)
   const loading = vehiclesQuery.isPending || stopsQuery.isPending || routesQuery.isPending
   const lastUpdate = useMemo(
@@ -681,10 +711,14 @@ export default function Transit() {
   const [visitedStopIds, setVisitedStopIds] = useState<Set<string>>(() => new Set())
   // Last bus position folded into visitedStopIds - see the accumulation block below.
   const [lastBusPos, setLastBusPos] = useState<string | null>(null)
-  /** One “my stop” per route - chime fires when bus reaches the stop before this one */
-  const [myStopId, setMyStopId] = useState<string | null>(null)
   // The route whose saved stop is loaded: none signed out.
   const myStopRouteId = signedIn ? (selectedRoute?.id ?? null) : null
+  /**
+   * One “my stop” per route - chime fires when bus reaches the stop before this one.
+   * Read on mount too: a page opened (or come Back to) on ?route= starts with
+   * its route already selected, so the load-on-change block below sees no change.
+   */
+  const [myStopId, setMyStopId] = useState<string | null>(() => loadMyStopForRoute(myStopRouteId))
   const [loadedMyStopRouteId, setLoadedMyStopRouteId] = useState(myStopRouteId)
   const chimePlayedRef = useRef(false)
   const routeIdToCanonical = useMemo<Record<number, number>>(

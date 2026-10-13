@@ -91,7 +91,10 @@ test.describe('Public preview, signed out', () => {
     await expect(page.getByText(/Alert when bus reaches/)).toHaveCount(0)
 
     await page.waitForLoadState('networkidle')
-    await expect(page).toHaveURL(/\/transit$/)
+    // Still on transit, not bounced to /login. The picked route is kept in the
+    // URL (Back restores it), and Sign in carries it through.
+    await expect(page).toHaveURL(/\/transit\?route=31$/)
+    await expectPreviewBar(page, '/transit?route=31')
     expect(perUser).toEqual([])
     // The saved stop is untouched, there for the student when they sign in.
     expect(await page.evaluate(() => localStorage.getItem('transit-my-stop-31'))).toBe('"1002"')

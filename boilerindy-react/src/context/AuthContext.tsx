@@ -316,10 +316,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // client would empty the public snapshot the next launch paints from.
       clearAiCaches()
       dropUserQueries(queryClient)
+      // The tab stops acting as this student even when a request failed, so
+      // a failed sign-out never leaves the account open behind the landing
+      // page; useSignOutAndRedirect tells them the server may still hold it.
+      supabaseOwnsSession.current = false
+      setSession(null)
+      setSupabaseUser(null)
     }
-    supabaseOwnsSession.current = false
-    setSession(null)
-    setSupabaseUser(null)
   }, [queryClient])
 
   const user = session?.user ?? null
@@ -384,7 +387,21 @@ export function useSignOutAndRedirect() {
   const { signOut } = useAuth()
 
   return useCallback(async () => {
-    await signOut()
+    // Leave the signed-in page first. Clearing the session while a guarded
+    // page was still on screen made RequireAuth send the student to
+    // /login?next=<that page>, which flashed the sign-in form (or kept it,
+    // when only the backend cookie held the session) instead of the landing
+    // page. The landing page does not read the session, so it is a safe place
+    // to wait for the sign-out to finish.
     navigate('/', { replace: true })
+    try {
+      await signOut()
+    } catch {
+      // Offline or a server error: this tab has let go of the session, but
+      // the server may still hold it, and on a shared computer the next
+      // person could reload into this account. Say so rather than leaving
+      // the student on the landing page believing they are signed out.
+      navigate('/login?error=sign-out-failed', { replace: true })
+    }
   }, [navigate, signOut])
 }

@@ -1,6 +1,7 @@
 import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import AppErrorBoundary from './AppErrorBoundary'
 import { isPreviewPath } from '../lib/publicPreview'
 import { syncScheduleOverridesFromServer } from '../lib/scheduleOverrideStore'
 import Navbar from './Navbar'
@@ -62,10 +63,13 @@ export default function AppLayout() {
           the fixed navbar, bottom nav and assistant are unaffected. It is also
           the page's main landmark and the skip link's target (issue #221). */}
       <main id="main" tabIndex={-1} className="overflow-x-clip focus:outline-none">
-        {/* Inner boundary: navbar + rails stay mounted while a page chunk loads. */}
-        <Suspense fallback={<PageLoader />}>
-          <Outlet />
-        </Suspense>
+        {/* Inner boundaries: navbar + rails stay mounted while a page chunk
+            loads, and when a page crashes; the next navigation retries. */}
+        <AppErrorBoundary resetKey={pathname}>
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
+        </AppErrorBoundary>
       </main>
       {/* Extra bottom padding on mobile clears the fixed tab bar (62px) and the
           assistant button floating above it (issues #112, #249). From md the

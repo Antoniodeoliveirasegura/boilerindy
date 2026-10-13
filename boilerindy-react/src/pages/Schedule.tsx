@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { extractBuildingCode } from '../lib/buildingCode'
+import { mapHrefForRoom } from '../lib/buildingCode'
 import { splitCourseCode } from '../lib/courseCode'
 import { errorMessage } from '../lib/queries/publicData'
 import { useMyClasses } from '../lib/queries/userData'
@@ -291,13 +291,9 @@ export default function Schedule() {
   })
   const [formError, setFormError] = useState('')
 
+  // Home's Get Directions builds the same link (lib/buildingCode.ts).
   const handleFindRoom = (room: string) => {
-    const buildingCode = extractBuildingCode(room)
-    if (buildingCode) {
-      navigate(`/map?building=${buildingCode}&room=${encodeURIComponent(room)}`)
-    } else {
-      navigate(`/map?room=${encodeURIComponent(room)}`)
-    }
+    navigate(mapHrefForRoom(room))
   }
 
   // Re-read on user change and whenever the server pull (or another tab) lands,

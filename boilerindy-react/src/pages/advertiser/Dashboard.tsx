@@ -68,6 +68,11 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
+// advertiserRequest attaches the response status to its errors.
+function isSessionEnded(e: unknown): boolean {
+  return (e as { status?: number } | null)?.status === 401
+}
+
 // cls is added to the shared .badge: a route tint for the live states (Live
 // green, Paused orange, In review blue), the plain stat badge for the rest.
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -141,6 +146,7 @@ const hintCls = 'text-[12px] leading-snug text-[var(--color-txt-3)]'
 function CampaignForm({
   initial,
   submitting,
+  sessionEnded,
   onSubmit,
   onCancel,
   title,
@@ -148,6 +154,7 @@ function CampaignForm({
 }: {
   initial: CampaignFormData
   submitting: boolean
+  sessionEnded: boolean
   onSubmit: (form: CampaignFormData) => void
   onCancel: () => void
   title: string
@@ -265,6 +272,28 @@ function CampaignForm({
           </div>
         </div>
       </div>
+
+      {/* Beside the save button, where the advertiser is looking after
+          pressing it; the page's alert sits above a long form, off screen.
+          The sign-in link opens a new tab, so this form and what is typed in
+          it stay here to save once the new session is in. */}
+      {sessionEnded && (
+        <div
+          role="alert"
+          className="rounded-lg border-[1.5px] border-[var(--color-error)]/45 bg-[var(--color-error)]/8 text-[var(--color-error)] px-3.5 py-2.5 text-[13.5px] leading-snug"
+        >
+          Your advertiser session ended, so this was not saved.{' '}
+          <a
+            href="/advertise?message=session-expired"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold underline underline-offset-2"
+          >
+            Sign in again in a new tab
+          </a>
+          , then come back and save. This form stays as you left it.
+        </div>
+      )}
 
       <div className="flex items-center gap-2 pt-1">
         <button type="submit" disabled={submitting} className="btn btn-primary">
@@ -392,6 +421,12 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   const [editingId, setEditingId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  // Set when a save, or a status change made with a form open, finds the
+  // session gone. Those calls do not redirect (see createCampaign), so the
+  // open form explains why it was not saved and how to keep it.
+  const [sessionEnded, setSessionEnded] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutFailed, setSignOutFailed] = useState(false)
 
   const editingCampaign = useMemo(
     () => campaigns.find((c) => c.id === editingId) || null,
@@ -419,12 +454,14 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   const handleCreate = async (form: CampaignFormData) => {
     setSubmitting(true)
     setError(null)
+    setSessionEnded(false)
     try {
       const { campaign } = (await createCampaign(formToPayload(form))) as { campaign: Campaign }
       setCampaigns((list) => [campaign, ...list])
       setCreating(false)
     } catch (e) {
-      setError(errorText(e, 'Could not create campaign.'))
+      if (isSessionEnded(e)) setSessionEnded(true)
+      else setError(errorText(e, 'Could not create campaign.'))
     } finally {
       setSubmitting(false)
     }
@@ -433,37 +470,62 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   const handleEditSave = async (form: CampaignFormData) => {
     setSubmitting(true)
     setError(null)
+    setSessionEnded(false)
     try {
       const { campaign } = (await updateCampaign(editingId ?? '', formToPayload(form))) as { campaign: Campaign }
       setCampaigns((list) => list.map((c) => (c.id === campaign.id ? campaign : c)))
       setEditingId(null)
     } catch (e) {
-      setError(errorText(e, 'Could not save campaign.'))
+      if (isSessionEnded(e)) setSessionEnded(true)
+      else setError(errorText(e, 'Could not save campaign.'))
     } finally {
       setSubmitting(false)
     }
   }
 
+  // A status change with no form open has nothing to lose, so a 401 goes
+  // back to the sign-in page like the campaign list does. With a form open
+  // the redirect would throw that form away, so it stays and says why.
   const handleStatus = async (id: string, status: string) => {
+    const formOpen = creating || editingId !== null
     setBusyId(id)
     setError(null)
+    setSessionEnded(false)
     try {
-      const { campaign } = (await updateCampaign(id, { status })) as { campaign: Campaign }
+      const { campaign } = (await updateCampaign(id, { status }, { redirectOn401: !formOpen })) as {
+        campaign: Campaign
+      }
       setCampaigns((list) => list.map((c) => (c.id === campaign.id ? campaign : c)))
     } catch (e) {
-      setError(errorText(e, 'Could not update campaign.'))
+      if (isSessionEnded(e)) setSessionEnded(true)
+      else setError(errorText(e, 'Could not update campaign.'))
     } finally {
       setBusyId(null)
     }
   }
 
+  // Leave only once the server has ended the session. This used to swallow
+  // any error and go to /advertise to clear the UI regardless, but after a
+  // network error or a 5xx the session was still live, so the sign-in page
+  // bounced straight back here with no message, and an advertiser who was
+  // offline looked signed out when they were not. The UI still clears when
+  // there was no session left to end: the server answers sign-out with 200
+  // either way. Replace, so Back does not return to a signed-out dashboard
+  // that only redirects to the sign-in page again. The failure shows in the
+  // sticky header beside the button: in the page's alert it sat above the
+  // screen once the list was scrolled, so a failed sign-out looked like
+  // nothing had happened.
   const handleSignOut = async () => {
+    setSigningOut(true)
+    setSignOutFailed(false)
     try {
       await advertiserSignOut()
     } catch {
-      /* clear UI regardless */
+      setSigningOut(false)
+      setSignOutFailed(true)
+      return
     }
-    navigate('/advertise')
+    navigate('/advertise', { replace: true })
   }
 
   return (
@@ -489,11 +551,19 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
             >
               <Icon name={dark ? 'sun' : 'moon'} size={18} />
             </button>
-            <button type="button" onClick={handleSignOut} className="btn btn-secondary btn-sm">
-              <Icon name="close" size={14} /> Sign out
+            <button type="button" onClick={handleSignOut} disabled={signingOut} className="btn btn-secondary btn-sm">
+              <Icon name="close" size={14} /> {signingOut ? 'Signing out…' : 'Sign out'}
             </button>
           </div>
         </div>
+        {signOutFailed && (
+          <div
+            role="alert"
+            className="max-w-[1200px] mx-auto px-4 md:px-6 pb-2.5 text-right text-[13px] font-semibold leading-snug text-[var(--color-error)]"
+          >
+            Sign-out failed, so you are still signed in. Please try again.
+          </div>
+        )}
       </header>
 
       {/* PublicLayout renders the page's <main> (issue #221); this is the content column. */}
@@ -526,8 +596,12 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
             <CampaignForm
               initial={EMPTY_FORM}
               submitting={submitting}
+              sessionEnded={sessionEnded}
               onSubmit={handleCreate}
-              onCancel={() => setCreating(false)}
+              onCancel={() => {
+                setCreating(false)
+                setSessionEnded(false)
+              }}
               title="New campaign"
               submitLabel="Create campaign"
             />
@@ -539,8 +613,12 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
             <CampaignForm
               initial={campaignToForm(editingCampaign)}
               submitting={submitting}
+              sessionEnded={sessionEnded}
               onSubmit={handleEditSave}
-              onCancel={() => setEditingId(null)}
+              onCancel={() => {
+                setEditingId(null)
+                setSessionEnded(false)
+              }}
               title={`Edit “${editingCampaign.name}”`}
               submitLabel="Save changes"
             />
@@ -570,6 +648,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
                 onEdit={() => {
                   setCreating(false)
                   setEditingId(c.id)
+                  setSessionEnded(false)
                 }}
                 onStatus={(status) => handleStatus(c.id, status)}
               />

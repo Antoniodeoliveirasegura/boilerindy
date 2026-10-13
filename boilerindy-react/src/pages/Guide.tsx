@@ -304,9 +304,12 @@ export default function Guide() {
           ))}
         </div>
 
-        {/* Map of recommendations with coordinates */}
+        {/* Map of recommendations with coordinates. `isolate` keeps Leaflet's
+            pane z-indexes (400 to 1000) inside the map, as on /map and /transit;
+            without it the map painted over the tab bar, the assistant button
+            and the open assistant panel. */}
         {mapped.length > 0 && (
-          <div className="card p-0 overflow-hidden mb-6 h-[260px]">
+          <div className="card p-0 overflow-hidden isolate mb-6 h-[260px]">
             <MapContainer center={CAMPUS_CENTER} zoom={14} className="h-full w-full">
               <TileLayer
                 key={dark ? 'dark' : 'light'}

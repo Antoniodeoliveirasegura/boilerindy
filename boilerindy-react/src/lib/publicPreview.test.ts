@@ -11,6 +11,13 @@ describe('isPreviewPath', () => {
     expect(isPreviewPath('/transit/')).toBe(true)
   })
 
+  // The router matches routes in any letter case, so /Dining rendered the
+  // dining page signed out with neither the preview bar nor the navbar.
+  test('matches in any letter case, like the router', () => {
+    expect(isPreviewPath('/Dining')).toBe(true)
+    expect(isPreviewPath('/TRANSIT/')).toBe(true)
+  })
+
   test('does not match any other route', () => {
     for (const path of ['/', '/events', '/parking', '/dashboard', '/dining/extra', '/diningx']) {
       expect(isPreviewPath(path)).toBe(false)

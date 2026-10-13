@@ -2,6 +2,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Icon from './Icons'
+import PageTitle from './PageTitle'
 
 export default function RequireAdmin({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
@@ -23,6 +24,7 @@ export default function RequireAdmin({ children }: { children: ReactNode }) {
   if (!user.isAdmin) {
     return (
       <div className="page">
+        <PageTitle>Access denied</PageTitle>
         <div className="min-h-[60vh] flex items-center justify-center">
           <div className="card r-ink max-w-md w-full p-6 sm:p-8">
             <span className="route-badge lg mb-5">

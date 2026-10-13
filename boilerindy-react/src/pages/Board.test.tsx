@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Board from './Board'
 import { authRequest } from '../lib/authApi'
@@ -61,6 +61,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -132,5 +133,70 @@ describe('Board report and block', () => {
     await waitFor(() => expect(screen.queryByText('Where is the quiet floor?')).not.toBeInTheDocument())
     expect(authRequest).toHaveBeenCalledWith('/api/me/blocks/content/board_post/p-named', { method: 'POST' })
     expect(screen.getByRole('status')).toHaveTextContent('Blocked. You can unblock them in Settings.')
+  })
+})
+
+// A reply typed into a thread used to live only in the input's state, so
+// leaving the board (a link, Back, a session-expiry bounce) lost it while the
+// new-post draft next to it survived. Replies are kept the same way now.
+describe('Board reply drafts', () => {
+  const draft = 'I can bring snacks too'
+
+  async function article(title: string) {
+    return (await screen.findByText(title)).closest('article') as HTMLElement
+  }
+
+  it('keeps a typed reply and reopens its thread after leaving the board and coming back', async () => {
+    const first = renderBoard()
+    fireEvent.change(within(await article('Where is the quiet floor?')).getByPlaceholderText('Share what you know…'), {
+      target: { value: draft },
+    })
+    first.unmount()
+
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    expect(within(thread).getByPlaceholderText('Share what you know…')).toHaveValue(draft)
+    expect(within(thread).getByRole('button', { name: /3 replies/ })).toHaveAttribute('aria-expanded', 'true')
+    const other = await article('Anyone else locked out?')
+    expect(within(other).getByRole('button', { name: /replies/ })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('forgets the draft once the reply is posted', async () => {
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    fireEvent.change(within(thread).getByPlaceholderText('Share what you know…'), { target: { value: draft } })
+    expect(localStorage.getItem('boilerindy-board-draft-v1-u1-reply-p-named')).toBe(draft)
+    fireEvent.click(within(thread).getByRole('button', { name: 'Reply' }))
+    await waitFor(() => expect(localStorage.getItem('boilerindy-board-draft-v1-u1-reply-p-named')).toBeNull())
+  })
+
+  // A restored draft asked for an AI reply tip on every board visit and sort
+  // change, one request per drafted thread, with a "Thinking" box nobody had
+  // asked for. Only a draft changed in this visit asks now.
+  it('asks for no reply tip on a restored draft until the student edits it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    localStorage.setItem('boilerindy-board-draft-v1-u1-reply-p-named', 'The third floor has outlets by the windows')
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue({ ok: true, json: async () => ({ replyTip: 'Say which building.' }) } as Response)
+    const tipRequests = () => fetchSpy.mock.calls.filter(([url]) => url === '/api/board/ai-suggestions')
+
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    const input = within(thread).getByPlaceholderText('Share what you know…')
+    expect(input).toHaveValue('The third floor has outlets by the windows')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(tipRequests()).toHaveLength(0)
+    expect(screen.queryByText(/Thinking/)).toBeNull()
+
+    fireEvent.change(input, { target: { value: 'The third floor has outlets by the north windows' } })
+    expect(within(thread).getByText(/Thinking/)).toBeInTheDocument()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(tipRequests()).toHaveLength(1)
+    expect(await within(thread).findByText('Say which building.')).toBeInTheDocument()
   })
 })

@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
-import { boardDraftKey } from '../lib/aiInsightCache'
+import { boardDraftKey, boardReplyDraftKey } from '../lib/aiInsightCache'
 import { track } from '../lib/usageStats'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
@@ -59,7 +59,8 @@ export default function Board() {
   const [sort, setSort] = useState('recent')
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [repliesOpen, setRepliesOpen] = useState<Set<string>>(new Set())
+  // Threads holding an unsent reply open again on return, so the draft shows.
+  const [repliesOpen, setRepliesOpen] = useState<Set<string>>(() => new Set(postIdsWithReplyDrafts(userId)))
   // The list route serves one page of posts with a few replies previewed per
   // post (issue #200); the rest of each thread comes from its own route.
   const [page, setPage] = useState(0)
@@ -877,6 +878,7 @@ export default function Board() {
                           <button
                             type="button"
                             onClick={() => toggleReplies(post.id)}
+                            aria-expanded={repliesOpen.has(post.id)}
                             className={`max-md:h-10 transition-colors hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] ${
                               repliesOpen.has(post.id) ? 'shadow-[inset_0_0_0_1.5px_var(--color-txt-0)] text-[var(--color-txt-0)]' : ''
                             }`}
@@ -1035,6 +1037,8 @@ export default function Board() {
                               </button>
                             )}
                             <ReplyInput
+                              userId={userId}
+                              postId={post.id}
                               threadTitle={post.title}
                               threadBody={post.body || ''}
                               onSubmit={(text) => handleSubmitReply(post.id, text)}
@@ -1111,18 +1115,33 @@ export default function Board() {
 }
 
 function ReplyInput({
+  userId,
+  postId,
   onSubmit,
   threadTitle = '',
   threadBody = '',
 }: {
+  userId: string | undefined
+  postId: string
   onSubmit: (text: string) => Promise<void> | void
   threadTitle?: string
   threadBody?: string
 }) {
-  const [text, setText] = useState('')
+  // Kept like the new-post draft, so a reply typed before leaving the board
+  // (a link, Back, a session-expiry bounce) is still there on return.
+  const [text, setText] = useState(() => loadReplyDraft(userId, postId))
   const [replyError, setReplyError] = useState('')
   const [replyTip, setReplyTip] = useState<string | null>(null)
   const [replyTipLoading, setReplyTipLoading] = useState(false)
+  // Set once the student changes the draft in this visit. A restored draft
+  // asked for a tip on its own: every drafted thread reopens on load and
+  // remounts on each sort change, so each one showed "Thinking" unasked and
+  // spent a request from the AI limit the composer's suggestions share.
+  const edited = useRef(false)
+
+  useEffect(() => {
+    saveReplyDraft(userId, postId, text)
+  }, [userId, postId, text])
 
   useEffect(() => {
     let cancelled = false
@@ -1136,6 +1155,7 @@ function ReplyInput({
       setReplyTipLoading(false)
       return
     }
+    if (!edited.current) return
     const ac = new AbortController()
     setReplyTipLoading(true)
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -1215,6 +1235,7 @@ function ReplyInput({
         <input
           value={text}
           onChange={(e) => {
+            edited.current = true
             setText(e.target.value)
             if (replyError) setReplyError('')
           }}
@@ -1308,6 +1329,41 @@ function saveBoardDraft(userId: string | undefined, title: string, body: string)
   } catch {
     /* storage unavailable */
   }
+}
+
+function loadReplyDraft(userId: string | undefined, postId: string) {
+  if (!userId) return ''
+  try {
+    return localStorage.getItem(boardReplyDraftKey(userId, postId)) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function saveReplyDraft(userId: string | undefined, postId: string, text: string) {
+  if (!userId) return
+  try {
+    if (!text.trim()) localStorage.removeItem(boardReplyDraftKey(userId, postId))
+    else localStorage.setItem(boardReplyDraftKey(userId, postId), text)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Ids of the posts this user has an unsent reply to. */
+function postIdsWithReplyDrafts(userId: string | undefined) {
+  if (!userId) return []
+  const prefix = boardReplyDraftKey(userId, '')
+  const ids: string[] = []
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(prefix) && key.length > prefix.length) ids.push(key.slice(prefix.length))
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return ids
 }
 
 function toggle(set: Set<string>, id: string) {

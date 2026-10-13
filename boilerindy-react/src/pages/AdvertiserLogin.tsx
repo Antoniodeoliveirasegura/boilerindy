@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
@@ -34,12 +35,26 @@ const NOTE_BASE = 'flex items-start gap-2.5 rounded-[var(--radius-lg)] border bo
 const NOTE_INFO = `${NOTE_BASE} border-[var(--color-border-2)] border-l-[var(--color-txt-2)] bg-[var(--color-stat)] text-[var(--color-txt-1)]`
 const NOTE_ERROR = `${NOTE_BASE} border-[var(--color-error)]/30 border-l-[var(--color-error)] bg-[var(--color-error)]/10 text-[var(--color-error)]`
 
+// advertiserRequest sends an advertiser whose session ended here with
+// ?message=session-expired. Only that fixed key shows a notice, so a crafted
+// link cannot put its own words on the sign-in page.
+const SESSION_EXPIRED_NOTICE = { type: 'info', text: 'Your advertiser session expired. Please sign in again.' }
+
 export default function AdvertiserLogin() {
   const { dark, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // A signed-in student reaches this page from the account menu's "Advertiser
+  // portal". "Back to site" and the brand sent them to the marketing landing
+  // page, signed-out top bar and all, so they go back to the app instead.
+  // Visitors still get the landing page.
+  const { user } = useAuth()
+  const siteHome = user ? '/dashboard' : '/'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [notice, setNotice] = useState<{ type: string; text: string } | null>(null)
+  const [notice, setNotice] = useState<{ type: string; text: string } | null>(() =>
+    searchParams.get('message') === 'session-expired' ? SESSION_EXPIRED_NOTICE : null,
+  )
   const [submitting, setSubmitting] = useState(false)
 
   // Request-access (lead) form - invite-only, so this is how new advertisers
@@ -84,7 +99,10 @@ export default function AdvertiserLogin() {
     try {
       await advertiserSignIn(email.trim(), password)
       setPassword('')
-      navigate('/advertise/dashboard')
+      // Replace, as the student Login does: a pushed dashboard left this page
+      // under it, so Back flashed the form, the effect above bounced to the
+      // dashboard again, and it took two Backs to leave the portal.
+      navigate('/advertise/dashboard', { replace: true })
     } catch (error) {
       setNotice({ type: 'error', text: (error instanceof Error && error.message) || 'Could not sign in. Please try again.' })
     } finally {
@@ -145,7 +163,7 @@ export default function AdvertiserLogin() {
           dead bands between the brand, the copy and the stats. */}
       <aside className="ink-panel rounded-none border-0 relative hidden lg:block">
         <div className="sticky top-0 flex h-screen min-h-fit flex-col justify-between gap-12 px-12 pt-8 pb-10 xl:px-16">
-          <Link to="/" className="topbar-brand w-fit">
+          <Link to={siteHome} className="topbar-brand w-fit">
             <BrandMark surface="ink" size={32} />
             BoilerIndy
           </Link>
@@ -197,7 +215,7 @@ export default function AdvertiserLogin() {
       <main id="main" tabIndex={-1} className="relative flex min-w-0 flex-col px-4 pt-3 sm:px-10 sm:pt-5 lg:pt-[26px] focus:outline-none">
         <div className="flex items-center justify-between">
           <Link
-            to="/"
+            to={siteHome}
             className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-2 font-display text-[13px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
           >
             <Icon name="arrowUpRight" size={14} className="rotate-[225deg]" />

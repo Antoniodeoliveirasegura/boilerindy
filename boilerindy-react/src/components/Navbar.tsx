@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import BrandMark from './BrandMark'
 import Icon from './Icons'
+import { normalizeRoutePath } from '../lib/routePath'
 
 const navItems = [
   { path: '/dashboard', label: 'Home', icon: 'home' },
@@ -28,11 +29,111 @@ const mobileNavItems = [
 // index.css (.topbar, .topnav-link, .tabbar, .drawer-link, .menu-panel).
 export default function Navbar() {
   const location = useLocation()
+  // Compared the way the router matches, so /dashboard/ or /Schedule still
+  // light up their nav item.
+  const currentPath = normalizeRoutePath(location.pathname)
   const { user, getInitials, getDisplayName } = useAuth()
   const { dark, toggleTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Any navigation (a link, Back, Forward) closes both menus. They used to stay
+  // open over the next page, the drawer hiding most of it on phones. Reset
+  // during render when the history entry changes, so the next page never
+  // paints with a menu open, and Forward onto the old entry does not reopen it.
+  const [menusFor, setMenusFor] = useState(location.key)
+  if (menusFor !== location.key) {
+    setMenusFor(location.key)
+    setMobileOpen(false)
+    setMenuOpen(false)
+  }
+  const menuRef = useRef<HTMLDivElement>(null)
+  const avatarRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const drawerToggleRef = useRef<HTMLButtonElement>(null)
+
+  // Closing the drawer by its button, the dimmed page or Escape hands focus
+  // back to the menu button; inert would otherwise drop it on the page body.
+  const closeDrawer = () => {
+    setMobileOpen(false)
+    drawerToggleRef.current?.focus()
+  }
+
+  // A press outside the account menu closes it without being swallowed, so a
+  // click on a nav link or the page also does what it says (a full-screen
+  // click-catcher used to eat that first click). Escape closes it and hands
+  // focus back to the avatar. Escape is caught on the way down and stopped
+  // there, so it closes only this menu and not the assistant panel under it.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setMenuOpen(false)
+      avatarRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [menuOpen])
+
+  // The phone drawer behaves as a dialog while open, like ConfirmDialog:
+  // focus moves into it, Tab stays inside, Escape closes it (and only it, as
+  // with the account menu) and returns focus to the menu button, and the page
+  // behind stops scrolling. Before, Escape did nothing, Tab walked out to
+  // controls the drawer covered, and the page scrolled under it. Widening
+  // past the phone layout (rotating, resizing) closes it, since the drawer is
+  // hidden there and its scroll lock and Tab trap would strand the page.
+  useEffect(() => {
+    if (!mobileOpen) return
+    const drawer = drawerRef.current
+    const toggle = drawerToggleRef.current
+    const focusables = () =>
+      Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? [])
+    focusables()[0]?.focus({ preventScroll: true })
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setMobileOpen(false)
+        toggle?.focus()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (!first || !last) return
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      } else if (!drawer?.contains(document.activeElement)) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    const wide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 768px)') : null
+    const onWiden = () => {
+      if (wide?.matches) setMobileOpen(false)
+    }
+    wide?.addEventListener('change', onWiden)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      wide?.removeEventListener('change', onWiden)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [mobileOpen])
 
   return (
     <>
@@ -48,7 +149,7 @@ export default function Navbar() {
 
             <div className="hidden md:flex items-stretch">
               {navItems.map(({ path, label, icon }) => {
-                const isActive = location.pathname === path
+                const isActive = currentPath === path
                 return (
                   <Link
                     key={path}
@@ -66,10 +167,11 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative hidden md:block">
+            <div ref={menuRef} className="relative hidden md:block">
               <button
+                ref={avatarRef}
                 type="button"
-                onClick={() => setMenuOpen((o) => !o)}
+                onClick={() => setMenuOpen(!menuOpen)}
                 className="avatar"
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
@@ -78,64 +180,60 @@ export default function Navbar() {
               </button>
               <span className="avatar-online" />
               {menuOpen && (
-                <>
+                <div role="menu" className="menu-panel absolute right-0 top-[56px] z-[1501] min-w-[240px]">
+                  <div className="px-3.5 pt-2 pb-2.5 mb-1 border-b border-[var(--color-border)]">
+                    <div className="font-display text-[14px] font-extrabold text-[var(--color-txt-0)] truncate">
+                      {user ? getDisplayName() : 'Guest'}
+                    </div>
+                    {user?.email && (
+                      <div className="text-[12px] text-[var(--color-txt-2)] truncate">{user.email}</div>
+                    )}
+                  </div>
+                  <button type="button" role="menuitem" className="menu-item" onClick={toggleTheme}>
+                    <Icon name={dark ? 'sun' : 'moon'} size={16} />
+                    {dark ? 'Light mode' : 'Dark mode'}
+                  </button>
+                  <Link to="/settings" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                    <Icon name="settings" size={16} />
+                    Settings
+                  </Link>
+                  {Boolean(user?.isAdmin) && (
+                    <Link to="/admin" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                      <Icon name="shield" size={16} />
+                      Admin console
+                    </Link>
+                  )}
+                  <Link to="/setup" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                    <Icon name="calendar" size={16} />
+                    Setup
+                  </Link>
+                  <Link to="/advertise" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                    <Icon name="briefcase" size={16} />
+                    Advertiser portal
+                  </Link>
                   <button
                     type="button"
-                    className="fixed inset-0 z-[1500] cursor-default"
-                    aria-label="Close menu"
-                    onClick={() => setMenuOpen(false)}
-                  />
-                  <div role="menu" className="menu-panel absolute right-0 top-[56px] z-[1501] min-w-[240px]">
-                    <div className="px-3.5 pt-2 pb-2.5 mb-1 border-b border-[var(--color-border)]">
-                      <div className="font-display text-[14px] font-extrabold text-[var(--color-txt-0)] truncate">
-                        {user ? getDisplayName() : 'Guest'}
-                      </div>
-                      {user?.email && (
-                        <div className="text-[12px] text-[var(--color-txt-2)] truncate">{user.email}</div>
-                      )}
-                    </div>
-                    <button type="button" role="menuitem" className="menu-item" onClick={toggleTheme}>
-                      <Icon name={dark ? 'sun' : 'moon'} size={16} />
-                      {dark ? 'Light mode' : 'Dark mode'}
-                    </button>
-                    <Link to="/settings" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
-                      <Icon name="settings" size={16} />
-                      Settings
-                    </Link>
-                    {Boolean(user?.isAdmin) && (
-                      <Link to="/admin" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
-                        <Icon name="shield" size={16} />
-                        Admin console
-                      </Link>
-                    )}
-                    <Link to="/setup" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
-                      <Icon name="calendar" size={16} />
-                      Setup
-                    </Link>
-                    <Link to="/advertise" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
-                      <Icon name="briefcase" size={16} />
-                      Advertiser portal
-                    </Link>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="menu-item mt-1 border-t border-[var(--color-border)]"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        signOutAndRedirect()
-                      }}
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                </>
+                    role="menuitem"
+                    className="menu-item mt-1 border-t border-[var(--color-border)]"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      signOutAndRedirect()
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
               )}
             </div>
 
             <button
+              ref={drawerToggleRef}
+              type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
               className="icon-btn md:hidden -mr-2"
               aria-label="Toggle menu"
+              aria-expanded={mobileOpen}
+              aria-controls="app-drawer"
             >
               <div className="relative w-5 h-5">
                 <span className={`absolute left-0 block w-5 h-0.5 rounded-[1px] bg-current transition-transform duration-150 ${mobileOpen ? 'top-2.5 rotate-45' : 'top-1'}`} />
@@ -149,16 +247,32 @@ export default function Navbar() {
 
       <div
         className={`fixed inset-0 bg-black/50 z-[2000] md:hidden transition-opacity duration-200 ${mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setMobileOpen(false)}
+        onClick={closeDrawer}
       />
 
+      {/* inert while closed: the off-canvas links used to stay in the tab
+          order and the accessibility tree. */}
       <div
-        className={`fixed top-0 right-0 h-full w-72 max-w-[85vw] overflow-y-auto bg-[var(--color-surface)] border-l border-[var(--color-border-2)] z-[2001] md:hidden transition-transform duration-200 ease-[var(--ease-snap)] ${mobileOpen ? 'translate-x-0 shadow-[var(--shadow-xl)]' : 'translate-x-full'}`}
+        ref={drawerRef}
+        id="app-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        inert={!mobileOpen}
+        className={`fixed top-0 right-0 h-full w-72 max-w-[85vw] overflow-y-auto overscroll-contain bg-[var(--color-surface)] border-l border-[var(--color-border-2)] z-[2001] md:hidden transition-transform duration-200 ease-[var(--ease-snap)] ${mobileOpen ? 'translate-x-0 shadow-[var(--shadow-xl)]' : 'translate-x-full'}`}
       >
-        <div className="px-4 pt-[calc(24px+env(safe-area-inset-top))] pb-6">
+        {/* The drawer covers the menu button, so it carries its own close
+            button in the same spot. Without it the first link (Home) sat
+            under the button, and a second tap to close followed it. */}
+        <div className="flex h-14 items-center justify-end pr-2 mt-[env(safe-area-inset-top)]">
+          <button type="button" onClick={closeDrawer} className="icon-btn" aria-label="Close menu">
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+        <div className="px-4 pt-1 pb-6">
           <div className="space-y-1">
             {navItems.map(({ path, label, icon }) => {
-              const isActive = location.pathname === path
+              const isActive = currentPath === path
               return (
                 <Link
                   key={path}
@@ -172,10 +286,28 @@ export default function Navbar() {
                 </Link>
               )
             })}
-            <Link to="/settings" onClick={() => setMobileOpen(false)} className="drawer-link">
+            <Link
+              to="/settings"
+              onClick={() => setMobileOpen(false)}
+              aria-current={currentPath === '/settings' ? 'page' : undefined}
+              className={`drawer-link ${currentPath === '/settings' ? 'is-active' : ''}`}
+            >
               <Icon name="settings" size={20} />
               <span>Settings</span>
             </Link>
+            {/* The account menu, where this link lives on larger screens, is
+                hidden on phones, so admins had no way into the console. */}
+            {Boolean(user?.isAdmin) && (
+              <Link
+                to="/admin"
+                onClick={() => setMobileOpen(false)}
+                aria-current={currentPath === '/admin' ? 'page' : undefined}
+                className={`drawer-link ${currentPath === '/admin' ? 'is-active' : ''}`}
+              >
+                <Icon name="shield" size={20} />
+                <span>Admin console</span>
+              </Link>
+            )}
             <button type="button" onClick={toggleTheme} className="drawer-link">
               <Icon name={dark ? 'sun' : 'moon'} size={20} />
               <span>{dark ? 'Light mode' : 'Dark mode'}</span>
@@ -216,7 +348,7 @@ export default function Navbar() {
       <nav className="tabbar md:hidden fixed bottom-0 left-0 right-0 z-40 safe-bottom">
         <div className="grid grid-cols-4">
           {mobileNavItems.map(({ path, label, icon }) => {
-            const isActive = location.pathname === path
+            const isActive = currentPath === path
             return (
               <Link
                 key={path}

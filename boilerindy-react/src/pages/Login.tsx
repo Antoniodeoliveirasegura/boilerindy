@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, type BackendSession } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -56,6 +56,8 @@ export default function Login() {
       'missing-ticket': 'Purdue CAS did not return a ticket. Try again from setup.',
       'cas-validation': 'Purdue CAS could not validate the identity. Try again from setup.',
       'oauth-error': 'Google sign-in could not be completed. Please try again.',
+      'sign-out-failed':
+        'Sign-out could not reach the server, so this device may still be signed in. On a shared computer, reconnect, reload this page and sign out again.',
     }
     return messages[error] || 'Authentication could not be completed.'
   })
@@ -77,15 +79,22 @@ export default function Login() {
   // library computers, where a trusted device would skip the code for a month.
   const [trustDevice, setTrustDevice] = useState(false)
   const [resending, setResending] = useState(false)
+  // Destinations come from the router's copy of this page's URL, never
+  // window.location: the navigate that ends a sign-in replaces the address at
+  // once, so window.location had already lost ?next by the time the session
+  // re-rendered this page, and the redirect below sent every redirected
+  // sign-in to /dashboard (or /setup).
+  const search = searchParams.toString()
+  // Set while a sign-in or sign-up on this page is finishing: that flow picks
+  // the destination itself, so the redirect below must not race it.
+  const finishing = useRef(false)
 
   useEffect(() => {
-    if (loading) return
-    if (user) {
-      // Already signed in (e.g. the installed app opening on /login): skip the
-      // setup screen when a schedule source is already connected.
-      navigate(resolvePostLoginPath(window.location.search, onboarding), { replace: true })
-    }
-  }, [loading, user, onboarding, navigate])
+    if (loading || !user || finishing.current) return
+    // Already signed in (e.g. the installed app opening on /login): skip the
+    // setup screen when a schedule source is already connected.
+    navigate(resolvePostLoginPath(search, onboarding), { replace: true })
+  }, [loading, user, onboarding, navigate, search])
 
   function clearErrors() {
     setBanner('')
@@ -192,8 +201,14 @@ export default function Login() {
         } catch {
           /* Backend session from register is enough if client Supabase env is misconfigured */
         }
-        await establishSession()
-        navigate(parseNextPath(window.location.search), { replace: true })
+        finishing.current = true
+        try {
+          await establishSession()
+        } catch (error) {
+          finishing.current = false
+          throw error
+        }
+        navigate(parseNextPath(search), { replace: true })
       } else {
         const response = await fetch('/api/auth/sign-in', {
           method: 'POST',
@@ -231,6 +246,7 @@ export default function Login() {
   // a single round-trip - no client re-sign-in + refreshSession waterfall
   // (issue #111).
   function finishSignIn(signedIn: BackendSession | null, flow: PendingCode['flow']) {
+    finishing.current = true
     applySession(signedIn)
 
     // Establish the client Supabase session in the background - only needed
@@ -253,9 +269,7 @@ export default function Login() {
     })
 
     navigate(
-      flow === 'signup'
-        ? parseNextPath(window.location.search)
-        : resolvePostLoginPath(window.location.search, signedIn?.onboarding),
+      flow === 'signup' ? parseNextPath(search) : resolvePostLoginPath(search, signedIn?.onboarding),
       { replace: true },
     )
   }
@@ -631,7 +645,7 @@ export default function Login() {
               <Icon name="plus" size={15} className="mt-[3px] text-[var(--color-txt-3)]" />
               <span>
                 On your phone?{' '}
-                <Link to="/install" className={textLink}>Add BoilerIndy to your Home Screen</Link>{' '}
+                <Link to="/install?from=signin" className={textLink}>Add BoilerIndy to your Home Screen</Link>{' '}
                 for full screen and deadline reminders.
               </span>
             </p>

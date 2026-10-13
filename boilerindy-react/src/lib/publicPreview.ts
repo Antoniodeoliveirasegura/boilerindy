@@ -3,12 +3,13 @@
 // exactly these without RequireAuth, AppLayout shows the preview bar on them
 // instead of the navbar, and public/sitemap.xml lists them
 // (publicPreview.test.ts checks that last one against this list).
+import { normalizeRoutePath } from './routePath'
+
 export const PREVIEW_PATHS = ['/dining', '/transit'] as const
 
-/** True for a preview route, with or without a trailing slash. */
+/** True for a preview route, in any letter case, with or without a trailing slash. */
 export function isPreviewPath(pathname: string): boolean {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
-  return (PREVIEW_PATHS as readonly string[]).includes(path)
+  return (PREVIEW_PATHS as readonly string[]).includes(normalizeRoutePath(pathname))
 }
 
 // What the bar says, kept here so the bar and its tests share one copy.

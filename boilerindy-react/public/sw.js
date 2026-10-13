@@ -79,7 +79,11 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const network = fetch(request)
         .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
+          // A 200 text/html answering a script, style or font is the host's
+          // SPA fallback for a file a deploy removed, not the file. Caching it
+          // made that page's code fail from the cache even after a reload.
+          const isHtml = (response?.headers.get('content-type') || '').includes('text/html')
+          if (response && response.status === 200 && response.type === 'basic' && !isHtml) {
             const clone = response.clone()
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
           }

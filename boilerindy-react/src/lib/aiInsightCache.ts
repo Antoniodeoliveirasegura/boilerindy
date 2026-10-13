@@ -32,6 +32,14 @@ export function boardDraftKey(userId: string): string {
   return `${BOARD_DRAFT_PREFIX}-${userId}`
 }
 
+/**
+ * One user's unsent reply to one board post. It shares the post draft's
+ * prefix, so sign-out clears it with the rest (issue #219).
+ */
+export function boardReplyDraftKey(userId: string, postId: string): string {
+  return `${boardDraftKey(userId)}-reply-${postId}`
+}
+
 export type CachedAiText = { text: string; at: number }
 
 export const AI_CACHE_TTL_MS = 6 * 60 * 60 * 1000

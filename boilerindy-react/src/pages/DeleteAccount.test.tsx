@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DeleteAccount from './DeleteAccount'
@@ -7,7 +7,16 @@ import DeleteAccount from './DeleteAccount'
 // explain both deletion paths and carry a working email fallback for people
 // who no longer have the app.
 
+const mocks = vi.hoisted(() => ({ useAuth: vi.fn() }))
+
+vi.mock('../context/AuthContext', () => ({ useAuth: mocks.useAuth }))
+
 afterEach(cleanup)
+
+beforeEach(() => {
+  mocks.useAuth.mockReset()
+  mocks.useAuth.mockReturnValue({ user: null, loading: false })
+})
 
 function renderAt(path: string) {
   return render(
@@ -44,6 +53,37 @@ describe('DeleteAccount page', () => {
   test('the back link honours ?from=settings', () => {
     renderAt('/delete-account?from=settings')
     expect(screen.getByRole('link', { name: /back to settings/i })).toHaveAttribute('href', '/settings')
+  })
+
+  // These links used to drop the origin, so the next page's back link
+  // forgot where the reader started.
+  test('passes the origin on to the privacy policy and support', () => {
+    renderAt('/delete-account?from=settings')
+    expect(screen.getByRole('link', { name: 'Privacy policy' })).toHaveAttribute('href', '/privacy?from=settings')
+    expect(screen.getByRole('link', { name: 'support page' })).toHaveAttribute('href', '/support?from=settings')
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
+  })
+
+  test('the back link sends a visitor with no origin to Landing', () => {
+    renderAt('/delete-account')
+    expect(screen.getByRole('link', { name: /back to boilerindy/i })).toHaveAttribute('href', '/')
+  })
+
+  // A signed-in student with no origin goes back into the app, not to the
+  // signed-out marketing page.
+  test('the back link sends a signed-in student with no origin to the dashboard', () => {
+    mocks.useAuth.mockReturnValue({ user: { id: 'u1' }, loading: false })
+    renderAt('/delete-account')
+    expect(screen.getByRole('link', { name: /back to boilerindy/i })).toHaveAttribute('href', '/dashboard')
+  })
+
+  // Issue #221 - the page renders outside AppLayout and PublicLayout, so it
+  // carries its own skip link, as the first stop, and main landmark.
+  test('the first link skips to the main landmark', () => {
+    renderAt('/delete-account')
+    expect(screen.getAllByRole('link')[0]).toHaveAccessibleName('Skip to main content')
+    expect(screen.getAllByRole('link')[0]).toHaveAttribute('href', '#main')
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main')
   })
 })
 

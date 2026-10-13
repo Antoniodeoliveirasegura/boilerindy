@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useLocation, useNavigationType } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
@@ -56,9 +56,26 @@ export default function CampusAssistant() {
   const { getFirstName, user } = useAuth()
   const firstName = getFirstName()
   const userId = user?.id as string | undefined
-  const { pathname } = useLocation()
+  const { pathname, key: locationKey } = useLocation()
+  const navigationType = useNavigationType()
 
   const [open, setOpen] = useState(false)
+  // Any navigation (a link, Back, Forward) closes the panel; the conversation
+  // is kept. AppLayout keeps this component mounted across routes, so the
+  // panel used to stay open over the next page, its backdrop eating the first
+  // tap on the tab bar. Reset while rendering, so the next page never paints
+  // with the panel still open. Remembering the history entry it was opened on,
+  // as the navbar's menus do, would reopen it on Forward or Back to that entry.
+  // A replace on the same page is the page rewriting its own search params
+  // (the Clubs search box does after a 300ms pause), not the student leaving,
+  // so it keeps the panel open: it used to close one opened mid-debounce.
+  const [shownFor, setShownFor] = useState({ key: locationKey, pathname })
+  if (shownFor.key !== locationKey) {
+    setShownFor({ key: locationKey, pathname })
+    if (navigationType !== 'REPLACE' || pathname !== shownFor.pathname) setOpen(false)
+  }
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const fabRef = useRef<HTMLButtonElement | null>(null)
   // Each message: { role: 'user' | 'assistant', content: string }, or the opener.
   const [messages, setMessages] = useState<ThreadMessage[]>(() => [OPENER])
   const worded = (msg: ThreadMessage): ChatMessage =>
@@ -116,8 +133,34 @@ export default function CampusAssistant() {
     }
   }, [messages, isTyping])
 
+  // Cleared on close, so an Escape right after opening does not pull focus
+  // back into the hidden panel.
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 100)
+    if (!open) return
+    const timer = setTimeout(() => inputRef.current?.focus(), 100)
+    return () => clearTimeout(timer)
+  }, [open])
+
+  // The closed panel is inert, so focus left inside it (the input, when a
+  // navigation or the header's Close button shut it) would drop to the page
+  // body. Hand it to the floating button instead. A layout effect, so it runs
+  // before the browser clears focus out of the newly inert panel.
+  useLayoutEffect(() => {
+    if (!open && panelRef.current?.contains(document.activeElement)) fabRef.current?.focus()
+  }, [open])
+
+  // Escape closes the panel and hands focus back to the floating button, as
+  // the navbar's account menu does. Only Enter in the input was handled, so
+  // Escape left the panel open with focus still in it.
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      fabRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
   }, [open])
 
   // Restore an in-progress conversation so closing the panel or reloading the
@@ -255,11 +298,30 @@ export default function CampusAssistant() {
       />
 
       {/* Chat Window: below md it opens 12px above the lifted button, which sits
-          76px up to clear the tab bar (issue #249). */}
-      <div className={`fixed bottom-[calc(144px+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 z-50 w-[360px] max-w-[calc(100vw-32px)] transition-[opacity,transform] duration-150 ease-[var(--ease-snap)] ${open ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
-        <div data-testid="assistant-panel" className="card p-0 overflow-hidden shadow-[var(--shadow-xl)] border-[var(--color-border-2)]">
-          {/* Header: an ink plate in both themes. */}
-          <div className="on-ink bg-[var(--color-ink)] px-3 py-3 flex items-center justify-between gap-3">
+          76px up to clear the tab bar (issue #249). A screen under 32rem tall
+          (a landscape phone, at any width) has too little height for that, so
+          there it sits beside the button instead: 8px above the tab bar below
+          md, level with the button from md. Keyed on width, an 844px-wide
+          landscape phone got the md placement and its message list shrank to
+          a 43px sliver. Inert while closed, so its controls leave the tab
+          order and focus cannot stay in it. */}
+      <div
+        ref={panelRef}
+        inert={!open}
+        className={`fixed bottom-[calc(144px+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 [@media(max-height:32rem)]:bottom-[calc(70px+env(safe-area-inset-bottom))] [@media(max-height:32rem)]:right-[80px] md:[@media(max-height:32rem)]:bottom-6 md:[@media(max-height:32rem)]:right-[88px] z-50 w-[360px] max-w-[calc(100vw-32px)] [@media(max-height:32rem)]:max-w-[calc(100vw-96px)] transition-[opacity,transform] duration-150 ease-[var(--ease-snap)] ${open ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
+      >
+        {/* The card is capped to the room between the top bar (56px, 64px from
+            md) plus an 8px gap and its own bottom offset (144px below md, 96px
+            from md; on a short screen 70px below md and 24px from md), and the
+            message list gives way inside it. Without the cap, landscape phones
+            pushed the header and its Close button 85 to 150px above the
+            screen. If even the header, quick questions and input row do not
+            fit, justify-end takes the overflow off the top, not the input. */}
+        <div data-testid="assistant-panel" className="card p-0 overflow-hidden flex flex-col justify-end max-h-[calc(100dvh-208px-env(safe-area-inset-bottom))] [@media(max-height:32rem)]:max-h-[calc(100dvh-134px-env(safe-area-inset-bottom))] md:max-h-[calc(100dvh-168px)] md:[@media(max-height:32rem)]:max-h-[calc(100dvh-96px)] shadow-[var(--shadow-xl)] border-[var(--color-border-2)]">
+          {/* Header: an ink plate in both themes. On a short screen it, the
+              quick questions and the input row each give up 4px of padding a
+              side, so a 375px-tall landscape phone keeps an 80px message list. */}
+          <div className="on-ink bg-[var(--color-ink)] px-3 py-3 [@media(max-height:32rem)]:py-2 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="route-badge lg r-ai">
                 <Icon name="sparkles" size={20} />
@@ -293,13 +355,14 @@ export default function CampusAssistant() {
             </div>
           </div>
 
-          {/* Messages: below md the cap also leaves room for the top bar (56px), an
-              8px gap, the panel's bottom offset (144px), the header, input row and
-              card border (135px) and 8px to spare, so short phones keep the header
-              on screen (issue #249). */}
+          {/* Messages: at least 200px tall while the card's cap still leaves room
+              for that, the header, input row and card border (135px) and the
+              quick questions (one 44px row below md, up to four wrapped rows,
+              164px, from md). On shorter screens the floor drops away so the
+              header stays on screen (issue #249). */}
           <div
             ref={messagesRef}
-            className="min-h-[200px] max-h-[min(340px,calc(100dvh-351px-env(safe-area-inset-bottom)))] md:max-h-[340px] overflow-y-auto p-4 space-y-3 bg-[var(--color-surface)]"
+            className="min-h-[min(200px,calc(100dvh-387px-env(safe-area-inset-bottom)))] md:min-h-[min(200px,calc(100dvh-467px))] max-h-[340px] overflow-y-auto p-4 space-y-3 bg-[var(--color-surface)]"
           >
             {messages.map((msg, idx) => renderMessage(worded(msg), idx))}
 
@@ -320,9 +383,11 @@ export default function CampusAssistant() {
           </div>
 
           {/* Quick Questions: one row that scrolls sideways below md, so the five
-              pills take one line instead of five on a phone (issue #249). */}
+              pills take one line instead of five on a phone (issue #249). From md
+              they wrap only on screens at least 32rem tall: on a landscape phone
+              the wrapped rows left the conversation no room. */}
           {messages.length <= 2 && !isTyping && (
-            <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide md:flex-wrap md:overflow-visible bg-[var(--color-surface)]">
+            <div className="shrink-0 px-4 pb-3 [@media(max-height:32rem)]:pb-2 flex gap-2 overflow-x-auto scrollbar-hide md:[@media(min-height:32rem)]:flex-wrap md:[@media(min-height:32rem)]:overflow-visible bg-[var(--color-surface)]">
               {quickQuestions.map((q, idx) => (
                 <button
                   key={idx}
@@ -336,7 +401,7 @@ export default function CampusAssistant() {
           )}
 
           {/* Input */}
-          <div className="p-3 border-t border-[var(--color-border-2)] bg-[var(--color-surface)]">
+          <div className="p-3 [@media(max-height:32rem)]:py-2 border-t border-[var(--color-border-2)] bg-[var(--color-surface)]">
             <div className="flex gap-2">
               <input
                 ref={inputRef}
@@ -380,6 +445,7 @@ export default function CampusAssistant() {
           62px tab bar plus 14px) so it never covers the bar's More tab (issue #249);
           the position lives in index.css (.fab). */}
       <button
+        ref={fabRef}
         onClick={() => setOpen(!open)}
         className={`fab ${open ? 'is-open' : ''}`}
         title="BoilerIndy"
