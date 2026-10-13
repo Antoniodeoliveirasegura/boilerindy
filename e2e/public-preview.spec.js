@@ -132,9 +132,10 @@ test.describe('Public preview, signed out', () => {
       await expect(note).toBeVisible()
       await expect(note).toContainText(PREVIEW_MESSAGE)
 
-      // The bar stays inside the 64 px navbar slot.
+      // The bar stays inside the navbar slot, which is the navbar's own
+      // 56 px phone header height.
       const box = await bar.boundingBox()
-      expect(box?.height).toBe(64)
+      expect(box?.height).toBe(56)
       await expect
         .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
         .toBe(true)
