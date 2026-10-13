@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
@@ -29,6 +29,17 @@ export default function AdvertiserResetPassword() {
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<{ type: string; text: string } | null>(null)
   const [done, setDone] = useState(false)
+  // The redirect to sign-in after a successful reset. It was never cleared,
+  // so a visitor who left within the 2.5 s (to Terms, Support or the brand
+  // link) was pulled back to /advertise a moment later, losing their forward
+  // history. Kept here so leaving the page cancels it.
+  const redirectTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) window.clearTimeout(redirectTimerRef.current)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -45,7 +56,9 @@ export default function AdvertiserResetPassword() {
     try {
       await resetAdvertiserPassword(token, password)
       setDone(true)
-      setTimeout(() => navigate('/advertise'), 2500)
+      // Replace: the link's token is spent, so Back should not reopen this
+      // page with its form for that token.
+      redirectTimerRef.current = window.setTimeout(() => navigate('/advertise', { replace: true }), 2500)
     } catch (error) {
       setNotice({ type: 'error', text: (error instanceof Error && error.message) || 'Could not reset your password. Please try again.' })
     } finally {

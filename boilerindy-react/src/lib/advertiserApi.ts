@@ -3,7 +3,17 @@
 // routes - advertiser sessions are isolated from the student app server-side.
 // Migrated to TypeScript (issue #20).
 
-async function advertiserRequest(url: string, options: RequestInit = {}): Promise<unknown> {
+// redirectOn401: false leaves a 401 to the caller. Saving a campaign passes it:
+// the redirect is a full page load, so it threw away the campaign form the
+// advertiser had just filled in, when they could sign in again in another tab
+// and save the same form.
+type RequestBehavior = { redirectOn401?: boolean }
+
+async function advertiserRequest(
+  url: string,
+  options: RequestInit = {},
+  { redirectOn401 = true }: RequestBehavior = {},
+): Promise<unknown> {
   const headers = new Headers(options.headers || {})
   if (options.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -16,6 +26,25 @@ async function advertiserRequest(url: string, options: RequestInit = {}): Promis
     : await response.text()
 
   if (!response.ok) {
+    // A 401 here means the advertiser session ended after RequireAdvertiser
+    // let the page in: the cookie lapsed, or a sign-out or a student sign-in
+    // in another tab replaced it. The dashboard used to stay put with "You
+    // must sign in" over a false "No campaigns yet", so send the advertiser
+    // back to sign in with a session-expired notice, as authRequest does for
+    // the student app. A wrong password on the sign-in form is a 401 too and
+    // must show its error, so the sign-in call is left to its caller, as are
+    // the /me probe (which answers 200 either way), anything asked from the
+    // sign-in page itself and any call that passes redirectOn401: false.
+    if (
+      response.status === 401 &&
+      redirectOn401 &&
+      window.location.pathname !== '/advertise' &&
+      !url.includes('/api/advertiser/sign-in') &&
+      !url.includes('/api/advertiser/me')
+    ) {
+      window.location.replace('/advertise?message=session-expired')
+      await new Promise(() => {})
+    }
     const p = payload as { error?: { message?: string }; message?: string } | string | null
     const message =
       (typeof p === 'object' && p?.error?.message) ||
@@ -91,18 +120,27 @@ export function listCampaigns(): Promise<unknown> {
   return advertiserRequest('/api/advertiser/campaigns')
 }
 
+// Saves never redirect on a 401 (see RequestBehavior), so the caller can keep
+// the form open. A status change with no form open has nothing to lose and
+// passes redirectOn401: true, as the campaign reads do by default.
 export function createCampaign(payload: Record<string, unknown>): Promise<unknown> {
-  return advertiserRequest('/api/advertiser/campaigns', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
+  return advertiserRequest(
+    '/api/advertiser/campaigns',
+    { method: 'POST', body: JSON.stringify(payload) },
+    { redirectOn401: false },
+  )
 }
 
-export function updateCampaign(id: string, patch: Record<string, unknown>): Promise<unknown> {
-  return advertiserRequest(`/api/advertiser/campaigns/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  })
+export function updateCampaign(
+  id: string,
+  patch: Record<string, unknown>,
+  { redirectOn401 = false }: RequestBehavior = {},
+): Promise<unknown> {
+  return advertiserRequest(
+    `/api/advertiser/campaigns/${id}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    { redirectOn401 },
+  )
 }
 
 export function getCampaignStats(id: string): Promise<unknown> {
