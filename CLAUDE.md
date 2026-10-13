@@ -76,6 +76,14 @@ rights to the BoilerIndy name or logo.
 - Frontend logic: `lib/` with a colocated `*.test.ts`; components and pages get
   `*.test.tsx` next to them (Vitest and Testing Library, `pnpm -C
   boilerindy-react test`).
+- Route guards: every app route in `App.tsx` is wrapped in `RequireAuth`
+  except the public preview (issue #366), `/dining` and `/transit`, listed in
+  `lib/publicPreview.ts`. Signed out, AppLayout shows the preview bar there
+  instead of the navbar, and the page hides what needs an account. A preview
+  page must not call `authRequest` (or `/api/me/*`, `/api/assistant`) until
+  `useAuth()` has settled with a user: a 401 from `authRequest` redirects to
+  `/login`. A new preview page goes in that list, the sitemap and
+  `e2e/public-preview.spec.js`.
 - Content that students post gets a Report and a Block action, through
   `hooks/useReportAndBlock.tsx` (see `docs/moderation.md`).
 - Per-user browser state: keys carry the user id, saving refuses without one,

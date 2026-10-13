@@ -18,7 +18,9 @@ export const DEFAULT_REASONING_EFFORT = 'low'
 
 // Groq rate limits are per organisation and per model (issue #253), so when the
 // primary model answers 429 one retry on a smaller model often still gets
-// through. Override with GROQ_FALLBACK_MODEL; an empty string turns it off.
+// through. Groq also serves each model separately, so the same retry covers a
+// 5xx from the primary (issue #447). Override with GROQ_FALLBACK_MODEL; an
+// empty string turns it off.
 export const DEFAULT_GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b'
 
 /**
@@ -105,15 +107,31 @@ export function extractGroqText(data) {
 }
 
 /**
+ * Why a failed call on the primary model earns one retry on the fallback, or
+ * null when it does not: a 429 is that model's own rate limit (issue #253) and
+ * a 5xx is Groq failing to serve it (issue #447). Any other status is our
+ * request or our key, and a network error never reached Groq; a second model
+ * would fail the same way.
+ */
+function fallbackReason(err) {
+  if (!(err instanceof GroqUpstreamError)) return null
+  if (err.status === 429) return 'rate_limited'
+  if (err.status >= 500 && err.status <= 599) return 'upstream_error'
+  return null
+}
+
+/**
  * A client bound to one API key. `reply()` resolves to the reply text (null when
  * the model returned nothing) and throws GroqUpstreamError on a non-2xx status
- * so each route keeps its own error policy. A 429 from the primary model is
- * retried exactly once on `fallbackModel` (default DEFAULT_GROQ_FALLBACK_MODEL,
- * empty string disables), after `onFallback(err, { model, fallbackModel })`
- * hears about the primary's 429. A 429 from both rethrows the fallback's error;
- * any other fallback failure rethrows the primary's 429 with the failure on
- * `err.fallbackError`, so the caller still sees "rate limited". `fetchImpl`
- * is for tests.
+ * so each route keeps its own error policy. A 429 or a 5xx from the primary
+ * model is retried exactly once on `fallbackModel` (default
+ * DEFAULT_GROQ_FALLBACK_MODEL, empty string disables), after
+ * `onFallback(err, { model, fallbackModel, reason })` hears about the primary's
+ * failure, `reason` being 'rate_limited' or 'upstream_error'. A 429 from both
+ * rethrows the fallback's error; any other fallback failure rethrows the
+ * primary's error with the failure on `err.fallbackError`, so the caller still
+ * sees what the primary said ("rate limited" stays rate limited, a 5xx stays a
+ * 5xx). `fetchImpl` is for tests.
  */
 export function createGroqClient({
   apiKey,
@@ -162,15 +180,19 @@ export function createGroqClient({
       try {
         return await send(resolvedModel, options)
       } catch (err) {
-        if (!retryModel || !(err instanceof GroqUpstreamError) || err.status !== 429) throw err
-        onFallback?.(err, { model: resolvedModel, fallbackModel: retryModel })
+        const reason = fallbackReason(err)
+        if (!retryModel || !reason) throw err
+        onFallback?.(err, { model: resolvedModel, fallbackModel: retryModel, reason })
         try {
           return await send(retryModel, options)
         } catch (fallbackErr) {
-          if (fallbackErr instanceof GroqUpstreamError && fallbackErr.status === 429) throw fallbackErr
+          const fallbackLimited = fallbackErr instanceof GroqUpstreamError && fallbackErr.status === 429
+          if (reason === 'rate_limited' && fallbackLimited) throw fallbackErr
           // A retired fallback id (404), a 503 or a network error must not hide
-          // the primary's 429, or the route answers "AI service error" instead
-          // of the busy reply.
+          // the primary's 429, or the route answers an error instead of the
+          // busy reply. After a primary 5xx the 5xx stands even when the
+          // fallback is rate limited: Groq is failing, the student is not
+          // asking too much.
           err.fallbackError = fallbackErr
           throw err
         }

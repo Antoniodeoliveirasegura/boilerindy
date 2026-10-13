@@ -67,6 +67,17 @@ model` message fingerprinted by the Indianapolis calendar date. If the fallback
 fails for any reason other than its own 429, the main model's 429 is what the
 route sees, so the student still gets the busy reply rather than an error.
 
+A 5xx from the main model gets the same one retry (issue #447), with its own
+`console.warn` (status, model ids and the start of Groq's body) and a
+warning-level `ai: Groq primary model failed, used the fallback model` message
+fingerprinted `groq-fallback-5xx` plus the date, so a Groq outage never counts
+toward the rate-limit issue. When the fallback fails too, in any way, the main
+model's 5xx is what the route sees: the assistant answers 502 with a friendly
+"having trouble" line in the bubble and logs `console.error('Groq error:', ...)`,
+which reaches Sentry as an error, since both models failing is worth a look.
+Any other 4xx (a bad request, a bad key, a retired model id) is never retried;
+a second model would fail the same way.
+
 **Frontend** (`boilerindy-react/src/main.tsx`): `@sentry/react` is imported
 lazily after first paint (`requestIdleCallback`) so it never sits in the
 initial bundle. Until it is up, `src/lib/errorReporting.ts` covers the gap:
