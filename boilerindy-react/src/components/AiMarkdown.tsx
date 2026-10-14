@@ -51,13 +51,13 @@ const components = {
   ),
   em: ({ children }: { children?: ReactNode }) => <em className="italic">{children}</em>,
   h1: ({ children }: { children?: ReactNode }) => (
-    <h3 className="m-0 text-[13px] font-semibold text-[var(--color-txt-0)]">{children}</h3>
+    <h3 className="m-0 text-[13px] text-[var(--color-txt-0)]">{children}</h3>
   ),
   h2: ({ children }: { children?: ReactNode }) => (
-    <h3 className="m-0 text-[13px] font-semibold text-[var(--color-txt-0)]">{children}</h3>
+    <h3 className="m-0 text-[13px] text-[var(--color-txt-0)]">{children}</h3>
   ),
   h3: ({ children }: { children?: ReactNode }) => (
-    <h3 className="m-0 text-[13px] font-semibold text-[var(--color-txt-0)]">{children}</h3>
+    <h3 className="m-0 text-[13px] text-[var(--color-txt-0)]">{children}</h3>
   ),
   hr: () => <hr className="my-1 border-0 border-t border-[var(--color-border)]" />,
   blockquote: ({ children }: { children?: ReactNode }) => (

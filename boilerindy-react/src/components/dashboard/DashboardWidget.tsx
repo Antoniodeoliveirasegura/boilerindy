@@ -127,9 +127,10 @@ export default function DashboardWidget({
     if (next) onResize(id, next)
   }
 
-  // Shared style for the square toolbar controls (resize + move).
+  // Shared style for the square toolbar controls (resize + move): small sign
+  // plates, 32px on desktop and 44px touch targets on phones.
   const ctrlClass =
-    'inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-txt-2)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)]/40 disabled:opacity-30 disabled:cursor-not-allowed'
+    'inline-grid place-items-center w-8 h-8 max-md:w-11 max-md:h-11 rounded-[var(--radius-md)] border-[1.5px] border-[var(--color-border-3)] bg-[var(--color-surface)] text-[var(--color-txt-1)] transition-colors hover:border-[var(--color-txt-0)] hover:text-[var(--color-txt-0)] disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:border-[var(--color-border-3)] disabled:hover:text-[var(--color-txt-1)]'
 
   return (
     <div
@@ -158,22 +159,22 @@ export default function DashboardWidget({
       }}
     >
       <div
-        className={`absolute inset-0 z-10 rounded-2xl border-2 border-dashed pointer-events-none ${motionClass} ${
+        className={`absolute inset-0 z-10 rounded-[var(--radius-2xl)] border-[1.5px] border-dashed pointer-events-none ${motionClass} ${
           dragOver
             ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
-            : 'border-[var(--color-border-2)]'
+            : 'border-[var(--color-border-3)]'
         }`}
       />
-      <div className="relative z-20 flex items-center justify-between gap-2 mb-2 px-1">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="relative z-20 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-2 px-1">
+        <div className="flex items-center gap-2 min-w-0">
           <span
-            className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--color-stat)] border border-[var(--color-border)] text-[var(--color-txt-3)] cursor-grab active:cursor-grabbing shrink-0"
+            className="ico cursor-grab active:cursor-grabbing"
             aria-hidden="true"
             title="Drag to reorder"
           >
             <Icon name="menu" size={14} />
           </span>
-          <span className="text-[12px] font-semibold text-[var(--color-txt-1)] truncate">
+          <span className="font-display font-bold text-[13px] text-[var(--color-txt-0)] truncate">
             {title}
           </span>
         </div>
@@ -231,7 +232,7 @@ export default function DashboardWidget({
             type="button"
             onClick={() => onHide(id)}
             aria-label={`Hide ${title}`}
-            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-txt-2)] hover:text-[var(--color-error)] hover:border-[var(--color-error)]/40"
+            className="inline-grid place-items-center w-8 h-8 max-md:w-11 max-md:h-11 rounded-[var(--radius-md)] border-[1.5px] border-[var(--color-border-3)] bg-[var(--color-surface)] text-[var(--color-txt-1)] transition-colors hover:border-[var(--color-error)] hover:text-[var(--color-error)]"
           >
             <Icon name="close" size={14} />
           </button>

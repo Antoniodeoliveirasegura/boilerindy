@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'vitest'
-import { aiCacheKey, boardDraftKey, clearAiCaches, readAiCache, writeAiCache } from './aiInsightCache'
+import { aiCacheKey, boardDraftKey, boardReplyDraftKey, clearAiCaches, readAiCache, writeAiCache } from './aiInsightCache'
 
 // Issue #219 - the AI insight caches and the board draft were stored without a
 // user id, so the next account on a shared computer saw the previous student's
@@ -32,6 +32,11 @@ describe('boardDraftKey', () => {
   test('is scoped per user', () => {
     expect(boardDraftKey('user-1')).toBe('boilerindy-board-draft-v1-user-1')
     expect(boardDraftKey('user-1')).not.toBe(boardDraftKey('user-2'))
+  })
+
+  test('scopes a reply draft to the user and the post, under the post draft prefix', () => {
+    expect(boardReplyDraftKey('user-1', 'post-9')).toBe('boilerindy-board-draft-v1-user-1-reply-post-9')
+    expect(boardReplyDraftKey('user-1', 'post-9')).not.toBe(boardReplyDraftKey('user-2', 'post-9'))
   })
 })
 
@@ -81,6 +86,7 @@ describe('clearAiCaches', () => {
     localStorage.setItem('ai-week-ahead-2026-09-07', '"old digest"')
     localStorage.setItem('boilerindy-board-draft-v1', '{"title":"old","body":""}')
     localStorage.setItem('boilerindy-board-draft-v1-user-1', '{"title":"draft","body":""}')
+    localStorage.setItem(boardReplyDraftKey('user-1', 'post-9'), 'an unsent reply')
     // The dashboard's cached location and its prompt flag (issue #294), plus the
     // full-precision key written before it.
     localStorage.setItem('boilerindy-user-location-v2', '{"lat":40.424,"lon":-86.921,"ts":1789560000000}')
@@ -108,6 +114,7 @@ describe('clearAiCaches', () => {
     expect(Object.keys(localStorage).sort()).toEqual([
       'boilerindy-board-draft-v1',
       'boilerindy-board-draft-v1-user-1',
+      'boilerindy-board-draft-v1-user-1-reply-post-9',
       'boilerindy-dashboard-layout-v1-user-1',
       'boilerindy-task-priority-v1-user-1',
       'pih-theme',

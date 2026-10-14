@@ -1,8 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import AppLayout from './components/AppLayout'
 import PublicLayout from './components/PublicLayout'
 import RequireAuth from './components/RequireAuth'
@@ -11,6 +11,8 @@ import UsageListener from './components/UsageListener'
 import ServerWakeNotice from './components/ServerWakeNotice'
 import UpdateToast from './components/UpdateToast'
 import PageLoader from './components/PageLoader'
+import ScrollToTop from './components/ScrollToTop'
+import { lazyRoute } from './lib/lazyRoute'
 
 // Entry points stay eagerly bundled so the first paint never waits on a chunk.
 import Landing from './pages/Landing'
@@ -18,53 +20,88 @@ import Login from './pages/Login'
 
 // Every other route is code-split and fetched on demand - Map (Leaflet), the
 // admin/advertiser areas, and the feature pages no longer ship in the initial load.
-const RequireAdvertiser = lazy(() => import('./components/RequireAdvertiser'))
-const AdvertiserLogin = lazy(() => import('./pages/AdvertiserLogin'))
-const AdvertiserResetPassword = lazy(() => import('./pages/AdvertiserResetPassword'))
-const AdvertiserDashboard = lazy(() => import('./pages/advertiser/Dashboard'))
-const ResetPassword = lazy(() => import('./pages/ResetPassword'))
-const Privacy = lazy(() => import('./pages/Privacy'))
-const Terms = lazy(() => import('./pages/Terms'))
-const DeleteAccount = lazy(() => import('./pages/DeleteAccount'))
-const Support = lazy(() => import('./pages/Support'))
-const Install = lazy(() => import('./pages/Install'))
-const AuthCallback = lazy(() => import('./pages/AuthCallback'))
-const NotFound = lazy(() => import('./pages/NotFound'))
-const Home = lazy(() => import('./pages/Home'))
-const Map = lazy(() => import('./pages/Map'))
-const Schedule = lazy(() => import('./pages/Schedule'))
-const Assignments = lazy(() => import('./pages/Assignments'))
-const GradeTracker = lazy(() => import('./pages/GradeTracker'))
-const Events = lazy(() => import('./pages/Events'))
-const FreeFood = lazy(() => import('./pages/FreeFood'))
-const LostFound = lazy(() => import('./pages/LostFound'))
-const Guide = lazy(() => import('./pages/Guide'))
-const StudyGroups = lazy(() => import('./pages/StudyGroups'))
-const Perks = lazy(() => import('./pages/Perks'))
-const Marketplace = lazy(() => import('./pages/Marketplace'))
-const Friends = lazy(() => import('./pages/Friends'))
-const Dining = lazy(() => import('./pages/Dining'))
-const Transit = lazy(() => import('./pages/Transit'))
-const Parking = lazy(() => import('./pages/Parking'))
-const Clubs = lazy(() => import('./pages/Clubs'))
-const Services = lazy(() => import('./pages/Services'))
-const Board = lazy(() => import('./pages/Board'))
-const ConnectSchedule = lazy(() => import('./pages/ConnectSchedule'))
-const Settings = lazy(() => import('./pages/Settings'))
-const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
-const AdminOverview = lazy(() => import('./pages/admin/AdminOverview'))
-const AdminLeads = lazy(() => import('./pages/admin/AdminLeads'))
-const AdminCampaigns = lazy(() => import('./pages/admin/AdminCampaigns'))
-const AdminAdvertisers = lazy(() => import('./pages/admin/AdminAdvertisers'))
-const AdminDeleted = lazy(() => import('./pages/admin/AdminDeleted'))
-const AdminReports = lazy(() => import('./pages/admin/AdminReports'))
+const RequireAdvertiser = lazyRoute(() => import('./components/RequireAdvertiser'))
+const AdvertiserLogin = lazyRoute(() => import('./pages/AdvertiserLogin'))
+const AdvertiserResetPassword = lazyRoute(() => import('./pages/AdvertiserResetPassword'))
+const AdvertiserDashboard = lazyRoute(() => import('./pages/advertiser/Dashboard'))
+const ResetPassword = lazyRoute(() => import('./pages/ResetPassword'))
+const Privacy = lazyRoute(() => import('./pages/Privacy'))
+const Terms = lazyRoute(() => import('./pages/Terms'))
+const DeleteAccount = lazyRoute(() => import('./pages/DeleteAccount'))
+const Support = lazyRoute(() => import('./pages/Support'))
+const Install = lazyRoute(() => import('./pages/Install'))
+const AuthCallback = lazyRoute(() => import('./pages/AuthCallback'))
+const NotFound = lazyRoute(() => import('./pages/NotFound'))
+const Home = lazyRoute(() => import('./pages/Home'))
+const Map = lazyRoute(() => import('./pages/Map'))
+const Schedule = lazyRoute(() => import('./pages/Schedule'))
+const Assignments = lazyRoute(() => import('./pages/Assignments'))
+const GradeTracker = lazyRoute(() => import('./pages/GradeTracker'))
+const Events = lazyRoute(() => import('./pages/Events'))
+const FreeFood = lazyRoute(() => import('./pages/FreeFood'))
+const LostFound = lazyRoute(() => import('./pages/LostFound'))
+const Guide = lazyRoute(() => import('./pages/Guide'))
+const StudyGroups = lazyRoute(() => import('./pages/StudyGroups'))
+const Perks = lazyRoute(() => import('./pages/Perks'))
+const Marketplace = lazyRoute(() => import('./pages/Marketplace'))
+const Friends = lazyRoute(() => import('./pages/Friends'))
+const Dining = lazyRoute(() => import('./pages/Dining'))
+const Transit = lazyRoute(() => import('./pages/Transit'))
+const Parking = lazyRoute(() => import('./pages/Parking'))
+const Clubs = lazyRoute(() => import('./pages/Clubs'))
+const Services = lazyRoute(() => import('./pages/Services'))
+const Board = lazyRoute(() => import('./pages/Board'))
+const ConnectSchedule = lazyRoute(() => import('./pages/ConnectSchedule'))
+const Settings = lazyRoute(() => import('./pages/Settings'))
+const AdminLayout = lazyRoute(() => import('./pages/admin/AdminLayout'))
+const AdminOverview = lazyRoute(() => import('./pages/admin/AdminOverview'))
+const AdminLeads = lazyRoute(() => import('./pages/admin/AdminLeads'))
+const AdminCampaigns = lazyRoute(() => import('./pages/admin/AdminCampaigns'))
+const AdminAdvertisers = lazyRoute(() => import('./pages/admin/AdminAdvertisers'))
+const AdminDeleted = lazyRoute(() => import('./pages/admin/AdminDeleted'))
+const AdminReports = lazyRoute(() => import('./pages/admin/AdminReports'))
+
+// The student pages, fetched in idle time once someone is signed in, so the
+// first visit to each renders at once. With router transitions off (below), a
+// page still downloading shows the loader, and React keeps it up for at least
+// 300 ms, which every first visit paid even when the chunk was cached.
+// Skipped when the device asks to save data.
+const STUDENT_PAGES = [
+  Home, Map, Schedule, Assignments, GradeTracker, Events, FreeFood, LostFound, Guide, StudyGroups, Perks,
+  Marketplace, Friends, Dining, Transit, Parking, Clubs, Services, Board, ConnectSchedule, Settings,
+]
+
+function PreloadStudentPages() {
+  const { user } = useAuth()
+  const signedIn = Boolean(user)
+  useEffect(() => {
+    if (!signedIn) return
+    if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return
+    const run = () => STUDENT_PAGES.forEach((page) => page.preload())
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(run, { timeout: 5000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const timer = setTimeout(run, 2000)
+    return () => clearTimeout(timer)
+  }, [signedIn])
+  return null
+}
 
 export default function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      {/* No transitions: React Router 7 otherwise applies every location change
+          as a low-priority transition, so a session update rendered first
+          against the old URL. That raced sign-in (back to /dashboard instead of
+          ?next) and sign-out (to /login instead of the landing page), and it
+          kept the old page and tab title on screen with no loader while a new
+          page's chunk downloaded. Nothing here relies on transitions. */}
+      <BrowserRouter useTransitions={false}>
+        <ScrollToTop />
         <AuthProvider>
           <UsageListener />
+          <PreloadStudentPages />
           <ServerWakeNotice />
           <UpdateToast />
           <Suspense fallback={<PageLoader />}>
@@ -220,22 +257,11 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              <Route
-                path="/dining"
-                element={
-                  <RequireAuth>
-                    <Dining />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/transit"
-                element={
-                  <RequireAuth>
-                    <Transit />
-                  </RequireAuth>
-                }
-              />
+              {/* The public preview (issue #366): signed-out visitors may open these
+                  two, which read only public data, and get AppLayout's preview bar.
+                  The list lives in lib/publicPreview.ts. */}
+              <Route path="/dining" element={<Dining />} />
+              <Route path="/transit" element={<Transit />} />
               <Route
                 path="/parking"
                 element={

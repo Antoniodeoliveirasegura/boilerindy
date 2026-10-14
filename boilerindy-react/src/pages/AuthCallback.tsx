@@ -72,23 +72,23 @@ export default function AuthCallback() {
 
   if (error) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-1)]">
+      <div className="flex-1 flex items-center justify-center px-4 py-12">
         <PageTitle>Signing in</PageTitle>
-        <div className="text-center">
-          <div className="text-[var(--color-error)] mb-2">Authentication failed</div>
-          <div className="text-[var(--color-txt-2)] text-sm">{error}</div>
-          <div className="text-[var(--color-txt-3)] text-xs mt-2">Redirecting to login...</div>
+        <div className="card card-pad w-full max-w-[420px] border-l-4 border-l-[var(--color-error)]">
+          <div className="font-display text-[15px] font-bold text-[var(--color-error)]">Authentication failed</div>
+          <div className="mt-1 text-[13.5px] text-[var(--color-txt-1)] [overflow-wrap:anywhere]">{error}</div>
+          <div className="mt-2 text-[12.5px] text-[var(--color-txt-3)]">Redirecting to login...</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 flex items-center justify-center bg-[var(--color-bg-1)]">
+    <div className="flex-1 flex items-center justify-center px-4 py-12">
       <PageTitle>Signing in</PageTitle>
-      <div className="text-center">
-        <div className="w-8 h-8 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <div className="text-[var(--color-txt-1)]">Completing sign in...</div>
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--color-border-2)] border-t-[var(--color-txt-0)]" />
+        <div className="text-[14px] text-[var(--color-txt-1)]">Completing sign in...</div>
       </div>
     </div>
   )

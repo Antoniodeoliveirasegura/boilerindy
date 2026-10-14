@@ -9,9 +9,11 @@ try {
       : 'dark'
   }
   if (t === 'dark') document.documentElement.classList.add('dark')
-  // Keep the browser chrome / installed-app status bar in step with the theme.
+  // Keep the browser chrome / installed-app status bar in step with the theme:
+  // the colour of the top band (paper in light, ink in dark), so the status
+  // bar and the header read as one strip.
   var meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute('content', t === 'dark' ? '#151514' : '#EEEFF5')
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#050608' : '#FFFFFF')
 } catch {
   document.documentElement.classList.add('dark')
 }

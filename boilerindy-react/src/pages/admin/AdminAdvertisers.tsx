@@ -3,8 +3,10 @@ import { useSearchParams } from 'react-router-dom'
 import Icon from '../../components/Icons'
 import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
-import { formatDateTime, generateTempPassword } from './adminHelpers'
+import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_TH, formatDateTime, generateTempPassword } from './adminHelpers'
 import PageTitle from '../../components/PageTitle'
+
+const LABEL = 'text-[13px] font-semibold text-[var(--color-txt-1)]'
 
 type Advertiser = {
   id: string
@@ -118,19 +120,11 @@ export default function AdminAdvertisers() {
         description="Invite-only advertiser accounts. Create credentials here, then share them with the business out of band."
         actions={
           <>
-            <button
-              type="button"
-              onClick={load}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] cursor-pointer"
-            >
+            <button type="button" onClick={load} className="btn btn-secondary btn-sm">
               <Icon name="refresh" size={14} />
               Refresh
             </button>
-            <button
-              type="button"
-              onClick={openCreateForm}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-3.5 py-2 text-[13px] font-semibold hover:opacity-90 cursor-pointer border-0"
-            >
+            <button type="button" onClick={openCreateForm} className="btn btn-primary btn-sm">
               Create account
             </button>
           </>
@@ -141,63 +135,63 @@ export default function AdminAdvertisers() {
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
 
       {showForm && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/55">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-advertiser-title"
-            className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl p-6"
+            className="card w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:p-6 shadow-[var(--shadow-xl)]"
           >
-            <h2 id="create-advertiser-title" className="text-lg font-semibold text-[var(--color-txt-0)] mb-1">
+            <h2 id="create-advertiser-title" className="card-title text-[20px] mb-1">
               Create advertiser account
             </h2>
-            <p className="text-[13px] text-[var(--color-txt-2)] mb-5">
+            <p className="text-[13.5px] text-[var(--color-txt-2)] mb-5">
               The business uses these credentials at{' '}
-              <code className="text-[12px] bg-[var(--color-bg-2)] px-1 rounded">/advertise</code>.
+              <code className="font-mono text-[12.5px] text-[var(--color-txt-0)] bg-[var(--color-stat)] px-1.5 py-0.5 rounded-sm">/advertise</code>.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <label className="block">
-                <span className="text-[12px] font-medium text-[var(--color-txt-2)]">Business email</span>
+                <span className={LABEL}>Business email</span>
                 <input
                   required
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] px-3 py-2.5 text-[13px] text-[var(--color-txt-0)]"
+                  className="input mt-1.5"
                 />
               </label>
               <label className="block">
-                <span className="text-[12px] font-medium text-[var(--color-txt-2)]">Company name</span>
+                <span className={LABEL}>Company name</span>
                 <input
                   required
                   value={form.companyName}
                   onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] px-3 py-2.5 text-[13px] text-[var(--color-txt-0)]"
+                  className="input mt-1.5"
                 />
               </label>
               <label className="block">
-                <span className="text-[12px] font-medium text-[var(--color-txt-2)]">Contact name (optional)</span>
+                <span className={LABEL}>Contact name (optional)</span>
                 <input
                   value={form.contactName}
                   onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] px-3 py-2.5 text-[13px] text-[var(--color-txt-0)]"
+                  className="input mt-1.5"
                 />
               </label>
               <label className="block">
-                <span className="text-[12px] font-medium text-[var(--color-txt-2)]">Temporary password</span>
-                <div className="mt-1 flex gap-2">
+                <span className={LABEL}>Temporary password</span>
+                <div className="mt-1.5 flex gap-2">
                   <input
                     required
                     minLength={8}
                     value={form.password}
                     onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    className="flex-1 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] px-3 py-2.5 text-[13px] font-mono text-[var(--color-txt-0)]"
+                    className="input flex-1 min-w-0 font-mono text-[14px]"
                   />
                   <button
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, password: generateTempPassword() }))}
-                    className="rounded-xl border border-[var(--color-border)] px-3 text-[12px] hover:bg-[var(--color-bg-2)] cursor-pointer"
+                    className="btn btn-secondary min-h-[44px] px-3.5"
                   >
                     Regenerate
                   </button>
@@ -211,15 +205,11 @@ export default function AdminAdvertisers() {
                     setShowForm(false)
                     setSearchParams({})
                   }}
-                  className="rounded-xl border border-[var(--color-border)] px-4 py-2.5 text-[13px] hover:bg-[var(--color-bg-2)] cursor-pointer"
+                  className="btn btn-secondary"
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-xl bg-[var(--color-gold)] text-[var(--color-gold-dark)] px-4 py-2.5 text-[13px] font-semibold hover:opacity-90 cursor-pointer disabled:opacity-50 border-0"
-                >
+                <button type="submit" disabled={submitting} className="btn btn-primary">
                   {submitting ? 'Creating…' : 'Create account'}
                 </button>
               </div>
@@ -229,42 +219,45 @@ export default function AdminAdvertisers() {
       )}
 
       {loading ? (
-        <div className="text-[13px] text-[var(--color-txt-2)]">Loading advertisers…</div>
+        <div className="text-[13.5px] text-[var(--color-txt-2)]">Loading advertisers…</div>
       ) : advertisers.length === 0 ? (
         <EmptyState
+          icon="briefcase"
           title="No advertiser accounts yet"
           description="Create the first account when you approve an access request."
         />
       ) : (
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-[13px]">
-              <thead>
-                <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg-2)]/60">
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Company</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Contact</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Status</th>
-                  <th className="px-4 py-3 font-medium text-[var(--color-txt-2)]">Created</th>
+        <div className="card overflow-hidden">
+          {/* A table from md up. On phones each row stacks as one item:
+              company and email, the contact, then the status beside the
+              created date. The header cells stay in the DOM for screen readers. */}
+          <div className="md:overflow-x-auto">
+            <table className="w-full text-left text-[13.5px] max-md:block md:min-w-[640px]">
+              <thead className="max-md:sr-only">
+                <tr className={TABLE_HEAD_ROW}>
+                  <th className={TABLE_TH}>Company</th>
+                  <th className={TABLE_TH}>Contact</th>
+                  <th className={TABLE_TH}>Status</th>
+                  <th className={TABLE_TH}>Created</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block">
                 {advertisers.map((row) => (
-                  <tr key={row.id} className="border-b border-[var(--color-border)] last:border-0">
-                    <td className="px-4 py-4">
-                      <div className="font-medium text-[var(--color-txt-0)]">{row.companyName}</div>
-                      <div className="text-[12px] text-[var(--color-txt-2)]">{row.email}</div>
+                  <tr
+                    key={row.id}
+                    className={`${TABLE_ROW} max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-2.5 max-md:px-4 max-md:py-4`}
+                  >
+                    <td className="px-4 py-3.5 max-md:block max-md:basis-full max-md:p-0">
+                      <div className="font-display font-bold text-[14px] leading-snug text-[var(--color-txt-0)]">{row.companyName}</div>
+                      <div className="text-[12.5px] text-[var(--color-txt-2)] mt-0.5">{row.email}</div>
                     </td>
-                    <td className="px-4 py-4 text-[var(--color-txt-1)]">{row.contactName || '-'}</td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
-                        row.status === 'active'
-                          ? 'text-emerald-700 bg-emerald-500/15 border-emerald-500/30 dark:text-emerald-300'
-                          : 'text-[var(--color-txt-2)] bg-[var(--color-bg-2)] border-[var(--color-border)]'
-                      }`}>
+                    <td className="px-4 py-3.5 text-[var(--color-txt-1)] max-md:block max-md:basis-full max-md:p-0 max-md:mt-1.5">{row.contactName || '-'}</td>
+                    <td className="px-4 py-3.5 max-md:block max-md:p-0 max-md:mt-2">
+                      <span className={`badge ${row.status === 'active' ? 'badge-route r-din' : ''}`}>
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-4 py-4 text-[var(--color-txt-2)] whitespace-nowrap">
+                    <td className="px-4 py-3.5 text-[var(--color-txt-2)] whitespace-nowrap tnum max-md:block max-md:p-0 max-md:mt-2 max-md:text-[12.5px]">
                       {formatDateTime(row.createdAt)}
                     </td>
                   </tr>

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider, useAuth } from './AuthContext'
+import { MemoryRouter, useLocation } from 'react-router-dom'
+import { AuthProvider, useAuth, useSignOutAndRedirect } from './AuthContext'
 
 // Issue #111 - /api/auth/supabase-sync fired twice per login: once from the
 // SIGNED_IN listener and once from an explicit establishSession(). Each POST
@@ -293,6 +294,9 @@ describe('sign-out clears per-user caches (issues #219, #294)', () => {
     })
 
     expect(Object.keys(localStorage)).toEqual(['boilerindy-task-priority-v1-user-1'])
+    // The tab lets go of the session too, so a failed sign-out never leaves
+    // the account open behind the landing page.
+    expect(result.current.session).toBeNull()
   })
 
   // SIGNED_OUT also fires without signOut() (revoked token, another tab, Login
@@ -311,6 +315,53 @@ describe('sign-out clears per-user caches (issues #219, #294)', () => {
       'boilerindy-task-priority-v1-user-1',
     ])
     expect(result.current.session).toBeNull()
+  })
+})
+
+// Sign-out leaves the signed-in page first, so RequireAuth never sends the
+// student to /login?next=<that page>. When the server cannot be reached, the
+// student is told the device may still be signed in instead of landing on the
+// marketing page as if all went well.
+describe('useSignOutAndRedirect', () => {
+  const routed = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/settings']}>
+        <AuthProvider>{children}</AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
+  )
+
+  async function mountRouted() {
+    const { result } = renderHook(
+      () => ({ signOutAndRedirect: useSignOutAndRedirect(), location: useLocation(), auth: useAuth() }),
+      { wrapper: routed },
+    )
+    await waitFor(() => expect(result.current.auth.loading).toBe(false))
+    return result
+  }
+
+  const where = (location: { pathname: string; search: string }) => location.pathname + location.search
+
+  test('lands on the landing page once signed out', async () => {
+    const result = await mountRouted()
+    await act(async () => {
+      await result.current.signOutAndRedirect()
+    })
+    expect(where(result.current.location)).toBe('/')
+    expect(result.current.auth.session).toBeNull()
+  })
+
+  test('a sign-out the server never confirmed lands on the sign-in form with a warning', async () => {
+    const result = await mountRouted()
+    mocks.authRequest.mockImplementation(async (path: string) => {
+      if (path === '/api/sign-out') throw new Error('offline')
+      return {}
+    })
+    await act(async () => {
+      await result.current.signOutAndRedirect()
+    })
+    expect(where(result.current.location)).toBe('/login?error=sign-out-failed')
+    expect(result.current.auth.session).toBeNull()
   })
 })
 

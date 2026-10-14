@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { applyUpdate, registerServiceWorker, type RegistrationLike } from '../lib/swUpdate'
 
 // Registers the service worker (production only, so dev assets are never
 // cached) and offers a refresh once a new version is installed and waiting
 // (issue #220). Renders nothing until then. `register`, `apply` and `enabled`
 // are props only so tests can drive it without a real worker.
+
+// The space left between this toast and the session-expiry alert stacked on it.
+const STACK_GAP_PX = 8
 
 type Props = {
   enabled?: boolean
@@ -19,6 +22,8 @@ export default function UpdateToast({
 }: Props) {
   const [ready, setReady] = useState<RegistrationLike | null>(null)
   const [dismissed, setDismissed] = useState(false)
+  const toastRef = useRef<HTMLDivElement>(null)
+  const shown = ready !== null && !dismissed
 
   useEffect(() => {
     if (!enabled) return
@@ -36,30 +41,52 @@ export default function UpdateToast({
     if (ready) apply(ready)
   }, [apply, ready])
 
-  if (!ready || dismissed) return null
+  // SessionExpiryWatcher's alert shares this bottom slot, and this toast sits
+  // over it, so the toast covered the alert's buttons when both showed. While
+  // the toast is up, its height plus a gap goes on <html> as
+  // --update-toast-lift, which the alert adds to its offset to stack above it.
+  // Measured, not fixed, because the message wraps to more lines on phones.
+  useLayoutEffect(() => {
+    const el = toastRef.current
+    if (!shown || !el) return undefined
+    const root = document.documentElement
+    const measure = () => {
+      root.style.setProperty('--update-toast-lift', `${el.getBoundingClientRect().height + STACK_GAP_PX}px`)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty('--update-toast-lift')
+    }
+  }, [shown])
 
-  // Sits above the mobile bottom nav (z-40) and below dialogs (z-[2000]), like
-  // ServerWakeNotice. On phones the bottom offset clears the nav (64px), the
-  // assistant button that floats 20px above it (56px) and an 8px gap, so the
-  // toast never covers the button (issue #249).
+  if (!shown) return null
+
+  // Sits above the mobile tab bar (z-40) and below dialogs (z-[2000]), like
+  // ServerWakeNotice. On phones the bottom offset clears the assistant button,
+  // which floats 76px up over the 62px tab bar (56px tall), plus an 8px gap,
+  // so the toast never covers the button (issue #249).
   return (
-    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+148px)] z-[1200] flex justify-center px-4 md:bottom-6">
+    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] z-[1200] flex justify-center px-4 md:bottom-6">
       <div
+        ref={toastRef}
         role="status"
         aria-live="polite"
         data-testid="sw-update-toast"
-        className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-[var(--color-border-2)] bg-[var(--color-surface)] px-4 py-3 text-[13px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-md)]"
+        className="flex w-full max-w-md items-center gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-txt-0)] bg-[var(--color-surface)] py-2.5 pl-4 pr-2.5 text-[13.5px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-lg)]"
       >
         <p className="flex-1">
-          <span className="font-semibold text-[var(--color-txt-0)]">A new version of BoilerIndy is ready.</span> Refresh to get it.
+          <span className="font-display font-extrabold text-[var(--color-txt-0)]">A new version of BoilerIndy is ready.</span> Refresh to get it.
         </p>
-        <button type="button" onClick={refresh} className="btn btn-primary shrink-0 px-3 py-1.5 text-[12px]">
+        <button type="button" onClick={refresh} className="btn btn-primary btn-sm shrink-0">
           Refresh
         </button>
         <button
           type="button"
           onClick={() => setDismissed(true)}
-          className="btn shrink-0 px-2 py-1.5 text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]"
+          className="btn btn-ghost btn-sm shrink-0"
         >
           Later
         </button>

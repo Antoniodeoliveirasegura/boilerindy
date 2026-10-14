@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import Icon from '../../components/Icons'
 import type { StatusMeta } from './adminHelpers'
 
 export function StatusBadge({
@@ -8,12 +9,8 @@ export function StatusBadge({
   status: string
   metaMap: Record<string, StatusMeta>
 }) {
-  const meta = metaMap[status] || { label: status, cls: 'text-[var(--color-txt-2)] bg-[var(--color-bg-2)] border-[var(--color-border)]' }
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${meta.cls}`}>
-      {meta.label}
-    </span>
-  )
+  const meta = metaMap[status] || { label: status, cls: '' }
+  return <span className={`badge ${meta.cls}`}>{meta.label}</span>
 }
 
 export function PageHeader({
@@ -26,15 +23,13 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+    <header className="page-head">
       <div>
-        <h1 className="text-xl font-semibold text-[var(--color-txt-0)] tracking-tight">{title}</h1>
-        {description && (
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-2xl leading-relaxed">{description}</p>
-        )}
+        <h1 className="page-title compact">{title}</h1>
+        {description && <p className="page-sub max-w-[68ch] text-[14px]">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-    </div>
+    </header>
   )
 }
 
@@ -50,13 +45,20 @@ export function AlertBanner({
   if (!message) return null
   const cls =
     type === 'success'
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-      : 'border-[var(--color-error)]/30 bg-[var(--color-error)]/8 text-[var(--color-error)]'
+      ? 'border-[var(--color-success)]/45 bg-[var(--color-success)]/8 text-[var(--color-success)]'
+      : 'border-[var(--color-error)]/45 bg-[var(--color-error)]/8 text-[var(--color-error)]'
   return (
-    <div role="alert" className={`rounded-xl border p-3.5 mb-5 text-[13px] flex items-start justify-between gap-3 ${cls}`}>
-      <span>{message}</span>
+    <div
+      role="alert"
+      className={`rounded-lg border-[1.5px] px-3.5 py-2.5 mb-5 text-[13.5px] leading-snug flex items-center justify-between gap-3 ${cls}`}
+    >
+      <span className="min-w-0 break-words">{message}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} className="text-[12px] underline border-0 bg-transparent cursor-pointer shrink-0">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 -my-1 min-h-[32px] max-md:-my-2.5 max-md:min-h-[44px] px-1.5 font-display font-bold text-[12.5px] text-current underline underline-offset-2 border-0 bg-transparent cursor-pointer rounded-sm"
+        >
           Dismiss
         </button>
       )}
@@ -67,14 +69,22 @@ export function AlertBanner({
 export function EmptyState({
   title,
   description,
+  icon = 'check',
 }: {
   title: ReactNode
   description?: ReactNode
+  /** Decorative icon in the empty state's stat square. */
+  icon?: string
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-12 text-center">
-      <div className="text-[15px] font-medium text-[var(--color-txt-0)] mb-1">{title}</div>
-      <div className="text-[13px] text-[var(--color-txt-2)]">{description}</div>
+    <div className="empty row gap-3.5 px-5 py-5">
+      <span className="ico">
+        <Icon name={icon} size={18} />
+      </span>
+      <div className="min-w-0">
+        <div className="font-display font-bold text-[15px] leading-snug text-[var(--color-txt-0)]">{title}</div>
+        <div className="mt-0.5 text-[13.5px] leading-snug text-[var(--color-txt-2)]">{description}</div>
+      </div>
     </div>
   )
 }

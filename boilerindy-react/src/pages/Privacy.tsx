@@ -1,12 +1,19 @@
 import { Link, useSearchParams } from 'react-router-dom'
-import { getBackTarget } from '../lib/privacyNav'
+import { getBackTarget, withFrom } from '../lib/privacyNav'
+import { useAuth } from '../context/AuthContext'
 import SiteDisclaimer from '../components/SiteDisclaimer'
+import BrandMark from '../components/BrandMark'
 import PageTitle from '../components/PageTitle'
+import SkipLink from '../components/SkipLink'
 
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
 // (account, imported schedule, grades, posts, AI features, analytics, the
 // calendar feed). Contact is privacy@boilerindy.app (Cloudflare email routing).
 // The Contact section links to /delete-account (issue #193).
+
+// Reading column type: Jakarta section heads over 15px/1.6 prose.
+const SECTION_TITLE = 'text-[18px] leading-[1.3] text-[var(--color-txt-0)]'
+const SECTION_BODY = 'mt-2 text-[15px] leading-[1.6] text-[var(--color-txt-1)]'
 
 const SECTIONS = [
   {
@@ -112,41 +119,69 @@ we will respond there. You can also open an issue on the BoilerIndy GitHub repos
 
 export default function Privacy() {
   const [searchParams] = useSearchParams()
-  const back = getBackTarget(searchParams.get('from'))
+  const { user } = useAuth()
+  const from = searchParams.get('from')
+  const back = getBackTarget(from, Boolean(user))
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg-1)] px-6 py-12">
+    <div className="flex min-h-screen flex-col bg-[var(--color-bg-1)]">
+      {/* This page renders outside AppLayout and PublicLayout, so it
+          carries its own skip link and main landmark (issue #221). */}
+      <SkipLink />
       <PageTitle>Privacy policy</PageTitle>
-      <div className="max-w-[720px] mx-auto">
-        <Link to={back.to} className="text-[13px] text-[var(--color-accent)] hover:underline">
-          {back.label}
-        </Link>
-        <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Privacy policy</h1>
-        <p className="text-[13px] text-[var(--color-txt-2)] mb-8">
-          Last updated September 14, 2026. The short version: your data stays in our own database, we
-          use no advertising trackers, we never store your Purdue password, and you can opt out of
-          analytics or delete your account anytime.
-        </p>
-
-        <div className="space-y-7">
-          {SECTIONS.map((section) => (
-            <section key={section.title}>
-              <h2 className="text-[17px] font-semibold text-[var(--color-txt-0)] mb-1.5">{section.title}</h2>
-              <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] whitespace-pre-line">{section.body}</p>
-              {section.link ? (
-                <Link
-                  to={section.link.to}
-                  className="inline-block text-[14px] text-[var(--color-accent)] hover:underline mt-1.5"
-                >
-                  {section.link.label}
-                </Link>
-              ) : null}
-            </section>
-          ))}
+      {/* The signed-out signage band (as on the landing and the preview
+          bar): the mark, a divider and the way back, on the app's 1200px
+          column at the navbar's height. */}
+      <header className="topbar h-14 md:h-16">
+        <div className="mx-auto flex h-full max-w-[1200px] items-center px-4 md:px-6">
+          <BrandMark size={32} />
+          <span aria-hidden="true" className="topbar-divider" />
+          <Link
+            to={back.to}
+            className="inline-flex min-h-11 items-center rounded-[var(--radius-md)] px-2 font-display text-[14px] font-bold text-[var(--color-txt-2)] no-underline hover:text-[var(--color-txt-0)]"
+          >
+            {back.label}
+          </Link>
         </div>
+      </header>
+      <main id="main" tabIndex={-1} className="page flex-1 pb-12 md:pb-16 focus:outline-none">
+        <div className="page-measure">
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">Privacy policy</h1>
+              <p className="page-sub">
+                Last updated September 14, 2026. The short version: your data stays in our own database, we
+                use no advertising trackers, we never store your Purdue password, and you can opt out of
+                analytics or delete your account anytime.
+              </p>
+            </div>
+          </div>
+          <div className="card card-pad r-ink -mx-4 rounded-none border-x-0 sm:mx-0 sm:rounded-[var(--radius-xl)] sm:border-x sm:p-8">
+            {SECTIONS.map((section, index) => (
+              <section key={section.title} className="relative pb-8 pl-10 last:pb-0 sm:pl-12">
+                <span
+                  aria-hidden="true"
+                  className="route-badge sm absolute left-0 top-0 font-display text-[11px] font-extrabold tnum"
+                >
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                {index < SECTIONS.length - 1 ? (
+                  <span aria-hidden="true" className="absolute bottom-0 left-[11px] top-6 w-0.5 bg-[var(--route)]" />
+                ) : null}
+                <h2 className={SECTION_TITLE}>{section.title}</h2>
+                <p className={SECTION_BODY}>{section.body}</p>
+                {section.link ? (
+                  <Link to={withFrom(section.link.to, from)} className="prose-link mt-2 inline-block text-[15px]">
+                    {section.link.label}
+                  </Link>
+                ) : null}
+              </section>
+            ))}
+          </div>
+        </div>
+      </main>
 
-        <SiteDisclaimer className="mt-8" />
-      </div>
+      <SiteDisclaimer rule from={from} />
     </div>
   )
 }

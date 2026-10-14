@@ -304,54 +304,55 @@ export default function ConnectSchedule() {
   // ────────────────────────────────────────
   if (needsPurdueConnection) {
     return (
-      <div className="max-w-[520px] mx-auto px-4 sm:px-6 py-8 sm:py-12 pb-24">
+      <div className="page">
         <PageTitle>Setup</PageTitle>
-        <div className="text-center mb-6 sm:mb-8">
-          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center mx-auto mb-3 sm:mb-4">
-            <Icon name="graduation" size={24} className="sm:hidden" />
-            <Icon name="graduation" size={28} className="hidden sm:block" />
+        <div className="mx-auto w-full max-w-[520px] pt-2 sm:pt-6">
+          <header className="mb-6 text-center">
+            <span className="route-badge lg r-cls mb-4">
+              <Icon name="graduation" size={22} />
+            </span>
+            <h1 className="page-title compact">Connect your Purdue email</h1>
+            <p className="page-sub mx-auto max-w-[400px]">
+              Link your Purdue identity so you can import your class schedule and assignments.
+            </p>
+          </header>
+
+          {bannerEl}
+
+          <div className="card card-pad">
+            <PurdueEmailVerification
+              allowDevLink={usesMockPurdue}
+              onLinked={() => handlePurdueLinked('Purdue account linked! You can now connect your calendars.')}
+            />
+            {usesCasPurdue ? (
+              <div className="mt-5 space-y-3 border-t border-[var(--color-border)] pt-5">
+                <p className="text-[13.5px] leading-relaxed text-[var(--color-txt-2)]">
+                  Or sign in with official Purdue CAS - we never ask you to type your Purdue password into this app.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => (startPurdueFromAuth || startPurdueLink)('/setup')}
+                  className="btn btn-secondary w-full"
+                >
+                  <Icon name="graduation" size={16} />
+                  Sign in with Purdue
+                </button>
+              </div>
+            ) : null}
           </div>
-          <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">Connect your Purdue email</h1>
-          <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-2 max-w-[400px] mx-auto px-4 sm:px-0">
-            Link your Purdue identity so you can import your class schedule and assignments.
+
+          <p className="mt-4 px-4 text-center text-[12.5px] text-[var(--color-txt-2)]">
+            Signed in as <span className="font-semibold text-[var(--color-txt-1)]">{user?.email}</span>
           </p>
-        </div>
-
-        {bannerEl}
-
-        <div className="card p-4 sm:p-6">
-          <PurdueEmailVerification
-            allowDevLink={usesMockPurdue}
-            onLinked={() => handlePurdueLinked('Purdue account linked! You can now connect your calendars.')}
-          />
-          {usesCasPurdue ? (
-            <div className="mt-5 pt-5 border-t border-[var(--color-border)] space-y-3">
-              <p className="text-[13px] text-[var(--color-txt-2)] leading-relaxed">
-                Or sign in with official Purdue CAS - we never ask you to type your Purdue password into this app.
-              </p>
-              <button
-                type="button"
-                onClick={() => (startPurdueFromAuth || startPurdueLink)('/setup')}
-                className="btn btn-secondary w-full text-[14px] px-5 py-3.5 sm:py-3 justify-center rounded-xl"
-              >
-                <Icon name="graduation" size={16} />
-                Sign in with Purdue
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        <p className="text-center text-[12px] text-[var(--color-txt-3)] mt-4 px-4">
-          Signed in as <span className="font-medium text-[var(--color-txt-2)]">{user?.email}</span>
-        </p>
-        <div className="text-center mt-4">
-          <button
-            type="button"
-            onClick={handleSkipSetup}
-            className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] underline underline-offset-2"
-          >
-            Skip for now - don&rsquo;t ask me again
-          </button>
+          <div className="mt-2 text-center">
+            <button
+              type="button"
+              onClick={handleSkipSetup}
+              className="inline-flex min-h-[44px] items-center px-2 text-[13px] text-[var(--color-txt-2)] underline underline-offset-2 hover:text-[var(--color-txt-0)]"
+            >
+              Skip for now - don&rsquo;t ask me again
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -360,267 +361,288 @@ export default function ConnectSchedule() {
   // ────────────────────────────────────────
   // STEP 2 - Connect calendar sources
   // ────────────────────────────────────────
+  const sourceOptions = [
+    { id: 'brightspace', icon: 'document', name: 'Brightspace', blurb: 'Assignments, exams, labs' },
+    { id: 'purdue', icon: 'schedule', name: 'Schedule', blurb: 'Class meeting times' },
+  ]
+
   return (
-    <div className="max-w-[800px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+    <div className="page">
       <PageTitle>Setup</PageTitle>
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">
-          {sources.length > 0 ? 'Manage Calendar Sources' : 'Connect Your Calendars'}
-        </h1>
-        <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-1">
-          Import your assignments and class schedule from Brightspace and your Purdue timetable.
-        </p>
-      </div>
-
-      {bannerEl}
-
-      {/* Linking is not required here (PURDUE_AUTH_MODE=off, as in production),
-          so the Purdue step is offered, not enforced: calendars work without
-          it, and a verified address opens Marketplace posting (issue #181). */}
-      {!user?.hasPurdueLinked ? (
-        <div className="card p-4 sm:p-6 mb-6 sm:mb-8" data-testid="setup-purdue-email">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] flex items-center justify-center shrink-0">
-              <Icon name="graduation" size={18} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-[var(--color-txt-0)]">Link your Purdue email</h2>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 leading-relaxed">
-                Optional. Verify your @purdue.edu address to post on the Marketplace; your calendars work without it.
-              </p>
-            </div>
+      <div className="page-measure">
+        <header className="page-head">
+          <div>
+            <h1 className="page-title">
+              {sources.length > 0 ? 'Manage Calendar Sources' : 'Connect Your Calendars'}
+            </h1>
+            <p className="page-sub">
+              Import your assignments and class schedule from Brightspace and your Purdue timetable.
+            </p>
           </div>
-          <PurdueEmailVerification
-            allowDevLink={usesMockPurdue}
-            onLinked={() => handlePurdueLinked('Purdue email linked. You can post on the Marketplace now.')}
-          />
-        </div>
-      ) : null}
+        </header>
 
-      {/* Connected Sources */}
-      {sources.length > 0 && (
-        <div className="mb-6 sm:mb-8">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-[11px] sm:text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-              Connected Sources
-            </h2>
-            <button
-              type="button"
-              onClick={handleSyncAll}
-              disabled={syncingAll}
-              className="btn btn-primary text-[12px] px-4 py-2 disabled:opacity-50"
-            >
-              {syncingAll ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Syncing all…
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5">
-                  <Icon name="refresh" size={13} />
-                  Sync all
-                </span>
-              )}
-            </button>
-          </div>
-          <div className="space-y-3">
-            {sources.map((source) => (
-              <div key={source.id} className="card p-3 sm:p-4">
-                <div className="flex flex-col sm:flex-row sm:items-start gap-3">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      source.sourceType === 'brightspace_ical'
-                        ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                        : 'bg-[var(--color-gold)]/15 text-[var(--color-gold)]'
-                    }`}>
+        {bannerEl}
+
+        {/* Linking is not required here (PURDUE_AUTH_MODE=off, as in production),
+            so the Purdue step is offered, not enforced: calendars work without
+            it, and a verified address opens Marketplace posting (issue #181). */}
+        {!user?.hasPurdueLinked ? (
+          <section className="card card-pad r-cls mb-5" data-testid="setup-purdue-email">
+            <header className="card-head items-start">
+              <span className="route-badge">
+                <Icon name="graduation" size={18} />
+              </span>
+              <div>
+                <h2 className="card-title">Link your Purdue email</h2>
+                <p className="card-sub">
+                  Optional. Verify your @purdue.edu address to post on the Marketplace; your calendars work without it.
+                </p>
+              </div>
+            </header>
+            <PurdueEmailVerification
+              allowDevLink={usesMockPurdue}
+              onLinked={() => handlePurdueLinked('Purdue email linked. You can post on the Marketplace now.')}
+              submitVariant="secondary"
+            />
+          </section>
+        ) : null}
+
+        {/* Connected Sources */}
+        {sources.length > 0 && (
+          <section className="card card-pad r-cls mb-5">
+            <div className="card-head mb-2">
+              <span className="route-badge">
+                <Icon name="refresh" size={18} />
+              </span>
+              <div>
+                <h2 className="card-title lowercase first-letter:uppercase">
+                  Connected Sources
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={handleSyncAll}
+                disabled={syncingAll}
+                className="btn btn-secondary btn-sm ml-auto shrink-0"
+              >
+                {syncingAll ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Icon name="refresh" size={14} className="animate-spin" />
+                    Syncing all…
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="refresh" size={14} />
+                    Sync all
+                  </span>
+                )}
+              </button>
+            </div>
+            <div className="divide-y divide-[var(--color-border)]">
+              {sources.map((source) => (
+                <div key={source.id} className="flex flex-col gap-3 py-3.5 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="ico h-9 w-9">
                       <Icon name={getSourceIcon(source.sourceType)} size={18} />
-                    </div>
-                    <div className="flex-1 min-w-0">
+                    </span>
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-[var(--color-txt-0)] text-[14px]">{source.label}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                        <span className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">{source.label}</span>
+                        <span className={`badge ${
                           source.status === 'ready'
-                            ? 'bg-[var(--color-success)]/15 text-[var(--color-success)]'
+                            ? 'bg-[var(--color-success)]/12 text-[var(--color-success)]'
                             : source.status === 'error'
-                            ? 'bg-[var(--color-error)]/15 text-[var(--color-error)]'
-                            : 'bg-[var(--color-txt-3)]/15 text-[var(--color-txt-2)]'
+                            ? 'bg-[var(--color-error)]/12 text-[var(--color-error)]'
+                            : ''
                         }`}>
                           {source.status}
                         </span>
                       </div>
-                      <div className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)] mt-0.5">
+                      <div className="tnum mt-0.5 text-[12.5px] text-[var(--color-txt-2)]">
                         {getSourceTypeLabel(source.sourceType)}
                         {source.lastSyncedAt && (
                           <span className="hidden sm:inline"> · Synced {new Date(source.lastSyncedAt).toLocaleDateString()}</span>
                         )}
                       </div>
                       {source.lastError && (
-                        <div className="text-[11px] sm:text-[12px] text-[var(--color-error)] mt-1">{source.lastError}</div>
+                        <div className="mt-1 text-[12.5px] text-[var(--color-error)]">{source.lastError}</div>
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2 shrink-0 ml-[52px] sm:ml-0">
-                    <button type="button" onClick={() => handleSync(source.id)} disabled={syncingAll} className="btn btn-secondary text-[12px] px-3 py-2 sm:py-1.5 flex-1 sm:flex-none justify-center disabled:opacity-50">
+                  <div className="ml-12 flex shrink-0 gap-1.5 sm:ml-0">
+                    <button type="button" onClick={() => handleSync(source.id)} disabled={syncingAll} className="btn btn-secondary btn-sm flex-1 sm:flex-none">
                       Sync
                     </button>
-                    <button type="button" onClick={() => handleDelete(source.id)} className="btn text-[12px] px-3 py-2 sm:py-1.5 text-[var(--color-error)] hover:bg-[var(--color-error)]/10 active:bg-[var(--color-error)]/15">
-                      <Icon name="trash" size={14} />
+                    <button type="button" onClick={() => handleDelete(source.id)} className="icon-btn hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] md:h-[34px] md:w-[34px]">
+                      <Icon name="trash" size={16} />
                     </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Add New Source */}
+        <section className="card card-pad r-cls">
+          <header className="card-head">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div>
+              <h2 className="card-title lowercase first-letter:uppercase">
+                Add Calendar Source
+              </h2>
+            </div>
+          </header>
+
+          {/* Source Type Toggle: two option cards, one choice. The chosen one
+              takes an ink edge and a filled ink dot, never amber; the round
+              marker reads as a single choice, not a checklist. */}
+          <div className="mb-5 grid grid-cols-2 gap-2 sm:gap-3">
+            {sourceOptions.map((option) => {
+              const isSelected = sourceType === option.id
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => { setSourceType(option.id); setUrlError('') }}
+                  className={`card flex flex-col items-stretch gap-1 p-3 text-left sm:p-4 ${
+                    isSelected
+                      ? 'border-[var(--color-txt-0)] bg-[var(--color-surface)] shadow-[inset_0_0_0_1px_var(--color-txt-0)]'
+                      : ''
+                  }`}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="route-badge">
+                      <Icon name={option.icon} size={18} />
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-[1.5px] ${
+                        isSelected ? 'border-[var(--color-txt-0)]' : 'border-[var(--color-border-3)]'
+                      }`}
+                    >
+                      {isSelected ? <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-txt-0)]" /> : null}
+                    </span>
+                  </span>
+                  <span className="mt-1 font-display text-[15px] font-bold leading-tight text-[var(--color-txt-0)]">{option.name}</span>
+                  <span className="block text-[12.5px] leading-snug text-[var(--color-txt-2)] sm:text-[13px]">
+                    {option.blurb}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        </div>
-      )}
 
-      {/* Add New Source */}
-      <div className="card p-4 sm:p-6">
-        <h2 className="text-[15px] sm:text-[16px] font-semibold text-[var(--color-txt-0)] mb-4">
-          Add Calendar Source
-        </h2>
+          {/* How to get the link (issue #120): the provider's steps drawn as a
+              three-stop line, a link that opens it in a new tab, and the
+              privacy note. */}
+          <div className="mb-5 border-t border-[var(--color-border)] pt-4" data-testid="source-steps">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+              <h3 className="eyebrow">How to get the link</h3>
+              <a
+                href={PROVIDER_LINKS[sourceType as ScheduleSourceKind].href}
+                target="_blank"
+                rel="noreferrer"
+                className="head-link"
+              >
+                Open {PROVIDER_LINKS[sourceType as ScheduleSourceKind].label}
+                <Icon name="external" size={14} />
+              </a>
+            </div>
+            <ol>
+              {config.steps.map((step, index) => {
+                const last = index === config.steps.length - 1
+                return (
+                  <li key={step} className="flex gap-3">
+                    <span aria-hidden="true" className="relative flex w-6 shrink-0 justify-center">
+                      {last ? null : <span className="absolute bottom-0 top-6 w-[3px] bg-[var(--route)]" />}
+                      <span
+                        className={`relative grid h-6 w-6 place-items-center rounded-full font-display text-[11px] font-extrabold tnum ${
+                          last
+                            ? 'bg-[var(--route)] text-[var(--route-on)]'
+                            : 'border-[3px] border-[var(--route)] bg-[var(--color-surface)] text-[var(--route-text)]'
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                    </span>
+                    {/* The bottom padding sits on the text, not the li, so the
+                        stop column stretches far enough to draw the track. */}
+                    <span className={`min-w-0 pt-0.5 text-[14px] leading-snug text-[var(--color-txt-1)] ${last ? '' : 'pb-4'}`}>{step}</span>
+                  </li>
+                )
+              })}
+            </ol>
+            <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--color-txt-2)]">
+              The link is read-only and personal to you, so keep it private. BoilerIndy never asks for your Purdue password.
+            </p>
+          </div>
 
-        {/* Source Type Toggle */}
-        <div className="mb-5">
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          {/* URL Input Form */}
+          <form onSubmit={handleConnect} noValidate className="border-t border-[var(--color-border)] pt-4">
+            <div className="mb-4">
+              <label htmlFor="source-ics-url" className="mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]">
+                iCalendar Feed URL
+              </label>
+              <textarea
+                id="source-ics-url"
+                value={icsUrl}
+                onChange={(e) => { setIcsUrl(e.target.value); if (urlError) setUrlError('') }}
+                className={`input min-h-[96px] resize-y font-mono text-[13px] ${urlError ? 'border-[var(--color-error)]' : ''}`}
+                placeholder={config.placeholder}
+                aria-invalid={urlError ? true : undefined}
+                aria-describedby="source-ics-url-hint"
+                required
+              />
+              {urlError ? (
+                <p id="source-ics-url-hint" role="alert" className="mt-1.5 text-[13px] font-medium text-[var(--color-error)]">
+                  {urlError}
+                </p>
+              ) : (
+                <p id="source-ics-url-hint" className="mt-1.5 text-[12px] text-[var(--color-txt-2)]">
+                  {config.helpText}
+                </p>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={!icsUrl.trim() || saving}
+              className="btn btn-primary w-full sm:w-auto"
+            >
+              <Icon name={config.icon} size={16} />
+              {saving ? 'Connecting…' : `Connect ${sourceType === 'brightspace' ? 'Brightspace' : 'Schedule'}`}
+            </button>
+          </form>
+        </section>
+
+        {/* Footer links */}
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex justify-center gap-2 sm:justify-start">
+            <Link to="/assignments" className="head-link mx-0 min-h-[44px] gap-1.5 sm:-ml-2">
+              <Icon name="document" size={15} />
+              View Tasks
+            </Link>
+            <Link to="/schedule" className="head-link mx-0 min-h-[44px] gap-1.5">
+              <Icon name="schedule" size={15} />
+              View Schedule
+            </Link>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <button
               type="button"
-              onClick={() => { setSourceType('brightspace'); setUrlError('') }}
-              className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${
-                sourceType === 'brightspace'
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-[var(--color-border)] hover:border-[var(--color-border-2)]'
-              }`}
+              onClick={handleSkipSetup}
+              className="btn btn-ghost w-full sm:w-auto"
+              title="Go to the dashboard and stop showing this setup screen at login"
             >
-              <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
-                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  sourceType === 'brightspace'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                }`}>
-                  <Icon name="document" size={14} className="sm:hidden" />
-                  <Icon name="document" size={16} className="hidden sm:block" />
-                </div>
-                <span className="font-medium text-[var(--color-txt-0)] text-[13px] sm:text-[14px]">Brightspace</span>
-              </div>
-              <p className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)]">
-                Assignments, exams, labs
-              </p>
+              Don&rsquo;t ask again
             </button>
-
-            <button
-              type="button"
-              onClick={() => { setSourceType('purdue'); setUrlError('') }}
-              className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${
-                sourceType === 'purdue'
-                  ? 'border-[var(--color-gold)] bg-[var(--color-gold)]/10'
-                  : 'border-[var(--color-border)] hover:border-[var(--color-border-2)]'
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
-                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  sourceType === 'purdue'
-                    ? 'bg-[var(--color-gold)] text-[var(--color-gold-dark)]'
-                    : 'bg-[var(--color-gold)]/15 text-[var(--color-gold)]'
-                }`}>
-                  <Icon name="schedule" size={14} className="sm:hidden" />
-                  <Icon name="schedule" size={16} className="hidden sm:block" />
-                </div>
-                <span className="font-medium text-[var(--color-txt-0)] text-[13px] sm:text-[14px]">Schedule</span>
-              </div>
-              <p className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)]">
-                Class meeting times
-              </p>
+            <button type="button" onClick={() => navigate('/dashboard')} className="btn btn-secondary w-full sm:w-auto">
+              Go to Dashboard
             </button>
           </div>
-        </div>
-
-        {/* How to get the link (issue #120): numbered steps for the selected
-            provider, a link that opens it in a new tab, and the privacy note. */}
-        <div className="mb-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-3 sm:p-4" data-testid="source-steps">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h3 className="text-[12px] font-semibold text-[var(--color-txt-1)] uppercase tracking-wider">How to get the link</h3>
-            <a
-              href={PROVIDER_LINKS[sourceType as ScheduleSourceKind].href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[12px] text-[var(--color-accent)] hover:underline inline-flex items-center gap-1"
-            >
-              Open {PROVIDER_LINKS[sourceType as ScheduleSourceKind].label}
-              <Icon name="external" size={12} />
-            </a>
-          </div>
-          <ol className="list-decimal pl-5 space-y-1.5 text-[12px] sm:text-[13px] text-[var(--color-txt-1)]">
-            {config.steps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-          <p className="text-[11px] text-[var(--color-txt-3)] mt-2.5">
-            The link is read-only and personal to you, so keep it private. BoilerIndy never asks for your Purdue password.
-          </p>
-        </div>
-
-        {/* URL Input Form */}
-        <form onSubmit={handleConnect} noValidate>
-          <div className="mb-4">
-            <label htmlFor="source-ics-url" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
-              iCalendar Feed URL
-            </label>
-            <textarea
-              id="source-ics-url"
-              value={icsUrl}
-              onChange={(e) => { setIcsUrl(e.target.value); if (urlError) setUrlError('') }}
-              className={`input w-full px-3 sm:px-4 py-3 text-[14px] sm:text-[13px] min-h-[90px] sm:min-h-[100px] resize-y font-mono rounded-xl ${urlError ? 'border-[var(--color-error)]' : ''}`}
-              placeholder={config.placeholder}
-              aria-invalid={urlError ? true : undefined}
-              aria-describedby="source-ics-url-hint"
-              required
-            />
-            {urlError ? (
-              <p id="source-ics-url-hint" role="alert" className="text-[12px] text-[var(--color-error)] mt-1.5">
-                {urlError}
-              </p>
-            ) : (
-              <p id="source-ics-url-hint" className="text-[10px] sm:text-[11px] text-[var(--color-txt-3)] mt-1.5">
-                {config.helpText}
-              </p>
-            )}
-          </div>
-          <button
-            type="submit"
-            disabled={!icsUrl.trim() || saving}
-            className="btn btn-primary text-[13px] px-5 py-3 sm:py-2.5 disabled:opacity-50 w-full sm:w-auto justify-center rounded-xl"
-          >
-            <Icon name={config.icon} size={15} />
-            {saving ? 'Connecting…' : `Connect ${sourceType === 'brightspace' ? 'Brightspace' : 'Schedule'}`}
-          </button>
-        </form>
-      </div>
-
-      {/* Footer links */}
-      <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-[13px]">
-        <div className="flex gap-4 justify-center sm:justify-start">
-          <Link to="/assignments" className="text-[var(--color-accent)] hover:underline flex items-center gap-1 py-2">
-            <Icon name="document" size={14} />
-            View Tasks
-          </Link>
-          <Link to="/schedule" className="text-[var(--color-accent)] hover:underline flex items-center gap-1 py-2">
-            <Icon name="schedule" size={14} />
-            View Schedule
-          </Link>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={handleSkipSetup}
-            className="btn text-[13px] px-4 py-2.5 sm:py-2 text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] hover:bg-[var(--color-bg-2)] w-full sm:w-auto justify-center"
-            title="Go to the dashboard and stop showing this setup screen at login"
-          >
-            Don&rsquo;t ask again
-          </button>
-          <button type="button" onClick={() => navigate('/dashboard')} className="btn btn-secondary text-[13px] px-4 py-2.5 sm:py-2 w-full sm:w-auto justify-center">
-            Go to Dashboard
-          </button>
         </div>
       </div>
     </div>

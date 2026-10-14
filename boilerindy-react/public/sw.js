@@ -9,10 +9,20 @@
 // SKIP_WAITING when the student accepts; the reload that follows the
 // controllerchange loads the new shell and assets together.
 
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const CACHE_NAME = `boilerindy-${CACHE_VERSION}`
 const SHELL_URL = '/index.html'
-const PRECACHE_URLS = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
+// The heading face (and its trimmed punctuation, under 1 KB) is precached so
+// an offline visit still renders headings in it; the other font weights are
+// cached on first use like any static asset.
+const PRECACHE_URLS = [
+  '/',
+  '/index.html',
+  '/favicon.svg',
+  '/manifest.webmanifest',
+  '/fonts/PlusJakartaSans-ExtraBold.woff2',
+  '/fonts/JakartaDisplayPunct-ExtraBold.woff2',
+]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)))
@@ -69,7 +79,11 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const network = fetch(request)
         .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
+          // A 200 text/html answering a script, style or font is the host's
+          // SPA fallback for a file a deploy removed, not the file. Caching it
+          // made that page's code fail from the cache even after a reload.
+          const isHtml = (response?.headers.get('content-type') || '').includes('text/html')
+          if (response && response.status === 200 && response.type === 'basic' && !isHtml) {
             const clone = response.clone()
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
           }

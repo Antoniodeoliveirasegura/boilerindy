@@ -18,6 +18,14 @@ const CATEGORIES = [
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
   CATEGORIES.map((c) => [c.key, c.label]),
 )
+// The icon each deal's route badge carries, by category.
+const CATEGORY_ICON: Record<string, string> = {
+  food: 'dining',
+  coffee: 'coffee',
+  entertainment: 'star',
+  services: 'briefcase',
+  other: 'tag',
+}
 
 type Deal = {
   id: string
@@ -194,122 +202,133 @@ export default function Perks() {
   }
 
   return (
-    <div className="max-w-[960px] mx-auto px-6 py-8 pb-24">
+    <div className="page r-ink">
       <PageTitle>Campus Perks</PageTitle>
       {confirmDialog}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+      <header className="page-head">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Campus Perks</h1>
-          <p className="text-[14px] text-[var(--color-txt-2)] mt-1">Local deals and discounts for students.</p>
+          <h1 className="page-title">Campus Perks</h1>
+          <p className="page-sub">Local deals and discounts for students.</p>
         </div>
         {isAdmin && (
-          <button type="button" onClick={startCreate} className="btn btn-primary px-4 py-2.5 text-[13px] w-fit">
+          <button type="button" onClick={startCreate} className={`btn ${showForm ? 'btn-secondary' : 'btn-primary'}`}>
             <Icon name="plus" size={16} />
             New deal
           </button>
         )}
-      </div>
+      </header>
 
       {isAdmin && showForm && (
-        <form onSubmit={submitForm} className="card p-5 mb-6 space-y-3">
-          <div className="text-[12px] font-semibold text-[var(--color-txt-2)]">{form.id ? 'Edit deal' : 'New deal'}</div>
+        <form onSubmit={submitForm} className="card card-pad mb-6 space-y-3 max-w-[760px]">
+          <div className="card-title mb-1">{form.id ? 'Edit deal' : 'New deal'}</div>
           <div className="grid sm:grid-cols-2 gap-3">
-            <input value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} maxLength={120} placeholder="Business name" className="input w-full text-[13px] px-3 py-2" />
-            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="input w-full text-[13px] px-3 py-2">
+            <input value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} maxLength={120} placeholder="Business name" className="input" />
+            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="input">
               {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
-          <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} maxLength={2000} rows={2} placeholder="Description / offer details" className="input w-full text-[13px] px-3 py-2 resize-y" />
+          <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} maxLength={2000} rows={2} placeholder="Description / offer details" className="input resize-y" />
           <div className="grid sm:grid-cols-2 gap-3">
-            <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="Image URL (optional)" className="input w-full text-[13px] px-3 py-2" />
-            <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} maxLength={200} placeholder="Address (optional)" className="input w-full text-[13px] px-3 py-2" />
+            <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="Image URL (optional)" className="input" />
+            <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} maxLength={200} placeholder="Address (optional)" className="input" />
           </div>
           <div className="grid sm:grid-cols-3 gap-3">
-            <input value={form.lat} onChange={(e) => setForm((f) => ({ ...f, lat: e.target.value }))} inputMode="decimal" placeholder="Lat (optional)" className="input w-full text-[13px] px-3 py-2" />
-            <input value={form.lng} onChange={(e) => setForm((f) => ({ ...f, lng: e.target.value }))} inputMode="decimal" placeholder="Lng (optional)" className="input w-full text-[13px] px-3 py-2" />
-            <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} className="input w-full text-[13px] px-3 py-2" />
+            <input value={form.lat} onChange={(e) => setForm((f) => ({ ...f, lat: e.target.value }))} inputMode="decimal" placeholder="Lat (optional)" className="input tnum" />
+            <input value={form.lng} onChange={(e) => setForm((f) => ({ ...f, lng: e.target.value }))} inputMode="decimal" placeholder="Lng (optional)" className="input tnum" />
+            <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} className="input tnum" />
           </div>
-          <div className="flex items-center gap-4 text-[13px] text-[var(--color-txt-1)]">
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={form.featured} onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))} /> Featured</label>
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} /> Active</label>
+          <div className="flex items-center gap-5 text-[13px] font-semibold text-[var(--color-txt-1)]">
+            <label className="flex items-center gap-2 min-h-[40px]"><input type="checkbox" className="w-4 h-4 accent-[var(--color-txt-0)]" checked={form.featured} onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))} /> Featured</label>
+            <label className="flex items-center gap-2 min-h-[40px]"><input type="checkbox" className="w-4 h-4 accent-[var(--color-txt-0)]" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} /> Active</label>
           </div>
-          {formError && <p className="text-[12px] text-[var(--color-error)]">{formError}</p>}
+          {formError && <p className="text-[13px] text-[var(--color-error)]">{formError}</p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={submitting} className="btn btn-primary px-4 py-2.5 text-[13px] disabled:opacity-60">{submitting ? 'Saving…' : 'Save deal'}</button>
-            <button type="button" onClick={() => setShowForm(false)} className="text-[13px] px-3 py-2.5 text-[var(--color-txt-2)] hover:underline">Cancel</button>
+            <button type="submit" disabled={submitting} className="btn btn-primary">{submitting ? 'Saving…' : 'Save deal'}</button>
+            <button type="button" onClick={() => setShowForm(false)} className="btn btn-ghost">Cancel</button>
           </div>
         </form>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
         <div className="flex flex-wrap gap-2">
           {['all', ...CATEGORIES.map((c) => c.key)].map((key) => (
             <button
               key={key}
               type="button"
               onClick={() => setActiveCat(key)}
-              className={`text-[12px] px-3 py-1.5 rounded-full border transition-colors ${
-                activeCat === key
-                  ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
-                  : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
-              }`}
+              className={`pill ${activeCat === key ? 'pill-active' : ''}`}
             >
               {key === 'all' ? 'All' : CATEGORY_LABEL[key]}
             </button>
           ))}
         </div>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search deals…"
-          className="input text-[13px] px-3 py-2 sm:ml-auto sm:w-[220px]"
-        />
+        <div className="relative sm:ml-auto sm:w-[240px]">
+          <Icon name="search" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-3)] pointer-events-none" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search deals…"
+            className="input pl-10"
+          />
+        </div>
       </div>
 
-      {error && <div className="card p-4 mb-4 text-[13px] text-[var(--color-error)]">{error}</div>}
+      {error && <div className="card p-4 mb-4 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30">{error}</div>}
 
       {loading ? (
         <p className="text-[13px] text-[var(--color-txt-3)]">Loading deals…</p>
       ) : filtered.length === 0 ? (
-        <div className="card p-10 text-center">
-          <p className="text-[14px] font-medium text-[var(--color-txt-0)]">No deals right now</p>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">Check back soon for new campus perks.</p>
+        <div className="card card-pad">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="tag" size={18} />
+            </span>
+            <div>
+              <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No deals right now</p>
+              <p className="text-[13px] mt-0.5">Check back soon for new campus perks.</p>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
           {filtered.map((deal) => (
-            <div key={deal.id} className={`card p-4 ${deal.featured ? 'border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5' : ''}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {deal.featured && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-gold)]/15 text-[var(--color-gold-muted)] font-semibold">★ Featured</span>}
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)]">{CATEGORY_LABEL[deal.category] || deal.category}</span>
-                  {!deal.active && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-error)]/10 text-[var(--color-error)]">Inactive</span>}
+            <div key={deal.id} className="card card-pad">
+              <div className="card-head items-start last:mb-0">
+                <span className="route-badge">
+                  <Icon name={CATEGORY_ICON[deal.category] || 'tag'} size={18} />
+                </span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {deal.featured && <span className="badge badge-route">★ Featured</span>}
+                    <span className="chip">{CATEGORY_LABEL[deal.category] || deal.category}</span>
+                    {!deal.active && <span className="badge bg-[var(--color-error)]/10 text-[var(--color-error)]">Inactive</span>}
+                  </div>
+                  <h3 className="text-[17px] leading-tight text-[var(--color-txt-0)] mt-2 break-words">{deal.businessName}</h3>
                 </div>
                 {deal.distanceMiles != null && (
-                  <span className="text-[11px] text-[var(--color-txt-3)] whitespace-nowrap">{deal.distanceMiles} mi</span>
+                  <span className="chip shrink-0">{deal.distanceMiles} mi</span>
                 )}
               </div>
-              <h3 className="text-[15px] font-semibold text-[var(--color-txt-0)] mt-2 break-words">{deal.businessName}</h3>
-              {deal.description && <p className="text-[13px] text-[var(--color-txt-1)] mt-1 whitespace-pre-wrap break-words">{deal.description}</p>}
+              {deal.description && <p className="text-[14px] text-[var(--color-txt-1)] whitespace-pre-wrap break-words">{deal.description}</p>}
               {deal.address && (
                 <a
                   href={`https://maps.google.com/?q=${encodeURIComponent(deal.address)}`}
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => track('deal_clicked')}
-                  className="text-[12px] text-[var(--color-accent)] hover:underline flex items-center gap-1 mt-2 w-fit"
+                  className="text-[13px] font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px] flex items-center gap-1 mt-3 w-fit"
                 >
-                  <Icon name="mapPin" size={12} />
+                  <Icon name="mapPin" size={13} />
                   {deal.address}
                 </a>
               )}
               {deal.expiresAt && (
-                <div className="text-[11px] text-[var(--color-txt-3)] mt-2">Expires {new Date(deal.expiresAt).toLocaleDateString()}</div>
+                <div className="text-[12.5px] text-[var(--color-txt-2)] mt-2 tnum">Expires {new Date(deal.expiresAt).toLocaleDateString()}</div>
               )}
               {isAdmin && (
-                <div className="flex gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
-                  <button type="button" onClick={() => startEdit(deal)} className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-accent)]">Edit</button>
-                  <button type="button" onClick={() => deleteDeal(deal)} className="text-[12px] text-[var(--color-error)] hover:underline">Delete</button>
+                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-[var(--color-border)]">
+                  <button type="button" onClick={() => startEdit(deal)} className="btn btn-ghost btn-sm text-[var(--color-txt-2)]">Edit</button>
+                  <button type="button" onClick={() => deleteDeal(deal)} className="btn btn-ghost btn-sm text-[var(--color-error)] hover:text-[var(--color-error)]">Delete</button>
                 </div>
               )}
             </div>

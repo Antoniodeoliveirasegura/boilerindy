@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import BrandMark from './BrandMark'
 import Icon from './Icons'
+import { normalizeRoutePath } from '../lib/routePath'
 
 const navItems = [
   { path: '/dashboard', label: 'Home', icon: 'home' },
@@ -21,175 +22,223 @@ const mobileNavItems = [
   { path: '/services', label: 'More', icon: 'grid' },
 ]
 
+// The app shell's signage (transit wayfinding). Light theme: a paper band with
+// a 4px ink rule under it. Dark theme: the ink band. The active stop carries a
+// 4px amber bar. Below md the band shrinks to a 56px header with the menu
+// button, and a fixed tab bar takes the four main stops. The look lives in
+// index.css (.topbar, .topnav-link, .tabbar, .drawer-link, .menu-panel).
 export default function Navbar() {
   const location = useLocation()
+  // Compared the way the router matches, so /dashboard/ or /Schedule still
+  // light up their nav item.
+  const currentPath = normalizeRoutePath(location.pathname)
   const { user, getInitials, getDisplayName } = useAuth()
   const { dark, toggleTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
-  const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Any navigation (a link, Back, Forward) closes both menus. They used to stay
+  // open over the next page, the drawer hiding most of it on phones. Reset
+  // during render when the history entry changes, so the next page never
+  // paints with a menu open, and Forward onto the old entry does not reopen it.
+  const [menusFor, setMenusFor] = useState(location.key)
+  if (menusFor !== location.key) {
+    setMenusFor(location.key)
+    setMobileOpen(false)
+    setMenuOpen(false)
+  }
+  const menuRef = useRef<HTMLDivElement>(null)
+  const avatarRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const drawerToggleRef = useRef<HTMLButtonElement>(null)
 
+  // Closing the drawer by its button, the dimmed page or Escape hands focus
+  // back to the menu button; inert would otherwise drop it on the page body.
+  const closeDrawer = () => {
+    setMobileOpen(false)
+    drawerToggleRef.current?.focus()
+  }
+
+  // A press outside the account menu closes it without being swallowed, so a
+  // click on a nav link or the page also does what it says (a full-screen
+  // click-catcher used to eat that first click). Escape closes it and hands
+  // focus back to the avatar. Escape is caught on the way down and stopped
+  // there, so it closes only this menu and not the assistant panel under it.
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 10)
-    window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+    if (!menuOpen) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setMenuOpen(false)
+      avatarRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [menuOpen])
+
+  // The phone drawer behaves as a dialog while open, like ConfirmDialog:
+  // focus moves into it, Tab stays inside, Escape closes it (and only it, as
+  // with the account menu) and returns focus to the menu button, and the page
+  // behind stops scrolling. Before, Escape did nothing, Tab walked out to
+  // controls the drawer covered, and the page scrolled under it. Widening
+  // past the phone layout (rotating, resizing) closes it, since the drawer is
+  // hidden there and its scroll lock and Tab trap would strand the page.
+  useEffect(() => {
+    if (!mobileOpen) return
+    const drawer = drawerRef.current
+    const toggle = drawerToggleRef.current
+    const focusables = () =>
+      Array.from(drawer?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? [])
+    focusables()[0]?.focus({ preventScroll: true })
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setMobileOpen(false)
+        toggle?.focus()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (!first || !last) return
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      } else if (!drawer?.contains(document.activeElement)) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    const wide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 768px)') : null
+    const onWiden = () => {
+      if (wide?.matches) setMobileOpen(false)
+    }
+    wide?.addEventListener('change', onWiden)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      wide?.removeEventListener('change', onWiden)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [mobileOpen])
 
   return (
     <>
-      <nav
-        className={`fixed top-0 left-0 right-0 z-[1100] transition-all duration-500 ease-out
-          ${scrolled
-            ? 'h-14 glass shadow-md border-b border-[var(--color-border)]'
-            : 'h-16 bg-transparent'
-          }`}
-      >
-        <div className="max-w-[1200px] mx-auto px-6 h-full flex items-center justify-between">
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-2.5 group"
-          >
-            <div className="relative">
-              <BrandMark className="rounded-[22%] shadow-sm group-hover:shadow-md transition-shadow duration-300" />
-              <div className="absolute inset-0 bg-[var(--color-gold)] rounded-lg opacity-0 group-hover:opacity-20 blur-md transition-opacity duration-300" />
-            </div>
-            <span className="text-[15px] font-semibold text-[var(--color-txt-0)] tracking-tight sr-only sm:not-sr-only">
-              BoilerIndy
-            </span>
-          </Link>
+      <nav className="topbar fixed top-0 left-0 right-0 z-[1100] h-14 md:h-16">
+        <div className="max-w-[1200px] mx-auto px-4 md:px-6 h-full flex items-stretch justify-between">
+          <div className="flex items-stretch min-w-0">
+            <Link to="/dashboard" className="topbar-brand self-center">
+              <BrandMark size={32} />
+              <span className="text-[17px] md:text-[18px]">BoilerIndy</span>
+            </Link>
 
-          <div className="hidden md:flex items-center gap-1 bg-[var(--color-bg-2)]/60 backdrop-blur-sm rounded-full p-1 border border-[var(--color-border)]">
-            {navItems.map(({ path, label, icon }) => {
-              const isActive = location.pathname === path
-              return (
-                <Link
-                  key={path}
-                  to={path}
-                  onClick={() => setMenuOpen(false)}
-                  className={`relative text-[13px] px-4 py-2 rounded-full flex items-center gap-2 transition-all duration-300
-                    ${isActive
-                      ? 'text-[var(--color-gold-dark)] font-medium'
-                      : 'text-[var(--color-txt-1)] hover:text-[var(--color-txt-0)]'
-                    }`}
-                >
-                  {isActive && (
-                    <span
-                      className="absolute inset-0 bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-light)] rounded-full animate-fade-in"
-                      style={{ zIndex: -1 }}
-                    />
-                  )}
-                  <Icon name={icon} size={15} strokeWidth={isActive ? 2.5 : 2} />
-                  <span>{label}</span>
-                </Link>
-              )
-            })}
+            <span className="topbar-divider hidden md:block" aria-hidden="true" />
+
+            <div className="hidden md:flex items-stretch">
+              {navItems.map(({ path, label, icon }) => {
+                const isActive = currentPath === path
+                return (
+                  <Link
+                    key={path}
+                    to={path}
+                    onClick={() => setMenuOpen(false)}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`topnav-link max-lg:px-3 ${isActive ? 'is-active' : ''}`}
+                  >
+                    <Icon name={icon} size={18} strokeWidth={isActive ? 2.25 : 2} className="max-lg:hidden" />
+                    <span>{label}</span>
+                  </Link>
+                )
+              })}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative hidden md:block">
+          <div className="flex items-center gap-2">
+            <div ref={menuRef} className="relative hidden md:block">
               <button
+                ref={avatarRef}
                 type="button"
-                onClick={() => setMenuOpen((o) => !o)}
-                className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center text-[12px] font-bold text-[var(--color-gold-dark)] shadow-sm hover:shadow-md transition-all duration-300 hover:scale-105"
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="avatar"
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
               >
                 {user ? getInitials() : 'PI'}
               </button>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[var(--color-success)] rounded-full border-2 border-[var(--color-bg-0)] pointer-events-none" />
+              <span className="avatar-online" />
               {menuOpen && (
-                <>
+                <div role="menu" className="menu-panel absolute right-0 top-[56px] z-[1501] min-w-[240px]">
+                  <div className="px-3.5 pt-2 pb-2.5 mb-1 border-b border-[var(--color-border)]">
+                    <div className="font-display text-[14px] font-extrabold text-[var(--color-txt-0)] truncate">
+                      {user ? getDisplayName() : 'Guest'}
+                    </div>
+                    {user?.email && (
+                      <div className="text-[12px] text-[var(--color-txt-2)] truncate">{user.email}</div>
+                    )}
+                  </div>
+                  <button type="button" role="menuitem" className="menu-item" onClick={toggleTheme}>
+                    <Icon name={dark ? 'sun' : 'moon'} size={16} />
+                    {dark ? 'Light mode' : 'Dark mode'}
+                  </button>
+                  <Link to="/settings" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                    <Icon name="settings" size={16} />
+                    Settings
+                  </Link>
+                  {Boolean(user?.isAdmin) && (
+                    <Link to="/admin" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                      <Icon name="shield" size={16} />
+                      Admin console
+                    </Link>
+                  )}
+                  <Link to="/setup" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                    <Icon name="calendar" size={16} />
+                    Setup
+                  </Link>
+                  <Link to="/advertise" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
+                    <Icon name="briefcase" size={16} />
+                    Advertiser portal
+                  </Link>
                   <button
                     type="button"
-                    className="fixed inset-0 z-[1500] cursor-default"
-                    aria-label="Close menu"
-                    onClick={() => setMenuOpen(false)}
-                  />
-                  <div
-                    role="menu"
-                    className="absolute right-0 top-12 z-[1501] min-w-[220px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1 text-left"
+                    role="menuitem"
+                    className="menu-item mt-1 border-t border-[var(--color-border)]"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      signOutAndRedirect()
+                    }}
                   >
-                    <div className="px-3 py-2 border-b border-[var(--color-border)]">
-                      <div className="text-[13px] font-medium text-[var(--color-txt-0)] truncate">
-                        {user ? getDisplayName() : 'Guest'}
-                      </div>
-                      {user?.email && (
-                        <div className="text-[11px] text-[var(--color-txt-2)] truncate">{user.email}</div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="w-full text-left flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] border-0 bg-transparent cursor-pointer"
-                      onClick={toggleTheme}
-                    >
-                      <Icon name={dark ? 'sun' : 'moon'} size={14} />
-                      {dark ? 'Light mode' : 'Dark mode'}
-                    </button>
-                    <Link
-                      to="/settings"
-                      role="menuitem"
-                      className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] no-underline"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <Icon name="settings" size={14} />
-                      Settings
-                    </Link>
-                    {Boolean(user?.isAdmin) && (
-                      <Link
-                        to="/admin"
-                        role="menuitem"
-                        className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] no-underline"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        <Icon name="shield" size={14} />
-                        Admin console
-                      </Link>
-                    )}
-                    <Link
-                      to="/setup"
-                      role="menuitem"
-                      className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] no-underline"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <Icon name="calendar" size={14} />
-                      Setup
-                    </Link>
-                    <Link
-                      to="/advertise"
-                      role="menuitem"
-                      className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] no-underline"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <Icon name="briefcase" size={14} />
-                      Advertiser portal
-                    </Link>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="w-full text-left px-3 py-2 text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] border-0 bg-transparent cursor-pointer"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        signOutAndRedirect()
-                      }}
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                </>
+                    Sign out
+                  </button>
+                </div>
               )}
             </div>
 
             <button
+              ref={drawerToggleRef}
+              type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
-              className="md:hidden w-10 h-10 rounded-xl bg-[var(--color-bg-2)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-txt-1)] hover:text-[var(--color-txt-0)] transition-all duration-300"
+              className="icon-btn md:hidden -mr-2"
               aria-label="Toggle menu"
+              aria-expanded={mobileOpen}
+              aria-controls="app-drawer"
             >
               <div className="relative w-5 h-5">
-                <span className={`absolute left-0 block w-5 h-0.5 bg-current transition-all duration-300 ${mobileOpen ? 'top-2.5 rotate-45' : 'top-1'}`} />
-                <span className={`absolute left-0 top-2.5 block w-5 h-0.5 bg-current transition-all duration-300 ${mobileOpen ? 'opacity-0 scale-0' : 'opacity-100'}`} />
-                <span className={`absolute left-0 block w-5 h-0.5 bg-current transition-all duration-300 ${mobileOpen ? 'top-2.5 -rotate-45' : 'top-4'}`} />
+                <span className={`absolute left-0 block w-5 h-0.5 rounded-[1px] bg-current transition-transform duration-150 ${mobileOpen ? 'top-2.5 rotate-45' : 'top-1'}`} />
+                <span className={`absolute left-0 top-2.5 block w-5 h-0.5 rounded-[1px] bg-current transition-opacity duration-150 ${mobileOpen ? 'opacity-0' : 'opacity-100'}`} />
+                <span className={`absolute left-0 block w-5 h-0.5 rounded-[1px] bg-current transition-transform duration-150 ${mobileOpen ? 'top-2.5 -rotate-45' : 'top-4'}`} />
               </div>
             </button>
           </div>
@@ -197,64 +246,81 @@ export default function Navbar() {
       </nav>
 
       <div
-        className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-[2000] md:hidden transition-opacity duration-300 ${mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={() => setMobileOpen(false)}
+        className={`fixed inset-0 bg-black/50 z-[2000] md:hidden transition-opacity duration-200 ${mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={closeDrawer}
       />
 
+      {/* inert while closed: the off-canvas links used to stay in the tab
+          order and the accessibility tree. */}
       <div
-        className={`fixed top-0 right-0 h-full w-72 bg-[var(--color-surface)] z-[2001] md:hidden transition-transform duration-500 ease-out shadow-xl ${mobileOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        ref={drawerRef}
+        id="app-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        inert={!mobileOpen}
+        className={`fixed top-0 right-0 h-full w-72 max-w-[85vw] overflow-y-auto overscroll-contain bg-[var(--color-surface)] border-l border-[var(--color-border-2)] z-[2001] md:hidden transition-transform duration-200 ease-[var(--ease-snap)] ${mobileOpen ? 'translate-x-0 shadow-[var(--shadow-xl)]' : 'translate-x-full'}`}
       >
-        <div className="p-6 pt-20">
-          <div className="space-y-2">
-            {navItems.map(({ path, label, icon }, idx) => {
-              const isActive = location.pathname === path
+        {/* The drawer covers the menu button, so it carries its own close
+            button in the same spot. Without it the first link (Home) sat
+            under the button, and a second tap to close followed it. */}
+        <div className="flex h-14 items-center justify-end pr-2 mt-[env(safe-area-inset-top)]">
+          <button type="button" onClick={closeDrawer} className="icon-btn" aria-label="Close menu">
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+        <div className="px-4 pt-1 pb-6">
+          <div className="space-y-1">
+            {navItems.map(({ path, label, icon }) => {
+              const isActive = currentPath === path
               return (
                 <Link
                   key={path}
                   to={path}
                   onClick={() => setMobileOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300
-                    ${isActive
-                      ? 'bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-light)] text-[var(--color-gold-dark)] font-medium shadow-sm'
-                      : 'text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]'
-                    }`}
-                  style={{
-                    animationDelay: `${idx * 0.05}s`,
-                    opacity: mobileOpen ? 1 : 0,
-                    transform: mobileOpen ? 'translateX(0)' : 'translateX(20px)',
-                    transition: `all 0.3s ease ${idx * 0.05}s`
-                  }}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`drawer-link ${isActive ? 'is-active' : ''}`}
                 >
                   <Icon name={icon} size={20} />
-                  <span className="text-[15px]">{label}</span>
+                  <span>{label}</span>
                 </Link>
               )
             })}
             <Link
               to="/settings"
               onClick={() => setMobileOpen(false)}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-all duration-300"
+              aria-current={currentPath === '/settings' ? 'page' : undefined}
+              className={`drawer-link ${currentPath === '/settings' ? 'is-active' : ''}`}
             >
               <Icon name="settings" size={20} />
-              <span className="text-[15px]">Settings</span>
+              <span>Settings</span>
             </Link>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)] transition-all duration-300 border-0 bg-transparent cursor-pointer"
-            >
+            {/* The account menu, where this link lives on larger screens, is
+                hidden on phones, so admins had no way into the console. */}
+            {Boolean(user?.isAdmin) && (
+              <Link
+                to="/admin"
+                onClick={() => setMobileOpen(false)}
+                aria-current={currentPath === '/admin' ? 'page' : undefined}
+                className={`drawer-link ${currentPath === '/admin' ? 'is-active' : ''}`}
+              >
+                <Icon name="shield" size={20} />
+                <span>Admin console</span>
+              </Link>
+            )}
+            <button type="button" onClick={toggleTheme} className="drawer-link">
               <Icon name={dark ? 'sun' : 'moon'} size={20} />
-              <span className="text-[15px]">{dark ? 'Light mode' : 'Dark mode'}</span>
+              <span>{dark ? 'Light mode' : 'Dark mode'}</span>
             </button>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-[var(--color-border)]">
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center text-[14px] font-bold text-[var(--color-gold-dark)]">
+          <div className="mt-6 pt-5 border-t border-[var(--color-border-2)]">
+            <div className="flex items-center gap-3 px-1 py-2">
+              <div className="avatar w-11 h-11 text-[14px] shrink-0">
                 {user ? getInitials() : 'PI'}
               </div>
               <div className="min-w-0">
-                <div className="text-[14px] font-medium text-[var(--color-txt-0)] truncate">
+                <div className="font-display text-[15px] font-extrabold text-[var(--color-txt-0)] truncate">
                   {user ? getDisplayName() : 'Student'}
                 </div>
                 {user?.email && (
@@ -268,7 +334,7 @@ export default function Navbar() {
                 setMobileOpen(false)
                 signOutAndRedirect()
               }}
-              className="mx-4 mt-2 w-[calc(100%-2rem)] py-2.5 rounded-xl border border-[var(--color-border)] text-[13px] text-[var(--color-txt-1)] hover:bg-[var(--color-bg-2)]"
+              className="btn btn-secondary w-full mt-3"
             >
               Sign out
             </button>
@@ -276,27 +342,22 @@ export default function Navbar() {
         </div>
       </div>
 
-      <div className="h-16" />
+      <div className="h-14 md:h-16" />
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--color-surface)]/95 backdrop-blur-md border-t border-[var(--color-border)] safe-bottom">
-        <div className="flex justify-around items-center h-16 px-2">
+      <nav className="tabbar md:hidden fixed bottom-0 left-0 right-0 z-40 safe-bottom">
+        <div className="grid grid-cols-4">
           {mobileNavItems.map(({ path, label, icon }) => {
-            const isActive = location.pathname === path
+            const isActive = currentPath === path
             return (
               <Link
                 key={path}
                 to={path}
-                className={`flex flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-[64px] rounded-xl transition-all duration-200 ${
-                  isActive
-                    ? 'text-[var(--color-gold)]'
-                    : 'text-[var(--color-txt-2)]'
-                }`}
+                aria-current={isActive ? 'page' : undefined}
+                className={`tabbar-link ${isActive ? 'is-active' : ''}`}
               >
-                <div className={`p-1.5 rounded-lg transition-all duration-200 ${isActive ? 'bg-[var(--color-gold)]/15' : ''}`}>
-                  <Icon name={icon} size={20} strokeWidth={isActive ? 2.5 : 2} />
-                </div>
-                <span className={`text-[10px] font-medium ${isActive ? 'text-[var(--color-gold)]' : ''}`}>{label}</span>
+                <Icon name={icon} size={22} strokeWidth={isActive ? 2.25 : 2} />
+                <span>{label}</span>
               </Link>
             )
           })}

@@ -29,14 +29,14 @@ export default function ServerWakeNotice() {
         role="status"
         aria-live="polite"
         data-testid="server-wake-notice"
-        className="flex max-w-md items-center gap-3 rounded-full border border-[var(--color-border-2)] bg-[var(--color-surface)] px-4 py-2 text-[12px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-md)]"
+        className="on-ink flex max-w-md items-center gap-3 rounded-[var(--radius-lg)] border border-white/15 bg-[var(--color-ink)] px-4 py-2.5 text-[12.5px] leading-snug text-[var(--color-ink-dim)] shadow-[var(--shadow-lg)]"
       >
         <span
           aria-hidden="true"
-          className={`h-4 w-4 shrink-0 rounded-full border-2 border-[var(--color-gold)] border-t-transparent ${reducedMotion ? '' : 'animate-spin'}`}
+          className={`h-4 w-4 shrink-0 rounded-full border-2 border-[var(--color-ink-signal)] border-t-transparent ${reducedMotion ? '' : 'animate-spin'}`}
         />
         <p>
-          <span className="font-semibold text-[var(--color-txt-0)]">Waking up the server.</span> The first visit after a quiet spell can take up to 30 seconds.
+          <span className="font-display font-extrabold text-[var(--color-ink-txt)]">Waking up the server.</span> The first visit after a quiet spell can take up to 30 seconds.
         </p>
       </div>
     </div>

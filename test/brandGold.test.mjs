@@ -1,8 +1,8 @@
 // Brand posture guard (issue #112, docs/brand.md): the app must not paint
 // Purdue's exact official gold (#CFB991). The React design tokens use
-// BoilerIndy's own gold (#D4A84B light / #E8C878 dark); this catches the
-// literal creeping back into the server-rendered pages, transactional email
-// or any client source file.
+// BoilerIndy's own signal amber (#F4A51C light / #FFB938 dark, docs/brand.md);
+// this catches the literal creeping back into the server-rendered pages,
+// transactional email or any client source file.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

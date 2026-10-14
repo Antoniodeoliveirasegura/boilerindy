@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { reportBreadcrumb } from '../lib/errorReporting'
 import PageTitle from '../components/PageTitle'
+import Icon from '../components/Icons'
+import BrandMark from '../components/BrandMark'
 
 // Catch-all page for URLs the router does not know (issues #245, #222). It
 // used to be a blank screen with no way onward; it now sits inside
@@ -23,28 +25,56 @@ export default function NotFound() {
   }, [pathname])
 
   return (
-    <div className="flex-1 bg-[var(--color-bg-1)] px-6 py-12" data-testid="not-found-page">
+    <div className="flex flex-1 flex-col" data-testid="not-found-page">
       <PageTitle>Page not found</PageTitle>
-      <div className="max-w-[720px] mx-auto">
-        <h1 className="text-3xl font-bold text-[var(--color-txt-0)] mt-4 mb-2">Page not found</h1>
-        <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] mb-6">
-          That link is wrong or the page moved.
-        </p>
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          <Link to="/" className="text-[13px] text-[var(--color-accent)] hover:underline">
-            Go to the home page
-          </Link>
-          {/* Hold the second link until the session check settles so a signed-in
-              visitor never sees "Sign in" flash first. */}
-          {loading ? null : user ? (
-            <Link to="/dashboard" className="text-[13px] text-[var(--color-accent)] hover:underline">
-              Go to your dashboard
+      {/* The signed-out signage band the static pages carry, with the mark
+          only: the links below are the way onward. Decorative. */}
+      <header aria-hidden="true" className="topbar h-14 md:h-16">
+        <div className="mx-auto flex h-full max-w-[1200px] items-center px-4 md:px-6">
+          <BrandMark size={32} />
+        </div>
+      </header>
+      <div className="page flex flex-1 flex-col justify-center pb-16 md:pb-24">
+        <div className="page-measure">
+          {/* Signage: a station board reading "Not in service" over a line that
+              ends short of its stop. Decorative; the heading and copy below
+              carry the message. */}
+          <div aria-hidden="true" className="ink-panel r-ink px-5 pb-6 pt-5 sm:px-7 sm:pb-8 sm:pt-6">
+            <div className="flex items-center justify-between gap-3">
+              <span className="plate">Not in service</span>
+              <span className="code">404</span>
+            </div>
+            <div className="relative mt-8 h-[26px]">
+              <span className="absolute left-0 top-1/2 h-1.5 w-[58%] -translate-y-1/2 rounded-[3px] bg-[var(--route)]" />
+              <span className="absolute left-[58%] right-9 top-1/2 -translate-y-1/2 border-t-[3px] border-dashed border-[var(--color-ink-dim)]" />
+              <span className="absolute left-0 top-1/2 size-[22px] -translate-y-1/2 rounded-full border-[5px] border-[var(--route)] bg-[var(--color-ink-lift)]" />
+              <span className="absolute left-[58%] top-1/2 size-[26px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[6px] border-[var(--route)] bg-[var(--color-ink-lift)]" />
+              <span className="route-badge sm absolute right-0 top-1/2 -translate-y-1/2 bg-[var(--color-ink-lift-2)] text-[var(--color-ink-dim)] shadow-[inset_0_0_0_1px_var(--color-ink-edge)]">
+                <Icon name="close" />
+              </span>
+            </div>
+          </div>
+
+          <h1 className="page-title mt-8">Page not found</h1>
+          <p className="page-sub">That link is wrong or the page moved.</p>
+
+          <div className="mt-7 flex flex-wrap gap-3">
+            <Link to="/" className="btn btn-primary">
+              <Icon name="home" size={16} />
+              Go to the home page
             </Link>
-          ) : (
-            <Link to="/login" className="text-[13px] text-[var(--color-accent)] hover:underline">
-              Sign in
-            </Link>
-          )}
+            {/* Hold the second link until the session check settles so a signed-in
+                visitor never sees "Sign in" flash first. */}
+            {loading ? null : user ? (
+              <Link to="/dashboard" className="btn btn-secondary">
+                Go to your dashboard
+              </Link>
+            ) : (
+              <Link to="/login" className="btn btn-secondary">
+                Sign in
+              </Link>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -18,23 +18,17 @@ export default function AddWidgetPicker({ hiddenWidgets, onAdd }: AddWidgetPicke
   return (
     <section
       aria-label="Add hidden widgets"
-      className="card p-4 mt-4 border-dashed border-[var(--color-border-2)] bg-[var(--color-stat)]/40"
+      className="card card-pad mt-4 border-[1.5px] border-dashed border-[var(--color-border-3)] bg-transparent shadow-none"
     >
-      <div className="flex items-center gap-2 mb-3">
-        <Icon name="plus" size={14} className="text-[var(--color-txt-3)]" />
-        <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
-          Add a widget
-        </span>
+      <div className="flex items-center gap-2 mb-3 text-[var(--color-txt-2)]">
+        <Icon name="plus" size={14} />
+        <span className="eyebrow bare">Add a widget</span>
       </div>
       <ul className="list-none m-0 p-0 flex flex-wrap gap-2">
         {hiddenWidgets.map(({ id, title }) => (
           <li key={id} className="list-none">
-            <button
-              type="button"
-              onClick={() => onAdd(id)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[12px] font-medium text-[var(--color-txt-1)] hover:border-[var(--color-accent)]/40 hover:text-[var(--color-accent)] transition-colors"
-            >
-              <Icon name="plus" size={13} />
+            <button type="button" onClick={() => onAdd(id)} className="btn btn-secondary btn-sm">
+              <Icon name="plus" size={14} />
               {title}
             </button>
           </li>

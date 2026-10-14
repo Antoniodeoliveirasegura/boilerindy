@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen, cleanup, act } from '@testing-library/react'
 import UpdateToast from './UpdateToast'
 import type { RegistrationLike } from '../lib/swUpdate'
@@ -6,7 +6,21 @@ import type { RegistrationLike } from '../lib/swUpdate'
 // Issue #220 - the prompt appears only once a new worker is waiting, Refresh
 // hands the registration to applyUpdate, and Later hides it.
 
-afterEach(cleanup)
+beforeEach(() => {
+  // jsdom has no ResizeObserver; the toast measures itself with one.
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const registration = { waiting: null, installing: null, addEventListener() {}, update: async () => {} } as RegistrationLike
 

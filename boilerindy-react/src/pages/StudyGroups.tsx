@@ -174,34 +174,34 @@ export default function StudyGroups() {
 
   function renderGroupCard(group: StudyGroup, context: 'course' | 'mine') {
     return (
-      <div key={group.id} className="card p-4">
+      <li key={group.id} className="py-4 border-t border-[var(--color-border)] first:border-t-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--color-stat)] text-[var(--color-txt-2)] font-medium">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="code solid">
                 {group.courseCode}
               </span>
-              <span className="text-[11px] text-[var(--color-txt-3)]">
+              <span className="text-[12.5px] text-[var(--color-txt-2)] tnum">
                 {group.memberCount}
                 {group.capacity ? `/${group.capacity}` : ''} member{group.memberCount === 1 ? '' : 's'}
               </span>
             </div>
-            <h3 className="text-[15px] font-semibold text-[var(--color-txt-0)] mt-1.5 break-words">{group.title}</h3>
+            <h3 className="row-title mt-2 break-words">{group.title}</h3>
             {group.meetingInfo && (
-              <div className="text-[12px] text-[var(--color-txt-2)] flex items-center gap-1 mt-0.5">
-                <Icon name="clock" size={12} />
+              <div className="text-[13px] text-[var(--color-txt-2)] flex items-center gap-1.5 mt-1">
+                <Icon name="clock" size={13} />
                 {group.meetingInfo}
               </div>
             )}
             {group.description && (
-              <p className="text-[13px] text-[var(--color-txt-1)] mt-1.5 whitespace-pre-wrap break-words">{group.description}</p>
+              <p className="text-[14px] leading-relaxed text-[var(--color-txt-1)] mt-1.5 whitespace-pre-wrap break-words">{group.description}</p>
             )}
           </div>
           {group.joinedByMe ? (
             <button
               type="button"
               onClick={() => leaveGroup(group)}
-              className="text-[12px] px-3 py-2 rounded-xl border border-[var(--color-border-2)] text-[var(--color-txt-2)] hover:bg-[var(--color-stat)] shrink-0"
+              className="btn btn-ghost btn-sm shrink-0 -mr-3 text-[var(--color-txt-2)]"
             >
               Leave
             </button>
@@ -209,186 +209,210 @@ export default function StudyGroups() {
             <button
               type="button"
               onClick={() => joinGroup(group)}
-              className="btn btn-primary text-[12px] px-3 py-2 shrink-0"
+              className="btn btn-ink btn-sm shrink-0"
             >
               Join
             </button>
           )}
         </div>
-        {context === 'mine' && group.courseCode && (
-          <button
-            type="button"
-            onClick={() => selectCourse(group.courseCode || '')}
-            className="text-[11px] text-[var(--color-accent)] hover:underline mt-2"
-          >
-            See all {group.courseCode} groups
-          </button>
-        )}
-        {!group.isMine && (
-          <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-[var(--color-border)]">
-            <button
-              type="button"
-              onClick={(e) => report({ targetType: 'study_group', targetId: group.id, targetLabel: 'this group' }, e.currentTarget)}
-              className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)] inline-flex items-center gap-1"
-            >
-              <Icon name="flag" size={12} /> Report
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleBlockCreator(group)}
-              className="text-[12px] text-[var(--color-txt-3)] hover:text-[var(--color-error)]"
-            >
-              Block author
-            </button>
+        {(context === 'mine' && group.courseCode) || !group.isMine ? (
+          <div className="mod-actions">
+            {context === 'mine' && group.courseCode && (
+              <button
+                type="button"
+                onClick={() => selectCourse(group.courseCode || '')}
+                className="link-btn py-1"
+              >
+                See all {group.courseCode} groups
+              </button>
+            )}
+            {!group.isMine && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => report({ targetType: 'study_group', targetId: group.id, targetLabel: 'this group' }, e.currentTarget)}
+                >
+                  <Icon name="flag" size={13} /> Report
+                </button>
+                <button type="button" onClick={() => void handleBlockCreator(group)}>
+                  Block author
+                </button>
+              </>
+            )}
           </div>
-        )}
-      </div>
+        ) : null}
+      </li>
     )
   }
 
   return (
-    <div className="max-w-[900px] mx-auto px-6 py-8 pb-24">
-      <PageTitle>Study Groups</PageTitle>
-      {moderationUi}
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Study Groups</h1>
-        <p className="text-[14px] text-[var(--color-txt-2)] mt-1">
-          Find classmates in your courses and form study groups.
-        </p>
-      </div>
-
-      {/* Opt-in control */}
-      <div className="card p-4 mb-6 flex items-start justify-between gap-4">
-        <div>
-          <div className="text-[14px] font-medium text-[var(--color-txt-0)]">Be discoverable to classmates</div>
-          <p className="text-[12px] text-[var(--color-txt-2)] mt-1 max-w-[560px]">
-            When on, other opted-in students in your courses can see how many classmates share each course.
-            Your name is never shown outside a group you join. Default is off.
-          </p>
-          {optError && (
-            <p role="alert" className="text-[12px] text-[var(--color-error)] mt-2">
-              {optError}
+    <div className="page r-cls">
+      <div className="page-measure">
+        <PageTitle>Study Groups</PageTitle>
+        {moderationUi}
+        <header className="page-head">
+          <div>
+            <h1 className="page-title">Study Groups</h1>
+            <p className="page-sub">
+              Find classmates in your courses and form study groups.
             </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={toggleOptIn}
-          disabled={optBusy}
-          aria-pressed={optIn}
-          className={`shrink-0 px-4 py-2 rounded-xl text-[13px] font-medium border transition-colors disabled:opacity-60 ${
-            optIn
-              ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
-              : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
-          }`}
-        >
-          {optIn ? 'Opted in' : 'Opt in'}
-        </button>
-      </div>
-
-      {/* Your courses */}
-      <div className="mb-6">
-        <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-2">Your courses</div>
-        {loadingCourses ? (
-          <p className="text-[13px] text-[var(--color-txt-3)]">Loading your courses…</p>
-        ) : coursesError ? (
-          <p className="text-[13px] text-[var(--color-error)]">{coursesError}</p>
-        ) : courses.length === 0 ? (
-          <p className="text-[13px] text-[var(--color-txt-2)]">
-            No courses detected yet. Connect your class schedule in setup, then come back.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {courses.map((c) => (
-              <button
-                key={c.code}
-                type="button"
-                onClick={() => selectCourse(c.code)}
-                className={`text-[12px] px-3 py-1.5 rounded-full border transition-colors ${
-                  selectedCourse === c.code
-                    ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
-                    : 'border-[var(--color-border-2)] text-[var(--color-txt-1)] hover:bg-[var(--color-stat)]'
-                }`}
-              >
-                {c.code}
-                {(c.classmateCount ?? 0) > 0 && (
-                  <span className="ml-1.5 opacity-80">· {c.classmateCount} classmate{c.classmateCount === 1 ? '' : 's'}</span>
-                )}
-              </button>
-            ))}
           </div>
-        )}
-      </div>
+        </header>
 
-      {/* Groups for the selected course */}
-      {selectedCourse && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[16px] font-semibold text-[var(--color-txt-0)]">{selectedCourse} groups</h2>
-            <button type="button" onClick={() => setShowCreate((s) => !s)} className="btn btn-primary text-[12px] px-3 py-2">
-              <Icon name="plus" size={14} />
-              {showCreate ? 'Close' : 'New group'}
-            </button>
-          </div>
-
-          {showCreate && (
-            <form onSubmit={createGroup} className="card p-5 mb-4 space-y-3">
-              <input
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                maxLength={120}
-                placeholder="Group name (e.g. Exam 2 review crew)"
-                className="input w-full text-[13px] px-3 py-2"
-              />
-              <input
-                value={form.meetingInfo}
-                onChange={(e) => setForm((f) => ({ ...f, meetingInfo: e.target.value }))}
-                maxLength={200}
-                placeholder="When/where (optional) - e.g. Tue 4pm, Library 2nd floor"
-                className="input w-full text-[13px] px-3 py-2"
-              />
-              <textarea
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                maxLength={1000}
-                rows={3}
-                placeholder="Details (optional)"
-                className="input w-full text-[13px] px-3 py-2 resize-y"
-              />
-              <input
-                value={form.capacity}
-                onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))}
-                inputMode="numeric"
-                placeholder="Max size (optional, 2-100)"
-                className="input w-full text-[13px] px-3 py-2"
-              />
-              {formError && <p className="text-[12px] text-[var(--color-error)]">{formError}</p>}
-              <button type="submit" disabled={submitting} className="btn btn-primary px-4 py-2.5 text-[13px] disabled:opacity-60">
-                {submitting ? 'Creating…' : 'Create group'}
-              </button>
-            </form>
-          )}
-
-          {loadingGroups ? (
-            <p className="text-[13px] text-[var(--color-txt-3)]">Loading groups…</p>
-          ) : groups.length === 0 ? (
-            <div className="card p-8 text-center">
-              <p className="text-[14px] font-medium text-[var(--color-txt-0)]">No groups yet for {selectedCourse}</p>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1">Start one and classmates can join.</p>
+        <div className="space-y-5">
+          {/* Opt-in control */}
+          <section className="card card-pad flex flex-wrap items-start gap-x-4 gap-y-3">
+            <span className="route-badge" aria-hidden="true">
+              <Icon name="eye" size={18} />
+            </span>
+            <div className="flex-1 min-w-[13rem]">
+              <div className="card-title">Be discoverable to classmates</div>
+              <p className="text-[14px] leading-relaxed text-[var(--color-txt-2)] mt-1.5">
+                When on, other opted-in students in your courses can see how many classmates share each course.
+                Your name is never shown outside a group you join. Default is off.
+              </p>
+              {optError && (
+                <p role="alert" className="text-[13px] text-[var(--color-error)] mt-2">
+                  {optError}
+                </p>
+              )}
             </div>
-          ) : (
-            <div className="space-y-3">{groups.map((g) => renderGroupCard(g, 'course'))}</div>
+            <button
+              type="button"
+              onClick={toggleOptIn}
+              disabled={optBusy}
+              aria-pressed={optIn}
+              className="btn btn-secondary shrink-0 max-sm:ml-12"
+            >
+              {optIn ? <Icon name="check" size={15} strokeWidth={2.5} /> : null}
+              {optIn ? 'Opted in' : 'Opt in'}
+            </button>
+          </section>
+
+          {/* Your courses */}
+          <section className="card card-pad">
+            <div className="card-head">
+              <span className="route-badge" aria-hidden="true">
+                <Icon name="book" size={18} />
+              </span>
+              <div className="card-title">Your courses</div>
+            </div>
+            {loadingCourses ? (
+              <p className="text-[14px] text-[var(--color-txt-2)]">Loading your courses…</p>
+            ) : coursesError ? (
+              <p className="text-[14px] text-[var(--color-error)]">{coursesError}</p>
+            ) : courses.length === 0 ? (
+              <div className="empty row">
+                <span className="ico">
+                  <Icon name="calendar" size={18} />
+                </span>
+                <p>
+                  No courses detected yet. Connect your class schedule in setup, then come back.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {courses.map((c) => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => selectCourse(c.code)}
+                    className={`pill tnum ${selectedCourse === c.code ? 'pill-active' : ''}`}
+                  >
+                    {c.code}
+                    {(c.classmateCount ?? 0) > 0 && (
+                      <span className="font-semibold opacity-75">· {c.classmateCount} classmate{c.classmateCount === 1 ? '' : 's'}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Groups for the selected course */}
+          {selectedCourse && (
+            <section className="card card-pad">
+              <div className="card-head">
+                <span className="route-badge" aria-hidden="true">
+                  <Icon name="users" size={18} />
+                </span>
+                <h2 className="card-title">{selectedCourse} groups</h2>
+                <button type="button" onClick={() => setShowCreate((s) => !s)} className={`btn btn-sm ml-auto shrink-0 ${showCreate ? 'btn-secondary' : 'btn-primary'}`}>
+                  <Icon name={showCreate ? 'close' : 'plus'} size={14} />
+                  {showCreate ? 'Close' : 'New group'}
+                </button>
+              </div>
+
+              {showCreate && (
+                <form onSubmit={createGroup} className="mb-4 pb-5 space-y-3 border-b border-[var(--color-border)]">
+                  <input
+                    value={form.title}
+                    onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                    maxLength={120}
+                    placeholder="Group name (e.g. Exam 2 review crew)"
+                    className="input"
+                  />
+                  <input
+                    value={form.meetingInfo}
+                    onChange={(e) => setForm((f) => ({ ...f, meetingInfo: e.target.value }))}
+                    maxLength={200}
+                    placeholder="When/where (optional) - e.g. Tue 4pm, Library 2nd floor"
+                    className="input"
+                  />
+                  <textarea
+                    value={form.description}
+                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                    maxLength={1000}
+                    rows={3}
+                    placeholder="Details (optional)"
+                    className="input resize-y"
+                  />
+                  <input
+                    value={form.capacity}
+                    onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))}
+                    inputMode="numeric"
+                    placeholder="Max size (optional, 2-100)"
+                    className="input tnum"
+                  />
+                  {formError && <p className="text-[13px] text-[var(--color-error)]">{formError}</p>}
+                  <button type="submit" disabled={submitting} className="btn btn-primary">
+                    {submitting ? 'Creating…' : 'Create group'}
+                  </button>
+                </form>
+              )}
+
+              {loadingGroups ? (
+                <p className="text-[14px] text-[var(--color-txt-2)]">Loading groups…</p>
+              ) : groups.length === 0 ? (
+                <div className="empty row">
+                  <span className="ico">
+                    <Icon name="users" size={18} />
+                  </span>
+                  <div>
+                    <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No groups yet for {selectedCourse}</p>
+                    <p className="mt-0.5">Start one and classmates can join.</p>
+                  </div>
+                </div>
+              ) : (
+                <ul className="-mt-2">{groups.map((g) => renderGroupCard(g, 'course'))}</ul>
+              )}
+            </section>
+          )}
+
+          {/* My groups */}
+          {myGroups.length > 0 && (
+            <section className="card card-pad">
+              <div className="card-head">
+                <span className="route-badge" aria-hidden="true">
+                  <Icon name="users" size={18} />
+                </span>
+                <div className="card-title">Your groups</div>
+              </div>
+              <ul className="-mt-2">{myGroups.map((g) => renderGroupCard(g, 'mine'))}</ul>
+            </section>
           )}
         </div>
-      )}
-
-      {/* My groups */}
-      {myGroups.length > 0 && (
-        <div>
-          <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">Your groups</div>
-          <div className="space-y-3">{myGroups.map((g) => renderGroupCard(g, 'mine'))}</div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }

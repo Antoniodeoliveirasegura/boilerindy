@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { extractBuildingCode } from './buildingCode'
+import { extractBuildingCode, mapHrefForRoom } from './buildingCode'
 
 // Issue #225 - the Map page keys building lookups on this one regex, so its
 // edges are pinned here: two to four leading letters, case-insensitive, the
@@ -29,5 +29,27 @@ describe('extractBuildingCode', () => {
     expect(extractBuildingCode('Room 12')).toBe('ROOM')
     expect(extractBuildingCode('Hallway 3')).toBe('HALL')
     expect(extractBuildingCode('A 12')).toBeNull()
+  })
+})
+
+// Home's Get Directions linked to plain /map, so the class's building was never
+// selected; it now builds the same deep link as Schedule's Find Room.
+describe('mapHrefForRoom', () => {
+  test('carries the building code and the encoded room when the room starts with a code', () => {
+    expect(mapHrefForRoom('SL 008')).toBe('/map?building=SL&room=SL%20008')
+    expect(mapHrefForRoom('lwsn b155')).toBe('/map?building=LWSN&room=lwsn%20b155')
+  })
+
+  test('carries the room alone when there is no code to take', () => {
+    expect(mapHrefForRoom('215')).toBe('/map?room=215')
+    expect(mapHrefForRoom('215 & 216')).toBe('/map?room=215%20%26%20216')
+  })
+
+  test('is plain /map without a room or with the "Location unavailable" placeholder', () => {
+    expect(mapHrefForRoom(null)).toBe('/map')
+    expect(mapHrefForRoom(undefined)).toBe('/map')
+    expect(mapHrefForRoom('')).toBe('/map')
+    expect(mapHrefForRoom('   ')).toBe('/map')
+    expect(mapHrefForRoom('Location unavailable')).toBe('/map')
   })
 })

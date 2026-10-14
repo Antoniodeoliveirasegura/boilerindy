@@ -37,8 +37,8 @@ const SERVER_OFF_MESSAGE = 'Push notifications are not switched on for this serv
 const BLOCKED_MESSAGE =
   'Notifications are blocked for BoilerIndy in this browser. Open the site settings (the lock icon next to the address bar), allow notifications, then reload this page.'
 
-const LABEL_CLASS = 'text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4'
-const STATUS_CLASS = 'text-[13px] text-[var(--color-txt-2)] mt-3'
+const STATUS_CLASS = 'text-[14px] leading-relaxed text-[var(--color-txt-2)]'
+const BODY_CLASS = 'text-[14px] leading-relaxed text-[var(--color-txt-1)]'
 
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
@@ -199,7 +199,7 @@ export default function PushNotificationsCard() {
     )
   } else if (phase.kind === 'error') {
     body = (
-      <p data-testid="push-status" className="text-[13px] text-[var(--color-error)] mt-3">
+      <p data-testid="push-status" className="text-[14px] leading-relaxed text-[var(--color-error)]">
         {phase.message}
       </p>
     )
@@ -217,15 +217,23 @@ export default function PushNotificationsCard() {
     const blocked = support.supported && permission === 'denied' && !thisDeviceOn
 
     body = (
-      <div className="mt-4 space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="space-y-4">
+        {/* Blocked: the reason the turn-on control is missing, as the neutral
+            notice Parking and Dining use, where that control would be. */}
+        {blocked && (
+          <div className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3">
+            <Icon name="info" size={16} className="mt-0.5 shrink-0 text-[var(--color-txt-2)]" />
+            <p className="text-[13.5px] leading-relaxed text-[var(--color-txt-1)]">{BLOCKED_MESSAGE}</p>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           {support.supported && thisDeviceOn && (
             <button
               type="button"
               data-testid="push-disable"
               onClick={handleDisable}
               disabled={busy !== null}
-              className="btn btn-secondary text-[13px] px-4 py-2 disabled:opacity-50"
+              className="btn btn-secondary"
             >
               <Icon name="close" size={14} />
               {busy === 'unsubscribe' ? 'Turning off…' : 'Turn off on this device'}
@@ -237,25 +245,29 @@ export default function PushNotificationsCard() {
               data-testid="push-enable"
               onClick={handleEnable}
               disabled={busy !== null}
-              className="btn btn-primary text-[13px] px-4 py-2 disabled:opacity-50"
+              className="btn btn-ink"
             >
               <Icon name="bell" size={14} />
               {busy === 'subscribe' ? 'Turning on…' : 'Turn on for this device'}
             </button>
           )}
-          <span data-testid="push-status" className="text-[12px] text-[var(--color-txt-2)]">
+          <span data-testid="push-status" className="tnum text-[13px] text-[var(--color-txt-2)]">
             On for {deviceCount} {deviceCount === 1 ? 'device' : 'devices'}
             {thisDeviceOn ? ', including this one' : ''}
           </span>
         </div>
 
         {!support.supported && (
-          <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+          <p className={BODY_CLASS}>
             {support.message}
             {support.reason === 'ios-not-installed' && (
               <>
                 {' '}
-                <Link to="/install" className="text-[var(--color-accent)] hover:underline">
+                {/* from=settings so the guide's back link returns here, not to sign-in. */}
+                <Link
+                  to="/install?from=settings"
+                  className="prose-link"
+                >
                   See the step-by-step guide
                 </Link>
                 .
@@ -263,26 +275,25 @@ export default function PushNotificationsCard() {
             )}
           </p>
         )}
-        {blocked && <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">{BLOCKED_MESSAGE}</p>}
 
-        <div className="pt-4 border-t border-[var(--color-border)] space-y-3">
-          <label className="flex items-start gap-3 cursor-pointer select-none">
+        <div className="space-y-4 border-t border-[var(--color-border)] pt-4">
+          <label className="flex cursor-pointer select-none items-start gap-3">
             <input
               type="checkbox"
               data-testid="push-deadline-toggle"
               checked={settings.deadlineReminders}
               onChange={(e) => updateSettings({ deadlineReminders: e.target.checked })}
-              className="w-4 h-4 mt-0.5 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
+              className="mt-0.5 size-[18px] shrink-0 accent-[var(--color-txt-0)]"
             />
             <span>
-              <span className="block text-[13px] font-medium text-[var(--color-txt-0)]">Deadline reminders</span>
-              <span className="block text-[12px] text-[var(--color-txt-2)] mt-0.5 leading-relaxed">
+              <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Deadline reminders</span>
+              <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
                 One notification per assignment ahead of its due time, on every device you turn on.
               </span>
             </span>
           </label>
-          <div>
-            <label htmlFor="push-lead-minutes" className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">
+          <div className="pl-[30px]">
+            <label htmlFor="push-lead-minutes" className="mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]">
               Remind me
             </label>
             <select
@@ -294,7 +305,7 @@ export default function PushNotificationsCard() {
                 const next = Number(e.target.value)
                 if (Number.isInteger(next)) updateSettings({ leadMinutes: next })
               }}
-              className="input w-full text-[13px] px-3 py-2 disabled:opacity-50"
+              className="input sm:max-w-[280px] disabled:opacity-50"
             >
               {leadOptions.map((minutes) => (
                 <option key={minutes} value={minutes}>
@@ -310,25 +321,30 @@ export default function PushNotificationsCard() {
           data-testid="push-test"
           onClick={handleTest}
           disabled={!thisDeviceOn || busy !== null}
-          className="btn btn-secondary text-[13px] px-4 py-2 disabled:opacity-50"
+          className="btn btn-secondary"
         >
           <Icon name="send" size={14} />
           {busy === 'test' ? 'Sending…' : 'Send a test notification'}
         </button>
 
-        {notice && <p className="text-[13px] text-[var(--color-success)]">{notice}</p>}
-        {error && <p className="text-[13px] text-[var(--color-error)]">{error}</p>}
+        {notice && <p className="text-[14px] font-medium text-[var(--color-success)]">{notice}</p>}
+        {error && <p className="text-[14px] font-medium text-[var(--color-error)]">{error}</p>}
       </div>
     )
   }
 
   return (
-    <div className="card p-5" data-testid="push-card">
-      <div className={LABEL_CLASS}>Push notifications</div>
-      <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
-        Get a heads-up before assignments are due, even when BoilerIndy is closed.
-      </p>
+    <section className="card card-pad r-ink" data-testid="push-card">
+      <header className="card-head">
+        <span aria-hidden="true" className="route-badge">
+          <Icon name="bell" />
+        </span>
+        <div>
+          <h2 className="card-title">Push notifications</h2>
+        </div>
+      </header>
+      <p className={`${BODY_CLASS} mb-4`}>Get a heads-up before assignments are due, even when BoilerIndy is closed.</p>
       {body}
-    </div>
+    </section>
   )
 }

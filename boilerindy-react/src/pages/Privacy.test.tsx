@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Privacy from './Privacy'
@@ -8,7 +8,16 @@ import Privacy from './Privacy'
 // The pure routing logic is unit-tested in ../lib/privacyNav.test.js; this verifies
 // the rendered link wires that target through to an href.
 
+const mocks = vi.hoisted(() => ({ useAuth: vi.fn() }))
+
+vi.mock('../context/AuthContext', () => ({ useAuth: mocks.useAuth }))
+
 afterEach(cleanup)
+
+beforeEach(() => {
+  mocks.useAuth.mockReset()
+  mocks.useAuth.mockReturnValue({ user: null, loading: false })
+})
 
 function renderAt(path: string) {
   return render(
@@ -33,6 +42,14 @@ describe('Privacy back link', () => {
     renderAt('/privacy')
     expect(screen.getByRole('link', { name: /back to boilerindy/i })).toHaveAttribute('href', '/')
   })
+
+  // The app footer's Privacy link carries no `from`, and "/" is the signed-out
+  // marketing page, so a signed-in student goes back to the dashboard.
+  test('points a signed-in student with no origin to the dashboard', () => {
+    mocks.useAuth.mockReturnValue({ user: { id: 'u1' }, loading: false })
+    renderAt('/privacy')
+    expect(screen.getByRole('link', { name: /back to boilerindy/i })).toHaveAttribute('href', '/dashboard')
+  })
 })
 
 // Issue #193 - Contact points at the public deletion page the Play Data Safety
@@ -41,6 +58,30 @@ describe('Privacy contact', () => {
   test('links to the delete account page', () => {
     renderAt('/privacy')
     expect(screen.getByRole('link', { name: 'How to delete your account' })).toHaveAttribute('href', '/delete-account')
+  })
+
+  // Settings -> Privacy -> Delete account used to drop the origin, so the
+  // second page offered "Back to BoilerIndy" instead of "Back to Settings".
+  test('passes the origin on to the delete account page and the footer links', () => {
+    renderAt('/privacy?from=settings')
+    expect(screen.getByRole('link', { name: 'How to delete your account' })).toHaveAttribute(
+      'href',
+      '/delete-account?from=settings',
+    )
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms?from=settings')
+    expect(screen.getByRole('link', { name: 'Support' })).toHaveAttribute('href', '/support?from=settings')
+  })
+})
+
+// Issue #221 - the page renders outside AppLayout and PublicLayout, so it
+// carries its own skip link, as the first stop, and main landmark.
+describe('Privacy skip link', () => {
+  test('the first link skips to the main landmark', () => {
+    renderAt('/privacy')
+    expect(screen.getAllByRole('link')[0]).toHaveAccessibleName('Skip to main content')
+    expect(screen.getAllByRole('link')[0]).toHaveAttribute('href', '#main')
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main')
+    expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
   })
 })
 

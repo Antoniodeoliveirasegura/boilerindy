@@ -60,8 +60,8 @@ type Row = {
 
 type Preview = { type: DeletedContentType; item: Row; label: string }
 
-const INPUT_CLASS =
-  'mt-1 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] px-3 py-2.5 text-[13px] text-[var(--color-txt-0)]'
+const INPUT_CLASS = 'input mt-1.5'
+const LABEL_CLASS = 'text-[13px] font-semibold text-[var(--color-txt-1)]'
 
 function firstString(row: Row, keys: string[], skip = ''): string {
   for (const key of keys) {
@@ -264,17 +264,24 @@ export default function AdminDeleted() {
         description="Content users delete is hidden but kept here. Restore it to make it visible again, or permanently remove it from the database. The Hidden listings tab holds marketplace listings that reports hid automatically."
       />
 
-      <section className="card p-4 mb-5" aria-labelledby="admin-takedown-heading">
-        <h2 id="admin-takedown-heading" className="text-[14px] font-medium text-[var(--color-txt-0)]">
-          Take down by id
-        </h2>
-        <p className="text-[12px] text-[var(--color-txt-2)] mt-1">
-          Paste the id of live content from a report. Taking it down hides it the same way a user delete does, so it
-          lands in the list below and can be restored.
-        </p>
-        <form onSubmit={handleLookup} className="mt-3 flex flex-col sm:flex-row sm:items-end gap-3">
+      <section className="card card-pad r-ink mb-6" aria-labelledby="admin-takedown-heading">
+        <header className="card-head items-start mb-4">
+          <span className="route-badge">
+            <Icon name="search" size={18} />
+          </span>
+          <div>
+            <h2 id="admin-takedown-heading" className="card-title">
+              Take down by id
+            </h2>
+            <p className="card-sub text-[13px] max-w-[68ch]">
+              Paste the id of live content from a report. Taking it down hides it the same way a user delete does, so it
+              lands in the list below and can be restored.
+            </p>
+          </div>
+        </header>
+        <form onSubmit={handleLookup} className="flex flex-col sm:flex-row sm:items-end gap-3">
           <label className="block sm:w-48">
-            <span className="text-[12px] font-medium text-[var(--color-txt-2)]">Content type</span>
+            <span className={LABEL_CLASS}>Content type</span>
             <select
               value={lookupType}
               onChange={(e) => {
@@ -291,7 +298,7 @@ export default function AdminDeleted() {
             </select>
           </label>
           <label className="block flex-1 min-w-0">
-            <span className="text-[12px] font-medium text-[var(--color-txt-2)]">Content id</span>
+            <span className={LABEL_CLASS}>Content id</span>
             <input
               value={lookupId}
               onChange={(e) => {
@@ -301,13 +308,13 @@ export default function AdminDeleted() {
               placeholder="00000000-0000-0000-0000-000000000000"
               autoComplete="off"
               spellCheck={false}
-              className={`${INPUT_CLASS} font-mono`}
+              className={`${INPUT_CLASS} font-mono text-[14px]`}
             />
           </label>
           <button
             type="submit"
             disabled={lookupBusy || !lookupId.trim()}
-            className="btn btn-secondary text-[12px] px-3 py-2.5 disabled:opacity-50"
+            className="btn btn-secondary min-h-[44px]"
           >
             <Icon name="search" size={14} />
             Find
@@ -315,23 +322,23 @@ export default function AdminDeleted() {
         </form>
 
         {lookupError && (
-          <div role="alert" className="text-[12px] text-[var(--color-error)] mt-2">
+          <div role="alert" className="text-[13px] font-semibold text-[var(--color-error)] mt-2.5">
             {lookupError}
           </div>
         )}
 
         {preview && (
-          <div className="mt-3 rounded-xl border border-[var(--color-border)] p-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="mt-4 rounded-r-md border-l-[3px] border-[var(--color-border-3)] bg-[var(--color-stat)] px-3.5 py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div className="min-w-0">
               {preview.label && (
-                <div className="text-[11px] text-[var(--color-txt-3)] mb-0.5">{preview.label}</div>
+                <div className="eyebrow bare text-[10.5px] mb-1.5">{preview.label}</div>
               )}
-              <div className="text-[14px] font-medium text-[var(--color-txt-0)] truncate">{rowTitle(preview.item)}</div>
+              <div className="font-display font-bold text-[15px] leading-snug text-[var(--color-txt-0)] truncate">{rowTitle(preview.item)}</div>
               {rowSubtitle(preview.item) && (
-                <div className="text-[12px] text-[var(--color-txt-2)] mt-1 line-clamp-2">{rowSubtitle(preview.item)}</div>
+                <div className="text-[13px] leading-snug text-[var(--color-txt-1)] mt-1 line-clamp-2">{rowSubtitle(preview.item)}</div>
               )}
-              <div className="text-[11px] text-[var(--color-txt-3)] mt-1.5 font-mono break-all">Id {preview.item.id}</div>
-              <div className="text-[11px] text-[var(--color-txt-3)] mt-0.5 break-all">
+              <div className="text-[11.5px] text-[var(--color-txt-3)] mt-2 font-mono break-all">Id {preview.item.id}</div>
+              <div className="text-[12px] text-[var(--color-txt-3)] mt-0.5 break-all tnum">
                 Posted {previewCreated ? formatDateTime(previewCreated) : 'at an unknown time'}
                 {previewAuthor ? ` by user ${previewAuthor}` : ''}
               </div>
@@ -340,7 +347,7 @@ export default function AdminDeleted() {
               type="button"
               onClick={handleTakeDown}
               disabled={lookupBusy}
-              className="inline-flex items-center gap-1.5 shrink-0 text-[12px] px-3 py-2 rounded-xl border border-[var(--color-error)]/40 text-[var(--color-error)] hover:bg-[var(--color-error)]/10 disabled:opacity-50"
+              className="btn btn-danger btn-sm shrink-0 self-start"
             >
               <Icon name="trash" size={14} />
               Take down
@@ -349,17 +356,13 @@ export default function AdminDeleted() {
         )}
       </section>
 
-      <div className="flex flex-wrap gap-2 mb-5">
+      <div className="flex flex-wrap gap-2 mb-4">
         {TABS.map((t) => (
           <button
             key={t.key}
             type="button"
             onClick={() => setType(t.key)}
-            className={`text-[12px] px-3.5 py-2 rounded-xl border transition-colors ${
-              type === t.key
-                ? 'bg-[var(--color-accent)]/12 text-[var(--color-accent)] border-[var(--color-accent)]/30 font-medium'
-                : 'bg-[var(--color-surface)] text-[var(--color-txt-1)] border-[var(--color-border)] hover:border-[var(--color-accent)]/40'
-            }`}
+            className={`pill ${type === t.key ? 'pill-active' : ''}`}
           >
             {t.label}
           </button>
@@ -370,33 +373,34 @@ export default function AdminDeleted() {
       {success && <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />}
 
       {loading ? (
-        <div className="card p-6 text-[13px] text-[var(--color-txt-2)]">
+        <div className="card card-pad text-[13.5px] text-[var(--color-txt-2)]">
           Loading {hiddenTab ? 'hidden listings' : 'deleted items'}…
         </div>
       ) : items.length === 0 ? (
         <EmptyState
+          icon={hiddenTab ? 'eyeOff' : 'trash'}
           title="Nothing here"
           description={hiddenTab ? 'No listings are hidden by reports right now.' : 'No deleted items of this type.'}
         />
       ) : (
-        <div className="space-y-3">
+        <div className="card divide-y divide-[var(--color-border)]">
           {items.map((row) => (
             <div
               key={row.id}
-              className="card p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3"
+              className="px-4 py-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3"
             >
               <div className="min-w-0">
-                <div className="text-[14px] font-medium text-[var(--color-txt-0)] truncate">{rowTitle(row)}</div>
+                <div className="font-display font-bold text-[15px] leading-snug text-[var(--color-txt-0)] truncate">{rowTitle(row)}</div>
                 {rowSubtitle(row) && (
-                  <div className="text-[12px] text-[var(--color-txt-2)] mt-1 line-clamp-2">{rowSubtitle(row)}</div>
+                  <div className="text-[13px] leading-snug text-[var(--color-txt-2)] mt-1 line-clamp-2">{rowSubtitle(row)}</div>
                 )}
-                <div className="text-[11px] text-[var(--color-txt-3)] mt-1.5">
+                <div className="text-[12px] text-[var(--color-txt-3)] mt-1.5 tnum">
                   {hiddenTab
                     ? `Hidden after ${row.reportCount ?? 0} report${row.reportCount === 1 ? '' : 's'}`
                     : `Deleted ${row.deleted_at ? formatDateTime(row.deleted_at) : 'recently'}`}
                 </div>
                 {hiddenTab && row.reasons?.length ? (
-                  <div className="text-[11px] text-[var(--color-txt-2)] mt-1 line-clamp-3 break-words">
+                  <div className="text-[12.5px] text-[var(--color-txt-2)] mt-1 line-clamp-3 break-words">
                     Reported for: {row.reasons.join('; ')}
                   </div>
                 ) : null}
@@ -406,7 +410,7 @@ export default function AdminDeleted() {
                   type="button"
                   onClick={() => (hiddenTab ? handleUnhide(row) : handleRestore(row))}
                   disabled={busyId === row.id}
-                  className="btn btn-secondary text-[12px] px-3 py-2 disabled:opacity-50"
+                  className="btn btn-secondary btn-sm"
                 >
                   <Icon name={hiddenTab ? 'eye' : 'refresh'} size={14} />
                   {hiddenTab ? 'Un-hide' : 'Restore'}
@@ -415,7 +419,7 @@ export default function AdminDeleted() {
                   type="button"
                   onClick={() => (hiddenTab ? handleHiddenTakeDown(row) : handleHardDelete(row))}
                   disabled={busyId === row.id}
-                  className="inline-flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-xl border border-[var(--color-error)]/40 text-[var(--color-error)] hover:bg-[var(--color-error)]/10 disabled:opacity-50"
+                  className="btn btn-danger btn-sm"
                 >
                   <Icon name="trash" size={14} />
                   {hiddenTab ? 'Take down' : 'Delete'}

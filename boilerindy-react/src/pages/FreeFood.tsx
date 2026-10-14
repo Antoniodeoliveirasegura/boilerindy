@@ -40,6 +40,16 @@ function isPast(dateString: string) {
   return new Date(dateString) < new Date()
 }
 
+function isToday(dateString: string) {
+  return new Date(dateString).toDateString() === new Date().toDateString()
+}
+
+// The departures-row date block: short weekday over the day of the month.
+function dateBlock(dateString: string) {
+  const date = new Date(dateString)
+  return { day: date.toLocaleDateString(undefined, { weekday: 'short' }), date: date.getDate() }
+}
+
 export default function FreeFood() {
   const { onboarding } = useAuth()
   // The same calendar window the Events page reads, one cache entry for both (#327).
@@ -68,94 +78,111 @@ export default function FreeFood() {
   const hasNoSources = onboarding?.linkedSourceCount === 0
 
   return (
-    <div className="max-w-[1000px] mx-auto px-6 py-8 pb-24 transition-opacity duration-500 opacity-100">
+    <div className="page r-din">
       <PageTitle>Free Food</PageTitle>
-      <div className="mb-6 animate-fade-in-up">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl" aria-hidden="true">🍕</span>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Free Food</h1>
+      <header className="page-head">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="route-badge lg" aria-hidden="true">
+              <Icon name="coffee" size={22} />
+            </span>
+            <h1 className="page-title">Free Food</h1>
+          </div>
+          <p className="page-sub">
+            {freeFoodItems.length} upcoming event{freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food - pizza, snacks, refreshments, and more.
+          </p>
         </div>
-        <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[680px]">
-          {freeFoodItems.length} upcoming event{freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food - pizza, snacks, refreshments, and more.
-        </p>
-      </div>
+      </header>
 
       {hasNoSources && (
-        <div className="card p-5 mb-6 border-[var(--color-gold)]/30 bg-[var(--color-gold)]/8 animate-fade-in-up">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="text-[16px] font-semibold text-[var(--color-txt-0)]">Connect a calendar source</div>
-              <p className="text-[13px] text-[var(--color-txt-2)] mt-1 max-w-[640px]">
+        <section className="card card-pad mb-6">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <div className="flex-1 min-w-[200px]">
+              <div className="card-title">Connect a calendar source</div>
+              <p className="card-sub text-[13px] max-w-[640px]">
                 Import campus events from Brightspace so free-food events can show up here.
               </p>
             </div>
-            <Link to="/setup" className="btn btn-primary text-[13px] px-5 py-2.5 w-fit">
+            <Link to="/setup" className="btn btn-primary w-fit">
               <Icon name="calendar" size={15} />
               Connect source
             </Link>
           </div>
-        </div>
+        </section>
       )}
 
       {loading ? (
-        <div className="card p-8 text-center text-[var(--color-txt-2)]">Loading free-food events…</div>
+        <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading free-food events…</div>
       ) : freeFoodItems.length === 0 ? (
-        <div className="card p-8 text-center">
-          <span className="text-3xl block mb-3" aria-hidden="true">🍕</span>
-          <div className="text-[var(--color-txt-1)] font-medium">No free-food events right now</div>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
-            When an upcoming event mentions free food, it will appear here automatically.{' '}
-            <Link to="/events" className="text-[var(--color-accent)] hover:underline">Browse all events</Link>.
-          </p>
+        <div className="card card-pad">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="coffee" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No free-food events right now</div>
+              <p className="text-[13px] mt-0.5">
+                When an upcoming event mentions free food, it will appear here automatically.{' '}
+                <Link to="/events" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">Browse all events</Link>.
+              </p>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="space-y-6 animate-fade-in-up stagger-1">
-          {Object.entries(grouped).map(([date, dateItems]) => (
-            <div key={date}>
-              <div className="text-[12px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-3">
+        <section className="card card-pad">
+          {Object.entries(grouped).map(([date, dateItems], groupIdx) => (
+            <div key={date} className={groupIdx > 0 ? 'mt-2' : ''}>
+              <div className="eyebrow bare">
                 {date}
               </div>
-              <div className="space-y-2">
-                {dateItems.map((item) => (
-                  <div key={item.id} className="card p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center shrink-0 text-xl" aria-hidden="true">
-                        🍕
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="font-medium text-[var(--color-txt-0)] text-[14px] line-clamp-2">
+              <ol className="dep">
+                {dateItems.map((item) => {
+                  const block = dateBlock(item.startTime)
+                  return (
+                    <li key={item.id} className={isToday(item.startTime) ? 'urgent' : undefined}>
+                      {/* No end column: the Free food badge leads the meta
+                          line, as on Events, so the title keeps the width. */}
+                      <div className="dep-row items-start grid-cols-[48px_minmax(0,1fr)]">
+                        <span className="when" aria-hidden="true">
+                          <span>{block.day}</span>
+                          <b>{block.date}</b>
+                        </span>
+                        <div className="body">
+                          <div className="ttl line-clamp-2">
                             {item.title}
                           </div>
-                          <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
-                            Free food
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1.5 text-[12px] text-[var(--color-txt-2)]">
-                          <span className="flex items-center gap-1">
-                            <Icon name="clock" size={12} />
-                            {formatTime(item.startTime)}
-                          </span>
-                          {item.location && (
-                            <span className="flex items-center gap-1 truncate">
-                              <Icon name="mapPin" size={12} />
-                              {item.location.split(' (')[0].slice(0, 30)}
+                          <div className="meta flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5">
+                            <span className="badge badge-route">
+                              Free food
                             </span>
+                            <span className="inline-flex items-center gap-1">
+                              <Icon name="clock" size={12} />
+                              {formatTime(item.startTime)}
+                            </span>
+                            {item.location && (
+                              <span className="inline-flex items-center gap-1 min-w-0 max-w-full truncate">
+                                <Icon name="mapPin" size={12} />
+                                {item.location.split(' (')[0].slice(0, 30)}
+                              </span>
+                            )}
+                          </div>
+                          {item.description && (
+                            <p className="text-[13px] text-[var(--color-txt-2)] mt-2 line-clamp-2 [overflow-wrap:anywhere]">
+                              {linkifyText(stripHtml(item.description).slice(0, 200), { maxDisplayLength: 60 })}
+                            </p>
                           )}
                         </div>
-                        {item.description && (
-                          <p className="text-[12px] text-[var(--color-txt-2)] mt-2 line-clamp-2 [overflow-wrap:anywhere]">
-                            {linkifyText(stripHtml(item.description).slice(0, 200), { maxDisplayLength: 60 })}
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    </li>
+                  )
+                })}
+              </ol>
             </div>
           ))}
-        </div>
+        </section>
       )}
     </div>
   )

@@ -61,13 +61,13 @@ export default function SpotlightCard({
     <>
       {!isRail && (
         <div className="flex items-center gap-2 mb-3">
-          <Icon name="briefcase" size={13} className="text-[var(--color-txt-3)]" />
-          <span className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">Sponsored</span>
+          <Icon name="briefcase" size={13} className="text-[var(--color-txt-2)]" />
+          <span className="font-display text-[11px] font-extrabold text-[var(--color-txt-2)] uppercase tracking-[0.12em]">Sponsored</span>
         </div>
       )}
 
       {photos.length > 0 && (
-        <div className={`relative ${imageHeight} rounded-xl overflow-hidden mb-3 border border-[var(--color-border)] bg-[var(--color-bg-2)]`}>
+        <div className={`relative ${imageHeight} rounded-[var(--radius-md)] overflow-hidden mb-3 border border-[var(--color-border)] bg-[var(--color-bg-2)]`}>
           <img
             src={photos[photoIndex]}
             alt={ad.headline || 'Sponsor'}
@@ -79,7 +79,7 @@ export default function SpotlightCard({
               {photos.map((_, idx) => (
                 <span
                   key={idx}
-                  className={`h-1.5 rounded-full transition-all ${idx === photoIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/50'}`}
+                  className={`h-1.5 rounded-[1px] transition-colors ${idx === photoIndex ? 'w-4 bg-white' : 'w-1.5 bg-white/50'}`}
                 />
               ))}
             </div>
@@ -88,11 +88,11 @@ export default function SpotlightCard({
       )}
 
       {isRail && (
-        <div className="text-[10px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1.5">Sponsored</div>
+        <div className="font-display text-[10px] font-extrabold text-[var(--color-txt-2)] uppercase tracking-[0.12em] mb-1.5">Sponsored</div>
       )}
 
       {ad.headline && (
-        <h3 className={`font-bold tracking-tight text-[var(--color-txt-0)] ${isRail ? 'text-[13px] leading-snug' : 'text-[14px]'}`}>
+        <h3 className={`tracking-[-0.01em] text-[var(--color-txt-0)] ${isRail ? 'text-[13px] leading-snug' : 'text-[15px]'}`}>
           {ad.headline}
         </h3>
       )}
@@ -103,7 +103,7 @@ export default function SpotlightCard({
       )}
 
       {hasLink && (
-        <span className={`inline-flex items-center gap-1.5 font-semibold text-[var(--color-accent)] mt-2 ${isRail ? 'text-[11px]' : 'text-[12px]'}`}>
+        <span className={`inline-flex items-center gap-1.5 font-display font-bold text-[var(--color-accent)] mt-2 ${isRail ? 'text-[11.5px]' : 'text-[13px]'}`}>
           {ad.ctaLabel || 'Visit website'}
           <Icon name="arrowUpRight" size={12} />
         </span>
@@ -112,8 +112,8 @@ export default function SpotlightCard({
   )
 
   const shellCls = isRail
-    ? `block rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-sm ${className}`
-    : `card p-4 block no-underline border-[var(--color-border)] ${className}`
+    ? `card block p-3 no-underline ${className}`
+    : `card p-4 block no-underline ${className}`
 
   if (hasLink) {
     return (
@@ -122,7 +122,7 @@ export default function SpotlightCard({
         target="_blank"
         rel="noopener noreferrer sponsored"
         onClick={onTap}
-        className={`${shellCls} hover:border-[var(--color-gold)]/40 transition-colors`}
+        className={shellCls}
       >
         {body}
       </a>

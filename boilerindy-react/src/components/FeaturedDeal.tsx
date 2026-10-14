@@ -40,15 +40,15 @@ export default function FeaturedDeal() {
     <Link
       to="/perks"
       onClick={() => track('deal_clicked')}
-      className="block mb-6 rounded-2xl border border-[var(--color-gold)]/40 bg-[var(--color-gold)]/5 px-4 py-3 no-underline hover:bg-[var(--color-gold)]/10 transition-colors"
+      className="card r-ink block mb-6 px-4 py-3 no-underline"
     >
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-muted)] flex items-center justify-center shrink-0">
-          <Icon name="sparkles" size={16} className="text-[var(--color-gold-dark)]" />
+        <div className="route-badge">
+          <Icon name="sparkles" size={16} />
         </div>
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold text-[var(--color-gold-muted)] uppercase tracking-wider">Featured perk</div>
-          <div className="text-[14px] font-medium text-[var(--color-txt-0)] truncate">
+          <div className="font-display text-[11px] font-extrabold text-[var(--color-txt-2)] uppercase tracking-[0.12em]">Featured perk</div>
+          <div className="font-display text-[15px] font-bold text-[var(--color-txt-0)] truncate mt-0.5">
             {deal.businessName}
             {deal.description ? <span className="text-[var(--color-txt-2)] font-normal"> - {deal.description}</span> : null}
           </div>

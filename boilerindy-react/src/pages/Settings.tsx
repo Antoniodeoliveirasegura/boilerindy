@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -12,6 +12,44 @@ import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import { useConfirm } from '../hooks/useConfirm'
 import StatusBanner from '../components/StatusBanner'
 import PageTitle from '../components/PageTitle'
+
+// Field labels, body copy and the sync tiles share one look across the cards.
+const FIELD_LABEL = 'mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]'
+const BODY = 'text-[14px] leading-relaxed text-[var(--color-txt-1)]'
+const STAT_LABEL =
+  'font-display text-[10.5px] font-extrabold uppercase leading-[1.25] tracking-[0.12em] text-[var(--color-txt-2)]'
+const STAT_VALUE = 'font-display text-[22px] font-extrabold leading-none tnum text-[var(--color-txt-0)]'
+const CHECKBOX = 'mt-0.5 size-[18px] shrink-0 accent-[var(--color-txt-0)]'
+
+// Card head for each settings section: an ink route badge (or the error fill
+// for the danger zone), the title and an optional head link. A card's
+// description is a body paragraph under the head, never a sub in it.
+function CardHead({
+  icon,
+  title,
+  danger = false,
+  children,
+}: {
+  icon: string
+  title: string
+  danger?: boolean
+  children?: ReactNode
+}) {
+  return (
+    <header className="card-head">
+      <span
+        aria-hidden="true"
+        className={`route-badge${danger ? ' bg-[var(--color-error)] text-[var(--color-on-route)]' : ''}`}
+      >
+        <Icon name={icon} />
+      </span>
+      <div>
+        <h2 className="card-title">{title}</h2>
+      </div>
+      {children}
+    </header>
+  )
+}
 
 export default function Settings() {
   const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
@@ -221,176 +259,190 @@ export default function Settings() {
   }
 
   return (
-    <div className="max-w-[960px] mx-auto px-6 py-8 pb-24">
+    <div className="page">
       <PageTitle>Settings</PageTitle>
       {confirmDialog}
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Settings</h1>
-        <p className="text-[14px] text-[var(--color-txt-2)] mt-1 max-w-[720px]">
-          Manage your app account, Purdue connection, and the data sources you have attached.
-        </p>
-      </div>
-
-      {banner && (
-        <StatusBanner tone="error" className="mb-4">
-          {banner}
-        </StatusBanner>
-      )}
-
-      {status && (
-        <StatusBanner tone="success" className="mb-4">
-          {status}
-        </StatusBanner>
-      )}
-
-      <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-4 mb-6">
-        <form onSubmit={handleSave} className="card p-5">
-          <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-            Account details
+      <div className="page-measure">
+        <header className="page-head">
+          <div>
+            <h1 className="page-title">Settings</h1>
+            <p className="page-sub">
+              Manage your app account, Purdue connection, and the data sources you have attached.
+            </p>
           </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">Display name</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="input w-full px-4 py-3 text-[14px]"
-                placeholder="Antonio Segura"
-              />
-            </div>
-            <div>
-              <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input w-full px-4 py-3 text-[14px]"
-                placeholder="you@example.com"
-              />
-            </div>
-          </div>
+        </header>
 
-          <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mt-6 mb-4">
-            Change password
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">Current password</label>
-              <input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="input w-full px-4 py-3 text-[14px]"
-                placeholder="Current password"
-              />
-            </div>
-            <div>
-              <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">New password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="input w-full px-4 py-3 text-[14px]"
-                placeholder="At least 8 characters"
-              />
-            </div>
-            <div>
-              <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5">Confirm new password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="input w-full px-4 py-3 text-[14px]"
-                placeholder="Repeat new password"
-              />
-            </div>
-            <button type="submit" disabled={saving} className="btn btn-primary text-[13px] px-5 py-2.5 disabled:opacity-50">
-              <Icon name="check" size={15} />
-              {saving ? 'Saving…' : 'Save changes'}
-            </button>
-          </div>
-        </form>
+        {banner && (
+          <StatusBanner tone="error" className="mb-4">
+            {banner}
+          </StatusBanner>
+        )}
 
-        <div className="space-y-4">
+        {status && (
+          <StatusBanner tone="success" className="mb-4">
+            {status}
+          </StatusBanner>
+        )}
+
+        <div className="grid gap-4">
+          <form onSubmit={handleSave} className="card card-pad r-ink">
+            <CardHead icon="user" title="Account details" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={FIELD_LABEL}>Display name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="input"
+                  placeholder="Antonio Segura"
+                />
+              </div>
+              <div>
+                <label className={FIELD_LABEL}>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 border-t border-[var(--color-border)] pt-5">
+              <div className="eyebrow bare mb-4">Change password</div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className={FIELD_LABEL}>Current password</label>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="input"
+                    placeholder="Current password"
+                  />
+                </div>
+                <div>
+                  <label className={FIELD_LABEL}>New password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="input"
+                    placeholder="At least 8 characters"
+                  />
+                </div>
+                <div>
+                  <label className={FIELD_LABEL}>Confirm new password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="input"
+                    placeholder="Repeat new password"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="mt-5">
+              <button type="submit" disabled={saving} className="btn btn-primary">
+                <Icon name="check" size={16} />
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+
           {/* Shown in every PURDUE_AUTH_MODE: an emailed code links a Purdue
               address even with CAS and the mock off (issue #181). */}
-          <div className="card p-5" data-testid="purdue-account-card">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-              Purdue account
-            </div>
+          <section className="card card-pad r-ink" data-testid="purdue-account-card">
+            <CardHead icon="graduation" title="Purdue account" />
             {user?.hasPurdueLinked ? (
               <>
-                <div className="text-[15px] font-semibold text-[var(--color-txt-0)]">Linked</div>
-                <div className="text-[13px] text-[var(--color-txt-2)] mt-1">{user.purdueEmail ?? ''}</div>
-                <p className="text-[13px] text-[var(--color-txt-1)] mt-3 leading-relaxed">
+                <div className="flex items-center gap-2.5">
+                  {/* The shared open dot, without its pulse ring: a linked
+                      identity is a steady state, not a live feed. */}
+                  <span aria-hidden="true" className="status-dot status-open shrink-0 after:hidden" />
+                  <div className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">Linked</div>
+                </div>
+                <div className="mt-1 pl-[18px] text-[13px] text-[var(--color-txt-2)]">{user.purdueEmail ?? ''}</div>
+                <p className={`${BODY} mt-3`}>
                   Purdue is connected as a linked identity. Purdue-specific sources like timetable feeds can now be attached from setup.
                 </p>
-                <Link to="/setup" className="btn btn-secondary text-[13px] px-4 py-2 mt-4 inline-flex">
+                <Link to="/setup" className="btn btn-secondary mt-4">
                   <Icon name="calendar" size={14} />
                   Manage calendar sources
                 </Link>
               </>
             ) : (
               <>
-                <div className="text-[15px] font-semibold text-[var(--color-txt-0)]">Not linked yet</div>
-                <p className="text-[13px] text-[var(--color-txt-1)] mt-2 mb-4 leading-relaxed">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    aria-hidden="true"
+                    className="size-2 shrink-0 rounded-full border-[1.5px] border-[var(--color-txt-3)]"
+                  />
+                  <div className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">Not linked yet</div>
+                </div>
+                <p className={`${BODY} mt-2 mb-4`}>
                   Link your @purdue.edu email to post on the Marketplace. Your sign-in stays as it is.
                 </p>
-                <PurdueEmailVerification />
-                {authConfig?.purdueAuthMode === 'cas' ? (
-                  <button
-                    type="button"
-                    onClick={() => startPurdueLink('/settings')}
-                    className="btn btn-secondary w-full justify-center text-[13px] px-4 py-2 mt-3"
-                  >
-                    <Icon name="graduation" size={14} />
-                    Sign in with Purdue instead
-                  </button>
-                ) : null}
+                {/* The shared form stretches its controls to full width; on
+                    sm+ hold them to a form-sized column so its submit does not
+                    become a 700px bar next to the page's Save changes. */}
+                <div className="sm:max-w-[400px]">
+                  <PurdueEmailVerification submitVariant="secondary" />
+                  {authConfig?.purdueAuthMode === 'cas' ? (
+                    <button
+                      type="button"
+                      onClick={() => startPurdueLink('/settings')}
+                      className="btn btn-secondary mt-3 w-full sm:w-fit"
+                    >
+                      <Icon name="graduation" size={14} />
+                      Sign in with Purdue instead
+                    </button>
+                  ) : null}
+                </div>
               </>
             )}
-          </div>
+          </section>
 
-          <div className="card p-5">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-              Sync status
-            </div>
-            <div className="space-y-2 text-[13px] text-[var(--color-txt-1)]">
-              <div className="flex items-center justify-between gap-3">
-                <span>Linked sources</span>
-                <span className="badge">{onboarding?.linkedSourceCount ?? 0}</span>
+          <section className="card card-pad r-ink">
+            <CardHead icon="refresh" title="Sync status" />
+            <dl className="grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="flex flex-col justify-between gap-2 rounded-[var(--radius-md)] bg-[var(--color-stat)] px-3 py-3">
+                <dt className={STAT_LABEL}>Linked sources</dt>
+                <dd className={STAT_VALUE}>{onboarding?.linkedSourceCount ?? 0}</dd>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Imported classes</span>
-                <span className="badge">{onboarding?.classCount ?? 0}</span>
+              <div className="flex flex-col justify-between gap-2 rounded-[var(--radius-md)] bg-[var(--color-stat)] px-3 py-3">
+                <dt className={STAT_LABEL}>Imported classes</dt>
+                <dd className={STAT_VALUE}>{onboarding?.classCount ?? 0}</dd>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Purdue link mode</span>
-                <span className="badge">{authConfig?.purdueAuthMode || 'mock'}</span>
+              <div className="flex flex-col justify-between gap-2 rounded-[var(--radius-md)] bg-[var(--color-stat)] px-3 py-3">
+                <dt className={STAT_LABEL}>Purdue link mode</dt>
+                <dd>
+                  <span className="code uppercase">{authConfig?.purdueAuthMode || 'mock'}</span>
+                </dd>
               </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-[var(--color-border)] flex flex-wrap gap-2">
-              <Link to="/setup" className="btn btn-secondary text-[13px] px-4 py-2">
+            </dl>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link to="/setup" className="btn btn-secondary">
                 <Icon name="calendar" size={14} />
                 Calendar sources
               </Link>
-              <Link to="/schedule" className="btn btn-secondary text-[13px] px-4 py-2">
+              <Link to="/schedule" className="btn btn-secondary">
                 <Icon name="schedule" size={14} />
                 View schedule
               </Link>
             </div>
-          </div>
+          </section>
 
-          <div className="card p-5">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-              Calendar feed
-            </div>
-            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+          <section className="card card-pad r-ink">
+            <CardHead icon="calendar" title="Calendar feed" />
+            <p className={BODY}>
               Subscribe to your classes and tasks from Google or Apple Calendar with a private link.
               Treat it like a password - anyone with the link can see your schedule.
             </p>
             {feedUrl ? (
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 space-y-2">
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -398,13 +450,9 @@ export default function Settings() {
                     value={feedUrl}
                     onFocus={(e) => e.target.select()}
                     aria-label="Calendar feed URL"
-                    className="input flex-1 px-3 py-2 text-[12px] font-mono"
+                    className="input min-w-0 flex-1 font-mono text-[13px] max-sm:text-[16px]"
                   />
-                  <button
-                    type="button"
-                    onClick={handleCopyFeed}
-                    className="btn btn-secondary text-[13px] px-3 py-2 shrink-0"
-                  >
+                  <button type="button" onClick={handleCopyFeed} className="btn btn-secondary shrink-0">
                     <Icon name={feedCopied ? 'check' : 'copy'} size={14} />
                     {feedCopied ? 'Copied' : 'Copy'}
                   </button>
@@ -413,8 +461,9 @@ export default function Settings() {
                   type="button"
                   onClick={handleGenerateFeed}
                   disabled={feedBusy}
-                  className="text-[12px] text-[var(--color-txt-2)] hover:text-[var(--color-error)] underline disabled:opacity-50"
+                  className="btn btn-ghost btn-sm -ml-3 text-[var(--color-txt-2)] hover:text-[var(--color-error)]"
                 >
+                  <Icon name="refresh" size={14} />
                   {feedBusy ? 'Regenerating…' : 'Regenerate link (invalidates the old one)'}
                 </button>
               </div>
@@ -423,134 +472,123 @@ export default function Settings() {
                 type="button"
                 onClick={handleGenerateFeed}
                 disabled={feedBusy || !feedLoaded}
-                className="btn btn-primary text-[13px] px-4 py-2 mt-4 disabled:opacity-50"
+                className="btn btn-secondary mt-4"
               >
                 <Icon name="calendar" size={14} />
                 {feedBusy ? 'Creating…' : 'Create calendar link'}
               </button>
             )}
-          </div>
+          </section>
 
           <PushNotificationsCard />
 
-          <div className="card p-5">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-              Privacy
-            </div>
-            <label className="flex items-start gap-3 cursor-pointer select-none">
+          <section className="card card-pad r-ink">
+            <CardHead icon="shield" title="Privacy">
+              <Link to="/privacy?from=settings" className="head-link">
+                Read the privacy policy
+              </Link>
+            </CardHead>
+            <label className="flex cursor-pointer select-none items-start gap-3">
               <input
                 type="checkbox"
                 checked={!user?.analyticsOptOut}
                 onChange={handleAnalyticsToggle}
                 disabled={analyticsSaving}
-                className="w-4 h-4 mt-0.5 rounded border-[var(--color-border-2)] accent-[var(--color-gold)]"
+                className={CHECKBOX}
               />
               <span>
-                <span className="block text-[13px] font-medium text-[var(--color-txt-0)]">Share usage analytics</span>
-                <span className="block text-[12px] text-[var(--color-txt-2)] mt-0.5 leading-relaxed">
+                <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Share usage analytics</span>
+                <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
                   Help prioritize features by sharing which pages and features you use. Stored only in
                   BoilerIndy&apos;s own database - no third-party trackers, deleted with your account.
                 </span>
               </span>
             </label>
-            <Link to="/privacy?from=settings" className="inline-block text-[12px] text-[var(--color-accent)] hover:underline mt-3">
-              Read the privacy policy
-            </Link>
-          </div>
+          </section>
 
           <BlockedUsersCard />
 
-          <div className="card p-5">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-              Appearance
-            </div>
-            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed mb-3">
+          <section className="card card-pad r-ink">
+            <CardHead icon={theme === 'dark' ? 'moon' : 'sun'} title="Appearance" />
+            <p className={`${BODY} mb-4`}>
               Choose how BoilerIndy looks on this device. Your preference is saved between sessions.
             </p>
-            <div className="inline-flex p-1 rounded-xl bg-[var(--color-stat)] border border-[var(--color-border)]">
+            <div className="flex flex-wrap gap-2">
               {['light', 'dark'].map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setTheme(mode as 'light' | 'dark')}
                   aria-pressed={theme === mode}
-                  className={`px-4 py-2 rounded-lg text-[12px] font-semibold capitalize transition-all inline-flex items-center gap-1.5 ${
-                    theme === mode
-                      ? 'bg-[var(--color-surface)] text-[var(--color-txt-0)] shadow-[var(--shadow-sm)]'
-                      : 'text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]'
-                  }`}
+                  className={`pill capitalize ${theme === mode ? 'pill-active' : ''}`}
                 >
-                  <Icon name={mode === 'light' ? 'sun' : 'moon'} size={13} />
+                  <Icon name={mode === 'light' ? 'sun' : 'moon'} size={14} />
                   {mode}
                 </button>
               ))}
             </div>
-          </div>
+          </section>
 
-          <div className="card p-5 border border-[var(--color-error)]/25">
-            <div className="text-[11px] font-semibold text-[var(--color-error)] uppercase tracking-wider mb-4">
-              Delete account
+          <section className="card card-pad r-ink">
+            <CardHead icon="lock" title="Session" />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className={`${BODY} min-w-0 break-words`}>
+                Signed in as <span className="font-semibold text-[var(--color-txt-0)]">{user?.email}</span>.
+              </p>
+              <button type="button" onClick={signOutAndRedirect} className="btn btn-secondary">
+                <Icon name="close" size={14} />
+                Sign out
+              </button>
             </div>
-            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
+          </section>
+
+          <section className="card card-pad border-[var(--color-error)]/40">
+            <CardHead icon="trash" title="Delete account" danger />
+            <p className={BODY}>
               Permanently remove your BoilerIndy account, calendar data, board posts, and analytics.
               Your Purdue link and calendar feed URL will stop working immediately.
             </p>
-            <form onSubmit={handleDeleteAccount} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5" htmlFor="delete-password">
-                  Password
-                </label>
-                <input
-                  id="delete-password"
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  className="input w-full px-4 py-3 text-[14px]"
-                  placeholder="Your current password"
-                  autoComplete="current-password"
-                />
-              </div>
-              <div>
-                <label className="block text-[12px] font-medium text-[var(--color-txt-1)] mb-1.5" htmlFor="delete-confirm">
-                  Type DELETE to confirm
-                </label>
-                <input
-                  id="delete-confirm"
-                  type="text"
-                  value={deleteConfirm}
-                  onChange={(e) => setDeleteConfirm(e.target.value)}
-                  className="input w-full px-4 py-3 text-[14px]"
-                  placeholder="DELETE"
-                  autoComplete="off"
-                />
+            <form onSubmit={handleDeleteAccount} className="mt-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={FIELD_LABEL} htmlFor="delete-password">
+                    Password
+                  </label>
+                  <input
+                    id="delete-password"
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    className="input"
+                    placeholder="Your current password"
+                    autoComplete="current-password"
+                  />
+                </div>
+                <div>
+                  <label className={FIELD_LABEL} htmlFor="delete-confirm">
+                    Type DELETE to confirm
+                  </label>
+                  <input
+                    id="delete-confirm"
+                    type="text"
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    className="input"
+                    placeholder="DELETE"
+                    autoComplete="off"
+                  />
+                </div>
               </div>
               <button
                 type="submit"
                 disabled={deleting}
-                className="inline-flex items-center gap-2 text-[13px] font-semibold px-4 py-2.5 rounded-lg border border-[var(--color-error)]/40 text-[var(--color-error)] bg-[var(--color-error)]/8 hover:bg-[var(--color-error)]/12 disabled:opacity-50 cursor-pointer transition-colors"
+                className="btn btn-danger mt-4"
               >
-                <Icon name="close" size={14} />
+                <Icon name="trash" size={14} />
                 {deleting ? 'Deleting…' : 'Delete my account'}
               </button>
             </form>
-          </div>
-
-          <div className="card p-5">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-4">
-              Session
-            </div>
-            <p className="text-[13px] text-[var(--color-txt-1)] leading-relaxed">
-              Signed in as <span className="font-medium text-[var(--color-txt-0)]">{user?.email}</span>.
-            </p>
-            <button
-              type="button"
-              onClick={signOutAndRedirect}
-              className="btn btn-secondary text-[13px] px-4 py-2 mt-4"
-            >
-              <Icon name="close" size={14} />
-              Sign out
-            </button>
-          </div>
+          </section>
         </div>
       </div>
     </div>

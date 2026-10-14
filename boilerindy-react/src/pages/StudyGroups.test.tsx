@@ -69,8 +69,9 @@ it('offers Report and Block author on a group someone else started, and neither 
     { id: 'g-mine', title: 'Lab partners', courseCode: 'CS 18000', memberCount: 1, joinedByMe: true, isMine: true },
   ]
   render(<StudyGroups />)
-  const theirs = within((await screen.findByText('Exam 2 review crew')).closest('.card') as HTMLElement)
-  const mine = within(screen.getByText('Lab partners').closest('.card') as HTMLElement)
+  // Each group is one row of the list (the list itself is the card).
+  const theirs = within((await screen.findByText('Exam 2 review crew')).closest('li') as HTMLElement)
+  const mine = within(screen.getByText('Lab partners').closest('li') as HTMLElement)
   expect(mine.queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
   expect(mine.queryByRole('button', { name: 'Block author' })).not.toBeInTheDocument()
 

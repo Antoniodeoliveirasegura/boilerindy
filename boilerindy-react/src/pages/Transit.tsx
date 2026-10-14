@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
+import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { track } from '../lib/usageStats'
 import {
   routes,
@@ -18,6 +21,7 @@ import {
 } from '../lib/transitShared'
 import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import PageTitle from '../components/PageTitle'
+import { INK_BUTTON } from '../components/map/mapChrome'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -32,6 +36,103 @@ function escapeHtml(value: unknown): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   )
 }
+
+// JAGLINE colours are the lines' own (data, not theme), so anything drawn on
+// or around them is worked out per colour.
+function hexRgb(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (c: number) => {
+    const v = c / 255
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+// Ink on the light lines (Yellow, Orange), white on the dark ones: whichever
+// contrasts more with the fill.
+function onRouteColor(hex: string): string {
+  const rgb = hexRgb(hex)
+  if (!rgb) return '#FFFFFF'
+  return contrast(rgb, [10, 11, 14]) > contrast(rgb, [255, 255, 255]) ? '#0A0B0E' : '#FFFFFF'
+}
+
+// The line as drawn on a card: the JAGLINE colour, nudged toward white (dark
+// theme) or ink (light theme) only as far as it takes to reach 3:1 against
+// the surface, so the stop line and its filled and hollow stops read in both
+// themes. Crimson, Blue and Purple lift a little in dark; Yellow and Orange
+// deepen a little in light; the rest pass as they are.
+function legibleLine(hex: string, dark: boolean): string {
+  const rgb = hexRgb(hex)
+  if (!rgb) return hex
+  const surface: [number, number, number] = dark ? [20, 23, 28] : [255, 255, 255]
+  const toward: [number, number, number] = dark ? [255, 255, 255] : [15, 18, 23]
+  for (let t = 0; t <= 1; t += 0.02) {
+    const mixed = rgb.map((c, i) => Math.round(c + (toward[i] - c) * t)) as [number, number, number]
+    if (contrast(mixed, surface) >= 3) {
+      return `#${mixed.map((c) => c.toString(16).padStart(2, '0')).join('')}`
+    }
+  }
+  return hex
+}
+
+// The route's own colour on a square: the chips and the legend. Only the
+// data colours are inline. In dark a hairline keeps the dark lines (Crimson,
+// Blue, Purple) from sinking into the surface.
+function RouteNum({ route, small = false }: { route: TransitRoute; small?: boolean }) {
+  return (
+    <span
+      className={`inline-grid place-items-center shrink-0 rounded-[3px] font-display font-extrabold leading-none tnum dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)] ${
+        small ? 'size-[18px] text-[10px]' : 'size-5 text-[11px]'
+      }`}
+      style={{ backgroundColor: route.color, color: onRouteColor(route.color) }}
+    >
+      {route.num}
+    </span>
+  )
+}
+
+// Basemap: Esri's keyless World Street Map (issue #160; CARTO's free tiles
+// carry an "API KEY REQUIRED" watermark). Streets and landmarks are what a
+// rider reads a shuttle's position against, so the shuttle map keeps them.
+const TILE_STREET = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
+
+// Dark theme: the same street map turned to night. Inverted with the hues
+// turned back, then drained of most colour so the ground is a neutral near
+// black like the page, the labels go light, and the JAGLINE colours are the
+// only strong colour on it. Only the tile pane is filtered; lines and
+// markers keep their true colours.
+const DARK_TILES =
+  '[&_.leaflet-tile-pane]:[filter:invert(1)_hue-rotate(180deg)_saturate(0.28)_brightness(0.92)_contrast(0.9)]'
+
+// Light theme: the same street map drained to a quiet grey, so the yellow and
+// orange arterials, tan blocks and blue river stop competing with the Yellow,
+// Orange and Crimson lines. Street names stay readable; the JAGLINE colours are
+// the only strong colour on the map, as in dark.
+const LIGHT_TILES = '[&_.leaflet-tile-pane]:[filter:saturate(0.18)_contrast(0.95)_brightness(1.03)]'
+
+// Phones: the tile credit at 10px, so it fits on one line over the map
+// instead of wrapping onto the southern stops (it still wraps, never clips,
+// on a very narrow screen).
+const ATTRIBUTION_PHONE = 'max-sm:[&_.leaflet-control-attribution]:text-[10px]'
+
+// The edge every line, stop and bus wears so it holds on both the light
+// street map and the dark one: near white (--color-ink-txt), and outside it a
+// thin ink hairline that only shows on the light map. Literal, because the
+// casing is an SVG stroke, which cannot read CSS variables.
+const EDGE = '#F3F4F6'
+const HAIRLINE = 'rgba(15,18,23,0.32)'
 
 const CAMPUS_CENTER = { lat: 39.7745, lng: -86.1756 }
 const HERE_METERS = 72
@@ -104,6 +205,7 @@ function LiveMap({
   stopHighlights: Record<string, string>
   canonicalRouteId: CanonicalFn
 }) {
+  const { dark } = useTheme()
   const mapRef = useRef<HTMLDivElement | null>(null)
   const mapInstanceRef = useRef<import('leaflet').Map | null>(null)
   const markersRef = useRef<Record<string, import('leaflet').Marker>>({})
@@ -145,6 +247,8 @@ function LiveMap({
     if (userMarkerRef.current) {
       userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng])
     } else {
+      // "You are here": the amber stop with a txt-0 ring (ink on the light
+      // basemap, white on the dark one), as on the day's route line.
       const userIcon = L.divIcon({
         html: `
           <div style="position:relative;width:40px;height:40px;">
@@ -153,8 +257,8 @@ function LiveMap({
               top:50%;left:50%;
               transform:translate(-50%,-50%);
               width:40px;height:40px;
-              background:rgba(59,130,246,0.2);
-              border:2px solid rgba(59,130,246,0.4);
+              background:color-mix(in srgb, var(--color-gold) 20%, transparent);
+              border:1.5px solid color-mix(in srgb, var(--color-gold) 65%, transparent);
               border-radius:50%;
               animation:user-pulse 2s ease-out infinite;
             "></div>
@@ -163,10 +267,10 @@ function LiveMap({
               top:50%;left:50%;
               transform:translate(-50%,-50%);
               width:18px;height:18px;
-              background:#3b82f6;
-              border:3px solid white;
+              box-sizing:border-box;
+              background:var(--color-gold);
+              border:3px solid var(--color-txt-0);
               border-radius:50%;
-              box-shadow:0 2px 8px rgba(0,0,0,0.3);
             "></div>
           </div>`,
         className: 'user-location-marker',
@@ -175,7 +279,7 @@ function LiveMap({
       })
       userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon, zIndexOffset: 1000 })
         .addTo(map)
-        .bindPopup('<div style="font-family:system-ui;font-size:13px;font-weight:500;">You are here</div>')
+        .bindPopup('<div style="font-family:var(--font-display);font-size:13px;font-weight:700;">You are here</div>')
     }
 
     map.setView([userLocation.lat, userLocation.lng], 16)
@@ -206,10 +310,9 @@ function LiveMap({
 
       L.control.zoom({ position: 'bottomright' }).addTo(map)
 
-      // Basemap: Esri's keyless World Street Map (issue #160); CARTO's free tiles
-      // now carry an "API KEY REQUIRED" watermark.
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors',
+      // One street layer for both themes; the dark theme only filters it.
+      L.tileLayer(TILE_STREET, {
+        attribution: TILE_ATTRIBUTION,
         maxZoom: 19,
       }).addTo(map)
 
@@ -250,14 +353,31 @@ function LiveMap({
 
     if (points.length < 2) return
 
+    // The line is cased like a transit map: a thin ink hairline (it shows on
+    // the light map), a near white edge (it carries Crimson, Blue and Purple
+    // on the dark one), then the line in its own colour.
+    const hairline = L.polyline(points, {
+      color: '#0F1217',
+      weight: 10,
+      opacity: 0.28,
+      smoothFactor: 1,
+      interactive: false,
+    }).addTo(map)
+    const casing = L.polyline(points, {
+      color: EDGE,
+      weight: 8.5,
+      opacity: 0.95,
+      smoothFactor: 1,
+      interactive: false,
+    }).addTo(map)
     const polyline = L.polyline(points, {
       color: selectedRoute.color,
       weight: 5,
-      opacity: 0.9,
+      opacity: 1,
       smoothFactor: 1,
     }).addTo(map)
 
-    routeLinesRef.current.push(polyline)
+    routeLinesRef.current.push(hairline, casing, polyline)
     map.fitBounds(polyline.getBounds(), { padding: [30, 30] })
   }, [stops, selectedRoute, mapReady, canonicalRouteId])
 
@@ -288,32 +408,34 @@ function LiveMap({
       const sid = stop._sid
       const mode = stopHighlights?.[sid] || 'normal'
 
-      const bg = mode === 'visited' ? route.color : '#ffffff'
-      let ring = 'box-shadow:0 2px 6px rgba(0,0,0,0.25);'
+      // Stops are line stops: a white dot ringed in the route colour, filled
+      // once the bus has passed, green and pulsing while it is at the stop.
+      // Each wears the line's edge (near white, then an ink hairline), so a
+      // dark line's stop still stands off the dark map.
+      const bg = mode === 'visited' ? route.color : EDGE
+      let ring = `box-shadow:0 0 0 1.5px ${EDGE},0 0 0 2.5px ${HAIRLINE};`
       if (mode === 'here') {
         ring =
-          'box-shadow:0 0 0 4px rgba(34,197,94,0.9),0 0 22px rgba(34,197,94,0.55);animation:transit-pulse 1.15s ease-in-out infinite;'
-      } else if (mode === 'visited') {
-        ring = `box-shadow:0 0 0 2px #fff,0 2px 8px ${route.color}66;`
+          `box-shadow:0 0 0 2px ${EDGE},0 0 0 6px color-mix(in srgb, var(--color-success) 45%, transparent);animation:transit-pulse 1.15s ease-in-out infinite;`
       }
 
       const icon = L.divIcon({
         html: `<div style="
-          width:14px;height:14px;background:${bg};
-          border:3px solid ${mode === 'here' ? '#22c55e' : route.color};border-radius:50%;
+          width:16px;height:16px;box-sizing:border-box;background:${mode === 'here' ? 'var(--color-success)' : bg};
+          border:3.5px solid ${mode === 'here' ? 'var(--color-success)' : route.color};border-radius:50%;
           ${ring}
         "></div>`,
         className: 'transit-stop-marker',
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
       })
 
       const marker = L.marker([stop.Latitude ?? 0, stop.Longitude ?? 0], { icon })
         .addTo(map)
         .bindPopup(
-          `<div style="font-family:system-ui;min-width:120px;">
-            <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escapeHtml(stop.Description)}</div>
-            <div style="font-size:11px;color:${route.color};">${route.name}</div>
+          `<div style="font-family:var(--font-sans);min-width:120px;">
+            <div style="font-family:var(--font-display);font-weight:800;font-size:13px;line-height:1.25;margin-bottom:5px;">${escapeHtml(stop.Description)}</div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-txt-2);"><span style="width:10px;height:10px;border-radius:2px;flex:none;background:${route.color};"></span>${route.name}</div>
           </div>`,
         )
 
@@ -321,9 +443,13 @@ function LiveMap({
     })
   }, [stops, routes, selectedRoute, mapReady, stopHighlights, canonicalRouteId])
 
+  // Waits for mapReady like the line and stop effects. The map is created a
+  // microtask after mount, when the vehicles are usually already loaded, and a
+  // poll that returns the same feed keeps the same array, so without mapReady
+  // here the buses were never drawn until one of them moved.
   useEffect(() => {
     const map = mapInstanceRef.current
-    if (!map || !window.L) return
+    if (!map || !window.L || !mapReady) return
 
     const L = window.L
 
@@ -340,49 +466,59 @@ function LiveMap({
       const isSelected = selectedBus?.VehicleID === vehicle.VehicleID
       const isMoving = (vehicle.GroundSpeed ?? 0) > 0
 
+      // A bus is a square route badge in its line's colour with the line's
+      // edge (near white, then an ink hairline), its fleet number on a small
+      // ink plate underneath, and a green dot while it moves. Selection is
+      // not amber (amber is for now): the selected bus adds a ring in its own
+      // line colour, framed by the edge again so it holds on the dark map.
+      const edge = isSelected
+        ? `0 0 0 2.5px ${EDGE}, 0 0 0 5.5px ${route.color}, 0 0 0 7.5px ${EDGE}, 0 0 0 8.5px ${HAIRLINE}`
+        : `0 0 0 2.5px ${EDGE}, 0 0 0 3.5px ${HAIRLINE}`
       const iconHtml = `
         <div style="
-          width: 32px;
-          height: 32px;
+          width: 30px;
+          height: 30px;
+          box-sizing: border-box;
           background: ${route.color};
-          border-radius: 10px;
+          color: ${onRouteColor(route.color)};
+          border-radius: 4px;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 4px 12px ${route.color}60;
-          border: 3px solid white;
-          transform: ${isSelected ? 'scale(1.2)' : 'scale(1)'};
-          transition: transform 0.2s;
+          box-shadow: ${edge};
         ">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 6v6M16 6v6M2 12h2M20 12h2M5 18v2M19 18v2M5 6a3 3 0 013-3h8a3 3 0 013 3v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6z"/>
           </svg>
         </div>
         <div style="
           position: absolute;
-          bottom: -6px;
+          top: ${isSelected ? 41 : 36}px;
           left: 50%;
           transform: translateX(-50%);
-          background: white;
-          padding: 1px 5px;
-          border-radius: 4px;
-          font-size: 9px;
-          font-weight: 700;
-          color: ${route.color};
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        ">${vehicle.Name}</div>
+          padding: 2px 4px;
+          border-radius: 2px;
+          background: var(--color-ink-lift);
+          color: var(--color-ink-txt);
+          box-shadow: 0 0 0 1px rgba(243,244,246,0.35);
+          font: 800 9px/1 var(--font-display);
+          letter-spacing: 0.04em;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        ">${escapeHtml(vehicle.Name)}</div>
         ${
           isMoving
             ? `
           <div style="
             position: absolute;
-            top: -3px;
-            right: -3px;
+            top: -4px;
+            right: -4px;
             width: 10px;
             height: 10px;
-            background: #22c55e;
+            box-sizing: border-box;
+            background: var(--color-success);
             border-radius: 50%;
-            border: 2px solid white;
+            box-shadow: 0 0 0 2px var(--color-surface);
           "></div>
         `
             : ''
@@ -392,8 +528,8 @@ function LiveMap({
       const icon = L.divIcon({
         html: iconHtml,
         className: 'custom-bus-marker',
-        iconSize: [32, 42],
-        iconAnchor: [16, 32],
+        iconSize: [30, 52],
+        iconAnchor: [15, 15],
       })
 
       const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon })
@@ -401,11 +537,11 @@ function LiveMap({
         .on('click', () => onSelectBus(vehicle))
 
       marker.bindPopup(
-        `<div style="font-family: system-ui; min-width: 140px;">
-          <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Bus ${escapeHtml(vehicle.Name)}</div>
-          <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${route.name}</div>
-          <div style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isMoving ? '#22c55e' : '#9ca3af'}"></span>
+        `<div style="font-family: var(--font-sans); min-width: 140px;">
+          <div style="font-family: var(--font-display); font-weight: 800; font-size: 14px; margin-bottom: 3px;">Bus ${escapeHtml(vehicle.Name)}</div>
+          <div style="font-size: 12px; color: var(--color-txt-2); margin-bottom: 8px;">${route.name}</div>
+          <div style="font-size: 12px; display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums;">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isMoving ? 'var(--color-success)' : 'var(--color-txt-3)'}"></span>
             ${isMoving ? `${Math.round(vehicle.GroundSpeed ?? 0)} mph` : 'Stopped'}
           </div>
         </div>`,
@@ -420,10 +556,14 @@ function LiveMap({
       )
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 })
     }
-  }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes])
+  }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes, mapReady])
 
   return (
-    <div className="relative w-full h-[280px] sm:h-[380px] lg:h-[450px] rounded-2xl overflow-hidden border border-[var(--color-border)] shadow-lg">
+    <div
+      className={`purdue-map relative isolate w-full h-[340px] sm:h-[380px] lg:h-[460px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] ${ATTRIBUTION_PHONE} ${
+        dark ? DARK_TILES : LIGHT_TILES
+      }`}
+    >
       <style>{`
         @keyframes transit-pulse {
           0%, 100% { transform: scale(1); opacity: 1; }
@@ -435,10 +575,15 @@ function LiveMap({
           100% { transform: translate(-50%,-50%) scale(2); opacity: 0; }
         }
       `}</style>
-      <div ref={mapRef} className="w-full h-full" />
+      <div ref={mapRef} className="w-full h-full bg-[var(--color-bg-2)]!" />
 
-      <div className="absolute top-3 left-3 bg-white/95 dark:bg-[var(--color-bg-2)]/95 backdrop-blur-sm rounded-xl p-2 sm:p-3 shadow-lg z-[1000] max-w-[140px] sm:max-w-none">
-        <div className="text-[9px] sm:text-[10px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider mb-1.5 sm:mb-2">
+      {/* Live legend: an ink plate listing each running line and its buses.
+          It is always mounted. With nothing running it holds only its title
+          and sits under the scrim below (same layer, later in the DOM), so it
+          reads as a faded corner tag behind the centred "Not in service"
+          plate rather than a second plate competing with it. */}
+      <div className="ink-panel absolute top-3 left-3 z-[1000] p-2 sm:p-3 max-w-[150px] sm:max-w-none shadow-[var(--shadow-md)]">
+        <div className={`eyebrow bare max-sm:text-[10.5px] ${vehicles.length > 0 ? 'mb-1.5 sm:mb-2' : ''}`}>
           Active Routes
         </div>
         <div className="space-y-1 sm:space-y-1.5">
@@ -446,30 +591,24 @@ function LiveMap({
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
             if (count === 0) return null
             return (
-              <div key={route.id} className="flex items-center gap-1.5 sm:gap-2">
-                <div
-                  className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded flex items-center justify-center text-[8px] sm:text-[9px] font-bold text-white shrink-0"
-                  style={{ backgroundColor: route.color }}
-                >
-                  {route.num}
-                </div>
-                <span className="text-[10px] sm:text-[11px] text-[var(--color-txt-1)] truncate">{route.shortName}</span>
-                <span className="text-[9px] sm:text-[10px] text-[var(--color-txt-3)]">({count})</span>
+              <div key={route.id} className="flex items-center gap-2">
+                <RouteNum route={route} small />
+                <span className="font-display font-bold text-[11px] sm:text-[12.5px] text-[var(--color-ink-txt)] truncate">{route.shortName}</span>
+                <span className="text-[11px] sm:text-[12px] text-[var(--color-ink-dim)] tnum">({count})</span>
               </div>
             )
           })}
         </div>
       </div>
 
-      {/* Locate Me Button */}
+      {/* Locate Me Button. Top right, clear of Leaflet's zoom control in the
+          bottom right corner. With no buses the scrim covers it, as before. */}
       <button
         type="button"
         onClick={locateUser}
         disabled={locationLoading}
-        className={`absolute bottom-3 right-3 w-11 h-11 rounded-xl shadow-lg z-[1000] flex items-center justify-center transition-all border-2 ${
-          userLocation
-            ? 'bg-blue-500 text-white border-blue-400'
-            : 'bg-white dark:bg-[var(--color-bg-2)] border-gray-200 dark:border-[var(--color-border)] text-gray-700 dark:text-[var(--color-txt-1)] hover:text-blue-500 hover:border-blue-400'
+        className={`absolute top-3 right-3 z-[1000] ${INK_BUTTON} ${
+          userLocation ? 'text-[var(--color-ink-signal)]' : ''
         } ${locationLoading ? 'animate-pulse' : ''}`}
         title={locationError || 'Show my location'}
         aria-label="Show my location"
@@ -478,10 +617,10 @@ function LiveMap({
       </button>
 
       {vehicles.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg-1)]/50 backdrop-blur-sm z-[1000]">
-          <div className="text-center px-4">
-            <Icon name="bus" size={28} className="mx-auto mb-2 text-[var(--color-txt-3)]" />
-            <p className="text-[12px] sm:text-[13px] text-[var(--color-txt-2)]">No buses currently active</p>
+        <div className="absolute inset-0 z-[1000] grid place-items-center p-4 bg-[var(--color-bg-1)]/65">
+          <div className="empty items-center text-center bg-[var(--color-surface)] px-6 py-5">
+            <span className="plate" aria-hidden="true">Not in service</span>
+            <p>No buses currently active</p>
           </div>
         </div>
       )}
@@ -509,9 +648,21 @@ function loadMyStopForRoute(routeId: number | null | undefined): string | null {
 }
 
 export default function Transit() {
+  const { dark } = useTheme()
+
+  // Signed-out visitors can open this page (the public preview, issue #366).
+  // The "my stop" bell is for signed-in students only: its saved stop is kept
+  // per device, not per user, so signed out it is never read or written and
+  // no chime plays.
+  const { user, loading: authLoading } = useAuth()
+  const signedIn = !authLoading && Boolean(user)
+
+  // Once auth settles, so a signed-in cold load records the view after
+  // UsageListener has switched tracking on (signed out it records nothing).
   useEffect(() => {
+    if (authLoading) return
     track('transit_viewed')
-  }, [])
+  }, [authLoading])
 
   // Vehicles, stops and the route map come through the shared query cache
   // (issue #251): the dashboard's transit card reads the same entries, the
@@ -525,7 +676,32 @@ export default function Transit() {
     [vehiclesQuery.data],
   )
   const stops = useMemo<Stop[]>(() => (Array.isArray(stopsQuery.data) ? (stopsQuery.data as Stop[]) : []), [stopsQuery.data])
-  const [selectedRoute, setSelectedRoute] = useState<TransitRoute | null>(null)
+  // The selected route lives in the URL (?route=31), not in component state:
+  // leaving the page and coming Back remounted it on All Routes, which also
+  // left the saved "my stop" alert unarmed until the route was picked again.
+  // Replace, not push, so each pill is not a Back step of its own. The
+  // preview bar's Sign in link carries the search, so the route also
+  // survives signing in from the signed-out preview.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const routeParam = searchParams.get('route')
+  const selectedRoute = useMemo<TransitRoute | null>(
+    () => routes.find((r) => String(r.id) === routeParam) ?? null,
+    [routeParam],
+  )
+  const setSelectedRoute = useCallback(
+    (route: TransitRoute | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (route) next.set('route', String(route.id))
+          else next.delete('route')
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
   const [selectedBus, setSelectedBus] = useState<Vehicle | null>(null)
   const loading = vehiclesQuery.isPending || stopsQuery.isPending || routesQuery.isPending
   const lastUpdate = useMemo(
@@ -535,8 +711,15 @@ export default function Transit() {
   const [visitedStopIds, setVisitedStopIds] = useState<Set<string>>(() => new Set())
   // Last bus position folded into visitedStopIds - see the accumulation block below.
   const [lastBusPos, setLastBusPos] = useState<string | null>(null)
-  /** One “my stop” per route - chime fires when bus reaches the stop before this one */
-  const [myStopId, setMyStopId] = useState<string | null>(null)
+  // The route whose saved stop is loaded: none signed out.
+  const myStopRouteId = signedIn ? (selectedRoute?.id ?? null) : null
+  /**
+   * One “my stop” per route - chime fires when bus reaches the stop before this one.
+   * Read on mount too: a page opened (or come Back to) on ?route= starts with
+   * its route already selected, so the load-on-change block below sees no change.
+   */
+  const [myStopId, setMyStopId] = useState<string | null>(() => loadMyStopForRoute(myStopRouteId))
+  const [loadedMyStopRouteId, setLoadedMyStopRouteId] = useState(myStopRouteId)
   const chimePlayedRef = useRef(false)
   const routeIdToCanonical = useMemo<Record<number, number>>(
     () => (Array.isArray(routesQuery.data) ? buildTranslocRouteIdMap(routesQuery.data) : { ...TRANLOC_ROUTE_ALIASES }),
@@ -552,7 +735,12 @@ export default function Transit() {
     setTrackedRouteId(currentRouteId)
     setVisitedStopIds(new Set())
     setLastBusPos(null)
-    setMyStopId(loadMyStopForRoute(currentRouteId))
+  }
+  // Load the saved stop when the route changes or the visitor signs in or out,
+  // the same way.
+  if (loadedMyStopRouteId !== myStopRouteId) {
+    setLoadedMyStopRouteId(myStopRouteId)
+    setMyStopId(loadMyStopForRoute(myStopRouteId))
   }
 
   const canonicalRouteId = useCallback<CanonicalFn>(
@@ -604,6 +792,7 @@ export default function Transit() {
 
   const toggleMyStop = useCallback(
     (stopId: string) => {
+      if (!signedIn) return
       chimePlayedRef.current = false
       setMyStopId((prev) => {
         const next = prev === stopId ? null : stopId
@@ -618,7 +807,7 @@ export default function Transit() {
         return next
       })
     },
-    [selectedRoute],
+    [selectedRoute, signedIn],
   )
 
   const stopBeforeMyStop = useMemo(() => {
@@ -695,60 +884,64 @@ export default function Transit() {
     return h
   }, [orderedStops, hereStopId, visitedStopIds])
 
+  // The selected line's own colour drives the card's one route colour: its
+  // badge, eyebrow square and the stop line, nudged just enough to hold 3:1
+  // on the card's surface in this theme (see legibleLine).
+  const cardLine = selectedRoute ? legibleLine(selectedRoute.color, dark) : null
+  const routeStyle = cardLine
+    ? ({ '--route': cardLine, '--route-on': onRouteColor(cardLine) } as CSSProperties)
+    : undefined
+
   return (
-    <div className="max-w-[1000px] mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+    <div className="page">
       <PageTitle>Campus Transit</PageTitle>
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6 animate-fade-in-up">
+      <header className="page-head">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold text-[var(--color-txt-0)]">Campus Transit</h1>
-          <p className="text-[13px] sm:text-[14px] text-[var(--color-txt-2)] mt-1">
+          <h1 className="page-title">Campus Transit</h1>
+          <p className="page-sub">
             JAGLINE shuttle live tracking
             {lastUpdate && (
-              <span className="text-[var(--color-txt-3)] hidden sm:inline"> · Updated {lastUpdate.toLocaleTimeString()}</span>
+              <span className="text-[var(--color-txt-3)] hidden sm:inline tnum"> · Updated {lastUpdate.toLocaleTimeString()}</span>
             )}
           </p>
         </div>
-        <button
-          onClick={() => void vehiclesQuery.refetch()}
-          className="text-[13px] text-[var(--color-accent)] flex items-center gap-1.5 hover:gap-2 transition-all font-medium self-start sm:self-auto py-2 px-3 -mx-3 sm:mx-0 sm:p-0 rounded-lg active:bg-[var(--color-accent)]/10"
-        >
-          <Icon name="refresh" size={14} />
+        <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary">
+          <Icon name="refresh" size={15} />
           Refresh
         </button>
-      </div>
+      </header>
 
       {/* Route filter pills - horizontal scroll on mobile */}
-      <div className="mb-5 sm:mb-6 animate-fade-in-up stagger-1">
+      <div className="mb-5">
         <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible scrollbar-hide">
           <button
             onClick={() => setSelectedRoute(null)}
-            className={`pill whitespace-nowrap shrink-0 min-h-[40px] sm:min-h-0 ${!selectedRoute ? 'pill-active' : ''}`}
+            className={`pill whitespace-nowrap shrink-0 tnum ${!selectedRoute ? 'pill-active' : ''}`}
           >
             All Routes ({vehicles.length})
           </button>
           {routes.map((route) => {
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
             const running = isRouteRunningForDisplay(route, count)
+            const active = selectedRoute?.id === route.id
+            // Off duty is information, not a disabled control: only the route
+            // square fades (transit.spec pins this opacity-40); the name and
+            // the note stay readable (txt-2 and txt-3 on the idle pill).
             return (
               <button
                 key={route.id}
-                onClick={() => setSelectedRoute(selectedRoute?.id === route.id ? null : route)}
-                className={`pill whitespace-nowrap flex items-center gap-2 transition-opacity shrink-0 min-h-[40px] sm:min-h-0
-                  ${selectedRoute?.id === route.id ? 'pill-active' : ''}
-                  ${!running ? 'opacity-40' : ''}`}
+                onClick={() => setSelectedRoute(active ? null : route)}
+                className={`pill relative whitespace-nowrap flex items-center gap-2 pl-1.5 pr-2.5 sm:pr-3 shrink-0
+                  ${active ? 'pill-active' : ''}
+                  ${!running ? '[&>:first-child]:opacity-40' : ''}`}
                 title={route.schedule?.label ?? ''}
               >
-                <span
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                  style={{ backgroundColor: route.color }}
-                >
-                  {route.num}
-                </span>
-                <span className="hidden sm:inline">{route.shortName}</span>
-                <span className="sm:hidden">{route.num}</span>
-                {count > 0 && <span className="text-[var(--color-txt-3)]">({count})</span>}
+                <RouteNum route={route} />
+                <span className={`hidden sm:inline ${!running && !active ? 'text-[var(--color-txt-2)]' : ''}`}>{route.shortName}</span>
+                <span className="sr-only sm:hidden">{route.num}</span>
+                {count > 0 && <span className="tnum opacity-75">({count})</span>}
                 {!running && (
-                  <span className="text-[10px] text-[var(--color-txt-3)] font-normal hidden sm:inline">not running now</span>
+                  <span className={`text-[11px] font-semibold hidden sm:inline ${active ? '' : 'text-[var(--color-txt-3)]'}`}>not running now</span>
                 )}
               </button>
             )
@@ -756,16 +949,16 @@ export default function Transit() {
         </div>
 
         {/* Schedule reference - hidden on mobile for cleaner UI */}
-        <div className="mt-3 hidden sm:flex flex-wrap gap-x-5 gap-y-1">
+        <div className="mt-2.5 hidden sm:flex flex-wrap gap-x-6 gap-y-1.5">
           {[...new Map(routes.map(r => [r.schedule?.label, r])).values()].map(r => {
             if (!r.schedule) return null
             const scheduleLabel = r.schedule.label
             const groupRoutes = routes.filter(x => x.schedule?.label === scheduleLabel)
             return (
-              <div key={r.schedule.label} className="flex items-center gap-1.5 text-[11px] text-[var(--color-txt-3)]">
-                <div className="flex gap-0.5">
+              <div key={r.schedule.label} className="flex items-center gap-2 text-[12px] text-[var(--color-txt-2)] tnum">
+                <div className="flex gap-[3px]">
                   {groupRoutes.map(gr => (
-                    <span key={gr.id} className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: gr.color }} />
+                    <span key={gr.id} className="w-2.5 h-2.5 rounded-[2px] inline-block" style={{ backgroundColor: gr.color }} />
                   ))}
                 </div>
                 <span>{r.schedule.label}</span>
@@ -776,12 +969,11 @@ export default function Transit() {
       </div>
 
       {loading ? (
-        <div className="card p-12 text-center animate-fade-in-up stagger-2">
-          <div className="w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <div className="skeleton h-[340px] sm:h-[380px] lg:h-[460px] grid place-items-center">
           <p className="text-[13px] text-[var(--color-txt-2)]">Loading transit data...</p>
         </div>
       ) : (
-        <div className="animate-fade-in-up stagger-2 mb-6">
+        <div>
           <LiveMap
             vehicles={vehicles}
             routes={routes}
@@ -796,17 +988,14 @@ export default function Transit() {
       )}
 
       {selectedRoute && (
-        <div className="card p-4 sm:p-5 animate-fade-in-up stagger-3">
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{ backgroundColor: selectedRoute.color }}
-            >
-              <Icon name="bus" size={20} className="text-white" />
-            </div>
+        <section className="card card-pad mt-5 animate-fade-in-up" style={routeStyle}>
+          <header className="card-head">
+            <span className="route-badge lg">
+              <Icon name="bus" size={20} />
+            </span>
             <div className="min-w-0">
-              <h3 className="text-[14px] sm:text-[15px] font-semibold text-[var(--color-txt-0)]">{selectedRoute.name}</h3>
-              <p className="text-[11px] sm:text-[12px] text-[var(--color-txt-2)] truncate">
+              <h3 className="card-title">{selectedRoute.name}</h3>
+              <p className="card-sub truncate tnum">
                 {(() => {
                   const n = vehicles.filter((v) => canonicalRouteId(v.RouteID) === selectedRoute.id).length
                   return `${n} bus${n !== 1 ? 'es' : ''} active`
@@ -820,90 +1009,106 @@ export default function Transit() {
                 )}
               </p>
             </div>
-          </div>
+          </header>
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-            <div className="text-[11px] font-semibold text-[var(--color-txt-3)] uppercase tracking-wider">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-x-6 mb-3">
+            <div className="eyebrow shrink-0 whitespace-nowrap">
               Stops on this route
             </div>
-            <p className="text-[11px] text-[var(--color-txt-3)]">
-              Green pulse = at stop · Filled = reached · Bell = your stop - chimes when the bus reaches the{' '}
-              <span className="font-medium text-[var(--color-txt-2)]">stop before</span> yours
+            <p className="text-[11.5px] leading-snug text-[var(--color-txt-3)] sm:text-right">
+              Green pulse = at stop · Filled = reached
+              {signedIn && (
+                <>
+                  {' '}
+                  · Bell = your stop - chimes when the bus reaches the{' '}
+                  <span className="font-semibold text-[var(--color-txt-2)]">stop before</span> yours
+                </>
+              )}
             </p>
           </div>
 
           {myStopId && stopBeforeMyStop && (
-            <p className="text-[11px] text-[var(--color-txt-2)] mb-2 px-0.5">
-              Alert when bus reaches: <span className="font-medium">{stopBeforeMyStop.name}</span>
+            <p className="text-[12.5px] text-[var(--color-txt-2)] mb-2">
+              Alert when bus reaches: <span className="font-display font-bold text-[var(--color-txt-0)]">{stopBeforeMyStop.name}</span>
             </p>
           )}
           {myStopId && !stopBeforeMyStop && (
-            <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mb-2 px-0.5">
+            <p className="text-[12.5px] text-[var(--color-warning)] mb-2">
               Pick a stop after the first in the list - there is no previous stop to trigger the chime.
             </p>
           )}
 
-          <div className="flex flex-col gap-2">
+          {/* The route drawn as a line: one stop per row, the line in the
+              route's colour running through every dot. */}
+          <div className="flex flex-col">
             {orderedStops.map((s, idx) => {
               const mode = stopHighlights[s.id]
               const isHere = mode === 'here'
               const isVisited = mode === 'visited'
               const isMyStop = myStopId === s.id
               const canPickMyStop = idx > 0
+              const isLast = idx === orderedStops.length - 1
               return (
-                <div
-                  key={s.id}
-                  className={`flex items-center gap-2.5 sm:gap-3 rounded-xl border px-3 py-3 sm:py-2.5 transition-all duration-300 ${
-                    isHere
-                      ? 'border-emerald-400/80 bg-emerald-500/10 shadow-[0_0_20px_rgba(34,197,94,0.25)]'
-                      : isMyStop
-                        ? 'border-[var(--color-accent)]/60 bg-[var(--color-accent)]/8'
-                        : isVisited
-                          ? 'border-[var(--color-border)] bg-[var(--color-stat)]/80'
-                          : 'border-[var(--color-border)] bg-[var(--color-bg-1)]'
-                  }`}
-                >
+                <div key={s.id} className="relative flex items-stretch gap-3">
+                  <div className="relative w-7 shrink-0" aria-hidden="true">
+                    <span
+                      className={`absolute left-1/2 -translate-x-1/2 w-1 bg-[var(--route)] ${idx === 0 ? 'top-1/2' : 'top-0'} ${isLast ? 'bottom-1/2' : 'bottom-0'}`}
+                    />
+                    <span
+                      className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full box-border ${
+                        isHere
+                          ? 'w-[18px] h-[18px] bg-[var(--color-success)] border-[3px] border-[var(--color-surface)] shadow-[0_0_0_3px_var(--color-success)] animate-pulse'
+                          : isVisited
+                            ? 'w-4 h-4 bg-[var(--route)] border-[3.5px] border-[var(--route)] shadow-[0_0_0_2px_var(--color-surface)]'
+                            : 'w-4 h-4 bg-[var(--color-surface)] border-[3.5px] border-[var(--route)]'
+                      }`}
+                    />
+                  </div>
                   <div
-                    className={`shrink-0 w-2.5 h-2.5 rounded-full ${isHere ? 'animate-pulse bg-emerald-500' : isVisited ? '' : 'bg-[var(--color-txt-3)]/40'}`}
-                    style={isVisited && !isHere ? { backgroundColor: selectedRoute.color } : undefined}
-                  />
-                  <span className={`text-[13px] flex-1 min-w-0 ${isHere ? 'font-semibold text-[var(--color-txt-0)]' : 'text-[var(--color-txt-1)]'}`}>
-                    {s.name}
-                  </span>
-                  {isMyStop && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)] shrink-0">
-                      My stop
-                    </span>
-                  )}
-                  {isHere && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400 shrink-0">
-                      Here
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    disabled={!canPickMyStop}
-                    onClick={() => canPickMyStop && toggleMyStop(s.id)}
-                    title={
-                      !canPickMyStop
-                        ? 'First stop has no “before” stop - pick another'
-                        : isMyStop
-                          ? 'Tap to clear my stop'
-                          : 'Set as my stop (chime at the stop before)'
-                    }
-                    className={`shrink-0 p-2.5 sm:p-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                      isMyStop
-                        ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
-                        : 'border-[var(--color-border)] text-[var(--color-txt-3)] hover:text-[var(--color-txt-1)] active:bg-[var(--color-bg-2)]'
-                    }`}
+                    className={`flex-1 min-w-0 flex items-center gap-2.5 min-h-[52px] py-1.5 ${isLast ? '' : 'border-b border-[var(--color-border)]'}`}
                   >
-                    <Icon name="bell" size={18} />
-                  </button>
+                    <span
+                      className={`flex-1 min-w-0 text-[14px] leading-snug ${
+                        isHere ? 'font-display font-bold text-[var(--color-txt-0)]' : 'text-[var(--color-txt-1)]'
+                      }`}
+                    >
+                      {s.name}
+                    </span>
+                    {isMyStop && (
+                      <span className="badge shrink-0 bg-[var(--color-txt-0)] text-[var(--color-surface)]">
+                        My stop
+                      </span>
+                    )}
+                    {isHere && (
+                      <span className="badge shrink-0 bg-[var(--color-success)] text-[var(--color-on-route)]">
+                        Here
+                      </span>
+                    )}
+                    {signedIn && (
+                    <button
+                      type="button"
+                      disabled={!canPickMyStop}
+                      onClick={() => canPickMyStop && toggleMyStop(s.id)}
+                      title={
+                        !canPickMyStop
+                          ? 'First stop has no “before” stop - pick another'
+                          : isMyStop
+                            ? 'Tap to clear my stop'
+                            : 'Set as my stop (chime at the stop before)'
+                      }
+                      className={`btn btn-sm shrink-0 w-11 md:w-9 px-0 disabled:opacity-40 ${
+                        isMyStop ? 'btn-ink' : 'btn-ghost text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)]'
+                      }`}
+                    >
+                      <Icon name="bell" size={18} />
+                    </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
           </div>
-        </div>
+        </section>
       )}
     </div>
   )

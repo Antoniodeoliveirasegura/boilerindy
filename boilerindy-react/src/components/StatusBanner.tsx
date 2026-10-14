@@ -16,9 +16,9 @@ type StatusBannerProps = {
 }
 
 const TONE_CLASSES: Record<StatusBannerProps['tone'], string> = {
-  error: 'bg-[var(--color-error)]/10 border-[var(--color-error)]/25 text-[var(--color-error)]',
-  success: 'bg-[var(--color-success)]/10 border-[var(--color-success)]/25 text-[var(--color-success)]',
-  info: 'bg-[var(--color-stat)] border-[var(--color-border)] text-[var(--color-txt-1)]',
+  error: 'bg-[var(--color-error)]/10 border-[var(--color-error)]/30 border-l-[var(--color-error)] text-[var(--color-error)]',
+  success: 'bg-[var(--color-success)]/10 border-[var(--color-success)]/30 border-l-[var(--color-success)] text-[var(--color-success)]',
+  info: 'bg-[var(--color-stat)] border-[var(--color-border-2)] border-l-[var(--color-txt-2)] text-[var(--color-txt-1)]',
 }
 
 const TONE_ICONS: Record<StatusBannerProps['tone'], string> = {
@@ -33,7 +33,7 @@ export default function StatusBanner({ tone, children, className = '', icon }: S
   return (
     <div
       {...live}
-      className={`flex items-start gap-2.5 border rounded-xl px-3.5 py-2.5 text-[13px] ${TONE_CLASSES[tone]} ${className}`}
+      className={`flex items-start gap-2.5 border border-l-4 rounded-[var(--radius-lg)] px-3.5 py-2.5 text-[13.5px] font-medium ${TONE_CLASSES[tone]} ${className}`}
     >
       {iconName && <Icon name={iconName} size={16} className="shrink-0 mt-0.5" />}
       <span className="min-w-0">{children}</span>

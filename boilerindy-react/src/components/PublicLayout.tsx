@@ -22,7 +22,7 @@ export default function PublicLayout() {
           <Outlet />
         </Suspense>
       </main>
-      <SiteDisclaimer />
+      <SiteDisclaimer rule />
     </div>
   )
 }

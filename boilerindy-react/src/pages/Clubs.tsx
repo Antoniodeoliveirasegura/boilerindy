@@ -36,7 +36,7 @@ function ClubLogo({ club }: { club: Club }) {
         loading="lazy"
         decoding="async"
         onError={() => setFailed(true)}
-        className="w-14 h-14 rounded-xl object-cover bg-[var(--color-bg-2)] shrink-0"
+        className="w-14 h-14 rounded-[var(--radius-md)] object-cover bg-[var(--color-stat)] outline -outline-offset-1 outline-[color:var(--color-border-2)] shrink-0"
       />
     )
   }
@@ -44,7 +44,7 @@ function ClubLogo({ club }: { club: Club }) {
     <div
       aria-hidden="true"
       data-club-initials
-      className="w-14 h-14 rounded-xl bg-[var(--color-gold)]/15 text-[var(--color-gold)] font-semibold text-[16px] flex items-center justify-center shrink-0"
+      className="w-14 h-14 rounded-[var(--radius-md)] bg-[var(--route-tint)] text-[var(--route-text)] font-display font-extrabold text-[17px] tracking-[0.02em] flex items-center justify-center shrink-0"
     >
       {initialsFor(club.name)}
     </div>
@@ -54,24 +54,24 @@ function ClubLogo({ club }: { club: Club }) {
 function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; onCategory: (name: string) => void }) {
   return (
     <article
-      className="card p-4 sm:p-5 flex gap-4 min-w-0"
+      className="card card-pad r-evt flex gap-4 min-w-0"
       data-club-id={club.id}
       data-club-indianapolis={club.indianapolis ? 'true' : 'false'}
     >
       <ClubLogo club={club} />
       <div className="min-w-0 flex-1 flex flex-col gap-2">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-[var(--color-txt-0)] leading-snug m-0 break-words">
-            <a href={club.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+          <h2 className="text-[16px] leading-snug text-[var(--color-txt-0)] m-0 break-words">
+            <a href={club.url} target="_blank" rel="noopener noreferrer" className="hover:underline underline-offset-[3px]">
               {club.name}
             </a>
           </h2>
-          {club.shortName ? <p className="text-[12px] text-[var(--color-txt-2)] m-0 mt-0.5">{club.shortName}</p> : null}
+          {club.shortName ? <p className="text-[12.5px] text-[var(--color-txt-2)] m-0 mt-0.5">{club.shortName}</p> : null}
         </div>
-        {club.blurb ? <p className="text-[13px] text-[var(--color-txt-1)] m-0 line-clamp-3 break-words">{club.blurb}</p> : null}
+        {club.blurb ? <p className="text-[14px] leading-[1.45] text-[var(--color-txt-1)] m-0 line-clamp-3 break-words">{club.blurb}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5 mt-auto pt-1">
           {club.indianapolis && scope === 'all' ? (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-gold)]/20 text-[var(--color-gold)]">
+            <span className="badge badge-route">
               Indianapolis
             </span>
           ) : null}
@@ -81,7 +81,7 @@ function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; o
               type="button"
               onClick={() => onCategory(name)}
               title={`Show ${name} organizations`}
-              className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--color-stat)] text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)] hover:bg-[var(--color-bg-3)] transition-colors"
+              className="chip text-left whitespace-normal hover:bg-[var(--color-bg-3)] hover:text-[var(--color-txt-0)] transition-colors"
             >
               {name}
             </button>
@@ -90,7 +90,7 @@ function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; o
             href={club.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto text-[12px] text-[var(--color-gold)] hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+            className="ml-auto inline-flex items-center gap-1 min-h-[32px] font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] whitespace-nowrap"
           >
             BoilerLink <Icon name="arrowUpRight" size={12} />
           </a>
@@ -162,20 +162,20 @@ export default function Clubs() {
   const fetched = result ? formatFetched(result.fetchedAt) : null
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="page">
       <PageTitle>Clubs & Organizations</PageTitle>
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5">
+      <header className="page-head">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--color-txt-3)] mb-1">Purdue Indianapolis</p>
-          <h1 className="text-2xl font-semibold text-[var(--color-txt-0)]">Clubs &amp; Organizations</h1>
-          <p className="text-[13px] text-[var(--color-txt-2)] mt-1">
+          <p className="eyebrow">Purdue Indianapolis</p>
+          <h1 className="page-title">Clubs &amp; Organizations</h1>
+          <p className="page-sub">
             Every student organization on BoilerLink, with the Indianapolis groups first.
           </p>
         </div>
         <div
           role="group"
           aria-label="Campus"
-          className="inline-flex self-start rounded-xl border border-[var(--color-border)] p-0.5 bg-[var(--color-surface)]"
+          className="flex flex-wrap gap-2"
           data-clubs-scope={scope}
         >
           {SCOPES.map((s) => {
@@ -186,11 +186,7 @@ export default function Clubs() {
                 type="button"
                 aria-pressed={scope === s}
                 onClick={() => updateParams({ scope: s === 'all' ? 'all' : null })}
-                className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
-                  scope === s
-                    ? 'bg-[var(--color-gold)] text-[var(--color-gold-dark)]'
-                    : 'text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]'
-                }`}
+                className={`pill tnum ${scope === s ? 'pill-active' : ''}`}
               >
                 {s === 'indianapolis' ? 'Indianapolis' : 'All Purdue'}
                 {count != null ? ` (${count.toLocaleString()})` : ''}
@@ -198,11 +194,11 @@ export default function Clubs() {
             )
           })}
         </div>
-      </div>
+      </header>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Icon name="search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-txt-3)] pointer-events-none" />
+          <Icon name="search" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-3)] pointer-events-none" />
           <label className="sr-only" htmlFor="clubs-search">
             Search organizations
           </label>
@@ -213,7 +209,7 @@ export default function Clubs() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Search by name, interest or category"
             autoComplete="off"
-            className="input w-full text-[14px] pl-11 pr-10 py-3 rounded-xl border-[var(--color-border-2)] focus:border-[var(--color-accent)]/50"
+            className={`input pl-10 ${input ? 'pr-11' : ''}`}
           />
           {input ? (
             <button
@@ -223,7 +219,7 @@ export default function Clubs() {
                 updateParams({ q: null })
               }}
               aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-[var(--color-txt-3)] hover:text-[var(--color-txt-0)] hover:bg-[var(--color-bg-2)] transition-colors"
+              className="icon-btn absolute right-0.5 top-1/2 -translate-y-1/2 w-10 h-10 text-[var(--color-txt-3)]"
             >
               <Icon name="close" size={14} />
             </button>
@@ -237,7 +233,7 @@ export default function Clubs() {
             id="clubs-category"
             value={category}
             onChange={(e) => selectCategory(e.target.value)}
-            className="input w-full text-[13px] px-3 py-3 rounded-xl border-[var(--color-border-2)]"
+            className="input"
           >
             <option value="">All categories</option>
             {!categoryKnown && category ? <option value={category}>{category}</option> : null}
@@ -255,12 +251,14 @@ export default function Clubs() {
       ) : null}
 
       {result && !result.ok ? (
-        <div className="card p-4 mb-6 text-[13px] text-[var(--color-txt-1)] flex items-start gap-3" data-clubs-degraded>
-          <Icon name="info" size={16} className="shrink-0 mt-0.5 text-[var(--color-txt-2)]" />
-          <p className="m-0">
+        <div className="card card-pad mb-6 text-[14px] text-[var(--color-txt-1)] flex items-start gap-3" data-clubs-degraded>
+          <span className="ico">
+            <Icon name="info" size={16} />
+          </span>
+          <p className="m-0 pt-1">
             BoilerLink is not answering right now, so the directory is empty. It usually comes back within a few minutes. You can
             still{' '}
-            <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="text-[var(--color-gold)] hover:underline">
+            <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] underline underline-offset-[3px]">
               open BoilerLink directly
             </a>
             .
@@ -268,19 +266,19 @@ export default function Clubs() {
         </div>
       ) : null}
 
-      <p className="text-[12px] text-[var(--color-txt-2)] mb-3 min-h-[1rem]" aria-live="polite" data-clubs-results>
+      <p className="text-[13px] text-[var(--color-txt-2)] mb-3 min-h-[1rem] tnum" aria-live="polite" data-clubs-results>
         {result && result.ok ? resultsLabel({ total, q, category, scope }) : ''}
       </p>
 
       {!result && loading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8" aria-busy="true">
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="card p-5 flex gap-4">
-              <div className="w-14 h-14 rounded-xl bg-[var(--color-stat)] shrink-0" />
+            <div key={i} className="card card-pad flex gap-4">
+              <div className="skeleton w-14 h-14 shrink-0" />
               <div className="flex-1 space-y-2">
-                <div className="h-4 w-3/4 rounded bg-[var(--color-stat)]" />
-                <div className="h-3 w-full rounded bg-[var(--color-stat)]" />
-                <div className="h-3 w-5/6 rounded bg-[var(--color-stat)]" />
+                <div className="skeleton h-4 w-3/4" />
+                <div className="skeleton h-3 w-full" />
+                <div className="skeleton h-3 w-5/6" />
               </div>
             </div>
           ))}
@@ -294,26 +292,31 @@ export default function Clubs() {
       )}
 
       {result && result.ok && !loading && clubs.length === 0 ? (
-        <div className="card p-6 mb-6 text-center" data-clubs-empty>
-          <p className="text-[14px] text-[var(--color-txt-1)] m-0">
-            No organizations match{q ? ` "${q}"` : ''}
-            {category ? ` in ${category}` : ''}
-            {scope === 'indianapolis' ? ' in Indianapolis' : ''}.
-          </p>
-          <div className="flex flex-wrap justify-center gap-2 mt-4">
-            {scope === 'indianapolis' ? (
-              <button type="button" onClick={() => updateParams({ scope: 'all' })} className="btn btn-primary text-[12px] px-4 py-2">
-                Search all of Purdue
-              </button>
-            ) : null}
-            {q || category ? (
-              <button type="button" onClick={clearFilters} className="btn btn-secondary text-[12px] px-4 py-2">
-                Clear filters
-              </button>
-            ) : null}
-            <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="btn btn-secondary text-[12px] px-4 py-2 no-underline">
-              Open BoilerLink <Icon name="arrowUpRight" size={12} />
-            </a>
+        <div className="card card-pad mb-6">
+          <div className="empty" data-clubs-empty>
+            <span className="ico">
+              <Icon name="search" size={18} />
+            </span>
+            <p className="text-[14px] text-[var(--color-txt-1)] m-0">
+              No organizations match{q ? ` "${q}"` : ''}
+              {category ? ` in ${category}` : ''}
+              {scope === 'indianapolis' ? ' in Indianapolis' : ''}.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {scope === 'indianapolis' ? (
+                <button type="button" onClick={() => updateParams({ scope: 'all' })} className="btn btn-primary btn-sm">
+                  Search all of Purdue
+                </button>
+              ) : null}
+              {q || category ? (
+                <button type="button" onClick={clearFilters} className="btn btn-secondary btn-sm">
+                  Clear filters
+                </button>
+              ) : null}
+              <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm no-underline">
+                Open BoilerLink <Icon name="arrowUpRight" size={12} />
+              </a>
+            </div>
           </div>
         </div>
       ) : null}
@@ -324,7 +327,7 @@ export default function Clubs() {
             type="button"
             onClick={() => void search.fetchNextPage()}
             disabled={loadingMore}
-            className="btn btn-secondary text-[13px] px-5 py-2.5"
+            className="btn btn-secondary tnum"
           >
             {loadingMore ? 'Loading' : `Show more (${remaining.toLocaleString()} left)`}
           </button>
@@ -332,7 +335,7 @@ export default function Clubs() {
       ) : null}
 
       {result ? (
-        <p className="text-[11px] text-[var(--color-txt-3)]">
+        <p className="text-[12px] leading-relaxed text-[var(--color-txt-3)] max-w-[900px]">
           Directory from{' '}
           <a href={BOILERLINK_URL} target="_blank" rel="noopener noreferrer" className="underline">
             BoilerLink
