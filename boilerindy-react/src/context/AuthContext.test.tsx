@@ -316,6 +316,25 @@ describe('sign-out clears per-user caches (issues #219, #294)', () => {
     ])
     expect(result.current.session).toBeNull()
   })
+
+  // The grades and the assistant conversation stayed in browser storage after
+  // sign-out, readable in devtools by the next person at the computer.
+  test("signOut removes the signed-in student's grades and assistant conversation", async () => {
+    const result = await mountAuth()
+    await act(async () => {
+      result.current.applySession({ user: { id: 'user-1', name: 'Example Student' } })
+    })
+    seedCaches()
+    localStorage.setItem('boilerindy-grades-v1-user-1', '[{"courseName":"PSY 12000","letterGrade":"D"}]')
+    sessionStorage.setItem('boilerindy-assistant-history-v1-user-1', '[{"role":"user","text":"Should I drop PSY 12000?"}]')
+
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(Object.keys(localStorage)).toEqual(['boilerindy-task-priority-v1-user-1'])
+    expect(sessionStorage.getItem('boilerindy-assistant-history-v1-user-1')).toBeNull()
+  })
 })
 
 // Sign-out leaves the signed-in page first, so RequireAuth never sends the
@@ -433,5 +452,184 @@ describe('SIGNED_OUT and a backend-applied session (issue #298)', () => {
 
     expect(result.current.session).toBeNull()
     expect(result.current.supabaseUser).toBeNull()
+  })
+})
+
+// A 503, a dropped connection or a failed /api/auth-config read cleared the
+// session, so RequireAuth sent a validly signed-in student to a bare sign-in
+// form. Only the server saying nobody is signed in may clear it now.
+describe('a session read that gets no answer keeps the session', () => {
+  const failing = (status?: number) => {
+    const error = new Error(status ? 'Service unavailable' : 'Failed to fetch') as Error & { status?: number }
+    if (status) error.status = status
+    return error
+  }
+
+  // Mount with no Supabase session, so boot reads the cookie session.
+  async function mountWithSessionRead(answer: (path: string) => unknown) {
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    mocks.authRequest.mockImplementation(async (path: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return answer(path)
+    })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    return result
+  }
+
+  test('boot: a 503 from /api/session leaves the sign-in state unknown, not signed out', async () => {
+    const result = await mountWithSessionRead((path) => {
+      if (path === SESSION) throw failing(503)
+      return { authProvider: 'local', purdueAuthMode: 'cas' }
+    })
+    expect(result.current.session).toBeNull()
+    expect(result.current.sessionCheckFailed).toBe(true)
+    // The config still arrived, so it is applied.
+    expect(result.current.authConfig.purdueAuthMode).toBe('cas')
+  })
+
+  test('boot: a dropped connection leaves the sign-in state unknown', async () => {
+    const result = await mountWithSessionRead((path) => {
+      if (path === SESSION) throw failing()
+      return { authProvider: 'local', purdueAuthMode: 'mock' }
+    })
+    expect(result.current.sessionCheckFailed).toBe(true)
+  })
+
+  test('boot: a 500 from /api/auth-config does not touch the session', async () => {
+    const result = await mountWithSessionRead((path) => {
+      if (path === '/api/auth-config') throw failing(500)
+      return { authenticated: true, session: backendSession }
+    })
+    expect(result.current.session).toEqual(backendSession)
+    expect(result.current.sessionCheckFailed).toBe(false)
+    expect(result.current.authConfig).toEqual({ authProvider: 'local', purdueAuthMode: 'mock' })
+  })
+
+  test('boot: a reply that is not the session payload is no answer', async () => {
+    const result = await mountWithSessionRead((path) => {
+      if (path === SESSION) return '<html>Bad gateway</html>'
+      return { authProvider: 'local', purdueAuthMode: 'mock' }
+    })
+    expect(result.current.sessionCheckFailed).toBe(true)
+  })
+
+  test('boot: the server saying nobody is signed in is a known signed-out state', async () => {
+    const result = await mountWithSessionRead((path) => {
+      if (path === SESSION) return { authenticated: false, session: null }
+      return { authProvider: 'local', purdueAuthMode: 'mock' }
+    })
+    expect(result.current.session).toBeNull()
+    expect(result.current.sessionCheckFailed).toBe(false)
+  })
+
+  test('boot: a Supabase session whose sync and cookie read both fail stays unknown', async () => {
+    mocks.authRequest.mockImplementation(async (path: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (path === SYNC || path === SESSION) throw failing(502)
+      return { authProvider: 'local', purdueAuthMode: 'mock' }
+    })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.sessionCheckFailed).toBe(true)
+  })
+
+  // A settings save the server accepted, followed by a re-read that answered
+  // 503 once, signed the student out with no "Settings updated".
+  test('refreshSession keeps and returns the session when the re-read fails', async () => {
+    const result = await mountAuth()
+    mocks.authRequest.mockImplementation(async () => {
+      throw failing(503)
+    })
+
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.refreshSession()
+    })
+
+    expect(returned).toEqual(backendSession)
+    expect(result.current.session).toEqual(backendSession)
+    expect(result.current.sessionCheckFailed).toBe(true)
+  })
+
+  test('the next read that gets an answer clears the failure', async () => {
+    const result = await mountAuth()
+    mocks.authRequest.mockImplementationOnce(async () => {
+      throw failing()
+    })
+    await act(async () => {
+      await result.current.refreshSession()
+    })
+    expect(result.current.sessionCheckFailed).toBe(true)
+
+    await act(async () => {
+      await result.current.refreshSession()
+    })
+    expect(result.current.sessionCheckFailed).toBe(false)
+    expect(result.current.session).toEqual(backendSession)
+  })
+
+  // "Stay signed in" answered by a 503 lost what the student had typed.
+  test('establishSession keeps the session when neither the sync nor the re-read answers', async () => {
+    const result = await mountAuth()
+    mocks.authRequest.mockImplementation(async () => {
+      throw failing(503)
+    })
+
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.establishSession()
+    })
+
+    expect(returned).toEqual(backendSession)
+    expect(result.current.session).toEqual(backendSession)
+    expect(result.current.sessionCheckFailed).toBe(true)
+  })
+
+  test('refreshSession still clears the session when the server says it ended', async () => {
+    const result = await mountAuth()
+    mocks.authRequest.mockResolvedValue({ authenticated: false, session: null })
+
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.refreshSession()
+    })
+
+    expect(returned).toBeNull()
+    expect(result.current.session).toBeNull()
+    expect(result.current.sessionCheckFailed).toBe(false)
+  })
+
+  test('a 401 from /api/session counts as signed out', async () => {
+    const result = await mountAuth()
+    mocks.authRequest.mockImplementation(async () => {
+      throw failing(401)
+    })
+
+    await act(async () => {
+      await result.current.refreshSession()
+    })
+
+    expect(result.current.session).toBeNull()
+    expect(result.current.sessionCheckFailed).toBe(false)
+  })
+
+  // Otherwise a guarded page visited after sign-out offered a retry instead of
+  // the sign-in form.
+  test('signing out clears an earlier failure', async () => {
+    const result = await mountAuth()
+    mocks.authRequest.mockImplementationOnce(async () => {
+      throw failing()
+    })
+    await act(async () => {
+      await result.current.refreshSession()
+    })
+
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(result.current.session).toBeNull()
+    expect(result.current.sessionCheckFailed).toBe(false)
   })
 })

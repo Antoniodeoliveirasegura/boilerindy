@@ -17,11 +17,17 @@ type Session = { expiresAt: string; user: { id: string } } | null
 // refreshSession can change it the way AuthContext's does.
 const store = vi.hoisted(() => {
   let session: Session = null
+  let checkFailed = false
   const listeners = new Set<() => void>()
   return {
     get: () => session,
     set: (next: Session) => {
       session = next
+      listeners.forEach((listener) => listener())
+    },
+    getCheckFailed: () => checkFailed,
+    setCheckFailed: (next: boolean) => {
+      checkFailed = next
       listeners.forEach((listener) => listener())
     },
     subscribe: (listener: () => void) => {
@@ -33,13 +39,15 @@ const store = vi.hoisted(() => {
   }
 })
 const refreshSession = vi.hoisted(() => vi.fn())
+const establishSession = vi.hoisted(() => vi.fn())
 
 vi.mock('../context/AuthContext', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
     useAuth: () => ({
       session: useSyncExternalStore(store.subscribe, store.get),
-      establishSession: vi.fn(),
+      sessionCheckFailed: useSyncExternalStore(store.subscribe, store.getCheckFailed),
+      establishSession,
       refreshSession,
     }),
   }
@@ -68,11 +76,13 @@ function renderAt(entry: string) {
 
 beforeEach(() => {
   store.set(sessionEnding(-2 * 60 * 1000))
+  store.setCheckFailed(false)
 })
 
 afterEach(() => {
   cleanup()
   refreshSession.mockReset()
+  establishSession.mockReset()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -109,6 +119,72 @@ describe('SessionExpiryWatcher: Sign in again', () => {
 
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/schedule$/)
+  })
+})
+
+describe('SessionExpiryWatcher: Stay signed in', () => {
+  // The server had already ended the session: establishSession cleared it and
+  // RequireAuth sent the student to a plain sign-in form, with no notice.
+  test('goes to the sign-in form with the session-expired key when the server ended the session', async () => {
+    store.set(sessionEnding(5 * 60 * 1000))
+    establishSession.mockImplementation(async () => {
+      store.set(null)
+      return null
+    })
+    renderAt('/schedule')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent('/login?next=%2Fschedule&message=session-expired'),
+    )
+  })
+
+  // A 503 used to sign the student out and lose what they had typed. The
+  // session is kept now, and the warning says why it is still there.
+  test('stays on the page and says so when BoilerIndy cannot be reached', async () => {
+    const ending = sessionEnding(5 * 60 * 1000)
+    store.set(ending)
+    establishSession.mockImplementation(async () => {
+      store.setCheckFailed(true)
+      return ending
+    })
+    renderAt('/assignments')
+    expect(screen.queryByText(/could not be reached/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }))
+
+    expect(
+      await screen.findByText('BoilerIndy could not be reached. Check your connection and try again.'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/assignments$/)
+    expect(screen.getByRole('button', { name: 'Stay signed in' })).toBeEnabled()
+  })
+
+  test('a failed read elsewhere does not show the line before the student presses anything', () => {
+    store.set(sessionEnding(5 * 60 * 1000))
+    store.setCheckFailed(true)
+    renderAt('/assignments')
+    expect(screen.queryByText(/could not be reached/)).toBeNull()
+  })
+
+  test('the line goes once the extended session arrives', async () => {
+    store.set(sessionEnding(5 * 60 * 1000))
+    store.setCheckFailed(true)
+    establishSession.mockImplementationOnce(async () => store.get())
+    renderAt('/assignments')
+    fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }))
+    expect(await screen.findByText(/could not be reached/)).toBeInTheDocument()
+
+    // The next press gets an answer with a new expiry, just inside the window.
+    establishSession.mockImplementationOnce(async () => {
+      const fresh = sessionEnding(9 * 60 * 1000)
+      store.set(fresh)
+      store.setCheckFailed(false)
+      return fresh
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }))
+    await waitFor(() => expect(screen.queryByText(/could not be reached/)).toBeNull())
   })
 })
 
