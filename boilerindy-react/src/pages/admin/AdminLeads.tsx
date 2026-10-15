@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Icon from '../../components/Icons'
 import { listAdminLeads, updateAdminLead } from '../../lib/adminApi'
@@ -29,17 +29,24 @@ export default function AdminLeads() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // Bumped by every load, so a list that arrives after a newer one was asked
+  // for is dropped. A slow New answer used to land after the admin picked
+  // Closed and show new requests, with their actions, under the Closed pill.
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     setError('')
     try {
       const data = (await listAdminLeads(filter)) as { leads?: Lead[] }
+      if (seq !== loadSeq.current) return
       setLeads(data.leads || [])
     } catch (err) {
+      if (seq !== loadSeq.current) return
       setError(err instanceof Error ? err.message : 'Could not load access requests.')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [filter])
 
@@ -79,12 +86,13 @@ export default function AdminLeads() {
       <AlertBanner message={error} onDismiss={() => setError('')} />
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label="Request status">
         {FILTERS.map(({ value, label }) => (
           <button
             key={value}
             type="button"
             onClick={() => setFilter(value)}
+            aria-pressed={filter === value}
             className={`pill ${filter === value ? 'pill-active' : ''}`}
           >
             {label}

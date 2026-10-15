@@ -183,8 +183,10 @@ export default function AdminOverview() {
                 If a student sees &quot;already linked&quot; or &quot;in use&quot; after resetting their account, clear the old link here.
               </p>
               <form onSubmit={handleReleasePurdueLink} className="flex flex-col sm:flex-row gap-2">
+                {/* Named for screen readers; the placeholder alone was its only name. */}
                 <input
                   type="email"
+                  aria-label="Student Purdue email"
                   value={purdueReleaseEmail}
                   onChange={(e) => setPurdueReleaseEmail(e.target.value)}
                   placeholder="student@purdue.edu"

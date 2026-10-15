@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import AdvertiserDashboard from './Dashboard'
 
@@ -210,3 +210,212 @@ describe('AdvertiserDashboard: a save after the session ends', () => {
     expect(replace).not.toHaveBeenCalled()
   })
 })
+
+// Campaign bugs on the dashboard, against an in-memory list that answers the
+// way src/routes/advertiser.mjs does:
+// - Edit on a second campaign while the first one's form was open kept the
+//   first one's fields, and Save changes wrote them over the second campaign.
+// - End took a live campaign down for good on one click, with no question.
+// - A refused save or status change showed its error at the top of the page,
+//   above the screen, so the button seemed to do nothing.
+// - Opening or closing a form, or a status change, dropped focus to <body>.
+// - Editing an approved (paused) campaign gave no sign that changing its
+//   banner sends it back to review.
+
+type Row = { id: string; name: string; placement: string; status: string; creative: Record<string, unknown> }
+
+const ALPHA: Row = {
+  id: 'c-a',
+  name: 'Campaign Alpha',
+  placement: 'side-rail',
+  status: 'draft',
+  creative: { headline: 'Alpha headline', ctaUrl: 'https://alpha.example/', ctaLabel: 'Visit website' },
+}
+const BRAVO: Row = {
+  id: 'c-b',
+  name: 'Campaign Bravo',
+  placement: 'dining',
+  status: 'draft',
+  creative: { headline: 'Bravo headline', ctaUrl: 'https://bravo.example/', ctaLabel: 'Visit website' },
+}
+const LIVE: Row = { ...BRAVO, id: 'c-live', name: 'Finals coffee', status: 'active' }
+
+function stubCampaigns(rows: Row[], { refuse }: { refuse?: string } = {}) {
+  const list = rows.map((r) => ({ ...r }))
+  const writes: { method: string; url: string; body: Record<string, unknown> }[] = []
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    if (url === '/api/advertiser/campaigns' && method === 'GET') return jsonResponse(200, { campaigns: list })
+    if (url.endsWith('/stats')) return jsonResponse(200, { stats: { impressions: 0, taps: 0, ctr: 0 } })
+    if (url.startsWith('/api/advertiser/campaigns')) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      writes.push({ method, url, body })
+      if (refuse) return jsonResponse(400, { error: { message: refuse, status: 400 } })
+      if (method === 'POST') {
+        const created = { ...(body as unknown as Row), id: 'c-new', status: 'draft' }
+        list.unshift(created)
+        return jsonResponse(201, { campaign: created })
+      }
+      const row = list.find((r) => url.endsWith(`/${r.id}`))
+      if (!row) return jsonResponse(404, { error: { message: 'Campaign not found.', status: 404 } })
+      Object.assign(row, body)
+      return jsonResponse(200, { campaign: row })
+    }
+    return jsonResponse(404, { error: { message: 'Not found', status: 404 } })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return writes
+}
+
+/** The card that shows `name` as its title. */
+function cardOf(name: string): HTMLElement {
+  const card = screen.getByRole('heading', { name, level: 3 }).closest('.card')
+  if (!(card instanceof HTMLElement)) throw new Error(`no card for ${name}`)
+  return card
+}
+
+describe('AdvertiserDashboard: editing', () => {
+  test('Edit on a second campaign while the first is open shows and saves the second one', async () => {
+    const writes = stubCampaigns([ALPHA, BRAVO])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Campaign Alpha')).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('Campaign Alpha')
+    fireEvent.click(within(cardOf('Campaign Bravo')).getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByRole('heading', { name: 'Edit “Campaign Bravo”' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('Campaign Bravo')
+    expect(screen.getByLabelText('Placement')).toHaveValue('dining')
+    expect(screen.getByLabelText('Headline')).toHaveValue('Bravo headline')
+    expect(screen.getByLabelText('Website URL')).toHaveValue('https://bravo.example/')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(writes).toHaveLength(1))
+    expect(writes[0].url).toBe('/api/advertiser/campaigns/c-b')
+    expect(writes[0].body).toMatchObject({
+      name: 'Campaign Bravo',
+      placement: 'dining',
+      creative: { headline: 'Bravo headline', ctaUrl: 'https://bravo.example/' },
+    })
+  })
+
+  test('editing a paused campaign says a banner change sends it back to review', async () => {
+    stubCampaigns([{ ...LIVE, status: 'paused' }])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Finals coffee')).getByRole('button', { name: 'Edit' }))
+    expect(
+      screen.getByText(
+        'This campaign is approved. Changing its banner or placement sends it back to draft, and it needs review again before it can go live.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  test('a draft gets no such notice', async () => {
+    stubCampaigns([ALPHA])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Campaign Alpha')).getByRole('button', { name: 'Edit' }))
+    expect(screen.queryByText(/needs review again/)).toBeNull()
+  })
+})
+
+describe('AdvertiserDashboard: ending a campaign', () => {
+  test('End asks first, and Cancel leaves the campaign live', async () => {
+    const writes = stubCampaigns([LIVE])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Finals coffee')).getByRole('button', { name: 'End' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('End campaign “Finals coffee”?')).toBeInTheDocument()
+    expect(within(dialog).getByText(/stops showing right away and cannot be resumed or edited/)).toBeInTheDocument()
+    expect(writes).toHaveLength(0)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(writes).toHaveLength(0)
+    expect(within(cardOf('Finals coffee')).getByText('Live')).toBeInTheDocument()
+  })
+
+  test('confirming ends it', async () => {
+    const writes = stubCampaigns([LIVE])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Finals coffee')).getByRole('button', { name: 'End' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'End campaign' }))
+
+    await waitFor(() => expect(within(cardOf('Finals coffee')).getByText('Ended')).toBeInTheDocument())
+    expect(writes).toEqual([{ method: 'PATCH', url: '/api/advertiser/campaigns/c-live', body: { status: 'ended' } }])
+  })
+})
+
+describe('AdvertiserDashboard: a refused action shows its error beside it', () => {
+  test('a refused Submit for review shows on that campaign card', async () => {
+    stubCampaigns([ALPHA, BRAVO], { refuse: 'Banner campaigns need at least 3 photo URLs.' })
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Campaign Alpha')).getByRole('button', { name: 'Submit for review' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Banner campaigns need at least 3 photo URLs.')
+    expect(cardOf('Campaign Alpha')).toContainElement(alert)
+    expect(cardOf('Campaign Bravo')).not.toContainElement(alert)
+  })
+
+  test('a refused Create campaign shows inside the form, beside its button', async () => {
+    stubCampaigns([], { refuse: 'Website URL must be a valid URL starting with http:// or https://' })
+    renderDashboard()
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'New campaign' }))[0])
+    fireEvent.change(screen.getByLabelText('Campaign name'), { target: { value: 'Bean promo' } })
+    fireEvent.change(screen.getByLabelText('Website URL'), { target: { value: 'bean dot co' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Website URL must be a valid URL')
+    expect(screen.getByRole('button', { name: 'Create campaign' }).closest('form')).toContainElement(alert)
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('Bean promo')
+  })
+})
+
+describe('AdvertiserDashboard: focus', () => {
+  test('New campaign moves focus into the form, and Cancel gives it back to New campaign', async () => {
+    stubCampaigns([ALPHA])
+    renderDashboard()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New campaign' }))
+    expect(screen.getByLabelText('Campaign name')).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('button', { name: 'New campaign' })).toHaveFocus()
+  })
+
+  test('Edit moves focus into the form, and Save changes gives it back to the campaign card', async () => {
+    stubCampaigns([ALPHA])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Campaign Alpha')).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Campaign name')).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull())
+    await waitFor(() => expect(cardOf('Campaign Alpha')).toHaveFocus())
+  })
+
+  test('a status change that removes the pressed button puts focus on its card', async () => {
+    stubCampaigns([ALPHA])
+    renderDashboard()
+
+    const submit = within(await findCard('Campaign Alpha')).getByRole('button', { name: 'Submit for review' })
+    submit.focus()
+    fireEvent.click(submit)
+
+    await waitFor(() => expect(within(cardOf('Campaign Alpha')).getByText('In review')).toBeInTheDocument())
+    await waitFor(() => expect(cardOf('Campaign Alpha')).toHaveFocus())
+  })
+})
+
+async function findCard(name: string): Promise<HTMLElement> {
+  await screen.findByRole('heading', { name, level: 3 })
+  return cardOf(name)
+}

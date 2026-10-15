@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../../context/ThemeContext'
 import BrandMark from '../../components/BrandMark'
@@ -11,6 +11,7 @@ import {
   advertiserSignOut,
 } from '../../lib/advertiserApi'
 import PageTitle from '../../components/PageTitle'
+import { useConfirm } from '../../hooks/useConfirm'
 
 // Campaigns that have been live (or are) have stats worth showing.
 const STATS_STATUSES = new Set(['active', 'paused', 'ended'])
@@ -73,6 +74,14 @@ function isSessionEnded(e: unknown): boolean {
   return (e as { status?: number } | null)?.status === 401
 }
 
+// Focus is lost when the element that had it was removed or disabled.
+function focusLost(): boolean {
+  return !document.activeElement || document.activeElement === document.body
+}
+
+const errorBoxCls =
+  'rounded-lg border-[1.5px] border-[var(--color-error)]/45 bg-[var(--color-error)]/8 text-[var(--color-error)] px-3.5 py-2.5 text-[13.5px] leading-snug'
+
 // cls is added to the shared .badge: a route tint for the live states (Live
 // green, Paused orange, In review blue), the plain stat badge for the rest.
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -85,6 +94,9 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 
 const MIN_PHOTOS = 3
 const MAX_PHOTOS = 8
+
+// The opener of the create form, beside campaign ids for the edit form's.
+const NEW_CAMPAIGN = 'new'
 
 const EMPTY_FORM = {
   name: '',
@@ -147,6 +159,8 @@ function CampaignForm({
   initial,
   submitting,
   sessionEnded,
+  error,
+  notice,
   onSubmit,
   onCancel,
   title,
@@ -155,6 +169,8 @@ function CampaignForm({
   initial: CampaignFormData
   submitting: boolean
   sessionEnded: boolean
+  error: string | null
+  notice?: string
   onSubmit: (form: CampaignFormData) => void
   onCancel: () => void
   title: string
@@ -190,10 +206,14 @@ function CampaignForm({
       className="card card-pad space-y-4"
     >
       <h3 className="card-title text-[18px]">{title}</h3>
+      {notice && <p className={hintCls}>{notice}</p>}
 
+      {/* Focus starts here. The button that opened the form is hidden while
+          it is open (New campaign) or sits far below it (Edit), so focus fell
+          to <body> and a screen reader heard nothing about the new form. */}
       <div>
         <label className={labelCls} htmlFor="cmp-name">Campaign name</label>
-        <input id="cmp-name" className={inputCls} value={form.name} onChange={set('name')} placeholder="Fall coffee promo" />
+        <input id="cmp-name" autoFocus className={inputCls} value={form.name} onChange={set('name')} placeholder="Fall coffee promo" />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -275,13 +295,12 @@ function CampaignForm({
 
       {/* Beside the save button, where the advertiser is looking after
           pressing it; the page's alert sits above a long form, off screen.
-          The sign-in link opens a new tab, so this form and what is typed in
-          it stay here to save once the new session is in. */}
-      {sessionEnded && (
-        <div
-          role="alert"
-          className="rounded-lg border-[1.5px] border-[var(--color-error)]/45 bg-[var(--color-error)]/8 text-[var(--color-error)] px-3.5 py-2.5 text-[13.5px] leading-snug"
-        >
+          A refused save shows here too: in the page's alert it rendered above
+          the screen, so the button seemed to do nothing. The sign-in link
+          opens a new tab, so this form and what is typed in it stay here to
+          save once the new session is in. */}
+      {sessionEnded ? (
+        <div role="alert" className={errorBoxCls}>
           Your advertiser session ended, so this was not saved.{' '}
           <a
             href="/advertise?message=session-expired"
@@ -293,7 +312,11 @@ function CampaignForm({
           </a>
           , then come back and save. This form stays as you left it.
         </div>
-      )}
+      ) : error ? (
+        <div role="alert" className={errorBoxCls}>
+          {error}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2 pt-1">
         <button type="submit" disabled={submitting} className="btn btn-primary">
@@ -310,11 +333,15 @@ function CampaignForm({
 function CampaignCard({
   campaign,
   busy,
+  error,
+  cardRef,
   onEdit,
   onStatus,
 }: {
   campaign: Campaign
   busy: boolean
+  error: string | null
+  cardRef: (el: HTMLDivElement | null) => void
   onEdit: () => void
   onStatus: (status: string) => void
 }) {
@@ -354,8 +381,10 @@ function CampaignCard({
 
   const canEdit = status === 'draft' || status === 'paused'
 
+  // tabIndex -1: the dashboard hands focus to the card when a form closes or a
+  // status change removes the button that had it.
   return (
-    <div className="card card-pad">
+    <div ref={cardRef} tabIndex={-1} className="card card-pad">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="card-title truncate">{campaign.name}</h3>
@@ -381,6 +410,15 @@ function CampaignCard({
           <span className="flex flex-col gap-1.5"><strong className="big-stat text-[24px] sm:max-lg:text-[20px]">{stats.impressions.toLocaleString()}</strong>{' '}<span className="eyebrow bare text-[10.5px]">impressions</span></span>
           <span className="flex flex-col gap-1.5"><strong className="big-stat text-[24px] sm:max-lg:text-[20px]">{stats.taps.toLocaleString()}</strong>{' '}<span className="eyebrow bare text-[10.5px]">taps</span></span>
           <span className="flex flex-col gap-1.5"><strong className="big-stat text-[24px] sm:max-lg:text-[20px]">{(stats.ctr * 100).toFixed(1)}%</strong>{' '}<span className="eyebrow bare text-[10.5px]">CTR</span></span>
+        </div>
+      )}
+
+      {/* A refused status change shows on its own card, above the button that
+          was pressed; in the page's alert it rendered above the screen once
+          the list was scrolled, so the button seemed to do nothing. */}
+      {error && (
+        <div role="alert" className={`${errorBoxCls} mt-4`}>
+          {error}
         </div>
       )}
 
@@ -427,11 +465,49 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   const [sessionEnded, setSessionEnded] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [signOutFailed, setSignOutFailed] = useState(false)
+  // A refused save shows in its form and a refused status change on its
+  // card, beside what was pressed; `error` is left for the campaign list.
+  const [formError, setFormError] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<{ id: string; message: string } | null>(null)
+  const { confirm, confirmDialog } = useConfirm()
+
+  // Where focus goes back to. Opening a form hides New campaign and closing
+  // it removes the field or button that had focus, and a status change
+  // swaps out the card's buttons, so focus fell to <body> and the next Tab
+  // started from the top of the page.
+  const newCampaignButton = useRef<HTMLButtonElement>(null)
+  const cardElements = useRef(new Map<string, HTMLDivElement>())
+  const formOpener = useRef<string | null>(null)
+  // A new object for every settled status change, so its effect runs once each.
+  const [settledStatus, setSettledStatus] = useState<{ id: string } | null>(null)
 
   const editingCampaign = useMemo(
     () => campaigns.find((c) => c.id === editingId) || null,
     [campaigns, editingId],
   )
+
+  // Once no form is open, focus returns to what opened the last one: New
+  // campaign, or the card whose Edit was pressed.
+  useEffect(() => {
+    if (creating || editingId !== null) return
+    const opener = formOpener.current
+    formOpener.current = null
+    if (!opener || !focusLost()) return
+    if (opener === NEW_CAMPAIGN) newCampaignButton.current?.focus()
+    else cardElements.current.get(opener)?.focus()
+  }, [creating, editingId])
+
+  // Once a status change has rendered, focus moves to its card if the button
+  // that had it is gone.
+  useEffect(() => {
+    if (settledStatus && focusLost()) cardElements.current.get(settledStatus.id)?.focus()
+  }, [settledStatus])
+
+  const openCreateForm = () => {
+    formOpener.current = NEW_CAMPAIGN
+    setFormError(null)
+    setCreating(true)
+  }
 
   useEffect(() => {
     let active = true
@@ -454,6 +530,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   const handleCreate = async (form: CampaignFormData) => {
     setSubmitting(true)
     setError(null)
+    setFormError(null)
     setSessionEnded(false)
     try {
       const { campaign } = (await createCampaign(formToPayload(form))) as { campaign: Campaign }
@@ -461,7 +538,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
       setCreating(false)
     } catch (e) {
       if (isSessionEnded(e)) setSessionEnded(true)
-      else setError(errorText(e, 'Could not create campaign.'))
+      else setFormError(errorText(e, 'Could not create campaign.'))
     } finally {
       setSubmitting(false)
     }
@@ -470,6 +547,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   const handleEditSave = async (form: CampaignFormData) => {
     setSubmitting(true)
     setError(null)
+    setFormError(null)
     setSessionEnded(false)
     try {
       const { campaign } = (await updateCampaign(editingId ?? '', formToPayload(form))) as { campaign: Campaign }
@@ -477,7 +555,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
       setEditingId(null)
     } catch (e) {
       if (isSessionEnded(e)) setSessionEnded(true)
-      else setError(errorText(e, 'Could not save campaign.'))
+      else setFormError(errorText(e, 'Could not save campaign.'))
     } finally {
       setSubmitting(false)
     }
@@ -487,9 +565,26 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
   // back to the sign-in page like the campaign list does. With a form open
   // the redirect would throw that form away, so it stays and says why.
   const handleStatus = async (id: string, status: string) => {
+    // Ending cannot be undone (the server allows no way out of ended), and
+    // the red End sits next to Pause, so one mis-click used to take a live
+    // ad down for good. Ask first, as the admin console does.
+    if (status === 'ended') {
+      const campaign = campaigns.find((c) => c.id === id)
+      const ok = await confirm({
+        title: `End campaign “${campaign?.name ?? ''}”?`,
+        message:
+          campaign?.status === 'active'
+            ? 'It stops showing right away and cannot be resumed or edited. To stop it for now, pause it instead.'
+            : 'An ended campaign cannot be resumed or edited.',
+        confirmLabel: 'End campaign',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
     const formOpen = creating || editingId !== null
     setBusyId(id)
     setError(null)
+    setStatusError(null)
     setSessionEnded(false)
     try {
       const { campaign } = (await updateCampaign(id, { status }, { redirectOn401: !formOpen })) as {
@@ -498,9 +593,10 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
       setCampaigns((list) => list.map((c) => (c.id === campaign.id ? campaign : c)))
     } catch (e) {
       if (isSessionEnded(e)) setSessionEnded(true)
-      else setError(errorText(e, 'Could not update campaign.'))
+      else setStatusError({ id, message: errorText(e, 'Could not update campaign.') })
     } finally {
       setBusyId(null)
+      setSettledStatus({ id })
     }
   }
 
@@ -576,17 +672,14 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
             </p>
           </div>
           {!creating && !editingId && (
-            <button type="button" onClick={() => setCreating(true)} className="btn btn-primary shrink-0">
+            <button ref={newCampaignButton} type="button" onClick={openCreateForm} className="btn btn-primary shrink-0">
               <Icon name="plus" size={16} /> New campaign
             </button>
           )}
         </div>
 
         {error && (
-          <div
-            role="alert"
-            className="rounded-lg border-[1.5px] border-[var(--color-error)]/45 bg-[var(--color-error)]/8 text-[var(--color-error)] px-3.5 py-2.5 mb-5 text-[13.5px] leading-snug"
-          >
+          <div role="alert" className={`${errorBoxCls} mb-5`}>
             {error}
           </div>
         )}
@@ -597,10 +690,12 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
               initial={EMPTY_FORM}
               submitting={submitting}
               sessionEnded={sessionEnded}
+              error={formError}
               onSubmit={handleCreate}
               onCancel={() => {
                 setCreating(false)
                 setSessionEnded(false)
+                setFormError(null)
               }}
               title="New campaign"
               submitLabel="Create campaign"
@@ -608,16 +703,28 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
           </div>
         )}
 
+        {/* Keyed by campaign: the form takes its fields from `initial` once,
+            so pressing Edit on a second campaign while the first was open
+            kept the first one's fields under the second one's title, and
+            Save changes wrote them over the second campaign. */}
         {editingCampaign && (
           <div className="mb-6 max-w-[760px]">
             <CampaignForm
+              key={editingCampaign.id}
               initial={campaignToForm(editingCampaign)}
               submitting={submitting}
               sessionEnded={sessionEnded}
+              error={formError}
+              notice={
+                editingCampaign.status === 'paused'
+                  ? 'This campaign is approved. Changing its banner or placement sends it back to draft, and it needs review again before it can go live.'
+                  : undefined
+              }
               onSubmit={handleEditSave}
               onCancel={() => {
                 setEditingId(null)
                 setSessionEnded(false)
+                setFormError(null)
               }}
               title={`Edit “${editingCampaign.name}”`}
               submitLabel="Save changes"
@@ -634,7 +741,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
             </span>
             <h3 className="text-[17px] text-[var(--color-txt-0)]">No campaigns yet</h3>
             <p className="-mt-1.5">Create your first campaign to get started.</p>
-            <button type="button" onClick={() => setCreating(true)} className="btn btn-secondary mt-1">
+            <button type="button" onClick={openCreateForm} className="btn btn-secondary mt-1">
               <Icon name="plus" size={16} /> New campaign
             </button>
           </div>
@@ -645,10 +752,17 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
                 key={c.id}
                 campaign={c}
                 busy={busyId === c.id}
+                error={statusError?.id === c.id ? statusError.message : null}
+                cardRef={(el) => {
+                  if (el) cardElements.current.set(c.id, el)
+                  else cardElements.current.delete(c.id)
+                }}
                 onEdit={() => {
+                  formOpener.current = c.id
                   setCreating(false)
                   setEditingId(c.id)
                   setSessionEnded(false)
+                  setFormError(null)
                 }}
                 onStatus={(status) => handleStatus(c.id, status)}
               />
@@ -656,6 +770,7 @@ export default function AdvertiserDashboard({ advertiser }: { advertiser?: { com
           </div>
         )}
       </div>
+      {confirmDialog}
     </div>
   )
 }
