@@ -19,7 +19,7 @@ import {
   isRouteRunningForDisplay,
   type TransitRoute,
 } from '../lib/transitShared'
-import { useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { errorMessage, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import PageTitle from '../components/PageTitle'
 import { INK_BUTTON } from '../components/map/mapChrome'
 
@@ -89,15 +89,28 @@ function legibleLine(hex: string, dark: boolean): string {
 // The route's own colour on a square: the chips and the legend. Only the
 // data colours are inline. In dark a hairline keeps the dark lines (Crimson,
 // Blue, Purple) from sinking into the surface.
-function RouteNum({ route, small = false }: { route: TransitRoute; small?: boolean }) {
+//
+// Muted (an off-duty chip), only the fill fades and the number takes the
+// chip's own text colour at full strength. The whole square used to fade, so
+// on phones, where the number is the chip's only visible text, it read at 1.7
+// to 3.0:1. The chip's text colour on a 35% fill is 5:1 or more for every line
+// in both themes, idle or selected (at 40% dark Yellow fell to 4.4:1).
+function RouteNum({ route, small = false, muted = false }: { route: TransitRoute; small?: boolean; muted?: boolean }) {
   return (
     <span
-      className={`inline-grid place-items-center shrink-0 rounded-[3px] font-display font-extrabold leading-none tnum dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)] ${
-        small ? 'size-[18px] text-[10px]' : 'size-5 text-[11px]'
-      }`}
-      style={{ backgroundColor: route.color, color: onRouteColor(route.color) }}
+      className={`relative inline-grid place-items-center shrink-0 rounded-[3px] font-display font-extrabold leading-none tnum ${
+        muted ? '' : 'dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]'
+      } ${small ? 'size-[18px] text-[10px]' : 'size-5 text-[11px]'}`}
+      style={muted ? undefined : { backgroundColor: route.color, color: onRouteColor(route.color) }}
     >
-      {route.num}
+      {muted ? (
+        <>
+          <span className="absolute inset-0 rounded-[inherit] opacity-35" style={{ backgroundColor: route.color }} />
+          <span className="relative">{route.num}</span>
+        </>
+      ) : (
+        route.num
+      )}
     </span>
   )
 }
@@ -126,6 +139,36 @@ const LIGHT_TILES = '[&_.leaflet-tile-pane]:[filter:saturate(0.18)_contrast(0.95
 // instead of wrapping onto the southern stops (it still wraps, never clips,
 // on a very narrow screen).
 const ATTRIBUTION_PHONE = 'max-sm:[&_.leaflet-control-attribution]:text-[10px]'
+
+// From md the assistant button floats 24px in from the bottom right corner of
+// the screen. On a laptop of about 1280x800 that is where the map's bottom
+// right corner lands, and the button covered the end of the tile credit
+// ("OpenStreetMap contributo"). Keep the credit and the zoom buttons clear of
+// it, as the campus map does.
+const CONTROLS_CLEAR_FAB =
+  'md:[&_.leaflet-control-attribution]:mr-[72px]! md:[&_.leaflet-control-zoom]:mr-[72px]!'
+
+// A bus plate reaches 15px out from its point, 19px up and right with its
+// moving dot.
+const BUS_REACH_PX = 20
+const FIT_PADDING_PX = 50
+
+// The live legend covers the map's top left corner, and on phones it is
+// larger (about 120x83px) than the 50px fitBounds used to leave, so the
+// north-west bus landed under it. Keep the buses out of the strip beside the
+// legend or the one below it, whichever costs the map less of its width or
+// height: below on a tall phone map, beside on a wide one.
+function fitBusesOptions(map: L.Map, legend: HTMLElement | null): L.FitBoundsOptions {
+  const size = map.getSize()
+  if (!legend || !size.x || !size.y) return { padding: [FIT_PADDING_PX, FIT_PADDING_PX], maxZoom: 16 }
+  const beside = legend.offsetLeft + legend.offsetWidth + BUS_REACH_PX
+  const below = legend.offsetTop + legend.offsetHeight + BUS_REACH_PX
+  const paddingTopLeft: [number, number] =
+    beside / size.x < below / size.y
+      ? [Math.max(FIT_PADDING_PX, beside), FIT_PADDING_PX]
+      : [FIT_PADDING_PX, Math.max(FIT_PADDING_PX, below)]
+  return { paddingTopLeft, paddingBottomRight: [FIT_PADDING_PX, FIT_PADDING_PX], maxZoom: 16 }
+}
 
 // The edge every line, stop and bus wears so it holds on both the light
 // street map and the dark one: near white (--color-ink-txt), and outside it a
@@ -195,6 +238,9 @@ function LiveMap({
   selectedBus,
   stopHighlights,
   canonicalRouteId,
+  feedError,
+  retrying,
+  onRetry,
 }: {
   vehicles: Vehicle[]
   routes: TransitRoute[]
@@ -204,9 +250,13 @@ function LiveMap({
   selectedBus: Vehicle | null
   stopHighlights: Record<string, string>
   canonicalRouteId: CanonicalFn
+  feedError: string | null
+  retrying?: boolean
+  onRetry: () => void
 }) {
   const { dark } = useTheme()
   const mapRef = useRef<HTMLDivElement | null>(null)
+  const legendRef = useRef<HTMLDivElement | null>(null)
   const mapInstanceRef = useRef<import('leaflet').Map | null>(null)
   const markersRef = useRef<Record<string, import('leaflet').Marker>>({})
   const routeLinesRef = useRef<import('leaflet').Polyline[]>([])
@@ -554,13 +604,13 @@ function LiveMap({
       const bounds = L.latLngBounds(
         displayVehicles.map((v) => [v.Latitude ?? 0, v.Longitude ?? 0] as [number, number]),
       )
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 })
+      map.fitBounds(bounds, fitBusesOptions(map, legendRef.current))
     }
   }, [vehicles, selectedBus, selectedRoute, onSelectBus, canonicalRouteId, routes, mapReady])
 
   return (
     <div
-      className={`purdue-map relative isolate w-full h-[340px] sm:h-[380px] lg:h-[460px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] ${ATTRIBUTION_PHONE} ${
+      className={`purdue-map relative isolate w-full h-[340px] sm:h-[380px] lg:h-[460px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border-2)] ${ATTRIBUTION_PHONE} ${CONTROLS_CLEAR_FAB} ${
         dark ? DARK_TILES : LIGHT_TILES
       }`}
     >
@@ -582,7 +632,7 @@ function LiveMap({
           and sits under the scrim below (same layer, later in the DOM), so it
           reads as a faded corner tag behind the centred "Not in service"
           plate rather than a second plate competing with it. */}
-      <div className="ink-panel absolute top-3 left-3 z-[1000] p-2 sm:p-3 max-w-[150px] sm:max-w-none shadow-[var(--shadow-md)]">
+      <div ref={legendRef} className="ink-panel absolute top-3 left-3 z-[1000] p-2 sm:p-3 max-w-[150px] sm:max-w-none shadow-[var(--shadow-md)]">
         <div className={`eyebrow bare max-sm:text-[10.5px] ${vehicles.length > 0 ? 'mb-1.5 sm:mb-2' : ''}`}>
           Active Routes
         </div>
@@ -616,12 +666,32 @@ function LiveMap({
         <Icon name="locateMe" size={22} />
       </button>
 
+      {/* A feed that failed or was rate limited is not an empty one: saying
+          "Not in service" then told visitors the shuttles were not running. */}
       {vehicles.length === 0 && (
         <div className="absolute inset-0 z-[1000] grid place-items-center p-4 bg-[var(--color-bg-1)]/65">
-          <div className="empty items-center text-center bg-[var(--color-surface)] px-6 py-5">
-            <span className="plate" aria-hidden="true">Not in service</span>
-            <p>No buses currently active</p>
-          </div>
+          {feedError ? (
+            <div role="alert" className="empty items-center text-center bg-[var(--color-surface)] px-6 py-5">
+              <span className="plate">Live positions unavailable</span>
+              <p>{feedError}</p>
+              {/* While a retry is already running, a press only waits for it, so
+                  the button says so instead of looking dead. aria-disabled, not
+                  disabled, so keyboard focus stays on it. */}
+              <button
+                type="button"
+                onClick={retrying ? undefined : onRetry}
+                aria-disabled={retrying || undefined}
+                className="btn btn-secondary btn-sm aria-disabled:opacity-60"
+              >
+                {retrying ? 'Retrying...' : 'Try again'}
+              </button>
+            </div>
+          ) : (
+            <div className="empty items-center text-center bg-[var(--color-surface)] px-6 py-5">
+              <span className="plate" aria-hidden="true">Not in service</span>
+              <p>No buses currently active</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -676,6 +746,23 @@ export default function Transit() {
     [vehiclesQuery.data],
   )
   const stops = useMemo<Stop[]>(() => (Array.isArray(stopsQuery.data) ? (stopsQuery.data as Stop[]) : []), [stopsQuery.data])
+  // Only the isPending of these reads was used, so a vehicles read that failed
+  // (the feed down, 502) or was rate limited (429) with nothing cached left
+  // an empty list, and the page said "All Routes (0)" and "Not in service".
+  // Positions still cached from an earlier answer keep showing.
+  // A read with no data goes back to pending, and drops its error, at the
+  // start of every retry, so the failure is also read from errorUpdatedAt and
+  // the last error is kept: otherwise each 10 s poll during an outage swapped
+  // the notice for the loading screen and back, re-announcing the alert and
+  // dropping focus from Try again.
+  const [lastVehiclesError, setLastVehiclesError] = useState<unknown>(null)
+  if (vehiclesQuery.error && vehiclesQuery.error !== lastVehiclesError) setLastVehiclesError(vehiclesQuery.error)
+  const vehiclesFailing =
+    rawVehicles.length === 0 &&
+    (vehiclesQuery.isError || (vehiclesQuery.errorUpdatedAt ?? 0) > (vehiclesQuery.dataUpdatedAt ?? 0))
+  const feedError = vehiclesFailing
+    ? errorMessage(vehiclesQuery.error ?? lastVehiclesError, 'Could not load live bus positions.')
+    : null
   // The selected route lives in the URL (?route=31), not in component state:
   // leaving the page and coming Back remounted it on All Routes, which also
   // left the saved "my stop" alert unarmed until the route was picked again.
@@ -703,7 +790,10 @@ export default function Transit() {
     [setSearchParams],
   )
   const [selectedBus, setSelectedBus] = useState<Vehicle | null>(null)
-  const loading = vehiclesQuery.isPending || stopsQuery.isPending || routesQuery.isPending
+  // Only a first load shows the skeleton: a read that has failed before is
+  // retrying, and the map with its notice stays up meanwhile (see feedError).
+  const firstLoad = (q: { isPending: boolean; errorUpdateCount?: number }) => q.isPending && !q.errorUpdateCount
+  const loading = firstLoad(vehiclesQuery) || firstLoad(stopsQuery) || firstLoad(routesQuery)
   const lastUpdate = useMemo(
     () => (vehiclesQuery.dataUpdatedAt ? new Date(vehiclesQuery.dataUpdatedAt) : null),
     [vehiclesQuery.dataUpdatedAt],
@@ -911,37 +1001,40 @@ export default function Transit() {
         </button>
       </header>
 
-      {/* Route filter pills - horizontal scroll on mobile */}
+      {/* Route filter pills - horizontal scroll on mobile. A scroller clips
+          on both axes, and with no room above the pills it cut the top off the
+          focus ring (3px plus a 2px offset); the top padding gives it 6px and
+          the negative margin keeps the pills where they were. */}
       <div className="mb-5">
-        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto pt-1.5 -mt-1.5 pb-2 -mx-4 px-4 sm:mt-0 sm:pt-0 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible scrollbar-hide">
           <button
             onClick={() => setSelectedRoute(null)}
             className={`pill whitespace-nowrap shrink-0 tnum ${!selectedRoute ? 'pill-active' : ''}`}
           >
-            All Routes ({vehicles.length})
+            All Routes{!feedError && ` (${vehicles.length})`}
           </button>
           {routes.map((route) => {
             const count = vehicles.filter((v) => canonicalRouteId(v.RouteID) === route.id).length
             const running = isRouteRunningForDisplay(route, count)
             const active = selectedRoute?.id === route.id
             // Off duty is information, not a disabled control: only the route
-            // square fades (transit.spec pins this opacity-40); the name and
-            // the note stay readable (txt-2 and txt-3 on the idle pill).
+            // square's fill fades (transit.spec pins its opacity-35); its
+            // number, the name and the note stay readable (txt-2 and txt-3 on
+            // the idle pill). Phones hide the note but still announce it.
             return (
               <button
                 key={route.id}
                 onClick={() => setSelectedRoute(active ? null : route)}
                 className={`pill relative whitespace-nowrap flex items-center gap-2 pl-1.5 pr-2.5 sm:pr-3 shrink-0
-                  ${active ? 'pill-active' : ''}
-                  ${!running ? '[&>:first-child]:opacity-40' : ''}`}
+                  ${active ? 'pill-active' : ''}`}
                 title={route.schedule?.label ?? ''}
               >
-                <RouteNum route={route} />
+                <RouteNum route={route} muted={!running} />
                 <span className={`hidden sm:inline ${!running && !active ? 'text-[var(--color-txt-2)]' : ''}`}>{route.shortName}</span>
                 <span className="sr-only sm:hidden">{route.num}</span>
                 {count > 0 && <span className="tnum opacity-75">({count})</span>}
                 {!running && (
-                  <span className={`text-[11px] font-semibold hidden sm:inline ${active ? '' : 'text-[var(--color-txt-3)]'}`}>not running now</span>
+                  <span className={`text-[11px] font-semibold sr-only sm:not-sr-only ${active ? '' : 'text-[var(--color-txt-3)]'}`}>not running now</span>
                 )}
               </button>
             )
@@ -983,6 +1076,9 @@ export default function Transit() {
             onSelectBus={setSelectedBus}
             stopHighlights={stopHighlights}
             canonicalRouteId={canonicalRouteId}
+            feedError={feedError}
+            retrying={vehiclesQuery.isFetching}
+            onRetry={() => void vehiclesQuery.refetch()}
           />
         </div>
       )}

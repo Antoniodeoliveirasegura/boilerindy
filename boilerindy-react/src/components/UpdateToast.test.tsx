@@ -48,6 +48,25 @@ describe('UpdateToast', () => {
     expect(screen.queryByTestId('sw-update-toast')).toBeNull()
   })
 
+  // From md the full-width wrapper sat over the assistant button and the
+  // bottom of the page and swallowed their taps; on phones the toast sat over
+  // the open assistant panel's input row (z-[1200] against the panel's z-50).
+  test('only the card takes the pointer, and it layers under the assistant panel', async () => {
+    let announce: ((r: RegistrationLike) => void) | null = null
+    const register = async ({ onUpdateReady }: { onUpdateReady: (r: RegistrationLike) => void }) => {
+      announce = onUpdateReady
+      return registration
+    }
+    render(<UpdateToast enabled register={register} apply={() => {}} />)
+    await act(async () => { announce!(registration) })
+
+    const toast = screen.getByTestId('sw-update-toast')
+    const wrapper = toast.parentElement!
+    expect(wrapper).toHaveClass('pointer-events-none')
+    expect(toast).toHaveClass('pointer-events-auto')
+    expect(wrapper).toHaveClass('z-[46]')
+  })
+
   test('does not register at all when disabled (dev, no service worker support)', () => {
     const register = vi.fn(async () => registration)
     render(<UpdateToast enabled={false} register={register} apply={() => {}} />)

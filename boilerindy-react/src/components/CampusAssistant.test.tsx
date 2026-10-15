@@ -191,3 +191,59 @@ describe('CampusAssistant: focus when the panel closes', () => {
     expect(fab()).toHaveFocus()
   })
 })
+
+// requireAuth (401) and the final error handler (413) answer with the
+// envelope { error: { message } }, not the route's own string errors. The
+// object went into the reply as is and rendered an empty bubble, and a 401
+// left the student in the panel instead of sending them to sign in.
+describe('CampusAssistant: error answers from outside the route', () => {
+  function ask(question: string) {
+    fireEvent.click(fab())
+    const input = screen.getByPlaceholderText('Ask about campus...')
+    fireEvent.change(input, { target: { value: question } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+  }
+
+  test('shows the message from an error envelope', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        status: 413,
+        json: async () => ({ error: { message: 'That request was too large.', status: 413 } }),
+      })),
+    )
+    renderOnSchedule()
+    ask('When is my next class?')
+
+    expect(await screen.findByText('That request was too large.')).toBeInTheDocument()
+  })
+
+  test("still shows the route's own string error", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        status: 429,
+        json: async () => ({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }),
+      })),
+    )
+    renderOnSchedule()
+    ask('When is my next class?')
+
+    expect(await screen.findByText(/hit the hourly assistant limit/)).toBeInTheDocument()
+  })
+
+  test('a 401 sends them to sign in with the session-expired notice', async () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, pathname: '/schedule', search: '?day=mon', replace })
+    const json = vi.fn(async () => ({ error: { message: 'You must sign in to access this resource.', status: 401 } }))
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 401, json })))
+    renderOnSchedule()
+    ask('When is my next class?')
+
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith('/login?next=%2Fschedule%3Fday%3Dmon&message=session-expired'),
+    )
+    expect(json).not.toHaveBeenCalled()
+    expect(screen.queryByText('You must sign in to access this resource.')).toBeNull()
+  })
+})

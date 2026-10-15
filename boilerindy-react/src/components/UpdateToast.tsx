@@ -64,18 +64,26 @@ export default function UpdateToast({
 
   if (!shown) return null
 
-  // Sits above the mobile tab bar (z-40) and below dialogs (z-[2000]), like
-  // ServerWakeNotice. On phones the bottom offset clears the assistant button,
-  // which floats 76px up over the 62px tab bar (56px tall), plus an 8px gap,
-  // so the toast never covers the button (issue #249).
+  // On phones the bottom offset clears the assistant button, which floats 76px
+  // up over the 62px tab bar (56px tall), plus an 8px gap, so the toast never
+  // covers the button (issue #249). It layers over the tab bar and the
+  // assistant's backdrop (z-40), one step above SessionExpiryWatcher's alert
+  // (z-[45]), and under the open assistant panel (z-50): at z-[1200] it sat on
+  // the panel's input row on phones, so a student could not type a question
+  // until they dismissed it.
+  //
+  // The wrapper spans the screen only to centre the card, so it lets the
+  // pointer through and only the card takes it. When the wrapper took it,
+  // from md its full-width band over the bottom of the page swallowed taps on
+  // the assistant button and on the page beside the card.
   return (
-    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] z-[1200] flex justify-center px-4 md:bottom-6">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] z-[46] flex justify-center px-4 md:bottom-6">
       <div
         ref={toastRef}
         role="status"
         aria-live="polite"
         data-testid="sw-update-toast"
-        className="flex w-full max-w-md items-center gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-txt-0)] bg-[var(--color-surface)] py-2.5 pl-4 pr-2.5 text-[13.5px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-lg)]"
+        className="pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-txt-0)] bg-[var(--color-surface)] py-2.5 pl-4 pr-2.5 text-[13.5px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-lg)]"
       >
         <p className="flex-1">
           <span className="font-display font-extrabold text-[var(--color-txt-0)]">A new version of BoilerIndy is ready.</span> Refresh to get it.

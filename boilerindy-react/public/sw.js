@@ -9,6 +9,13 @@
 // SKIP_WAITING when the student accepts; the reload that follows the
 // controllerchange loads the new shell and assets together.
 
+// The build writes its id here (vite.config.js) so every deploy ships a
+// different worker. A browser installs a new worker only when these bytes
+// change, and public/ is copied as is, so a release that did not edit this
+// file never produced a waiting worker and the refresh prompt never showed.
+// Not part of CACHE_NAME: the caches outlive a release.
+const BUILD_ID = 'dev'
+
 const CACHE_VERSION = 'v3'
 const CACHE_NAME = `boilerindy-${CACHE_VERSION}`
 const SHELL_URL = '/index.html'

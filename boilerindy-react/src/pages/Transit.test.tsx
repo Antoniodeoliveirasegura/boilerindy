@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom'
 import Transit from './Transit'
 import PreviewBar from '../components/PreviewBar'
@@ -35,8 +35,11 @@ const STOPS = [
 ]
 const ROUTES: unknown[] = []
 const settled = (data: unknown) => ({ data, isPending: false, dataUpdatedAt: 0, refetch: vi.fn() })
-vi.mock('../lib/queries/publicData', () => ({
-  useTransitVehicles: () => settled(VEHICLES),
+// The vehicles read, swapped per test for a failed one.
+const feed = vi.hoisted(() => ({ vehicles: null as unknown }))
+vi.mock('../lib/queries/publicData', async (importOriginal) => ({
+  errorMessage: (await importOriginal<typeof import('../lib/queries/publicData')>()).errorMessage,
+  useTransitVehicles: () => feed.vehicles ?? settled(VEHICLES),
   useTransitStops: () => settled(STOPS),
   useTransitRoutes: () => settled(ROUTES),
 }))
@@ -44,6 +47,9 @@ vi.mock('../lib/queries/publicData', () => ({
 // A stand-in Leaflet that only tracks which markers are on the map.
 const leaflet = vi.hoisted(() => {
   const onMap = new Set<{ icon?: { className?: string } }>()
+  // The options of every fitBounds call, and the map's size in pixels.
+  const fits: unknown[] = []
+  const size = { x: 0, y: 0 }
   const layer = () => {
     const self = {
       addTo: () => self,
@@ -57,7 +63,15 @@ const leaflet = vi.hoisted(() => {
   }
   const fake = {
     map: () => {
-      const map = { setView: () => map, fitBounds: () => map, remove: () => {} }
+      const map = {
+        setView: () => map,
+        fitBounds: (_bounds: unknown, options: unknown) => {
+          fits.push(options)
+          return map
+        },
+        getSize: () => size,
+        remove: () => {},
+      }
       return map
     },
     control: { zoom: () => layer() },
@@ -82,7 +96,7 @@ const leaflet = vi.hoisted(() => {
       return marker
     },
   }
-  return { fake, onMap }
+  return { fake, onMap, fits, size }
 })
 vi.mock('leaflet', () => leaflet.fake)
 
@@ -110,12 +124,17 @@ function renderAt(entry: string, { preview = false } = {}) {
 
 beforeEach(() => {
   auth.value = { loading: false, user: { id: 'user-1' } }
+  feed.vehicles = null
   localStorage.clear()
   leaflet.onMap.clear()
+  leaflet.fits.length = 0
+  Object.assign(leaflet.size, { x: 0, y: 0 })
 })
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('Transit live map', () => {
@@ -169,5 +188,132 @@ describe('Transit selected route in the URL', () => {
     )
     expect(screen.queryByText(/Alert when bus reaches:/)).toBeNull()
     expect(screen.queryByRole('button', { name: /my stop/i })).toBeNull()
+  })
+})
+
+// The vehicles read was only checked for isPending. A feed that failed (502)
+// or was rate limited (429) with nothing cached left an empty list, so the
+// page claimed "All Routes (0)" and "Not in service" and a visitor read it as
+// the shuttles not running.
+describe('Transit when the vehicles read fails', () => {
+  test('says live positions are unavailable, not that no bus runs, and retries', () => {
+    const refetch = vi.fn()
+    feed.vehicles = {
+      data: undefined,
+      isPending: false,
+      isError: true,
+      error: new Error('Too many transit requests. Please slow down.'),
+      dataUpdatedAt: 0,
+      refetch,
+    }
+    renderAt('/transit')
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Live positions unavailable')
+    expect(screen.getByRole('alert')).toHaveTextContent('Too many transit requests. Please slow down.')
+    expect(screen.queryByText('No buses currently active')).toBeNull()
+    expect(screen.getByRole('button', { name: 'All Routes' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(refetch).toHaveBeenCalled()
+  })
+
+  // During an outage TanStack resets a read with no data to pending, with no
+  // error, at the start of every 10 s retry. The page took that for a first
+  // load: the notice gave way to the loading screen and came back, so it was
+  // announced again and focus on Try again was lost on every poll.
+  test('keeps the same notice, and focus on Try again, while the failed feed retries', () => {
+    const error = new Error('Transit data is temporarily unavailable.')
+    feed.vehicles = { data: undefined, isPending: false, isError: true, error, errorUpdatedAt: 1000, errorUpdateCount: 1, dataUpdatedAt: 0, refetch: vi.fn() }
+    // A new element each time, so React renders the page again on rerender.
+    const tree = () => (
+      <MemoryRouter initialEntries={['/transit']}>
+        <Transit />
+      </MemoryRouter>
+    )
+    const { rerender } = render(tree())
+    const alert = screen.getByRole('alert')
+    const retry = screen.getByRole('button', { name: 'Try again' })
+    retry.focus()
+
+    feed.vehicles = { data: undefined, isPending: true, isError: false, error: null, errorUpdatedAt: 1000, errorUpdateCount: 1, dataUpdatedAt: 0, refetch: vi.fn() }
+    rerender(tree())
+
+    expect(screen.queryByText('Loading transit data...')).toBeNull()
+    expect(screen.getByRole('alert')).toBe(alert)
+    expect(screen.getByRole('alert')).toHaveTextContent('Transit data is temporarily unavailable.')
+    expect(document.activeElement).toBe(retry)
+    expect(screen.getByRole('button', { name: 'All Routes' })).toBeInTheDocument()
+  })
+
+  test('says it is already retrying instead of offering a press that would only wait', () => {
+    const refetch = vi.fn()
+    feed.vehicles = { data: undefined, isPending: true, isFetching: true, isError: false, error: null, errorUpdatedAt: 1000, errorUpdateCount: 1, dataUpdatedAt: 0, refetch }
+    renderAt('/transit')
+    const button = within(screen.getByRole('alert')).getByRole('button', { name: 'Retrying...' })
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(button)
+    expect(refetch).not.toHaveBeenCalled()
+  })
+
+  test('an answer with no buses still reads as not in service', () => {
+    feed.vehicles = settled([])
+    renderAt('/transit')
+
+    expect(screen.getByText('No buses currently active')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'All Routes (0)' })).toBeInTheDocument()
+  })
+})
+
+// The legend covers the map's top left corner, and on phones it is larger
+// than the 50px fitBounds left, so the north-west bus sat under it.
+describe('Transit fits the buses clear of the legend', () => {
+  function legendSize(left: number, top: number, width: number, height: number) {
+    const on = (el: HTMLElement, value: number) => (el.classList.contains('ink-panel') ? value : 0)
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) { return on(this, left) })
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) { return on(this, top) })
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return on(this, width) })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return on(this, height) })
+  }
+
+  test('below the legend on a tall phone map', async () => {
+    Object.assign(leaflet.size, { x: 288, y: 340 })
+    legendSize(13, 13, 120, 83)
+    renderAt('/transit')
+
+    await waitFor(() => expect(leaflet.fits.length).toBeGreaterThan(0))
+    expect(leaflet.fits.at(-1)).toEqual({ paddingTopLeft: [50, 116], paddingBottomRight: [50, 50], maxZoom: 16 })
+  })
+
+  test('beside the legend on a wide desktop map', async () => {
+    Object.assign(leaflet.size, { x: 1150, y: 460 })
+    legendSize(13, 13, 150, 110)
+    renderAt('/transit')
+
+    await waitFor(() => expect(leaflet.fits.length).toBeGreaterThan(0))
+    expect(leaflet.fits.at(-1)).toEqual({ paddingTopLeft: [183, 50], paddingBottomRight: [50, 50], maxZoom: 16 })
+  })
+})
+
+// Off duty, the whole route square faded to 40%, number included, and on
+// phones that number is the pill's only visible text: 1.7 to 3.0:1.
+describe('Transit off-duty route pills', () => {
+  test('fade only the square fill, keep the number at full strength and announce the note', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    // Noon on Saturday 2026-10-17 in Indianapolis: Yellow (Mon-Fri) is off duty.
+    vi.setSystemTime(new Date('2026-10-17T12:00:00-04:00'))
+    renderAt('/transit')
+
+    const yellow = screen.getByRole('button', { name: /Yellow/ })
+    expect(yellow.className).not.toMatch(/opacity/)
+    const fill = yellow.querySelector('.opacity-35')
+    expect(fill).not.toBeNull()
+    const number = within(yellow).getAllByText('3')[0]
+    expect(fill!.contains(number)).toBe(false)
+    expect(number.closest('[class*="opacity"]')).toBeNull()
+    expect(within(yellow).getByText('not running now')).toHaveClass('sr-only', 'sm:not-sr-only')
+
+    const crimson = screen.getByRole('button', { name: /Crimson/ })
+    expect(crimson.querySelector('.opacity-35')).toBeNull()
   })
 })
