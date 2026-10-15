@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../components/Icons'
-import { authRequest } from '../lib/authApi'
+import { authRequest, type ApiRequestError } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { useConfirm } from '../hooks/useConfirm'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
@@ -256,6 +256,8 @@ export default function Marketplace() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const formRef = useRef<HTMLFormElement>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
   // Bumped whenever the photo is replaced, removed or the form closes, so a
   // pipeline still running for an earlier pick cannot land its result.
   const photoRun = useRef(0)
@@ -342,13 +344,26 @@ export default function Marketplace() {
     loadBrowse({ page: next })
   }
 
+  // The detail panel and the banner sit above the tabs and the grid, so a card
+  // opened from low in the grid showed its detail off screen and the tap seemed
+  // to do nothing, and a failed open said nothing at all (R30). Both now scroll
+  // into view. No `behavior` here: the root's CSS scroll-behavior animates the
+  // scroll and drops to a jump under reduced motion (R76).
   function openListing(listing: Listing) {
     authRequest(`/api/marketplace/${listing.id}`)
       .then((data) => {
         const d = data as { listing?: Listing }
         setSelected(d?.listing || null)
+        requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start' }))
       })
-      .catch(() => {})
+      .catch((e) => {
+        // A 404 is a listing deleted, hidden or blocked since the grid loaded,
+        // so the list is read again to drop its card. loadBrowse clears the
+        // banner, so the message is set after it.
+        if ((e as ApiRequestError)?.status === 404) loadBrowse({})
+        setError(errorText(e, 'Could not open this listing.'))
+        requestAnimationFrame(() => errorRef.current?.scrollIntoView({ block: 'start' }))
+      })
   }
 
   function closeListing() {
@@ -378,7 +393,9 @@ export default function Marketplace() {
     resetPhoto()
     setFormError('')
     setShowForm(true)
-    requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    // No `behavior`: an explicit 'smooth' overrode the reduced-motion rule's
+    // scroll-behavior: auto, so the scroll animated anyway (R76).
+    requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: 'start' }))
   }
 
   function closeForm() {
@@ -741,7 +758,7 @@ export default function Marketplace() {
 
       {/* Detail panel */}
       {selected ? (
-        <div className="card card-pad mb-6 border-[var(--color-accent)]/30" data-listing-detail={selected.id}>
+        <div ref={detailRef} className="card card-pad mb-6 border-[var(--color-accent)]/30 scroll-mt-24" data-listing-detail={selected.id}>
           <ListingGallery listing={selected} />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -804,7 +821,7 @@ export default function Marketplace() {
 
       {/* One banner for both tabs: load errors and failed listing actions. */}
       {error ? (
-        <div role="alert" className="card px-4 py-3 mb-4 border-[var(--color-error)]/40 text-[14px] text-[var(--color-error)]">
+        <div ref={errorRef} role="alert" className="card px-4 py-3 mb-4 border-[var(--color-error)]/40 text-[14px] text-[var(--color-error)] scroll-mt-24">
           {error}
         </div>
       ) : null}

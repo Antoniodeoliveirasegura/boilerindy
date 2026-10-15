@@ -62,3 +62,14 @@ describe('Guide report and block', () => {
     expect(authRequest).toHaveBeenCalledWith('/api/me/blocks/content/guide/rec-theirs', { method: 'POST' })
   })
 })
+
+// The upvote button shows only an arrow and the count, so a screen reader
+// announced a bare number. It carries the same name as the Board's (R21).
+describe('Guide upvote', () => {
+  it('names each upvote button with its count', async () => {
+    renderGuide()
+    await screen.findByText('Greyhouse Coffee')
+    expect(card('Greyhouse Coffee').getByRole('button', { name: 'Upvote, 4' })).toBeInTheDocument()
+    expect(card('Quiet corner in the library').getByRole('button', { name: 'Upvote, 1' })).toBeInTheDocument()
+  })
+})
