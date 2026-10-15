@@ -101,3 +101,36 @@ test('summarizeGrades groups by term with per-term + cumulative GPA', () => {
   assert.equal(s.gpa, 3.7)
   assert.equal(s.credits, 10)
 })
+
+// R11: the GPA was rounded to three places and then again by the screens'
+// toFixed(2), so 38/11 = 3.4545 became 3.455 and showed as 3.46.
+test('computeGpa rounds once, to the two places the screens show', () => {
+  const { gpa } = computeGpa([
+    { creditHours: 4, letterGrade: 'A' },
+    { creditHours: 4, letterGrade: 'A' },
+    { creditHours: 3, letterGrade: 'C' },
+  ])
+  assert.equal(gpa, 3.45)
+  assert.equal(gpa.toFixed(2), '3.45')
+})
+
+test('computeGpa rounds an exact half up, not down a floating-point hair', () => {
+  // (4.0 * 3.5 + 4.0 * 5 + 3.7 * 1.5) / 10 = 39.55 / 10 = 3.955 exactly, which
+  // floating-point division puts at 3.95499...
+  const { gpa } = computeGpa([
+    { creditHours: 3.5, letterGrade: 'A' },
+    { creditHours: 5, letterGrade: 'A' },
+    { creditHours: 1.5, letterGrade: 'A-' },
+  ])
+  assert.equal(gpa.toFixed(2), '3.96')
+})
+
+test('summarizeGrades term GPAs round once too', () => {
+  const s = summarizeGrades([
+    { courseName: 'CS 18000', term: 'Fall 2025', creditHours: 4, letterGrade: 'A' },
+    { courseName: 'MA 16500', term: 'Fall 2025', creditHours: 4, letterGrade: 'A' },
+    { courseName: 'ENGL 10600', term: 'Fall 2025', creditHours: 3, letterGrade: 'C' },
+  ])
+  assert.equal(s.terms[0].gpa, 3.45)
+  assert.equal(s.gpa, 3.45)
+})

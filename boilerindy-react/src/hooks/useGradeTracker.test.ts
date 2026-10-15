@@ -7,8 +7,8 @@ import { authRequest } from '../lib/authApi'
 // limiter's 429) used to leave the optimistic row in the list and the cache
 // under a temp id, so the GPA counted a course the account never got and its
 // later edits and deletes skipped the server. A refusal now undoes the change
-// and reports the server's message; a request with no response still keeps
-// the local copy.
+// and reports the server's message. R8: a write with no response, or a 5xx,
+// is undone too, since the copy it left was lost on the next visit.
 
 vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
 
@@ -106,19 +106,55 @@ it('a 429 on deleting a course puts it back', async () => {
   expect(cachedNames()).toEqual(['CS 18000'])
 })
 
-it('a network error on adding a course still keeps it on this device', async () => {
-  const { result } = await renderTracker()
-  nextWrite = new TypeError('Failed to fetch')
+// R8: with no response (or a 5xx) the add used to keep its optimistic row, count
+// it in the GPA, clear the form and show the browser's "Failed to fetch". The
+// server never had the course, so the next visit's list dropped it.
+const OFFLINE_SAVE = 'Could not save course. Check your connection and try again.'
 
-  let ok = false
+it.each([
+  ['no response', new TypeError('Failed to fetch')],
+  ['a 500', httpError(500, 'canceling statement due to statement timeout')],
+])('%s on adding a course removes the row and says to try again', async (_label, failure) => {
+  const { result } = await renderTracker()
+  nextWrite = failure
+
+  let ok = true
   await act(async () => {
     ok = await result.current.addGrade({ courseName: 'MA 26100', letterGrade: 'B' })
   })
 
-  expect(ok).toBe(true)
-  expect(result.current.error).toBe('Failed to fetch')
-  expect(result.current.grades.map((g) => g.courseName)).toEqual(['CS 18000', 'MA 26100'])
-  expect(cachedNames()).toEqual(['CS 18000', 'MA 26100'])
+  expect(ok).toBe(false)
+  expect(result.current.error).toBe(OFFLINE_SAVE)
+  expect(result.current.grades.map((g) => g.courseName)).toEqual(['CS 18000'])
+  expect(result.current.summary.credits).toBe(4)
+  expect(cachedNames()).toEqual(['CS 18000'])
+})
+
+it('no response on editing a course puts the saved row back', async () => {
+  const { result } = await renderTracker()
+  nextWrite = new TypeError('Failed to fetch')
+
+  let ok = true
+  await act(async () => {
+    ok = await result.current.updateGrade('grade-1', { letterGrade: 'C' })
+  })
+
+  expect(ok).toBe(false)
+  expect(result.current.error).toBe('Could not update course. Check your connection and try again.')
+  expect(result.current.grades).toEqual([saved])
+})
+
+it('no response on deleting a course puts it back', async () => {
+  const { result } = await renderTracker()
+  nextWrite = new TypeError('Failed to fetch')
+
+  await act(async () => {
+    await result.current.deleteGrade('grade-1')
+  })
+
+  expect(result.current.error).toBe('Could not delete course. Check your connection and try again.')
+  expect(result.current.grades).toEqual([saved])
+  expect(cachedNames()).toEqual(['CS 18000'])
 })
 
 // Overlapping writes (a burst of clicks at the limit): an undo must apply to
@@ -209,4 +245,133 @@ it('a refused delete does not bring back a course whose overlapping delete was a
 
   expect(result.current.grades.map((g) => g.id)).toEqual(['grade-1'])
   expect(cachedNames()).toEqual(['CS 18000'])
+})
+
+// R10: an add's POST leaves with the values typed at the time. An edit made
+// before it answered was replaced by the server's stale row and never sent,
+// and a delete left the server's row to come back on the next visit.
+
+const stale = { id: 'grade-2', courseName: 'PHYS 17200', term: 'Other', creditHours: 3, letterGrade: 'B' }
+
+function startHeldAdd(result: { current: ReturnType<typeof useGradeTracker> }) {
+  held = []
+  const writes = held
+  let adding: Promise<boolean> = Promise.resolve(false)
+  act(() => {
+    adding = result.current.addGrade({ courseName: 'PHYS 17200', letterGrade: 'B' })
+  })
+  // Only the POST waits; the writes after it answer at once.
+  held = null
+  const tempId = result.current.grades[1].id as string
+  return { writes, tempId, adding: () => adding }
+}
+
+it('an edit made while the add is saving is sent once the add answers', async () => {
+  const { result } = await renderTracker()
+  const { writes, tempId, adding } = startHeldAdd(result)
+
+  let edited = false
+  await act(async () => {
+    edited = await result.current.updateGrade(tempId, { letterGrade: 'A' })
+  })
+  expect(edited).toBe(true)
+  expect(result.current.grades[1].letterGrade).toBe('A')
+
+  await act(async () => {
+    writes[0].resolve({ grade: stale })
+    await adding()
+  })
+
+  expect(result.current.grades[1]).toMatchObject({ id: 'grade-2', letterGrade: 'A' })
+  expect(authRequest).toHaveBeenCalledWith('/api/me/grades/grade-2', {
+    method: 'PATCH',
+    body: JSON.stringify({ letterGrade: 'A' }),
+  })
+})
+
+it('a course deleted while its add is saving is deleted from the account once the add answers', async () => {
+  const { result } = await renderTracker()
+  const { writes, tempId, adding } = startHeldAdd(result)
+
+  await act(async () => {
+    await result.current.deleteGrade(tempId)
+  })
+  await act(async () => {
+    writes[0].resolve({ grade: stale })
+    await adding()
+  })
+
+  expect(result.current.grades.map((g) => g.courseName)).toEqual(['CS 18000'])
+  expect(cachedNames()).toEqual(['CS 18000'])
+  expect(authRequest).toHaveBeenCalledWith('/api/me/grades/grade-2', { method: 'DELETE' })
+})
+
+it('an edit saved under the temp id after the add answered reaches the saved row', async () => {
+  const { result } = await renderTracker()
+  const { writes, tempId, adding } = startHeldAdd(result)
+  await act(async () => {
+    writes[0].resolve({ grade: stale })
+    await adding()
+  })
+
+  let ok = false
+  await act(async () => {
+    ok = await result.current.updateGrade(tempId, { letterGrade: 'A' })
+  })
+
+  expect(ok).toBe(true)
+  expect(result.current.grades[1]).toMatchObject({ id: 'grade-2', letterGrade: 'A' })
+  expect(authRequest).toHaveBeenCalledWith('/api/me/grades/grade-2', {
+    method: 'PATCH',
+    body: JSON.stringify({ letterGrade: 'A' }),
+  })
+})
+
+// R53: saving an edit to a course deleted meanwhile returned false with no
+// message, so Save looked like it did nothing.
+it('saving an edit to a course deleted meanwhile says so and sends nothing', async () => {
+  const { result } = await renderTracker()
+  await act(async () => {
+    await result.current.deleteGrade('grade-1')
+  })
+
+  let ok = true
+  await act(async () => {
+    ok = await result.current.updateGrade('grade-1', { letterGrade: 'C' })
+  })
+
+  expect(ok).toBe(false)
+  expect(result.current.error).toBe('This course was removed.')
+  expect(authRequest).not.toHaveBeenCalledWith('/api/me/grades/grade-1', expect.objectContaining({ method: 'PATCH' }))
+})
+
+// R12: a failed read left an empty list with nothing said, so the page showed
+// "No courses yet" for courses that are on the account.
+it('a failed read with nothing cached reports loadFailed, and a retry that works clears it', async () => {
+  let failRead = true
+  vi.mocked(authRequest).mockImplementation(async (_path, options) => {
+    if (!options?.method) {
+      if (failRead) throw new TypeError('Failed to fetch')
+      return { grades: [saved] }
+    }
+    return { ok: true }
+  })
+  const { result } = await renderTracker()
+  expect(result.current.loadFailed).toBe(true)
+  expect(result.current.grades).toEqual([])
+
+  failRead = false
+  act(() => result.current.retryLoad())
+
+  await waitFor(() => expect(result.current.loadFailed).toBe(false))
+  expect(result.current.grades).toEqual([saved])
+})
+
+it('a read the server reports unavailable keeps the cached list and reports loadFailed', async () => {
+  localStorage.setItem(CACHE_KEY, JSON.stringify([saved]))
+  vi.mocked(authRequest).mockImplementation(async () => ({ grades: [], unavailable: true }))
+  const { result } = await renderTracker()
+
+  expect(result.current.loadFailed).toBe(true)
+  expect(result.current.grades).toEqual([saved])
 })
