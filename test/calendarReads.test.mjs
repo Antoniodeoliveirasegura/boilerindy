@@ -158,6 +158,16 @@ test('listCalendarItems: a failed read answers an empty list', async () => {
   assert.deepEqual(await listCalendarItems(USER, { limit: 2500 }), [])
 })
 
+// GET /api/me/calendar asks for the error, so a failed read is not shown to
+// the student as an empty calendar ("Nothing due right now").
+test('listCalendarItems: with throwOnError a failed read throws the database error', async () => {
+  const error = { code: '57014', message: 'canceling statement due to statement timeout' }
+  const supabase = fakeSupabase({ calendar_items: () => ({ data: null, error }) })
+  const { listCalendarItems } = createCalendarReads(supabase)
+  await assert.rejects(listCalendarItems(USER, { throwOnError: true }), (thrown) => thrown === error)
+  await assert.rejects(listCalendarItems(USER, { limit: 2500, throwOnError: true }), (thrown) => thrown === error)
+})
+
 // Class meetings, built in local time the way getAcademicTerm reads them back,
 // so the term pick is the same in any time zone. "Now" is pinned to the
 // afternoon of 2026-10-04, in the fall 2026 term.

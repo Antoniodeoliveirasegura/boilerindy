@@ -1,7 +1,6 @@
 import { queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { authRequest } from '../authApi'
-import { isServerRefusal } from '../writeFailure'
 
 // The signed-in reads that several pages repeat, through the query cache
 // (issue #327): the calendar window, the class list, the calendar categories,
@@ -138,10 +137,11 @@ export function taskMetaQuery(userId: string | null) {
     queryKey: userKeys.taskMeta(userId ?? ''),
     queryFn: ({ signal }) => fetchTaskMeta(signal),
     enabled: Boolean(userId),
-    // No retries: the Tasks page has its own fallback (the device store) and
-    // showed it after one failed read before the cache; three retries would
-    // hold the whole page on a spinner for seven seconds first.
-    retry: false,
+    // Retried like the other per-user reads. Only the server's own "no task
+    // tables" answer (unavailable) sends the Tasks page to the device store; a
+    // failed read used to do the same, which hid every task on the account
+    // after one blip, so a blip is now ridden out and a lasting failure is
+    // shown with a way to try again.
   })
 }
 
@@ -253,10 +253,11 @@ export function applyToggleToMeta(meta: TaskMeta, input: ToggleInput, now: strin
 /**
  * Optimistic task completion. The tick lands in the cached metadata at once
  * (onMutate, after cancelling any metadata fetch in flight so it cannot land
- * on top), then the server call runs. A refusal (the user-write limiter's
- * 429, a 404 for an item a sync removed) restores the snapshot; the page
- * shows why. No response or a 5xx keeps the tick, and the page mirrors it to
- * the device store, today's "saved on this device" fallback. Either way the
+ * on top), then the server call runs. Any failure undoes the tick: a refusal
+ * (the user-write limiter's 429, a 404 for an item a sync removed), no
+ * response, or a 5xx. The page shows why. A tick kept after a failed call
+ * used to be saved on this device alone, which switched the page to the
+ * device store and kept every later tick off the account. Either way the
  * metadata is invalidated afterwards, so the cache ends on the server's truth.
  */
 export function useToggleTaskCompletion(userId: string | null) {
@@ -284,11 +285,11 @@ export function useToggleTaskCompletion(userId: string | null) {
       if (previous) queryClient.setQueryData<TaskMeta>(queryKey, applyToggleToMeta(previous, input))
       return { previous }
     },
-    onError: (error, input, context) => {
+    onError: (_error, input, context) => {
       // Undo this toggle alone, on whatever the cache holds now, so a second
       // tick that landed while this one was in flight keeps its own patch;
       // restoring the snapshot would wipe it until its own refetch.
-      if (!isServerRefusal(error) || !context?.previous) return
+      if (!context?.previous) return
       queryClient.setQueryData<TaskMeta>(queryKey, (current) =>
         current ? applyToggleToMeta(current, { ...input, completed: !input.completed }) : current,
       )

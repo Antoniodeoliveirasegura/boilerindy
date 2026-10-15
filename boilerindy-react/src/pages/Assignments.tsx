@@ -53,9 +53,32 @@ type MergedItem = {
   [key: string]: unknown
 }
 
-function errorText(e: unknown, fallback: string): string {
-  return e instanceof Error && e.message ? e.message : fallback
+// Shown when the assistant fails without saying why (no response, or a body
+// with no message). The chat panel says the same.
+const ASSISTANT_UNREACHABLE = "Couldn't reach the assistant right now. Try again in a moment."
+
+type AssistantAnswer = { reply: string } | { error: string }
+
+// The insight from an /api/assistant response, or the message to show
+// instead. Generate used to read only `reply`, so the hourly limit's 429 and
+// the 502 when Groq fails put the button back with nothing said. A 200 marked
+// busy or offline carries a status line, not an insight, so it is shown as
+// the message and never cached as the week's ranking.
+async function readAssistantAnswer(res: Response): Promise<AssistantAnswer> {
+  const data = (await res.json().catch(() => null)) as { reply?: unknown; source?: unknown; error?: unknown } | null
+  const reply = typeof data?.reply === 'string' ? data.reply : ''
+  if (res.ok && reply && data?.source !== 'busy' && data?.source !== 'offline') return { reply }
+  // The limiter sends `error` as a string; the app's error handler sends { message }.
+  const error = data?.error as string | { message?: unknown } | null | undefined
+  const message = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
+  return { error: message || reply || ASSISTANT_UNREACHABLE }
 }
+
+// Shown under a write that got no answer, or a 5xx. Nothing was saved, so the
+// page keeps the typed title or the old tick for another try.
+const NOT_SAVED_ADD = 'Could not reach the server, so the task was not added. Please try again.'
+const NOT_SAVED_TOGGLE = 'Could not reach the server, so the task was not updated. Please try again.'
+const NOT_SAVED_DELETE = 'Could not reach the server, so the task was not deleted. Please try again.'
 
 // Priority is a label plus a flag colour; the badge itself stays neutral. Only
 // high is coloured: --color-warning is the signal amber in dark, and amber is
@@ -97,8 +120,11 @@ function whenParts(dateString: string | null | undefined) {
   return { day: date.toLocaleDateString(undefined, { weekday: 'short' }), date: date.getDate() }
 }
 
+// A to-do with no deadline (the mobile app makes these, and PATCH can clear
+// one) is grouped and shown as "No due date" rather than under a blank
+// heading with a bare "Due in".
 function formatDate(dateString: string | null | undefined) {
-  if (!dateString) return ''
+  if (!dateString) return 'No due date'
   const date = new Date(dateString)
   const now = new Date()
   const tomorrow = new Date(now)
@@ -181,6 +207,7 @@ export default function Assignments() {
     study: readAiCache(getInsightsCacheKey(userId, 'study'))?.at ?? null,
   }))
   const [insightsLoading, setInsightsLoading] = useState(false)
+  const [insightsError, setInsightsError] = useState('')
   const [insightsOpen, setInsightsOpen] = useState(true)
 
   // The calendar window, the categories and the task metadata through the
@@ -195,27 +222,42 @@ export default function Assignments() {
   const items = useMemo<CalItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
   const categories = useMemo<Category[]>(() => categoriesQuery.data?.categories ?? [], [categoriesQuery.data])
   const loading = calendarQuery.isPending || categoriesQuery.isPending || metaQuery.isPending
-  // Once a write has fallen back to the device store, this page works from
-  // that store until it is opened again, as before: localMeta is the snapshot
-  // it shows, re-read after every device-store write. The server's own
-  // "no task tables yet" answer (unavailable), or a first read that never
-  // answered, lands there too; a failed background refetch does not, because
-  // the cache still holds the last good metadata.
+  // Only the server's own "no task tables yet" answer (unavailable) puts this
+  // page on the device store: every write goes there, and localMeta is the
+  // snapshot it shows, re-read after every device-store write. A failed read
+  // or write is not that answer. Both used to land here, so one blip hid every
+  // task and tick on the account, showed the database setup notice to the
+  // student, and sent every later add and tick to this browser alone; now the
+  // page says what failed and offers to try again.
   const [localMeta, setLocalMeta] = useState<TaskMeta | null>(null)
+  const tablesMissing = metaQuery.data?.unavailable === true
   const taskMeta = useMemo<TaskMeta>(() => {
-    if (localMeta) return localMeta
-    const serverDown = metaQuery.data ? metaQuery.data.unavailable === true : metaQuery.isError
-    if (serverDown) {
+    if (tablesMissing) {
+      if (localMeta) return localMeta
       return userId
         ? (taskMetaFromLocalStore(userId) as TaskMeta)
         : { completions: [], manualTasks: [], unavailable: true, local: false }
     }
     return metaQuery.data ?? { completions: [], manualTasks: [] }
-  }, [userId, localMeta, metaQuery.data, metaQuery.isError])
-  const useLocalOnly = taskMeta.local === true || taskMeta.unavailable === true
-  function enterLocalMode() {
+  }, [userId, localMeta, metaQuery.data, tablesMissing])
+  const useLocalOnly = tablesMissing
+  function rereadDeviceStore() {
     if (userId) setLocalMeta(taskMetaFromLocalStore(userId) as TaskMeta)
   }
+  // A read that failed with nothing cached says so, with a way to try again,
+  // instead of reading as an empty list ("No items found") or as tasks that
+  // were never ticked. A failed background refetch keeps the last answer.
+  const calendarFailed = calendarQuery.isError && !calendarQuery.data
+  const metaFailed = metaQuery.isError && !metaQuery.data
+  const loadFailure =
+    calendarFailed && metaFailed
+      ? 'Could not load your assignments or your tasks.'
+      : calendarFailed
+        ? 'Could not load your calendar, so imported assignments are missing.'
+        : metaFailed
+          ? 'Could not load your tasks, so your own tasks and check marks are missing.'
+          : ''
+  const retrying = calendarQuery.isFetching || metaQuery.isFetching
   function reloadAssignments() {
     void calendarQuery.refetch()
     void categoriesQuery.refetch()
@@ -244,31 +286,55 @@ export default function Assignments() {
     }
   }, [])
 
-  const generateInsights = (mode: string) => {
+  const generateInsights = async (mode: string) => {
     setInsightsLoading(true)
+    setInsightsError('')
     const prompt = mode === 'study'
       ? 'Look at my free time between classes this week, my upcoming assignments and my own task list. Build a short study plan: which item to work on, when (day and time), and for how long. Max 5 "-" bullets, each starting with the day and time in bold. Skip anything already marked DONE. No intro line, no closing line.'
       : 'Rank what I still have to do by urgency, most urgent first, pulling from both my synced assignments and my own task list. Max 6 "-" bullets. Bold the due date on each line and say in a few words why it ranks there. Skip anything already marked DONE and call out anything OVERDUE first. No intro line, no closing line.'
-    fetch('/api/assistant', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.reply && mountedRef.current) {
-          const { at } = writeAiCache(getInsightsCacheKey(userId, mode), d.reply)
-          if (mode === 'study') setStudyPlan(d.reply)
-          else setInsightsText(d.reply)
-          setInsightsAt((prev) => ({ ...prev, [mode]: at }))
-        }
+    try {
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
       })
-      .catch(() => {})
-      .finally(() => setInsightsLoading(false))
+      const answer = await readAssistantAnswer(res)
+      if (!mountedRef.current) return
+      if ('error' in answer) {
+        setInsightsError(answer.error)
+        return
+      }
+      const { at } = writeAiCache(getInsightsCacheKey(userId, mode), answer.reply)
+      if (mode === 'study') setStudyPlan(answer.reply)
+      else setInsightsText(answer.reply)
+      setInsightsAt((prev) => ({ ...prev, [mode]: at }))
+    } catch {
+      if (mountedRef.current) setInsightsError(ASSISTANT_UNREACHABLE)
+    } finally {
+      setInsightsLoading(false)
+    }
   }
 
   const activeInsight = insightsMode === 'study' ? studyPlan : insightsText
+
+  // Below lg the details card stacks under the whole list, a screen or more
+  // below the row, so a tap on a phone seemed to do nothing. Bring the card
+  // into view there and move focus to its title, so a screen reader says what
+  // opened; from lg it sits beside the list and is already in view. No
+  // `behavior`: the page's CSS scroll-behavior is smooth, and auto when the
+  // student asks for reduced motion.
+  const detailRef = useRef<HTMLDivElement>(null)
+  const detailTitleRef = useRef<HTMLHeadingElement>(null)
+  const selectItem = (item: MergedItem) => {
+    setSelectedItem(item)
+    const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches
+    if (wide) return
+    requestAnimationFrame(() => {
+      detailRef.current?.scrollIntoView({ block: 'start' })
+      detailTitleRef.current?.focus({ preventScroll: true })
+    })
+  }
 
   // Reload stored priorities when the signed-in user changes. Adjusting during
   // render (guarded by a user-id check) avoids the setState-in-effect warning;
@@ -348,7 +414,9 @@ export default function Assignments() {
         const rankB = b.priority ? priorityRank[b.priority] : 3
         if (rankA !== rankB) return rankA - rankB
       }
-      return new Date(a.startTime ?? 0).getTime() - new Date(b.startTime ?? 0).getTime()
+      // Undated to-dos go last, as the server orders them, not first as 1970.
+      if (!a.startTime || !b.startTime) return a.startTime ? -1 : b.startTime ? 1 : 0
+      return new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     })
   }, [mergedItems, selectedCategories, showPast, hideCompleted, priorityFilter, sortByPriority])
 
@@ -372,7 +440,7 @@ export default function Assignments() {
 
   function applyLocalToggle(uid: string, item: MergedItem, nextDone: boolean) {
     mirrorToggleToLocalStore(uid, item, nextDone)
-    enterLocalMode()
+    rereadDeviceStore()
   }
 
   /** Persist completion to localStorage without flipping UI into local-only mode. */
@@ -444,17 +512,15 @@ export default function Assignments() {
       mirrorToggleToLocalStore(uid, item, nextDone)
     } catch (err) {
       console.error(err)
-      if (isServerRefusal(err)) {
-        // The server answered and refused (the user-write limiter's 429, a 404
-        // for an item a sync removed): the mutation has already put the
-        // metadata back; undo the panel's copy and say why (issue #202).
-        reflectToggleInSelection(item, item.completed)
-        setTaskError(writeFailureMessage(err, 'Could not update this task. Please try again.'))
-        return
-      }
-      // No response or a 5xx: keep the tick and save it on this device.
-      setTaskError(errorText(err, 'Server sync failed - saved on this device.'))
-      applyLocalToggle(uid, item, nextDone)
+      // Not saved, whether the server refused (the user-write limiter's 429, a
+      // 404 for an item a sync removed; issue #202) or never answered (offline,
+      // a 5xx): the mutation has already put the metadata back; undo the
+      // panel's copy and say why. A tick kept on this device after no answer
+      // used to switch the whole page to the device store.
+      reflectToggleInSelection(item, item.completed)
+      setTaskError(
+        writeFailureMessage(err, isServerRefusal(err) ? 'Could not update this task. Please try again.' : NOT_SAVED_TOGGLE),
+      )
     }
   }
 
@@ -466,7 +532,7 @@ export default function Assignments() {
       const raw = loadLocalTasks(uid)
       raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
       saveLocalTasks(uid, raw)
-      enterLocalMode()
+      rereadDeviceStore()
       setSelectedItem(null)
       return
     }
@@ -476,25 +542,24 @@ export default function Assignments() {
       await queryClient.invalidateQueries({ queryKey: userKeys.taskMeta(uid) })
     } catch (e) {
       console.error(e)
-      if (isServerRefusal(e)) {
-        // Refused, not offline: the task is still on the server, so keep it
-        // listed and keep calling the server (issue #202).
-        setTaskError(writeFailureMessage(e, 'Could not delete this task. Please try again.'))
-        return
-      }
-      setTaskError(errorText(e, 'Could not delete on server - removed on this device only.'))
-      const raw = loadLocalTasks(uid)
-      raw.manualTasks = raw.manualTasks.filter((t) => t.id !== id)
-      saveLocalTasks(uid, raw)
-      enterLocalMode()
-      setSelectedItem(null)
+      // Refused (issue #202) or never answered: either way the task is still
+      // on the server, so keep it listed and keep calling the server. Removing
+      // it on this device alone used to switch the page to the device store.
+      setTaskError(
+        writeFailureMessage(e, isServerRefusal(e) ? 'Could not delete this task. Please try again.' : NOT_SAVED_DELETE),
+      )
     }
   }
 
   async function handleAddManualTask(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const t = newTitle.trim()
-    if (!t || !newDueDate || addSubmitting) return
+    if (!t || addSubmitting) return
+    // A cleared date field used to make Add task do nothing at all.
+    if (!newDueDate) {
+      setTaskError('Pick a due date for this task.')
+      return
+    }
     const due = new Date(`${newDueDate}T12:00:00`)
     due.setHours(23, 59, 59, 999)
     const uid = userId
@@ -514,7 +579,7 @@ export default function Assignments() {
         completedAt: null,
       })
       saveLocalTasks(uid, raw)
-      enterLocalMode()
+      rereadDeviceStore()
       setNewTitle('')
       setAddSubmitting(false)
       return
@@ -530,24 +595,14 @@ export default function Assignments() {
       await queryClient.invalidateQueries({ queryKey: userKeys.taskMeta(uid) })
     } catch (err) {
       console.error(err)
-      if (isServerRefusal(err)) {
-        // Refused, not offline (the 500-task cap's 409, the limiter's 429):
-        // nothing was saved, so keep the typed title for another try and stay
-        // online instead of saving a task the account never gets (issue #202).
-        setTaskError(writeFailureMessage(err, 'Could not add this task. Please try again.'))
-        return
-      }
-      setTaskError(errorText(err, 'Could not save to server - saved on this device.'))
-      const raw = loadLocalTasks(uid)
-      raw.manualTasks.push({
-        id: crypto.randomUUID(),
-        title: t,
-        startTime: due.toISOString(),
-        completedAt: null,
-      })
-      saveLocalTasks(uid, raw)
-      enterLocalMode()
-      setNewTitle('')
+      // Refused (the 500-task cap's 409, the limiter's 429; issue #202) or
+      // never answered (offline, a 5xx): nothing was saved, so keep the typed
+      // title for another try and stay online. A task saved on this device
+      // instead was gone after a reload (nothing ever sent it to the account)
+      // and switched the page to the device store for every later add.
+      setTaskError(
+        writeFailureMessage(err, isServerRefusal(err) ? 'Could not add this task. Please try again.' : NOT_SAVED_ADD),
+      )
     } finally {
       setAddSubmitting(false)
     }
@@ -620,7 +675,20 @@ export default function Assignments() {
         </div>
       </header>
 
-      {taskMeta.unavailable && (
+      {loadFailure && (
+        <div
+          role="alert"
+          className="card mb-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-1)] animate-fade-in-up"
+        >
+          <Icon name="alert" size={16} className="shrink-0 text-[var(--color-error)]" />
+          <span className="min-w-0 flex-1">{loadFailure}</span>
+          <button type="button" onClick={reloadAssignments} disabled={retrying} className="btn btn-ghost btn-sm disabled:opacity-40">
+            {retrying ? 'Trying…' : 'Try again'}
+          </button>
+        </div>
+      )}
+
+      {tablesMissing && (
         <div className="card mb-5 flex items-start gap-2.5 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-2)] animate-fade-in-up">
           <Icon name="info" size={16} className="mt-0.5 shrink-0 text-[var(--color-txt-2)]" />
           <div className="min-w-0">
@@ -751,7 +819,7 @@ export default function Assignments() {
             </button>
             {insightsOpen && (
               <button
-                onClick={() => generateInsights(insightsMode)}
+                onClick={() => void generateInsights(insightsMode)}
                 disabled={insightsLoading}
                 className="head-link disabled:opacity-40"
               >
@@ -766,13 +834,21 @@ export default function Assignments() {
                 {['priority', 'study'].map((m) => (
                   <button
                     key={m}
-                    onClick={() => setInsightsMode(m)}
+                    onClick={() => {
+                      setInsightsMode(m)
+                      setInsightsError('')
+                    }}
                     className={`pill ${insightsMode === m ? 'pill-active shadow-none' : ''}`}
                   >
                     {m === 'priority' ? 'Priority Ranking' : 'Study Plan'}
                   </button>
                 ))}
               </div>
+              {insightsError && (
+                <p role="alert" className="mb-2 text-[13px] text-[var(--color-error)]">
+                  {insightsError}
+                </p>
+              )}
               {insightsLoading && !activeInsight ? (
                 <div className="flex items-center gap-2 py-2 text-[13.5px] text-[var(--color-txt-2)]">
                   <Icon name="refresh" size={14} className="animate-spin" />
@@ -801,6 +877,10 @@ export default function Assignments() {
         <div className="card card-pad text-center text-[14px] text-[var(--color-txt-2)]">
           Loading assignments...
         </div>
+      ) : filteredItems.length === 0 && loadFailure ? (
+        // The failed read is said above; "No items found" would claim the
+        // calendar is empty when it never loaded.
+        null
       ) : filteredItems.length === 0 ? (
         <div className="card card-pad">
           <div className="empty">
@@ -843,11 +923,16 @@ export default function Assignments() {
                         <div
                           role="button"
                           tabIndex={0}
-                          onClick={() => setSelectedItem(item)}
+                          onClick={() => selectItem(item)}
                           onKeyDown={(e) => {
+                            // Keys pressed on the nested Mark as done button bubble
+                            // here too; preventDefault cancelled the button's own
+                            // Enter and Space, so the keyboard opened the details
+                            // instead of ticking the task.
+                            if (e.target !== e.currentTarget) return
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              setSelectedItem(item)
+                              selectItem(item)
                             }
                           }}
                           className={`dep-row group -mx-2 w-[calc(100%+16px)] cursor-pointer grid-cols-[36px_48px_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-[var(--radius-md)] px-2 transition-colors sm:-mx-3 sm:w-[calc(100%+24px)] sm:grid-cols-[36px_48px_minmax(0,1fr)_auto] sm:gap-x-3.5 sm:px-3 ${
@@ -890,7 +975,7 @@ export default function Assignments() {
                               {rest}
                             </div>
                             <div className="meta flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                              {!item.allDay && (
+                              {!item.allDay && item.startTime && (
                                 <span className="inline-flex items-center gap-1">
                                   <Icon name="clock" size={12} />
                                   {formatDueTime(item.startTime)}
@@ -940,7 +1025,8 @@ export default function Assignments() {
               placeholder skips the entry fade: an element that toggles display
               at a breakpoint replays it and can be caught at opacity 0. */}
           <div
-            className={`h-fit min-w-0 lg:sticky lg:top-24 ${
+            ref={detailRef}
+            className={`h-fit min-w-0 scroll-mt-24 lg:sticky lg:top-24 ${
               selectedItem ? 'animate-fade-in-up stagger-3' : 'hidden lg:block'
             }`}
           >
@@ -951,15 +1037,19 @@ export default function Assignments() {
                     {(categoryConfig[selectedItem.category ?? ''] || categoryConfig.event).label}
                   </span>
                   <button
+                    type="button"
                     onClick={() => setSelectedItem(null)}
                     className="icon-btn -mr-2 -mt-2"
+                    aria-label="Close details"
                   >
                     <Icon name="close" size={18} />
                   </button>
                 </div>
 
                 <h3
-                  className={`mb-4 text-[19px] leading-snug ${
+                  ref={detailTitleRef}
+                  tabIndex={-1}
+                  className={`mb-4 text-[19px] leading-snug focus:outline-none ${
                     selectedItem.completed ? 'text-[var(--color-txt-3)] line-through' : 'text-[var(--color-txt-0)]'
                   }`}
                 >
@@ -1013,7 +1103,7 @@ export default function Assignments() {
                     <Icon name="calendar" size={16} className="shrink-0 text-[var(--color-txt-3)]" />
                     <div className="tnum">
                       <div className="font-display font-bold text-[var(--color-txt-0)]">{formatDate(selectedItem.startTime)}</div>
-                      {!selectedItem.allDay && (
+                      {!selectedItem.allDay && selectedItem.startTime && (
                         <div className="text-[12.5px] text-[var(--color-txt-2)]">{formatDueTime(selectedItem.startTime)}</div>
                       )}
                     </div>
@@ -1041,14 +1131,17 @@ export default function Assignments() {
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3 border-b border-[var(--color-border)] py-3 text-[14px]">
-                    <Icon name="clock" size={16} className="shrink-0 text-[var(--color-txt-3)]" />
-                    <div>
-                      <div className={`font-display font-bold ${isPastDue(selectedItem.startTime) ? 'text-[var(--color-error)]' : 'text-[var(--color-txt-0)]'}`}>
-                        {isPastDue(selectedItem.startTime) ? 'Past due' : `Due in ${getRelativeTime(selectedItem.startTime)}`}
+                  {/* No deadline, no countdown: the date row already says "No due date". */}
+                  {selectedItem.startTime && (
+                    <div className="flex items-center gap-3 border-b border-[var(--color-border)] py-3 text-[14px]">
+                      <Icon name="clock" size={16} className="shrink-0 text-[var(--color-txt-3)]" />
+                      <div>
+                        <div className={`font-display font-bold ${isPastDue(selectedItem.startTime) ? 'text-[var(--color-error)]' : 'text-[var(--color-txt-0)]'}`}>
+                          {isPastDue(selectedItem.startTime) ? 'Past due' : `Due in ${getRelativeTime(selectedItem.startTime)}`}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {selectedItem.description && (
