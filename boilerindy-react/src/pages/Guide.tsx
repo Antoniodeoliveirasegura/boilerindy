@@ -384,6 +384,9 @@ export default function Guide() {
                     type="button"
                     onClick={() => toggleUpvote(rec)}
                     aria-pressed={rec.upvotedByMe}
+                    // The button shows only an arrow and the count, so it was
+                    // announced as a bare number; same name as the Board's (R21).
+                    aria-label={`Upvote, ${rec.upvotes ?? 0}`}
                     className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[52px] px-2 rounded-[var(--radius-md)] border-[1.5px] transition-colors shrink-0 ${
                       rec.upvotedByMe
                         ? 'bg-[var(--route)] border-[var(--route)] text-[var(--route-on)]'

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { mapHrefForRoom } from '../lib/buildingCode'
@@ -260,6 +260,20 @@ function daysFromEntry(schedule: Record<string, ClassEntry[]>, seriesKey: string
   return DAYS.filter((day) => (schedule[day] || []).some((c) => c.seriesKey === seriesKey))
 }
 
+// The weekdays the feed has a meeting on, per series, before any day override.
+// An override's days can only hide those meetings, never add one.
+function feedDaysBySeries(items: ClassItem[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  for (const item of items) {
+    if (!item.startTime) continue
+    const seriesKey = makeSeriesKey(item)
+    const days = out.get(seriesKey) || new Set<string>()
+    days.add(getDayName(item.startTime))
+    out.set(seriesKey, days)
+  }
+  return out
+}
+
 export default function Schedule() {
   const { user, onboarding } = useAuth()
   const userId = user?.id as string | undefined
@@ -280,6 +294,11 @@ export default function Schedule() {
   const loadBanner = classesQuery.isError ? errorMessage(classesQuery.error, 'Could not load your class schedule.') : ''
   const [overrides, setOverrides] = useState<ScheduleOverrideState>(() => loadScheduleOverrides(userId))
   const [editing, setEditing] = useState(false)
+  // The class the editor was opened for. Save, Reset to imported and the
+  // feed-day check act on it, not on selectedClass: a tap on another row or a
+  // day-tab switch changes the selection while the editor stays open, and the
+  // editor's buttons then saved or reset that other class (R25).
+  const [editTarget, setEditTarget] = useState<ClassEntry | null>(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState<EditForm>({
     code: '',
@@ -290,6 +309,9 @@ export default function Schedule() {
     days: ['Monday'],
   })
   const [formError, setFormError] = useState('')
+  // The times the editor opened with, so saveEdit can tell a time the student
+  // changed from one it only showed.
+  const openedTimesRef = useRef<{ startHm: string; endHm: string } | null>(null)
 
   // Home's Get Directions builds the same link (lib/buildingCode.ts).
   const handleFindRoom = (room: string) => {
@@ -314,6 +336,7 @@ export default function Schedule() {
     () => getWeeklyPattern(scheduleClassItems, overrides),
     [scheduleClassItems, overrides],
   )
+  const feedDays = useMemo(() => feedDaysBySeries(scheduleClassItems), [scheduleClassItems])
   const classes = useMemo(() => schedule[selectedDay] || [], [schedule, selectedDay])
   const hiddenCount = useMemo(
     () => Object.values(overrides.series).filter((o) => o.hidden).length,
@@ -326,8 +349,11 @@ export default function Schedule() {
     if (!classes.length) {
       setSelectedClass(null)
     } else {
+      // Take the fresh entry for the same meeting: the old object kept the
+      // details from before an edit, so the panel hid Reset to imported until
+      // the student picked the class again (R25).
       setSelectedClass((current) =>
-        current && classes.some((item) => item.id === current.id) ? current : classes[0],
+        (current && classes.find((item) => item.id === current.id)) || classes[0],
       )
     }
   }
@@ -361,13 +387,17 @@ export default function Schedule() {
   function openEdit(cls: ClassEntry) {
     setAdding(false)
     setEditing(true)
+    setEditTarget(cls)
     setFormError('')
+    const startHm = isoToHm(cls.startTime)
+    const endHm = isoToHm(cls.endTime || cls.startTime)
+    openedTimesRef.current = { startHm, endHm }
     setForm({
       code: cls.code,
       name: cls.name,
       room: cls.room === 'Location unavailable' ? '' : cls.room,
-      startHm: isoToHm(cls.startTime),
-      endHm: isoToHm(cls.endTime || cls.startTime),
+      startHm,
+      endHm,
       days: cls.isManual && cls.manualId
         ? overrides.manual.find((m) => m.id === cls.manualId)?.days || [cls.day]
         : daysFromEntry(schedule, cls.seriesKey),
@@ -411,16 +441,16 @@ export default function Schedule() {
 
   function saveEdit() {
     const uid = requireUser()
-    if (!uid || !selectedClass) return
+    if (!uid || !editTarget) return
     const invalid = validateForm()
     if (invalid) {
       setFormError(invalid)
       return
     }
 
-    if (selectedClass.isManual && selectedClass.manualId) {
+    if (editTarget.isManual && editTarget.manualId) {
       setOverrides(
-        updateManualClass(uid, selectedClass.manualId, {
+        updateManualClass(uid, editTarget.manualId, {
           code: form.code,
           name: form.name,
           room: form.room,
@@ -430,15 +460,23 @@ export default function Schedule() {
         }),
       )
     } else {
+      // The editor shows the clicked meeting's times, but the override applies
+      // to every meeting in the series. Writing them on every save moved a
+      // class that meets at other times on other days to this day's time,
+      // even when only the room changed (R24). So the times go in only when
+      // the student changed one; otherwise any earlier time edit carries over.
+      const previous = overrides.series[editTarget.seriesKey]
+      const opened = openedTimesRef.current
+      const timesChanged = !opened || form.startHm !== opened.startHm || form.endHm !== opened.endHm
       const patch: ScheduleSeriesOverride = {
         code: form.code.trim(),
         name: form.name.trim() || 'Class meeting',
         room: form.room.trim(),
-        startHm: form.startHm,
-        endHm: form.endHm,
+        startHm: timesChanged ? form.startHm : previous?.startHm,
+        endHm: timesChanged ? form.endHm : previous?.endHm,
         days: form.days,
       }
-      setOverrides(saveSeriesOverride(uid, selectedClass.seriesKey, patch))
+      setOverrides(saveSeriesOverride(uid, editTarget.seriesKey, patch))
     }
     setEditing(false)
     setBanner('Schedule updated on this device. Your edits stay even if you re-sync the feed.')
@@ -511,6 +549,7 @@ export default function Schedule() {
   }
 
   const editorOpen = editing || adding
+  const importedDays = editing && editTarget && !editTarget.isManual ? feedDays.get(editTarget.seriesKey) : null
   const fieldLabel = 'block text-[13px] font-semibold text-[var(--color-txt-1)]'
   const closeEditor = () => {
     setEditing(false)
@@ -656,21 +695,26 @@ export default function Schedule() {
             <div className="flex flex-wrap gap-1.5">
               {DAYS.map((day) => {
                 const active = form.days.includes(day)
+                // An imported class can only drop days the feed has. Turning on
+                // another day saved and said "Schedule updated" but showed
+                // nothing on that day (R47).
+                const notInFeed = Boolean(importedDays && !importedDays.has(day) && !active)
                 return (
                   <button
                     key={day}
                     type="button"
                     onClick={() => toggleDay(day)}
-                    className={`pill min-w-[56px] justify-center ${active ? 'pill-active' : ''}`}
+                    disabled={notInFeed}
+                    className={`pill min-w-[56px] justify-center disabled:cursor-not-allowed disabled:opacity-40 ${active ? 'pill-active' : ''}`}
                   >
                     {day.slice(0, 3)}
                   </button>
                 )
               })}
             </div>
-            {!adding && !selectedClass?.isManual ? (
+            {!adding && !editTarget?.isManual ? (
               <p className="mt-2 text-[12px] text-[var(--color-txt-3)]">
-                Uncheck a day to hide that meeting if the feed put it on the wrong weekday.
+                Uncheck a day to hide that meeting if the feed put it on the wrong weekday. To add a meeting on another day, use Add class.
               </p>
             ) : null}
           </div>
@@ -686,6 +730,14 @@ export default function Schedule() {
             <button type="button" onClick={closeEditor} className="btn btn-secondary">
               Cancel
             </button>
+            {/* Below lg the detail panel, which holds the other Reset to
+                imported, is hidden, so phones and tablets had no way back to
+                the feed's values (R25). */}
+            {!adding && editTarget?.hasOverride && !editTarget.isManual ? (
+              <button type="button" onClick={() => handleReset(editTarget)} className="btn btn-ghost lg:hidden">
+                Reset to imported
+              </button>
+            ) : null}
           </div>
         </section>
       ) : null}

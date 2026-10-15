@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
@@ -91,6 +91,15 @@ export default function ConnectSchedule() {
     searchParams.get('error') === 'purdue-link' ? 'error' : 'info'
   ))
   const [syncingAll, setSyncingAll] = useState(false)
+  const bannerRef = useRef<HTMLDivElement>(null)
+
+  // The banner sits above every card, so on a phone a Sync, Sync all or
+  // Delete result (or a connect success) appeared a screen above the button
+  // that caused it and nothing seemed to happen. Bring each new message
+  // into view; 'nearest' leaves the page still when it already shows.
+  useEffect(() => {
+    if (banner) bannerRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [banner])
 
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const config = sourceConfigs[sourceType]
@@ -165,8 +174,11 @@ export default function ConnectSchedule() {
         setBanner(`${baseName} connected! Imported ${itemCount} items.`)
       }
     } catch (error) {
-      setBannerType('error')
-      setBanner(errorText(error, 'Could not connect this source.'))
+      // Under the box, where the student pressed Connect. In the top banner a
+      // refused feed (an expired link's 403, say) landed a screen above the
+      // button on a phone, and the form looked unchanged. It clears on
+      // the next edit, like the local URL check's hint.
+      setUrlError(errorText(error, 'Could not connect this source.'))
     } finally {
       setSaving(false)
     }
@@ -293,10 +305,13 @@ export default function ConnectSchedule() {
 
   // ── Render ──
 
+  // scroll-mt keeps the scrolled-to banner clear of the fixed top bar.
   const bannerEl = banner && (
-    <StatusBanner tone={bannerType === 'success' || bannerType === 'error' ? bannerType : 'info'} className="mb-6">
-      {banner}
-    </StatusBanner>
+    <div ref={bannerRef} className="scroll-mt-24">
+      <StatusBanner tone={bannerType === 'success' || bannerType === 'error' ? bannerType : 'info'} className="mb-6">
+        {banner}
+      </StatusBanner>
+    </div>
   )
 
   // ────────────────────────────────────────
@@ -473,7 +488,14 @@ export default function ConnectSchedule() {
                     <button type="button" onClick={() => handleSync(source.id)} disabled={syncingAll} className="btn btn-secondary btn-sm flex-1 sm:flex-none">
                       Sync
                     </button>
-                    <button type="button" onClick={() => handleDelete(source.id)} className="icon-btn hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] md:h-[34px] md:w-[34px]">
+                    {/* Icon only, so it needs a name: screen readers said just "button". */}
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(source.id)}
+                      title="Delete source"
+                      aria-label={`Delete ${source.label || 'source'}`}
+                      className="icon-btn hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] md:h-[34px] md:w-[34px]"
+                    >
                       <Icon name="trash" size={16} />
                     </button>
                   </div>

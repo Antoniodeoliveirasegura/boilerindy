@@ -150,3 +150,16 @@ describe('AdvertiserLogin way back to the site', () => {
     expect(screen.getByRole('link', { name: 'BoilerIndy' })).toHaveAttribute('href', '/dashboard')
   })
 })
+
+// The only h1 sat in the brand panel, which is hidden below lg, so phones and
+// tablets had no h1; the form title was an h2.
+describe('AdvertiserLogin headings', () => {
+  test('the form title is the one h1', () => {
+    stubAdvertiserApi({ passwordOk: true })
+    renderAt('/advertise')
+
+    const headings = screen.getAllByRole('heading', { level: 1 })
+    expect(headings).toHaveLength(1)
+    expect(headings[0]).toHaveTextContent('Advertiser sign in')
+  })
+})

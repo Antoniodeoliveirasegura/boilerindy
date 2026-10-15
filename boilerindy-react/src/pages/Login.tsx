@@ -88,6 +88,18 @@ export default function Login() {
   // Set while a sign-in or sign-up on this page is finishing: that flow picks
   // the destination itself, so the redirect below must not race it.
   const finishing = useRef(false)
+  // The field to focus once the next render lands. Swapping forms unmounts the
+  // button that had focus ("Forgot password?", "Back to sign in", "Use a
+  // different account") and a submit is disabled while it runs, so focus fell
+  // to the page and a screen reader heard nothing of the new form or the
+  // error. Each of those paths names the field to move to instead.
+  const focusNext = useRef<string | null>(null)
+  useEffect(() => {
+    const id = focusNext.current
+    if (!id) return
+    focusNext.current = null
+    document.getElementById(id)?.focus()
+  })
 
   useEffect(() => {
     if (loading || !user || finishing.current) return
@@ -100,6 +112,13 @@ export default function Login() {
     setBanner('')
     setSuccessBanner('')
     setFieldErr({})
+  }
+
+  // Show field errors and put focus on the first one, in form order, so its
+  // message (tied to it by aria-describedby) is read out.
+  function showFieldErrors(next: Record<string, string>) {
+    setFieldErr(next)
+    focusNext.current = ['name', 'email', 'password', 'confirm', 'code'].find((field) => next[field]) ?? null
   }
 
   // Hands off to Supabase, which redirects the browser to Google and back to
@@ -126,7 +145,7 @@ export default function Login() {
     e.preventDefault()
     clearErrors()
     if (!email.trim() || !email.includes('@')) {
-      setFieldErr({ email: 'Please enter a valid email.' })
+      showFieldErrors({ email: 'Please enter a valid email.' })
       return
     }
     setSubmitting(true)
@@ -177,7 +196,7 @@ export default function Login() {
     }
 
     if (!valid) {
-      setFieldErr(nextErr)
+      showFieldErrors(nextErr)
       return
     }
 
@@ -274,10 +293,19 @@ export default function Login() {
     )
   }
 
+  // "Use a different account" means someone else is taking over, often on a
+  // shared lab or library computer. The last student's email and password
+  // stayed in the form, and one press of the eye button showed the password.
   function leaveCodeStep() {
     setPendingCode(null)
     setCode('')
+    setName('')
+    setEmail('')
+    setPassword('')
+    setConfirm('')
+    setPwVisible(false)
     clearErrors()
+    focusNext.current = tab === 'signup' ? 'name' : 'email'
   }
 
   async function handleVerifyCode(e: React.FormEvent<HTMLFormElement>) {
@@ -285,7 +313,7 @@ export default function Login() {
     if (!pendingCode) return
     clearErrors()
     if (!/^\d{6}$/.test(code)) {
-      setFieldErr({ code: 'Enter the 6-digit code from the email.' })
+      showFieldErrors({ code: 'Enter the 6-digit code from the email.' })
       return
     }
     setSubmitting(true)
@@ -296,7 +324,9 @@ export default function Login() {
       })) as SignInResponse
       finishSignIn(data.session ?? null, pendingCode.flow)
     } catch (error) {
-      closeCodeStepIfOver(error)
+      // The verify button is disabled while it runs, so put focus back on the
+      // code for another try, or on the password form when the step is over.
+      if (!closeCodeStepIfOver(error)) focusNext.current = 'code'
       setBanner(error instanceof Error ? error.message : 'Could not verify the code. Please try again.')
     } finally {
       setSubmitting(false)
@@ -305,15 +335,22 @@ export default function Login() {
 
   // The API flags `restart` when the pending sign-in is over (timed out, too
   // many codes, password changed): back to the password form, from verify or
-  // from resend alike.
-  function closeCodeStepIfOver(error: unknown) {
+  // from resend alike. The email stays for the retry; the password does not,
+  // since a step that timed out is the walked-away case on a shared computer.
+  // Returns whether the step ended.
+  function closeCodeStepIfOver(error: unknown): boolean {
     const restart = Boolean(
       (error as ApiRequestError & { payload?: { error?: { restart?: boolean } } })?.payload?.error?.restart,
     )
     if (restart) {
       setPendingCode(null)
       setCode('')
+      setPassword('')
+      setConfirm('')
+      setPwVisible(false)
+      focusNext.current = 'password'
     }
+    return restart
   }
 
   async function handleResendCode() {
@@ -372,9 +409,11 @@ export default function Login() {
               </span>
               <span className="pl-3 pr-3.5">Student app</span>
             </div>
-            <h1 className="page-title mt-7 text-[var(--color-ink-txt)]">
+            {/* A paragraph, not a heading: the form's title is the page's one
+                h1, and this panel only shows from lg up. */}
+            <p className="page-title mt-7 text-[var(--color-ink-txt)]">
               Your campus hub, all in one place.
-            </h1>
+            </p>
             <p className="mt-5 max-w-[460px] text-[16px] leading-relaxed text-[var(--color-ink-dim)]">
               Sign up with your email and link your Purdue account later during setup to access your schedule and campus services.
             </p>
@@ -445,10 +484,11 @@ export default function Login() {
           </p>
 
           <div className={`mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] p-1 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
-            <button type="button" onClick={() => { setTab('signin'); clearErrors() }} className={segmentClass(!isSignup)}>
+            {/* aria-pressed says which mode is on; the pill-active fill only showed it. */}
+            <button type="button" aria-pressed={!isSignup} onClick={() => { setTab('signin'); clearErrors() }} className={segmentClass(!isSignup)}>
               Sign in
             </button>
-            <button type="button" onClick={() => { setTab('signup'); clearErrors() }} className={segmentClass(isSignup)}>
+            <button type="button" aria-pressed={isSignup} onClick={() => { setTab('signup'); clearErrors() }} className={segmentClass(isSignup)}>
               Create account
             </button>
           </div>
@@ -491,6 +531,8 @@ export default function Login() {
                 <label htmlFor="code" className={labelClass}>Verification code</label>
                 <input
                   id="code"
+                  aria-invalid={fieldErr.code ? true : undefined}
+                  aria-describedby={fieldErr.code ? 'code-error' : undefined}
                   className={`${fieldClass(fieldErr.code)} code`}
                   value={code}
                   onChange={(ev) => setCode(ev.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -500,7 +542,7 @@ export default function Login() {
                   maxLength={6}
                   autoFocus
                 />
-                {fieldErr.code && <p className={errorClass}>{fieldErr.code}</p>}
+                {fieldErr.code && <p id="code-error" className={errorClass}>{fieldErr.code}</p>}
               </div>
               <label className="flex cursor-pointer select-none items-start gap-2.5">
                 <input
@@ -541,8 +583,8 @@ export default function Login() {
             <form onSubmit={handleForgotSubmit} className="space-y-4">
               <div>
                 <label htmlFor="email" className={labelClass}>Email address</label>
-                <input id="email" type="email" className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
-                {fieldErr.email && <p className={errorClass}>{fieldErr.email}</p>}
+                <input id="email" type="email" aria-invalid={fieldErr.email ? true : undefined} aria-describedby={fieldErr.email ? 'email-error' : undefined} className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+                {fieldErr.email && <p id="email-error" className={errorClass}>{fieldErr.email}</p>}
               </div>
               <button
                 type="submit"
@@ -554,7 +596,7 @@ export default function Login() {
               </button>
               <button
                 type="button"
-                onClick={() => { setForgotMode(false); clearErrors() }}
+                onClick={() => { setForgotMode(false); clearErrors(); focusNext.current = 'email' }}
                 className="btn btn-ghost min-h-11 w-full"
               >
                 Back to sign in
@@ -565,34 +607,35 @@ export default function Login() {
             {isSignup && (
               <div>
                 <label htmlFor="name" className={labelClass}>Full name</label>
-                <input id="name" className={fieldClass(fieldErr.name)} value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Your Name" autoComplete="name" />
-                {fieldErr.name && <p className={errorClass}>{fieldErr.name}</p>}
+                <input id="name" aria-invalid={fieldErr.name ? true : undefined} aria-describedby={fieldErr.name ? 'name-error' : undefined} className={fieldClass(fieldErr.name)} value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Your Name" autoComplete="name" />
+                {fieldErr.name && <p id="name-error" className={errorClass}>{fieldErr.name}</p>}
               </div>
             )}
 
             <div>
               <label htmlFor="email" className={labelClass}>Email address</label>
-              <input id="email" type="email" className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
-              {fieldErr.email && <p className={errorClass}>{fieldErr.email}</p>}
+              <input id="email" type="email" aria-invalid={fieldErr.email ? true : undefined} aria-describedby={fieldErr.email ? 'email-error' : undefined} className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+              {fieldErr.email && <p id="email-error" className={errorClass}>{fieldErr.email}</p>}
             </div>
 
             <div>
               <label htmlFor="password" className={labelClass}>Password</label>
               <div className="relative">
-                <input id="password" type={pwVisible ? 'text' : 'password'} className={`${fieldClass(fieldErr.password)} pr-12`} value={password} onChange={(ev) => setPassword(ev.target.value)} placeholder="••••••••" autoComplete={isSignup ? 'new-password' : 'current-password'} />
-                {/* A 36px plate with a 44px hit area (the before: box) that fills the field's height. */}
-                <button type="button" onClick={() => setPwVisible((v) => !v)} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[var(--radius-md)] bg-transparent text-[var(--color-txt-2)] before:absolute before:-inset-1 before:content-[''] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]">
+                <input id="password" type={pwVisible ? 'text' : 'password'} aria-invalid={fieldErr.password ? true : undefined} aria-describedby={fieldErr.password ? 'password-error' : undefined} className={`${fieldClass(fieldErr.password)} pr-12`} value={password} onChange={(ev) => setPassword(ev.target.value)} placeholder="••••••••" autoComplete={isSignup ? 'new-password' : 'current-password'} />
+                {/* A 36px plate with a 44px hit area (the before: box) that fills the field's height.
+                    Icon-only, so the label names it and says what a press does. */}
+                <button type="button" aria-label={pwVisible ? 'Hide password' : 'Show password'} onClick={() => setPwVisible((v) => !v)} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[var(--radius-md)] bg-transparent text-[var(--color-txt-2)] before:absolute before:-inset-1 before:content-[''] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]">
                   <Icon name={pwVisible ? 'eyeOff' : 'eye'} size={17} />
                 </button>
               </div>
-              {fieldErr.password && <p className={errorClass}>{fieldErr.password}</p>}
+              {fieldErr.password && <p id="password-error" className={errorClass}>{fieldErr.password}</p>}
             </div>
 
             {isSignup && (
               <div>
                 <label htmlFor="confirm" className={labelClass}>Confirm password</label>
-                <input id="confirm" type="password" className={fieldClass(fieldErr.confirm)} value={confirm} onChange={(ev) => setConfirm(ev.target.value)} placeholder="••••••••" autoComplete="new-password" />
-                {fieldErr.confirm && <p className={errorClass}>{fieldErr.confirm}</p>}
+                <input id="confirm" type="password" aria-invalid={fieldErr.confirm ? true : undefined} aria-describedby={fieldErr.confirm ? 'confirm-error' : undefined} className={fieldClass(fieldErr.confirm)} value={confirm} onChange={(ev) => setConfirm(ev.target.value)} placeholder="••••••••" autoComplete="new-password" />
+                {fieldErr.confirm && <p id="confirm-error" className={errorClass}>{fieldErr.confirm}</p>}
               </div>
             )}
 
@@ -609,7 +652,7 @@ export default function Login() {
               {!isSignup && (
                 <button
                   type="button"
-                  onClick={() => { setForgotMode(true); clearErrors() }}
+                  onClick={() => { setForgotMode(true); clearErrors(); focusNext.current = 'email' }}
                   className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink}`}
                 >
                   Forgot password?

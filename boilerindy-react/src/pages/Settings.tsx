@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { authRequest } from '../lib/authApi'
-import { clearAiCaches } from '../lib/aiInsightCache'
+import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
@@ -80,6 +80,12 @@ export default function Settings() {
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
+  // The delete form's own error. It went to the page banner, two or three
+  // screens above this last card, so a wrong password looked like nothing
+  // happened.
+  const [deleteError, setDeleteError] = useState('')
+  const deletePasswordRef = useRef<HTMLInputElement>(null)
+  const deleteConfirmRef = useRef<HTMLInputElement>(null)
 
   // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
   const [feedUrl, setFeedUrl] = useState<string | null>(null)
@@ -213,13 +219,18 @@ export default function Settings() {
     e.preventDefault()
     setBanner('')
     setStatus('')
+    setDeleteError('')
 
+    // Each error also puts focus on the field to fix: after the confirm dialog
+    // closes it would otherwise rest on nothing.
     if (deleteConfirm !== 'DELETE') {
-      setBanner('Type DELETE in the confirmation box to permanently delete your account.')
+      setDeleteError('Type DELETE in the confirmation box to permanently delete your account.')
+      deleteConfirmRef.current?.focus()
       return
     }
     if (!deletePassword) {
-      setBanner('Enter your password to confirm deletion.')
+      setDeleteError('Enter your password to confirm deletion.')
+      deletePasswordRef.current?.focus()
       return
     }
     if (
@@ -244,7 +255,10 @@ export default function Settings() {
       })
       // The account is gone and can never sign back in, so its board draft goes
       // with the AI caches; the SIGNED_OUT listener alone keeps drafts (issue #219).
+      // Its grades, schedule edits, task priorities and assistant conversation
+      // go too: they stayed in browser storage after the account was deleted.
       clearAiCaches()
+      clearUserStores(user?.id as string | undefined, { accountDeleted: true })
       try {
         await supabase.auth.signOut()
       } catch {
@@ -252,7 +266,8 @@ export default function Settings() {
       }
       window.location.replace('/')
     } catch (error) {
-      setBanner(error instanceof Error ? error.message : 'Could not delete your account.')
+      setDeleteError(error instanceof Error ? error.message : 'Could not delete your account.')
+      deletePasswordRef.current?.focus()
     } finally {
       setDeleting(false)
     }
@@ -284,22 +299,31 @@ export default function Settings() {
           </StatusBanner>
         )}
 
-        <div className="grid gap-4">
+        {/* One explicit minmax(0, 1fr) column: the implicit auto column took
+            the widest unbreakable content (a long blocked name or email), and
+            every card ran off the right edge of a 320px phone. */}
+        <div className="grid grid-cols-1 gap-4">
           <form onSubmit={handleSave} className="card card-pad r-ink">
             <CardHead icon="user" title="Account details" />
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className={FIELD_LABEL}>Display name</label>
+                <label className={FIELD_LABEL} htmlFor="settings-name">
+                  Display name
+                </label>
                 <input
+                  id="settings-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="input"
-                  placeholder="Antonio Segura"
+                  placeholder="Your name"
                 />
               </div>
               <div>
-                <label className={FIELD_LABEL}>Email</label>
+                <label className={FIELD_LABEL} htmlFor="settings-email">
+                  Email
+                </label>
                 <input
+                  id="settings-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -313,8 +337,11 @@ export default function Settings() {
               <div className="eyebrow bare mb-4">Change password</div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className={FIELD_LABEL}>Current password</label>
+                  <label className={FIELD_LABEL} htmlFor="settings-current-password">
+                    Current password
+                  </label>
                   <input
+                    id="settings-current-password"
                     type="password"
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
@@ -323,8 +350,11 @@ export default function Settings() {
                   />
                 </div>
                 <div>
-                  <label className={FIELD_LABEL}>New password</label>
+                  <label className={FIELD_LABEL} htmlFor="settings-new-password">
+                    New password
+                  </label>
                   <input
+                    id="settings-new-password"
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -333,8 +363,11 @@ export default function Settings() {
                   />
                 </div>
                 <div>
-                  <label className={FIELD_LABEL}>Confirm new password</label>
+                  <label className={FIELD_LABEL} htmlFor="settings-confirm-password">
+                    Confirm new password
+                  </label>
                   <input
+                    id="settings-confirm-password"
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -555,6 +588,7 @@ export default function Settings() {
                     Password
                   </label>
                   <input
+                    ref={deletePasswordRef}
                     id="delete-password"
                     type="password"
                     value={deletePassword}
@@ -569,6 +603,7 @@ export default function Settings() {
                     Type DELETE to confirm
                   </label>
                   <input
+                    ref={deleteConfirmRef}
                     id="delete-confirm"
                     type="text"
                     value={deleteConfirm}
@@ -579,6 +614,11 @@ export default function Settings() {
                   />
                 </div>
               </div>
+              {deleteError && (
+                <StatusBanner tone="error" className="mt-4">
+                  {deleteError}
+                </StatusBanner>
+              )}
               <button
                 type="submit"
                 disabled={deleting}

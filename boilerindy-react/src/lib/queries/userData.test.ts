@@ -255,10 +255,15 @@ describe('useToggleTaskCompletion', () => {
     expect(after?.completions.map((c) => c.calendar_item_id)).toEqual(['cal-1'])
   })
 
-  test('no response keeps the tick for the device-store fallback', async () => {
+  // A kept tick was saved on this device alone, which switched Assignments
+  // to the device store; now the account's state stays on screen.
+  test.each([
+    ['no response', new TypeError('Failed to fetch')],
+    ['a 5xx', httpError(500, 'Could not update task')],
+  ])('%s rolls the tick back too, even while the server stays down', async (_case, failure) => {
     const { client, result } = setup()
-    request.mockRejectedValue(new TypeError('Failed to fetch'))
-    await expect(result.current.mutateAsync({ id: 'm1', isManual: true, completed: true })).rejects.toBeInstanceOf(TypeError)
-    expect(client.getQueryData<TaskMeta>(key)?.manualTasks[0].completedAt).not.toBeNull()
+    request.mockRejectedValue(failure)
+    await expect(result.current.mutateAsync({ id: 'm1', isManual: true, completed: true })).rejects.toBe(failure)
+    expect(client.getQueryData<TaskMeta>(key)).toEqual(serverMeta)
   })
 })

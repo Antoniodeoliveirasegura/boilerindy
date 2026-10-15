@@ -7,6 +7,7 @@ import {
   isoToHm,
   loadScheduleOverrides,
   manualClassesAsItems,
+  manualClassesForDays,
   removeManualClass,
   saveSeriesOverride,
   updateManualClass,
@@ -113,6 +114,30 @@ describe('manual classes', () => {
     })
     expect(manualClassesAsItems(state.manual, new Date(MON))).toHaveLength(1)
     expect(manualClassesAsItems(state.manual, new Date(SAT))).toHaveLength(0)
+  })
+
+  // Home expanded them for today alone, so the week strip counted a class
+  // added by hand only on today and the next-class board skipped tomorrow's.
+  test('expand over a run of days, once per meeting day, each with its own id', () => {
+    const state = addManualClass('user-1', {
+      code: 'BIOL 11000',
+      name: 'Fundamentals of Biology',
+      room: '',
+      days: ['Monday', 'Wednesday', 'Friday'],
+      startHm: '07:00',
+      endHm: '07:50',
+    })
+    const monday = new Date(2026, 8, 7, 15, 0)
+    const items = manualClassesForDays(state.manual, monday, 7)
+    const starts = items.map((item) => new Date(item.startTime as string))
+    expect(starts.map((d) => [d.getDate(), d.getHours(), d.getMinutes()])).toEqual([
+      [7, 7, 0],
+      [9, 7, 0],
+      [11, 7, 0],
+    ])
+    expect(new Set(items.map((item) => item.id)).size).toBe(3)
+    expect(items[0].id).toBe(`manual-${state.manual[0].id}-2026-09-07`)
+    expect(manualClassesForDays(state.manual, monday, 0)).toEqual([])
   })
 })
 

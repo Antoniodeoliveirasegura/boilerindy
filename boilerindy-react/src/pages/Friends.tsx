@@ -5,6 +5,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import PageTitle from '../components/PageTitle'
+import StatusBanner from '../components/StatusBanner'
 
 // Friend Matching (issue #17). Privacy is opt-in (discoverable, default off):
 // pre-acceptance only name, interests, and shared-course count are shown.
@@ -33,12 +34,19 @@ export default function Friends() {
   const [bio, setBio] = useState('')
   const [interests, setInterests] = useState('')
   const [discoverable, setDiscoverable] = useState(false)
+  // The form is only editable once the saved profile has loaded. Before, a
+  // failed read left the blanks in place, and Save sent them as the whole
+  // profile: it wiped the bio and interests and turned discoverable off.
+  const [profileState, setProfileState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileMsg, setProfileMsg] = useState('')
 
   const [matches, setMatches] = useState<Match[]>([])
   const [loadingMatches, setLoadingMatches] = useState(true)
   const [matchError, setMatchError] = useState('')
+  // What became of the last Connect: "Request sent", or why it failed (the
+  // match comes back on a failure, which used to be the only sign of it).
+  const [connectNotice, setConnectNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
   const [accepted, setAccepted] = useState<Connection[]>([])
   const [incoming, setIncoming] = useState<IncomingRequest[]>([])
@@ -50,6 +58,8 @@ export default function Friends() {
 
   const loadMatches = useCallback(() => {
     setLoadingMatches(true)
+    // A reload that succeeds must not keep an earlier failure's message.
+    setMatchError('')
     authRequest('/api/me/matches')
       .then((data) => {
         const d = data as { matches?: Match[] }
@@ -69,17 +79,25 @@ export default function Friends() {
       .catch(() => {})
   }, [])
 
-  useEffect(() => {
-    let active = true
+  // isCurrent lets the first load ignore an answer that lands after unmount.
+  const loadProfile = useCallback((isCurrent: () => boolean = () => true) => {
     authRequest('/api/me/profile-card')
       .then((data) => {
-        if (!active) return
+        if (!isCurrent()) return
         const d = data as { bio?: string; interests?: string[]; discoverable?: boolean }
         setBio(d?.bio || '')
         setInterests((d?.interests || []).join(', '))
         setDiscoverable(Boolean(d?.discoverable))
+        setProfileState('ready')
       })
-      .catch(() => {})
+      .catch(() => {
+        if (isCurrent()) setProfileState('failed')
+      })
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    loadProfile(() => active)
     // Initial matches fetch inline - loadingMatches already starts true, so we
     // only setState in async callbacks (no synchronous setState in the effect).
     authRequest('/api/me/matches')
@@ -97,10 +115,16 @@ export default function Friends() {
     return () => {
       active = false
     }
-  }, [loadConnections])
+  }, [loadConnections, loadProfile])
+
+  function retryProfile() {
+    setProfileState('loading')
+    loadProfile()
+  }
 
   async function saveProfile(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (profileState !== 'ready') return
     setSavingProfile(true)
     setProfileMsg('')
     try {
@@ -122,8 +146,15 @@ export default function Friends() {
   }
 
   function connect(match: Match) {
+    setConnectNotice(null)
     setMatches((prev) => prev.filter((m) => m.userId !== match.userId))
-    authRequest('/api/connections', { method: 'POST', body: JSON.stringify({ addresseeId: match.userId }) }).catch(() => loadMatches())
+    authRequest('/api/connections', { method: 'POST', body: JSON.stringify({ addresseeId: match.userId }) })
+      .then(() => setConnectNotice({ tone: 'success', text: `Request sent to ${match.displayName || 'your classmate'}.` }))
+      .catch((err: unknown) => {
+        // The reload brings the classmate back; say why (as respond does).
+        loadMatches()
+        setConnectNotice({ tone: 'error', text: writeFailureMessage(err, 'Could not send the request. Please try again.') })
+      })
   }
 
   function respond(req: IncomingRequest, action: 'accept' | 'decline') {
@@ -177,6 +208,14 @@ export default function Friends() {
               Turn on “discoverable” to appear to classmates in your courses. Until you accept a request, others only see
               your name, interests, and how many courses you share - never your email or schedule. Default is off.
             </p>
+            {profileState === 'failed' && (
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBanner tone="error">Could not load your profile, so it cannot be edited right now.</StatusBanner>
+                <button type="button" onClick={retryProfile} className="btn btn-secondary btn-sm">
+                  Try again
+                </button>
+              </div>
+            )}
             {/* Visible labels (the copy the placeholders used to carry), so
                 a filled-in profile still says what each field is. */}
             <div className="grid gap-3.5">
@@ -186,6 +225,7 @@ export default function Friends() {
                   id="friends-bio"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
+                  disabled={profileState !== 'ready'}
                   maxLength={300}
                   rows={2}
                   className="input resize-y block"
@@ -197,6 +237,7 @@ export default function Friends() {
                   id="friends-interests"
                   value={interests}
                   onChange={(e) => setInterests(e.target.value)}
+                  disabled={profileState !== 'ready'}
                   className="input"
                 />
               </div>
@@ -206,12 +247,13 @@ export default function Friends() {
                 type="checkbox"
                 checked={discoverable}
                 onChange={(e) => setDiscoverable(e.target.checked)}
+                disabled={profileState !== 'ready'}
                 className="w-4 h-4 accent-[var(--color-txt-0)]"
               />
               Discoverable to classmates
             </label>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" disabled={savingProfile} className="btn btn-primary">
+              <button type="submit" disabled={savingProfile || profileState !== 'ready'} className="btn btn-primary">
                 {savingProfile ? 'Saving…' : 'Save profile'}
               </button>
               {profileMsg && <span className="text-[13px] text-[var(--color-txt-2)]">{profileMsg}</span>}
@@ -297,6 +339,11 @@ export default function Friends() {
               <div className="card-title">Suggested classmates</div>
             </div>
             {matchError && <div className="mb-3 text-[14px] text-[var(--color-error)]">{matchError}</div>}
+            {connectNotice && (
+              <StatusBanner tone={connectNotice.tone} className="mb-3">
+                {connectNotice.text}
+              </StatusBanner>
+            )}
             {loadingMatches ? (
               <p className="text-[14px] text-[var(--color-txt-2)]">Loading…</p>
             ) : !discoverable ? (

@@ -5,6 +5,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import PageTitle from '../components/PageTitle'
+import StatusBanner from '../components/StatusBanner'
 
 // Study Group Finder (issue #33). Privacy is opt-in (default off): a student only
 // appears in classmate counts after turning the toggle on, and membership is
@@ -44,6 +45,11 @@ export default function StudyGroups() {
   const [loadingGroups, setLoadingGroups] = useState(false)
 
   const [myGroups, setMyGroups] = useState<StudyGroup[]>([])
+  // Join and Leave used to swallow every failure (a group that just filled,
+  // the write limiter), and a double tap sent two requests. A group's button
+  // now waits for its request, and a failure is told in that group's row.
+  const [busyGroupIds, setBusyGroupIds] = useState<string[]>([])
+  const [groupError, setGroupError] = useState<{ id: string; context: 'course' | 'mine'; message: string } | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -133,7 +139,10 @@ export default function StudyGroups() {
           title: form.title.trim(),
           description: form.description.trim(),
           meetingInfo: form.meetingInfo.trim(),
-          capacity: form.capacity === '' ? undefined : Number(form.capacity),
+          // Sent as typed so the server checks it: Number('six') is NaN, which
+          // JSON sends as null, and null means no limit, so a size that was not
+          // a number used to create an unlimited group without a word.
+          capacity: form.capacity.trim() === '' ? undefined : form.capacity.trim(),
         }),
       })
       setForm(EMPTY_FORM)
@@ -147,22 +156,21 @@ export default function StudyGroups() {
     }
   }
 
-  function joinGroup(group: StudyGroup) {
-    authRequest(`/api/study-groups/${group.id}/join`, { method: 'POST' })
-      .then(() => {
+  function changeMembership(group: StudyGroup, action: 'join' | 'leave', context: 'course' | 'mine') {
+    if (busyGroupIds.includes(group.id)) return
+    setBusyGroupIds((ids) => [...ids, group.id])
+    setGroupError(null)
+    authRequest(`/api/study-groups/${group.id}/${action}`, { method: 'POST' })
+      .catch((err: unknown) => {
+        // The server's reason ("This group is full.", the limiter's 429) or a
+        // generic line; the reload below shows the counts that caused it.
+        setGroupError({ id: group.id, context, message: writeFailureMessage(err, `Could not ${action} the group. Please try again.`) })
+      })
+      .finally(() => {
+        setBusyGroupIds((ids) => ids.filter((id) => id !== group.id))
         if (selectedCourse) selectCourse(selectedCourse)
         loadMyGroups()
       })
-      .catch(() => {})
-  }
-
-  function leaveGroup(group: StudyGroup) {
-    authRequest(`/api/study-groups/${group.id}/leave`, { method: 'POST' })
-      .then(() => {
-        if (selectedCourse) selectCourse(selectedCourse)
-        loadMyGroups()
-      })
-      .catch(() => {})
   }
 
   // A blocked creator's groups leave both lists, so both are read again.
@@ -173,6 +181,8 @@ export default function StudyGroups() {
   }
 
   function renderGroupCard(group: StudyGroup, context: 'course' | 'mine') {
+    const busy = busyGroupIds.includes(group.id)
+    const full = Boolean(group.capacity) && (group.memberCount ?? 0) >= (group.capacity ?? 0)
     return (
       <li key={group.id} className="py-4 border-t border-[var(--color-border)] first:border-t-0">
         <div className="flex items-start justify-between gap-3">
@@ -200,21 +210,32 @@ export default function StudyGroups() {
           {group.joinedByMe ? (
             <button
               type="button"
-              onClick={() => leaveGroup(group)}
+              onClick={() => changeMembership(group, 'leave', context)}
+              disabled={busy}
               className="btn btn-ghost btn-sm shrink-0 -mr-3 text-[var(--color-txt-2)]"
             >
               Leave
             </button>
+          ) : full ? (
+            <button type="button" disabled className="btn btn-ink btn-sm shrink-0">
+              Full
+            </button>
           ) : (
             <button
               type="button"
-              onClick={() => joinGroup(group)}
+              onClick={() => changeMembership(group, 'join', context)}
+              disabled={busy}
               className="btn btn-ink btn-sm shrink-0"
             >
               Join
             </button>
           )}
         </div>
+        {groupError?.id === group.id && groupError.context === context && (
+          <StatusBanner tone="error" className="mt-2.5">
+            {groupError.message}
+          </StatusBanner>
+        )}
         {(context === 'mine' && group.courseCode) || !group.isMine ? (
           <div className="mod-actions">
             {context === 'mine' && group.courseCode && (

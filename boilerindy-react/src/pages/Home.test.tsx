@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Home from './Home'
@@ -10,12 +10,23 @@ import Home from './Home'
 // shows an empty state and never calls /api/assistant.
 
 // A failed layout fetch keeps the default dashboard, which has the Week ahead card.
-// Classes come back empty unless a test sets `classes.items`.
+// Classes, the calendar and the task list come back empty unless a test fills
+// them; `calendar.down` fails every calendar read, as through a gateway 502.
 const classes = vi.hoisted(() => ({ items: [] as Record<string, unknown>[] }))
+const calendar = vi.hoisted(() => ({ items: [] as Record<string, unknown>[], down: false }))
+const tasks = vi.hoisted(() => ({
+  completions: [] as Record<string, unknown>[],
+  manualTasks: [] as Record<string, unknown>[],
+}))
 vi.mock('../lib/authApi', () => ({
   authRequest: vi.fn(async (path: string) => {
     if (path === '/api/me/dashboard') throw new Error('offline')
     if (path.startsWith('/api/me/classes')) return { items: classes.items }
+    if (path.startsWith('/api/me/calendar?')) {
+      if (calendar.down) throw Object.assign(new Error('<html><body><h1>502 Bad Gateway</h1></body></html>'), { status: 502 })
+      return { items: calendar.items }
+    }
+    if (path === '/api/me/tasks/meta') return tasks
     return {}
   }),
   shouldSkipSetup: () => true,
@@ -52,6 +63,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
   auth.onboarding.linkedSourceCount = 0
   classes.items = []
+  calendar.items = []
+  calendar.down = false
+  tasks.completions = []
+  tasks.manualTasks = []
 })
 
 function renderHome() {
@@ -103,4 +118,97 @@ it('keeps Get Directions on plain /map when there is no class', async () => {
   renderHome()
   const link = await screen.findByRole('link', { name: /get directions/i })
   expect(link.getAttribute('href')).toBe('/map')
+})
+
+const inHours = (hours: number) => new Date(Date.now() + hours * 3600_000).toISOString()
+
+function tasksDueCard() {
+  return screen.getByRole('heading', { name: 'Tasks Due' }).closest('.card') as HTMLElement
+}
+
+// Home read the calendar alone, so a quiz ticked off on Assignments kept its
+// Heads up and urgent badge, and a task added by hand never showed on Home.
+it('leaves finished tasks out of Tasks due and Heads up and lists the tasks added by hand', async () => {
+  calendar.items = [
+    { id: 'quiz-3', title: 'CS 25100 Quiz 3', category: 'quiz', startTime: inHours(15), endTime: inHours(15) },
+    { id: 'hw-6', title: 'ECE 20200 Homework 6', category: 'assignment', startTime: inHours(30), endTime: inHours(30) },
+  ]
+  tasks.completions = [{ calendar_item_id: 'quiz-3', completed_at: new Date().toISOString() }]
+  tasks.manualTasks = [
+    { id: 'm1', title: 'Pay tuition', startTime: inHours(5), completedAt: null, category: 'manual_task' },
+    { id: 'm2', title: 'Return library books', startTime: inHours(6), completedAt: new Date().toISOString(), category: 'manual_task' },
+  ]
+  renderHome()
+
+  expect(await within(tasksDueCard()).findByText('Pay tuition')).toBeInTheDocument()
+  expect(within(tasksDueCard()).getByText('Homework 6')).toBeInTheDocument()
+  expect(within(tasksDueCard()).queryByText('Quiz 3')).toBeNull()
+  expect(screen.getByText('Pay tuition is due in 5h')).toBeInTheDocument()
+  expect(screen.queryByText(/Quiz 3 is due in/)).toBeNull()
+  expect(screen.queryByText(/Return library books/)).toBeNull()
+})
+
+// A feed deadline ends when it starts, and the rows used the event formatter.
+it('shows a deadline as one time, never a zero-length range', async () => {
+  const due = new Date()
+  due.setDate(due.getDate() + 2)
+  due.setHours(23, 59, 0, 0)
+  calendar.items = [{ id: 'hw-6', title: 'ECE 20200 Homework 6', category: 'assignment', startTime: due.toISOString(), endTime: due.toISOString() }]
+  renderHome()
+
+  expect(await within(tasksDueCard()).findByText(/^Due by end of day · /)).toBeInTheDocument()
+  expect(within(tasksDueCard()).queryByText(/11:59 PM - 11:59 PM/)).toBeNull()
+})
+
+// The empty state used to say "Nothing due right now" when the read failed.
+it('says the calendar could not load, with Try again, instead of "Nothing due right now"', async () => {
+  calendar.down = true
+  renderHome()
+
+  const alert = await within(tasksDueCard()).findByRole('alert')
+  expect(alert).toHaveTextContent('Could not load your calendar, so deadlines from it are missing.')
+  expect(within(tasksDueCard()).queryByText(/Nothing due right now/)).toBeNull()
+
+  calendar.down = false
+  calendar.items = [{ id: 'hw-6', title: 'ECE 20200 Homework 6', category: 'assignment', startTime: inHours(30), endTime: inHours(30) }]
+  fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+  expect(await within(tasksDueCard()).findByText('Homework 6')).toBeInTheDocument()
+  expect(within(tasksDueCard()).queryByRole('alert')).toBeNull()
+})
+
+// Home expanded classes added by hand for today alone: the week strip showed
+// them on today only, and the next-class board skipped tomorrow's.
+it('counts a class added by hand on the days it meets and shows tomorrow\'s on the next-class board', async () => {
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const day = tomorrow.toLocaleDateString('en-US', { weekday: 'long' })
+  localStorage.setItem(
+    'boilerindy-schedule-overrides-v1-user-1',
+    JSON.stringify({
+      series: {},
+      manual: [{ id: 'bio', code: 'BIOL 11000', name: 'Fundamentals of Biology', room: 'LILY 1105', days: [day], startHm: '07:00', endHm: '07:50' }],
+    }),
+  )
+  renderHome()
+
+  expect((await screen.findAllByText('BIOL 11000')).length).toBeGreaterThan(0)
+  expect(screen.queryByText('No upcoming classes')).toBeNull()
+  const strip = screen.getByRole('list', { name: 'Your next seven days' })
+  const labels = Array.from(strip.querySelectorAll('li .sr-only'), (el) => el.textContent ?? '')
+  expect(labels.filter((label) => label.includes('1 class'))).toEqual([labels[1]])
+})
+
+// Week ahead read only `reply`, so a refused or failed generation left the
+// card with no summary and nothing said.
+it('says why the week ahead could not be generated', async () => {
+  auth.onboarding.linkedSourceCount = 1
+  fetchMock.mockImplementation(async (url: unknown) =>
+    String(url) === '/api/assistant'
+      ? new Response(JSON.stringify({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }), { status: 429 })
+      : new Response('{}', { status: 200 }),
+  )
+  renderHome()
+
+  expect(await screen.findByText('You have hit the hourly assistant limit. Try again in a little while.')).toHaveAttribute('role', 'alert')
+  expect(screen.queryByText(/Generating your week summary/)).toBeNull()
 })

@@ -410,13 +410,24 @@ export function createAdvertiserRouter({
       return res.status(400).json({ error: { message: error.message, status: 400 } })
     }
 
+    // The patch was checked against the status read above, so it only lands
+    // while the row still has that status. Otherwise two requests sent
+    // together, one editing a paused campaign's banner (which sends it back to
+    // draft) and one resuming it, could both pass their checks and leave the
+    // new banner live without review.
     const { data, error } = await supabase
       .from('campaigns')
       .update({ ...campaignFieldsToColumns(patch), updated_at: new Date().toISOString() })
       .eq('id', campaign.id)
       .eq('advertiser_id', req.currentAdvertiser.id)
+      .eq('status', campaign.status)
       .select()
       .single()
+    if (error?.code === 'PGRST116') {
+      return res.status(409).json({
+        error: { message: 'This campaign changed while you were saving. Reload the page and try again.', status: 409 },
+      })
+    }
     if (error) return respondAdvertiserDbError(res, error)
 
     res.json({ campaign: mapCampaignRow(data) })

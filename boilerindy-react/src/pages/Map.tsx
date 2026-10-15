@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, useMap, GeoJSON, Marker, CircleMarker, ZoomControl } from 'react-leaflet'
 import * as L from 'leaflet'
@@ -126,6 +126,23 @@ function MapController({ flyRequest }: { flyRequest: FlyRequest }) {
 
 type Section = (typeof SECTIONS)[number] & { items: Building[] }
 
+/**
+ * Whether the building layer is still loading or failed, under the search box
+ * in the desktop sidebar and in the phone sheet. Only the sidebar had it, and
+ * it is hidden below lg, so on a phone a failed layer looked like an empty
+ * list.
+ */
+function BuildingsStatus({ loading, error, className = '' }: { loading: boolean; error: string | null; className?: string }) {
+  if (loading) return <div className={`text-[12.5px] text-[var(--color-txt-2)] ${className}`}>Loading buildings...</div>
+  if (error) return <div className={`text-[12.5px] text-[var(--color-error)] ${className}`}>Error: {error}</div>
+  return null
+}
+
+/** A search that matches nothing says so, instead of leaving the list blank. */
+function NoMatches({ query }: { query: string }) {
+  return <p className="px-2 py-4 text-[13.5px] text-[var(--color-txt-2)]">No buildings match “{query}”.</p>
+}
+
 /** The grouped building list, shared by the desktop sidebar and the phone sheet. */
 function BuildingList({
   sections,
@@ -198,6 +215,9 @@ export default function Map() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false) // For mobile
+  const sheetRef = useRef<HTMLDivElement | null>(null)
+  const sheetSearchRef = useRef<HTMLInputElement | null>(null)
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
@@ -294,6 +314,7 @@ export default function Map() {
     return SECTIONS.map(s => ({ ...s, items: bySection[s.key] }))
   }, [filteredBuildings])
 
+  const noMatches = buildings.length > 0 && filteredBuildings.length === 0
   const selectedBuilding = buildings.find(b => b.id === selectedId) ?? null
   const line = LINE[dark ? 'dark' : 'light']
 
@@ -335,6 +356,34 @@ export default function Map() {
     })
   }
 
+  // Opening the phone sheet puts focus in its search box. autoFocus only ran
+  // at mount, when the sheet was closed, so focus stayed on the search button
+  // behind the backdrop.
+  useEffect(() => {
+    if (sidebarOpen) sheetSearchRef.current?.focus({ preventScroll: true })
+  }, [sidebarOpen])
+
+  // Focus left in the sheet as it closes (a building picked, the close
+  // button) goes back to the search button instead of dropping to the page
+  // body. A layout effect, so it runs before the browser clears focus out of
+  // the newly inert sheet.
+  useLayoutEffect(() => {
+    if (!sidebarOpen && sheetRef.current?.contains(document.activeElement)) searchButtonRef.current?.focus()
+  }, [sidebarOpen])
+
+  // Escape closes the sheet, as it does the assistant panel. Nothing handled
+  // it, so the sheet stayed open.
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setSidebarOpen(false)
+      searchButtonRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [sidebarOpen])
+
   // Close sidebar when a building is selected on mobile
   const handleBuildingSelect = (b: Building) => {
     setSelectedId(b.id)
@@ -368,16 +417,12 @@ export default function Map() {
             className="input"
           />
           <MapLayerToggle layers={layers} onToggle={toggleLayer} />
-          {loading && (
-            <div className="text-[12.5px] text-[var(--color-txt-2)]">Loading buildings...</div>
-          )}
-          {error && (
-            <div className="text-[12.5px] text-[var(--color-error)]">Error: {error}</div>
-          )}
+          <BuildingsStatus loading={loading} error={error} />
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 pb-6">
           <BuildingList sections={grouped} selectedId={selectedId} onSelect={handleBuildingSelect} heading="h2" />
+          {noMatches && <NoMatches query={search.trim()} />}
         </div>
       </aside>
 
@@ -442,6 +487,7 @@ export default function Map() {
 
         {/* Mobile: Search FAB */}
         <button
+          ref={searchButtonRef}
           onClick={() => setSidebarOpen(true)}
           className={`lg:hidden absolute top-4 left-4 z-[1000] ${INK_BUTTON}`}
           aria-label="Search buildings"
@@ -461,6 +507,18 @@ export default function Map() {
             className="flex-nowrap gap-1.5 w-fit max-w-[calc(100%+12px)] overflow-x-auto scrollbar-hide p-1.5 pb-3 -m-1.5 -mb-3 pointer-events-auto"
           />
         </div>
+
+        {/* Phones: a failed building layer says so on the map itself, under
+            the top controls, as the desktop sidebar does. Without it the map
+            showed no labels, a room link selected nothing and nothing said
+            why. */}
+        {error && (
+          <div className="lg:hidden absolute top-[72px] left-4 right-4 z-[1000] pointer-events-none">
+            <p role="alert" className="ink-panel w-fit px-3 py-2 text-[12.5px] leading-snug text-[var(--color-ink-txt)] shadow-[var(--shadow-md)]">
+              Buildings could not load, so search and room links cannot find one.
+            </p>
+          </div>
+        )}
 
         {/* Locate Me Button */}
         <button
@@ -510,7 +568,10 @@ export default function Map() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <div className={`r-map lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] border-t border-[var(--color-border-2)] rounded-t-[var(--radius-2xl)] shadow-[var(--shadow-xl)] z-[1002] transition-transform duration-300 ${
+      {/* The sheet stays mounted and only slides off screen, so closed it is
+          inert: its close button, search box and building list used to stay
+          in the Tab order, focus moving through them out of sight. */}
+      <div ref={sheetRef} inert={!sidebarOpen} className={`r-map lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] border-t border-[var(--color-border-2)] rounded-t-[var(--radius-2xl)] shadow-[var(--shadow-xl)] z-[1002] transition-transform duration-300 ${
         sidebarOpen ? 'translate-y-0' : 'translate-y-full'
       }`} style={{ maxHeight: '75vh' }}>
         {/* Handle */}
@@ -533,18 +594,20 @@ export default function Map() {
             </button>
           </div>
           <input
+            ref={sheetSearchRef}
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search buildings..."
             className="input"
-            autoFocus={sidebarOpen}
           />
+          <BuildingsStatus loading={loading} error={error} className="mt-2.5" />
         </div>
 
         {/* Building List */}
         <div className="overflow-y-auto px-2 pb-8" style={{ maxHeight: 'calc(75vh - 120px)' }}>
           <BuildingList sections={grouped} selectedId={selectedId} onSelect={handleBuildingSelect} heading="h3" roomy />
+          {noMatches && <NoMatches query={search.trim()} />}
         </div>
       </div>
     </div>

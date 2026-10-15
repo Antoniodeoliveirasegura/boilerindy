@@ -1,6 +1,6 @@
 import express from 'express'
 import { categoryListFromCounts, loadCalendarCategoryCounts } from '../calendarCategoryCounts.mjs'
-import { badRequest, respondRouteError } from '../dbErrors.mjs'
+import { badRequest, isSchemaMissingError, respondRouteError } from '../dbErrors.mjs'
 import { getProgram } from '../degreePrograms.mjs'
 import {
   LETTER_GRADES,
@@ -129,7 +129,13 @@ export function createMeRouter({ supabase, requireAuth, userWriteRateLimit, list
     const categories = typeof req.query.categories === 'string' ? req.query.categories.split(',').filter(Boolean) : null
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 100
     const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
-    res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from }) })
+    // A failed read is a 500, not an empty list: Home, Assignments and Events
+    // read { items: [] } as "nothing due" and said so.
+    try {
+      res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from, throwOnError: true }) })
+    } catch (e) {
+      respondRouteError(res, e, { label: 'GET /api/me/calendar', fallback: 'Could not load your calendar.' })
+    }
   })
 
   // Counted in Postgres by calendar_category_counts (db/supabase-calendar-category-counts.sql)
@@ -171,6 +177,14 @@ export function createMeRouter({ supabase, requireAuth, userWriteRateLimit, list
         manualTasks: (manualRes.data || []).map(mapManualTaskRow),
       })
     } catch (e) {
+      // Only missing task tables mean "keep tasks in this browser". Any other
+      // failure (a timeout, a dropped connection to the database) used to give
+      // the same answer, so one bad read hid every task on the account and sent
+      // the student's next adds and ticks to the device store, never the server.
+      // A 500 lets the page say it could not load and offer to try again.
+      if (!isSchemaMissingError(e)) {
+        return respondRouteError(res, e, { label: 'GET /api/me/tasks/meta', fallback: 'Could not load your tasks.' })
+      }
       console.error('GET /api/me/tasks/meta:', e?.message || e)
       res.json({ completions: [], manualTasks: [], unavailable: true })
     }

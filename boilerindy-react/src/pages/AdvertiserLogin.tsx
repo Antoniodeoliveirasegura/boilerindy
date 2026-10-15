@@ -176,9 +176,11 @@ export default function AdvertiserLogin() {
               </span>
               <span className="pl-3 pr-3.5">Advertiser Portal</span>
             </div>
-            <h1 className="page-title mt-7 text-[var(--color-ink-txt)]">
+            {/* A paragraph, not a heading: this panel only shows from lg up, so
+                phones and tablets had no h1 at all. The form title is the h1. */}
+            <p className="page-title mt-7 text-[var(--color-ink-txt)]">
               Put your brand where students actually look.
-            </h1>
+            </p>
             <p className="mt-5 max-w-[460px] text-[16px] leading-relaxed text-[var(--color-ink-dim)]">
               BoilerIndy is the daily home screen for Purdue Indianapolis student life. Reach them in context - without the noise of social feeds.
             </p>
@@ -246,9 +248,9 @@ export default function AdvertiserLogin() {
             </div>
           )}
 
-          <h2 className="page-title compact">
+          <h1 className="page-title compact">
             {showForgot ? 'Reset your password' : 'Advertiser sign in'}
-          </h2>
+          </h1>
           <p className="page-sub mb-6">
             {showForgot
               ? 'Enter your business email and we’ll send you a reset link.'

@@ -1,10 +1,21 @@
 import { beforeEach, describe, expect, test } from 'vitest'
-import { aiCacheKey, boardDraftKey, boardReplyDraftKey, clearAiCaches, readAiCache, writeAiCache } from './aiInsightCache'
+import {
+  aiCacheKey,
+  boardDraftKey,
+  boardReplyDraftKey,
+  clearAiCaches,
+  clearUserStores,
+  readAiCache,
+  writeAiCache,
+} from './aiInsightCache'
 
 // Issue #219 - the AI insight caches and the board draft were stored without a
 // user id, so the next account on a shared computer saw the previous student's
 // assignment ranking, week-ahead digest, event picks and unsent post.
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
 
 describe('aiCacheKey', () => {
   test('includes the feature, the user id and the suffix', () => {
@@ -124,5 +135,71 @@ describe('clearAiCaches', () => {
   test('is a no-op on empty storage', () => {
     expect(() => clearAiCaches()).not.toThrow()
     expect(localStorage.length).toBe(0)
+  })
+})
+
+// Sign-out and account deletion left the student's grades, schedule edits and
+// assistant conversation in browser storage, readable in devtools by the next
+// person at a shared computer.
+describe('clearUserStores', () => {
+  function seed() {
+    localStorage.setItem('boilerindy-grades-v1-user-1', '[{"courseName":"PSY 12000","letterGrade":"D"}]')
+    localStorage.setItem('boilerindy-major-v1-user-1', 'Psychology')
+    localStorage.setItem('boilerindy-schedule-overrides-v1-user-1', '{"series":{},"manual":[]}')
+    // Only on this device.
+    localStorage.setItem('boilerindy-task-priority-v1-user-1', '{"task-a":"high"}')
+    localStorage.setItem('boilerindy-tasks-v1-user-1', '{"completions":{},"manualTasks":[]}')
+    localStorage.setItem('boilerindy-dashboard-layout-v1-user-1', '[]')
+    localStorage.setItem('boilerindy-services-layout-v1-user-1', '[]')
+    // Another account on the same computer, and a device-wide setting.
+    localStorage.setItem('boilerindy-grades-v1-user-11', '[]')
+    localStorage.setItem('boilerindy-grades-v1-user-2', '[]')
+    localStorage.setItem('pih-theme', 'dark')
+    sessionStorage.setItem('boilerindy-assistant-history-v1-user-1', '[{"role":"user","text":"Should I drop PSY 12000?"}]')
+    sessionStorage.setItem('boilerindy-assistant-history-v1-user-2', '[]')
+  }
+
+  test('sign-out removes what the server keeps and the conversation, and leaves device-only stores', () => {
+    seed()
+    clearUserStores('user-1')
+    expect(Object.keys(localStorage).sort()).toEqual([
+      'boilerindy-dashboard-layout-v1-user-1',
+      'boilerindy-grades-v1-user-11',
+      'boilerindy-grades-v1-user-2',
+      'boilerindy-services-layout-v1-user-1',
+      'boilerindy-task-priority-v1-user-1',
+      'boilerindy-tasks-v1-user-1',
+      'pih-theme',
+    ])
+    expect(Object.keys(sessionStorage)).toEqual(['boilerindy-assistant-history-v1-user-2'])
+  })
+
+  // The upload is still owed, so dropping the edits would lose them.
+  test('sign-out keeps schedule edits that have not reached the server', () => {
+    seed()
+    localStorage.setItem('boilerindy-schedule-overrides-dirty-v1-user-1', '1')
+    clearUserStores('user-1')
+    expect(localStorage.getItem('boilerindy-schedule-overrides-v1-user-1')).not.toBeNull()
+    expect(localStorage.getItem('boilerindy-schedule-overrides-dirty-v1-user-1')).toBe('1')
+    expect(localStorage.getItem('boilerindy-grades-v1-user-1')).toBeNull()
+  })
+
+  test('a deleted account loses every one of its stores and nobody else\'s', () => {
+    seed()
+    localStorage.setItem('boilerindy-schedule-overrides-dirty-v1-user-1', '1')
+    clearUserStores('user-1', { accountDeleted: true })
+    expect(Object.keys(localStorage).sort()).toEqual([
+      'boilerindy-grades-v1-user-11',
+      'boilerindy-grades-v1-user-2',
+      'pih-theme',
+    ])
+    expect(Object.keys(sessionStorage)).toEqual(['boilerindy-assistant-history-v1-user-2'])
+  })
+
+  test('does nothing without a user id', () => {
+    seed()
+    const before = Object.keys(localStorage).length
+    clearUserStores(undefined, { accountDeleted: true })
+    expect(Object.keys(localStorage).length).toBe(before)
   })
 })

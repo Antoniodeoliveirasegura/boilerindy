@@ -42,6 +42,37 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
+// Shown when the assistant fails without saying why (no response, or a body
+// with no message). The chat panel says the same.
+const ASSISTANT_UNREACHABLE = "Couldn't reach the assistant right now. Try again in a moment."
+
+type AssistantAnswer = { reply: string } | { error: string }
+
+// Polish with AI and Summarize long thread read only `reply`, so the hourly
+// limit's 429 and the 502 when Groq fails put the button back with nothing
+// said, and a 200 marked busy or offline, which carries a status line rather
+// than the model's text, replaced the student's draft title (R60). That status
+// line is the message now, never the rewrite or the summary.
+async function askAssistant(content: string): Promise<AssistantAnswer> {
+  try {
+    const res = await fetch('/api/assistant', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content }] }),
+    })
+    const data = (await res.json().catch(() => null)) as { reply?: unknown; source?: unknown; error?: unknown } | null
+    const reply = typeof data?.reply === 'string' ? data.reply : ''
+    if (res.ok && reply && data?.source !== 'busy' && data?.source !== 'offline') return { reply }
+    // The limiter sends `error` as a string; the app's error handler sends { message }.
+    const error = data?.error as string | { message?: unknown } | null | undefined
+    const message = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
+    return { error: message || reply || ASSISTANT_UNREACHABLE }
+  } catch {
+    return { error: ASSISTANT_UNREACHABLE }
+  }
+}
+
 // Report and Block author on someone else's post or reply (issue #192). An
 // anonymous one is reported only: the Blocked users list names everyone on it,
 // so blocking its author would unmask them (owner decision, 2026-09-27). Only
@@ -68,6 +99,12 @@ export default function Board() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [replyPages, setReplyPages] = useState<Record<string, number>>({})
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set())
+  // Why a read failed. A failed board read used to clear the list and show "No
+  // threads yet", inviting a first post on a board that had not loaded, and a
+  // failed Load more or Show all replies only reset its button (R18).
+  const [loadError, setLoadError] = useState('')
+  const [loadMoreError, setLoadMoreError] = useState('')
+  const [repliesErrors, setRepliesErrors] = useState<Record<string, string>>({})
   // Drafts survive session-expiry redirects to /login (issue #23), per user so
   // the next account on a shared computer never sees them (issue #219)
   const [showForm, setShowForm] = useState(() => {
@@ -79,6 +116,7 @@ export default function Board() {
   const [isAnon, setIsAnon] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [improving, setImproving] = useState(false)
+  const [improveError, setImproveError] = useState('')
   const [postError, setPostError] = useState('')
   const [filterTag, setFilterTag] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -94,32 +132,21 @@ export default function Board() {
   const handleImprovePost = async () => {
     if (!newTitle.trim() || improving) return
     setImproving(true)
-    try {
-      const res = await fetch('/api/assistant', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `Improve this campus board post to be clearer and more likely to get helpful responses. Keep the same question intent. Return ONLY the improved title on the first line, then a blank line, then the improved body (or nothing if no body needed). No explanations.\n\nTitle: ${newTitle}\nBody: ${newBody}`,
-          }],
-        }),
-      })
-      const data = (await res.json()) as { reply?: string }
-      if (data.reply) {
-        const lines = data.reply.trim().split('\n')
-        const title = lines[0].replace(/^(Title:\s*|#+\s*)/i, '').trim()
-        const bodyLines = lines.slice(1).filter((l, i) => i > 0 || l.trim())
-        const body = bodyLines.join('\n').replace(/^(Body:\s*)/i, '').trim()
-        if (title) setNewTitle(title)
-        if (body) setNewBody(body)
-      }
-    } catch (err) {
-      console.error('Improve post error', err)
-    } finally {
-      setImproving(false)
+    setImproveError('')
+    const answer = await askAssistant(
+      `Improve this campus board post to be clearer and more likely to get helpful responses. Keep the same question intent. Return ONLY the improved title on the first line, then a blank line, then the improved body (or nothing if no body needed). No explanations.\n\nTitle: ${newTitle}\nBody: ${newBody}`,
+    )
+    setImproving(false)
+    if ('error' in answer) {
+      setImproveError(answer.error)
+      return
     }
+    const lines = answer.reply.trim().split('\n')
+    const title = lines[0].replace(/^(Title:\s*|#+\s*)/i, '').trim()
+    const bodyLines = lines.slice(1).filter((l, i) => i > 0 || l.trim())
+    const body = bodyLines.join('\n').replace(/^(Body:\s*)/i, '').trim()
+    if (title) setNewTitle(title)
+    if (body) setNewBody(body)
   }
   // ── Fetch posts ────────────────────────────────────────────────────────────
   const fetchPosts = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -130,11 +157,15 @@ export default function Board() {
       setPage(0)
       setHasMore(Boolean(data.hasMore))
       setReplyPages({})
+      setLoadError('')
+      setLoadMoreError('')
+      setRepliesErrors({})
     } catch (err) {
       console.error('Board fetch error', err)
       if (!silent) {
         setPosts([])
         setHasMore(false)
+        setLoadError(errorText(err, 'Could not load the campus board.'))
       }
     } finally {
       if (!silent) setLoading(false)
@@ -144,6 +175,7 @@ export default function Board() {
   const loadMorePosts = async () => {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
+    setLoadMoreError('')
     const next = page + 1
     try {
       const data = (await authRequest(`/api/board/posts?sort=${sort}&page=${next}`)) as BoardPage
@@ -158,6 +190,7 @@ export default function Board() {
       setHasMore(Boolean(data.hasMore))
     } catch (err) {
       console.error('Board load more error', err)
+      setLoadMoreError(errorText(err, 'Could not load more posts.'))
     } finally {
       setLoadingMore(false)
     }
@@ -170,6 +203,7 @@ export default function Board() {
     const first = loaded === undefined
     const next = first ? 0 : loaded + 1
     setLoadingReplies((prev) => new Set(prev).add(postId))
+    setRepliesErrors((prev) => ({ ...prev, [postId]: '' }))
     try {
       const data = (await authRequest(`/api/board/posts/${postId}/replies?page=${next}`)) as {
         replies?: Reply[]
@@ -187,6 +221,8 @@ export default function Board() {
       setReplyPages((prev) => ({ ...prev, [postId]: next }))
     } catch (err) {
       console.error('Board replies fetch error', err)
+      const message = errorText(err, 'Could not load the replies.')
+      setRepliesErrors((prev) => ({ ...prev, [postId]: message }))
     } finally {
       setLoadingReplies((prev) => { const n = new Set(prev); n.delete(postId); return n })
     }
@@ -392,11 +428,11 @@ export default function Board() {
   }
 
   // ── Submit reply ───────────────────────────────────────────────────────────
-  const handleSubmitReply = async (postId: string, text: string) => {
+  const handleSubmitReply = async (postId: string, text: string, anon: boolean) => {
     if (!text.trim()) return
     const data = (await authRequest(`/api/board/posts/${postId}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ body: text, anon: false }),
+      body: JSON.stringify({ body: text, anon }),
     })) as { reply: Reply }
     setPosts((prev) =>
       prev.map((p) =>
@@ -413,37 +449,24 @@ export default function Board() {
 
   const [threadSummaries, setThreadSummaries] = useState<Record<string, string>>({})
   const [summarizing, setSummarizing] = useState<Set<string>>(new Set())
+  const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({})
 
   const summarizeThread = async (post: Post) => {
     if (summarizing.has(post.id)) return
     setSummarizing((prev) => new Set(prev).add(post.id))
-    try {
-      const threadText = [
-        `Title: ${post.title}`,
-        post.body ? `Post: ${post.body}` : '',
-        ...post.replies.map((r, i) => `Reply ${i + 1} (${r.user}): ${r.body}`),
-      ].filter(Boolean).join('\n').slice(0, 2000)
+    setSummaryErrors((prev) => ({ ...prev, [post.id]: '' }))
+    const threadText = [
+      `Title: ${post.title}`,
+      post.body ? `Post: ${post.body}` : '',
+      ...post.replies.map((r, i) => `Reply ${i + 1} (${r.user}): ${r.body}`),
+    ].filter(Boolean).join('\n').slice(0, 2000)
 
-      const res = await fetch('/api/assistant', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `Summarize this campus board discussion in 2-3 concise "-" bullets. What is the main question and what are the key answers or opinions? No headings, no intro line.\n\n${threadText}`,
-          }],
-        }),
-      })
-      const data = await res.json()
-      if (data.reply) {
-        setThreadSummaries((prev) => ({ ...prev, [post.id]: data.reply }))
-      }
-    } catch (err) {
-      console.error('Summarize thread error', err)
-    } finally {
-      setSummarizing((prev) => { const n = new Set(prev); n.delete(post.id); return n })
-    }
+    const answer = await askAssistant(
+      `Summarize this campus board discussion in 2-3 concise "-" bullets. What is the main question and what are the key answers or opinions? No headings, no intro line.\n\n${threadText}`,
+    )
+    setSummarizing((prev) => { const n = new Set(prev); n.delete(post.id); return n })
+    if ('error' in answer) setSummaryErrors((prev) => ({ ...prev, [post.id]: answer.error }))
+    else setThreadSummaries((prev) => ({ ...prev, [post.id]: answer.reply }))
   }
 
   const allTags = useMemo(() => {
@@ -489,7 +512,10 @@ export default function Board() {
             type="button"
             onClick={() => {
               setShowForm(!showForm)
-              if (showForm) setPostError('')
+              if (showForm) {
+                setPostError('')
+                setImproveError('')
+              }
             }}
             className={`btn shrink-0 ${showForm ? 'btn-secondary' : 'btn-primary'}`}
           >
@@ -498,8 +524,12 @@ export default function Board() {
           </button>
         </header>
 
-        {/* Compose - scrollable so Post is never clipped on small viewports */}
+        {/* Compose - scrollable so Post is never clipped on small viewports.
+            Closed it is only styled away, so inert keeps its fields out of the
+            Tab order and the accessibility tree: Tab from New question used to
+            land in four invisible fields that took typing (R21). */}
         <div
+          inert={!showForm}
           className={`transition-opacity duration-150 ${
             showForm ? 'max-h-[min(85vh,720px)] opacity-100 mb-6 overflow-y-auto overscroll-contain' : 'max-h-0 opacity-0 mb-0 overflow-hidden pointer-events-none'
           }`}
@@ -616,29 +646,7 @@ export default function Board() {
             )}
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <label className="flex items-center gap-3 text-[14px] text-[var(--color-txt-1)] cursor-pointer select-none group">
-                <div
-                  role="checkbox"
-                  aria-checked={isAnon}
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === 'Enter' && setIsAnon((v) => !v)}
-                  className={`w-5 h-5 rounded-[var(--radius-sm)] border-[1.5px] flex items-center justify-center transition-colors shrink-0 ${
-                    isAnon
-                      ? 'bg-[var(--color-txt-0)] border-[var(--color-txt-0)]'
-                      : 'border-[var(--color-border-3)] bg-[var(--color-surface)] group-hover:border-[var(--color-txt-1)]'
-                  }`}
-                  onClick={() => setIsAnon((v) => !v)}
-                >
-                  {isAnon && <Icon name="check" size={12} className="text-[var(--color-surface)]" strokeWidth={3} />}
-                </div>
-                <input
-                  type="checkbox"
-                  checked={isAnon}
-                  onChange={(e) => setIsAnon(e.target.checked)}
-                  className="sr-only"
-                />
-                <span>Post anonymously</span>
-              </label>
+              <AnonCheckbox label="Post anonymously" checked={isAnon} onChange={setIsAnon} />
               <div className="flex items-center gap-2 flex-wrap justify-end">
                 <button
                   type="button"
@@ -661,6 +669,11 @@ export default function Board() {
                 </button>
               </div>
             </div>
+            {improveError && (
+              <p className="text-[13px] text-[var(--color-error)] mt-3" role="alert">
+                {improveError}
+              </p>
+            )}
           </div>
         </div>
 
@@ -862,10 +875,12 @@ export default function Board() {
                         </div>
 
                         <div className="counts shrink-0">
+                          {/* Named for screen readers, which announced only the count (R21). */}
                           <button
                             type="button"
                             onClick={() => handleUpvote(post.id)}
                             aria-pressed={post.upvotedByMe}
+                            aria-label={`Upvote, ${post.upvotes ?? 0}`}
                             className={`max-md:h-10 transition-colors ${
                               post.upvotedByMe
                                 ? 'bg-[var(--color-txt-0)] text-[var(--color-surface)]'
@@ -955,7 +970,10 @@ export default function Board() {
                           repliesOpen.has(post.id) ? 'grid-rows-[1fr] mt-3' : 'grid-rows-[0fr]'
                         }`}
                       >
-                        <div className="overflow-hidden min-h-0">
+                        {/* Collapsed replies are clipped, not hidden, so inert keeps
+                            their Report, Block author and reply box out of the Tab
+                            order and the accessibility tree (R21). */}
+                        <div className="overflow-hidden min-h-0" inert={!repliesOpen.has(post.id)}>
                           <div className="border-l-2 border-[var(--color-border-2)] pl-4 pr-1 pb-1">
                             {replyCountOf(post) >= 5 && (
                               <div className="pt-1 mb-2">
@@ -974,15 +992,22 @@ export default function Board() {
                                     </AiMarkdown>
                                   </div>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => summarizeThread(post)}
-                                    disabled={summarizing.has(post.id)}
-                                    className="btn btn-secondary btn-sm"
-                                  >
-                                    <Icon name="sparkles" size={14} />
-                                    {summarizing.has(post.id) ? 'Summarizing…' : 'Summarize long thread'}
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => summarizeThread(post)}
+                                      disabled={summarizing.has(post.id)}
+                                      className="btn btn-secondary btn-sm"
+                                    >
+                                      <Icon name="sparkles" size={14} />
+                                      {summarizing.has(post.id) ? 'Summarizing…' : 'Summarize long thread'}
+                                    </button>
+                                    {summaryErrors[post.id] && (
+                                      <p className="text-[13px] text-[var(--color-error)] mt-2" role="alert">
+                                        {summaryErrors[post.id]}
+                                      </p>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             )}
@@ -1036,12 +1061,20 @@ export default function Board() {
                                     : 'Load more replies'}
                               </button>
                             )}
+                            {repliesErrors[post.id] && (
+                              <p className="text-[13px] text-[var(--color-error)] mt-1" role="alert">
+                                {repliesErrors[post.id]}
+                              </p>
+                            )}
+                            {/* A reply in your own anonymous thread starts anonymous:
+                                signed with your name it unmasked you as the poster (R19). */}
                             <ReplyInput
                               userId={userId}
                               postId={post.id}
                               threadTitle={post.title}
                               threadBody={post.body || ''}
-                              onSubmit={(text) => handleSubmitReply(post.id, text)}
+                              defaultAnon={Boolean(post.isMine && post.anon)}
+                              onSubmit={(text, anon) => handleSubmitReply(post.id, text, anon)}
                             />
                           </div>
                         </div>
@@ -1053,7 +1086,7 @@ export default function Board() {
             )}
 
             {hasMore && (
-              <div className="flex justify-center pt-5">
+              <div className="flex flex-col items-center pt-5">
                 <button
                   type="button"
                   onClick={() => void loadMorePosts()}
@@ -1062,10 +1095,29 @@ export default function Board() {
                 >
                   {loadingMore ? 'Loading…' : 'Load more posts'}
                 </button>
+                {loadMoreError && (
+                  <p className="text-[13px] text-[var(--color-error)] mt-2" role="alert">
+                    {loadMoreError}
+                  </p>
+                )}
               </div>
             )}
 
-            {sortedPosts.length === 0 && (
+            {loadError && posts.length === 0 ? (
+              <div className="empty" role="alert">
+                <span className="ico">
+                  <Icon name="alert" size={18} />
+                </span>
+                <div>
+                  <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">Could not load the board</p>
+                  <p className="mt-1 max-w-[30rem]">{loadError}</p>
+                </div>
+                <button type="button" onClick={() => void fetchPosts()} className="btn btn-secondary btn-sm">
+                  <Icon name="refresh" size={15} />
+                  Try again
+                </button>
+              </div>
+            ) : sortedPosts.length === 0 && (
               <div className="empty">
                 <span className="ico">
                   <Icon name={normalizedQuery ? 'search' : 'messageCircle'} size={18} />
@@ -1114,22 +1166,55 @@ export default function Board() {
   )
 }
 
+// The anonymity choice as one native checkbox named by its text. The composer
+// paired a role="checkbox" square with a hidden native input in one label, so a
+// click on the square toggled twice and changed nothing, Space did nothing, and
+// screen readers met two checkboxes, one unnamed (R3). The square now only
+// draws the input's state.
+function AnonCheckbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="relative flex items-center gap-3 text-[14px] text-[var(--color-txt-1)] cursor-pointer select-none group">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
+      <span
+        aria-hidden="true"
+        className={`w-5 h-5 rounded-[var(--radius-sm)] border-[1.5px] flex items-center justify-center transition-colors shrink-0 peer-focus-visible:outline-3 peer-focus-visible:outline-[var(--color-gold)] peer-focus-visible:outline-offset-2 peer-focus-visible:shadow-[0_0_0_2px_var(--color-txt-0)] ${
+          checked
+            ? 'bg-[var(--color-txt-0)] border-[var(--color-txt-0)]'
+            : 'border-[var(--color-border-3)] bg-[var(--color-surface)] group-hover:border-[var(--color-txt-1)]'
+        }`}
+      >
+        {checked && <Icon name="check" size={12} className="text-[var(--color-surface)]" strokeWidth={3} />}
+      </span>
+      <span>{label}</span>
+    </label>
+  )
+}
+
 function ReplyInput({
   userId,
   postId,
   onSubmit,
   threadTitle = '',
   threadBody = '',
+  defaultAnon,
 }: {
   userId: string | undefined
   postId: string
-  onSubmit: (text: string) => Promise<void> | void
+  onSubmit: (text: string, anon: boolean) => Promise<void> | void
   threadTitle?: string
   threadBody?: string
+  defaultAnon: boolean
 }) {
   // Kept like the new-post draft, so a reply typed before leaving the board
   // (a link, Back, a session-expiry bounce) is still there on return.
   const [text, setText] = useState(() => loadReplyDraft(userId, postId))
+  const [anon, setAnon] = useState(defaultAnon)
+  // Held from the first Enter or click until the server answers: Enter pressed
+  // twice or a double click on Reply during a slow send posted the reply twice,
+  // and a reply cannot be deleted (R20). The ref closes the gap before React
+  // re-renders with `sending`.
+  const sendingRef = useRef(false)
+  const [sending, setSending] = useState(false)
   const [replyError, setReplyError] = useState('')
   const [replyTip, setReplyTip] = useState<string | null>(null)
   const [replyTipLoading, setReplyTipLoading] = useState(false)
@@ -1194,15 +1279,20 @@ function ReplyInput({
   }, [text, threadTitle, threadBody])
 
   const handleSubmit = async () => {
-    if (!text.trim()) return
+    if (!text.trim() || sendingRef.current) return
+    sendingRef.current = true
+    setSending(true)
     setReplyError('')
     try {
-      await onSubmit(text)
+      await onSubmit(text, anon)
       setText('')
       setReplyTip(null)
     } catch (err) {
       console.error('Reply submit error', err)
       setReplyError(errorText(err, 'Could not post your reply. Try again.'))
+    } finally {
+      sendingRef.current = false
+      setSending(false)
     }
   }
 
@@ -1240,6 +1330,7 @@ function ReplyInput({
             if (replyError) setReplyError('')
           }}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void handleSubmit()}
+          readOnly={sending}
           maxLength={MAX_BOARD_REPLY}
           placeholder="Share what you know…"
           className="input flex-1 min-w-0 text-[14px]"
@@ -1247,14 +1338,17 @@ function ReplyInput({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!text.trim()}
+          disabled={!text.trim() || sending}
           className="btn btn-ink shrink-0"
         >
           <Icon name="send" size={15} />
-          Reply
+          {sending ? 'Sending…' : 'Reply'}
         </button>
       </div>
       <CharCount value={text} max={MAX_BOARD_REPLY} />
+      <div className="mt-2.5">
+        <AnonCheckbox label="Reply anonymously" checked={anon} onChange={setAnon} />
+      </div>
     </div>
   )
 }

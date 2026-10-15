@@ -61,3 +61,15 @@ test('validateStudyGroupInput rejects bad capacity and long title', () => {
   const long = 'a'.repeat(MAX_GROUP_TITLE + 1)
   assert.match(validateStudyGroupInput({ courseCode: 'CS 18000', title: long }).error, /Title is required/)
 })
+
+// The create form sends the size as typed, so this check is what stops "six"
+// or "6 people" (which used to arrive as null, no limit) from making an
+// unlimited group.
+test('validateStudyGroupInput reads a typed size and refuses one that is not a whole number', () => {
+  const base = { courseCode: 'CS 18000', title: 'x' }
+  assert.equal(validateStudyGroupInput({ ...base, capacity: '6' }).value.capacity, 6)
+  for (const capacity of ['six', '6 people', '6-8', '2.5']) {
+    assert.match(validateStudyGroupInput({ ...base, capacity }).error, /Capacity must be a whole number/, capacity)
+  }
+  assert.equal(validateStudyGroupInput({ ...base, capacity: null }).value.capacity, null)
+})

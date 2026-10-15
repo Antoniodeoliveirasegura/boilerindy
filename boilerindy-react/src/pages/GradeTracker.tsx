@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
 import { useGradeTracker } from '../hooks/useGradeTracker'
@@ -54,13 +54,33 @@ function GradeBadge({ letter }: { letter: string }) {
 export default function GradeTracker() {
   const { user } = useAuth()
   const userId = user?.id as string | undefined
-  const { grades, summary, loading, error, addGrade, updateGrade, deleteGrade } = useGradeTracker(
-    userId,
-  )
+  const {
+    grades,
+    summary,
+    loading,
+    loadFailed,
+    retryLoad,
+    error,
+    addGrade,
+    updateGrade,
+    deleteGrade,
+  } = useGradeTracker(userId)
   const { major, setMajor, error: majorError } = useMajor(userId)
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // One save at a time: a double click on Add course, or Enter pressed twice,
+  // used to save the same course twice (R9). The ref also stops a second
+  // submit that lands before the disabled button has rendered.
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  // Bumped whenever an edit opens, so a save that answers afterwards leaves
+  // that edit in the form rather than clearing it.
+  const formTurnRef = useRef(0)
+  const formRef = useRef<HTMLFormElement>(null)
+  const courseInputRef = useRef<HTMLInputElement>(null)
+  // A failed read with nothing cached has no numbers to show, not zeros.
+  const nothingLoaded = loadFailed && grades.length === 0
 
   // Suggest terms the user has already used (for the datalist).
   const termOptions = useMemo(
@@ -80,14 +100,30 @@ export default function GradeTracker() {
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    const turn = formTurnRef.current
     const payload = {
       courseName: form.courseName,
       term: form.term,
       creditHours: Number(form.creditHours),
       letterGrade: form.letterGrade,
     }
-    const ok = editingId ? await updateGrade(editingId, payload) : await addGrade(payload)
-    if (ok) resetForm()
+    try {
+      const ok = editingId ? await updateGrade(editingId, payload) : await addGrade(payload)
+      if (ok && formTurnRef.current === turn) resetForm()
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
+  // Deleting the course being edited closes the edit too. The form used to
+  // stay on "Edit course" with a Save that did nothing (R53).
+  const removeCourse = (id: string) => {
+    if (id === editingId) resetForm()
+    return deleteGrade(id)
   }
 
   // Log a course straight from the degree checklist. Re-grading an already
@@ -107,6 +143,7 @@ export default function GradeTracker() {
   }
 
   const startEdit = (course: Course) => {
+    formTurnRef.current += 1
     setEditingId(course.id)
     setForm({
       courseName: course.courseName,
@@ -114,7 +151,13 @@ export default function GradeTracker() {
       creditHours: String(course.creditHours),
       letterGrade: course.letterGrade,
     })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // Bring the form itself into view and move focus into it. Scrolling to
+    // the top of the page missed the form whenever Degree progress sat above
+    // it, and focus stayed on the row, so the next Tab jumped back down (R52).
+    // No behavior option: the page's CSS animates the scroll, and its reduced
+    // motion rule can only stop that when the call does not ask for smooth (R76).
+    courseInputRef.current?.focus({ preventScroll: true })
+    formRef.current?.scrollIntoView({ block: 'start' })
   }
 
   return (
@@ -135,6 +178,21 @@ export default function GradeTracker() {
         </div>
       </header>
 
+      {/* A failed read leaves only what this device cached, which on a new
+          device is nothing. The page used to show "No courses yet" and zeros
+          for courses that are on the account (R12). */}
+      {loadFailed ? (
+        <div className="card mb-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]" role="alert">
+          <Icon name="info" size={16} className="text-[var(--color-txt-2)]" />
+          <span className="min-w-0 flex-1">
+            Could not load your saved courses, so some may be missing here. Check your connection and try again.
+          </span>
+          <button type="button" onClick={retryLoad} disabled={loading} className="btn btn-secondary btn-sm">
+            {loading ? 'Trying again…' : 'Try again'}
+          </button>
+        </div>
+      ) : null}
+
       {/* Summary: one stat strip. The GPA cell keeps its own .card (the e2e
           suite reads the number from the card that says Cumulative GPA). */}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -142,7 +200,7 @@ export default function GradeTracker() {
           <div className="eyebrow bare">
             Cumulative GPA
           </div>
-          {summary.gpa == null && grades.length === 0 ? (
+          {summary.gpa == null && grades.length === 0 && !loadFailed ? (
             <div className="flaps blank" role="img" aria-label="No courses yet">
               <span className="flap" aria-hidden="true" />
               <span className="flap-sep" aria-hidden="true">.</span>
@@ -160,7 +218,7 @@ export default function GradeTracker() {
             Credits
           </div>
           <div className="big-stat">
-            {summary.credits}
+            {nothingLoaded ? '-' : summary.credits}
           </div>
         </div>
         <div className="card card-pad flex flex-col justify-between gap-3">
@@ -168,7 +226,7 @@ export default function GradeTracker() {
             Courses
           </div>
           <div className="big-stat">
-            {grades.length}
+            {nothingLoaded ? '-' : grades.length}
           </div>
         </div>
       </div>
@@ -179,17 +237,19 @@ export default function GradeTracker() {
         onChangeMajor={setMajor}
         grades={grades}
         onLogCourse={logRequirement}
-        onRemoveCourse={deleteGrade}
+        onRemoveCourse={removeCourse}
         majorError={majorError}
       />
 
-      {/* Add / edit form */}
-      <form onSubmit={submit} className="card card-pad r-cls mb-5">
+      {/* Add / edit form. scroll-mt-24 keeps its top clear of the fixed navbar
+          when Edit scrolls to it. */}
+      <form ref={formRef} onSubmit={submit} className="card card-pad r-cls mb-5 scroll-mt-24">
         <div className="eyebrow mb-4">
           {editingId ? 'Edit course' : 'Add a course'}
         </div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-12">
           <input
+            ref={courseInputRef}
             className="input col-span-2 sm:col-span-5"
             placeholder="Course (e.g. CS 30200)"
             value={form.courseName}
@@ -236,7 +296,7 @@ export default function GradeTracker() {
           </select>
         </div>
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
-          <button type="submit" className="btn btn-primary">
+          <button type="submit" disabled={saving} className="btn btn-primary">
             <Icon name={editingId ? 'check' : 'plus'} size={16} />
             {editingId ? 'Save changes' : 'Add course'}
           </button>
@@ -256,7 +316,7 @@ export default function GradeTracker() {
       {/* Course list, grouped by term */}
       {loading && grades.length === 0 ? (
         <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading your courses…</div>
-      ) : grades.length === 0 ? (
+      ) : nothingLoaded ? null : grades.length === 0 ? (
         <div className="card card-pad">
           <div className="empty">
             <span className="ico">
@@ -271,7 +331,11 @@ export default function GradeTracker() {
           </div>
         </div>
       ) : (
-        <div className="grid items-start gap-4 md:grid-cols-2">
+        // grid-cols-1 caps the single phone column at the page width. With no
+        // template, the implicit column grew to fit a long course name on one
+        // line (truncate is nowrap), and the term card ran off a 390px screen
+        // with its GPA, Edit and Delete out of reach (R6).
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
           {summary.terms.map((term) => (
             <section key={term.term} className="card card-pad r-cls">
               <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -304,7 +368,7 @@ export default function GradeTracker() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => deleteGrade(course.id)}
+                      onClick={() => removeCourse(course.id)}
                       aria-label={`Delete ${course.courseName}`}
                       className="icon-btn -mr-2 hover:text-[var(--color-error)]"
                     >

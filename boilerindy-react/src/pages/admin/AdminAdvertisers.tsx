@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../../components/Icons'
 import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
@@ -7,6 +7,14 @@ import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_TH, formatDateTime, generateTempPasswo
 import PageTitle from '../../components/PageTitle'
 
 const LABEL = 'text-[13px] font-semibold text-[var(--color-txt-1)]'
+
+/** The enabled controls Tab stops on inside `root`, in order. */
+function tabStops(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>('button, input, textarea, select, a[href]')).filter(
+    (el) => el.tabIndex >= 0 && !el.matches(':disabled'),
+  )
+}
 
 type Advertiser = {
   id: string
@@ -32,6 +40,8 @@ export default function AdminAdvertisers() {
     password: '',
     leadId: '',
   })
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -66,6 +76,55 @@ export default function AdminAdvertisers() {
     }
   }, [searchParams])
 
+  // The prefill parameters are replaced, not pushed over. A pushed entry
+  // left /admin/advertisers?lead=... in the history, so Back after creating
+  // the account reopened the dialog with the same email and temporary
+  // password, and creating again reset that advertiser's password.
+  const clearPrefill = useCallback(() => setSearchParams({}, { replace: true }), [setSearchParams])
+
+  const closeForm = useCallback(() => {
+    setShowForm(false)
+    clearPrefill()
+  }, [clearPrefill])
+
+  // The dialog behaves like ConfirmDialog: focus moves into it, Tab stays
+  // inside, Escape closes it, and focus goes back to what opened it. Before,
+  // focus stayed on the page's Create account button behind the scrim, Tab
+  // walked out to the footer links under it, and Escape did nothing.
+  // Keyed on showForm alone, so a re-render while the dialog is up does not
+  // send focus back out and in again.
+  useEffect(() => {
+    if (!showForm) return undefined
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    emailRef.current?.focus()
+    return () => {
+      opener?.focus()
+    }
+  }, [showForm])
+
+  useEffect(() => {
+    if (!showForm) return undefined
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeForm()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const stops = tabStops(dialogRef.current)
+      if (stops.length === 0) return
+      const index = stops.indexOf(document.activeElement as HTMLElement)
+      if (e.shiftKey && index <= 0) {
+        e.preventDefault()
+        stops[stops.length - 1].focus()
+      } else if (!e.shiftKey && (index === -1 || index === stops.length - 1)) {
+        e.preventDefault()
+        stops[0].focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showForm, closeForm])
+
   function openCreateForm() {
     setForm({
       email: '',
@@ -74,8 +133,9 @@ export default function AdminAdvertisers() {
       password: generateTempPassword(),
       leadId: '',
     })
+    setError('')
     setShowForm(true)
-    setSearchParams({})
+    clearPrefill()
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -103,7 +163,7 @@ export default function AdminAdvertisers() {
         `Advertiser account ready for ${data.advertiser.email}. Share the temporary password securely - they sign in at /advertise.`,
       )
       setShowForm(false)
-      setSearchParams({})
+      clearPrefill()
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create advertiser account.')
@@ -131,12 +191,16 @@ export default function AdminAdvertisers() {
         }
       />
 
-      <AlertBanner message={error} onDismiss={() => setError('')} />
+      {/* While the dialog is open its errors show inside it: here, behind the
+          scrim and under the dialog card, a refused create could be neither
+          read nor dismissed, and the dialog seemed to do nothing. */}
+      {!showForm && <AlertBanner message={error} onDismiss={() => setError('')} />}
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
 
       {showForm && (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/55">
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-advertiser-title"
@@ -154,6 +218,7 @@ export default function AdminAdvertisers() {
               <label className="block">
                 <span className={LABEL}>Business email</span>
                 <input
+                  ref={emailRef}
                   required
                   type="email"
                   value={form.email}
@@ -198,13 +263,12 @@ export default function AdminAdvertisers() {
                 </div>
               </label>
 
+              <AlertBanner message={error} onDismiss={() => setError('')} />
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowForm(false)
-                    setSearchParams({})
-                  }}
+                  onClick={closeForm}
                   className="btn btn-secondary"
                 >
                   Cancel
