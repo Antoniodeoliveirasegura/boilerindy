@@ -48,18 +48,32 @@ function formatTime(dateString: string) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+// Midnight of the local calendar day, so two times compare by date, not by
+// elapsed hours.
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+// Counts calendar days, as the Today and Tomorrow date lines do. Rounding up
+// elapsed 24-hour periods made an event three hours away read "In Tomorrow"
+// under a "Today" date line, and every later event one day too far.
+// Math.round absorbs the 23 and 25 hour days at a clock change.
 function getRelativeTime(dateString: string) {
   const date = new Date(dateString)
   const now = new Date()
   const diffMs = date.getTime() - now.getTime()
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
-  
-  if (diffDays < 0) return 'Past'
-  if (diffDays === 0) return 'Today'
+  const diffDays = Math.round((startOfDay(date) - startOfDay(now)) / (1000 * 60 * 60 * 24))
+
+  if (diffMs < 0) return 'Event has passed'
+  if (diffDays === 0) {
+    const hours = Math.round(diffMs / (1000 * 60 * 60))
+    if (hours < 1) return 'In under an hour'
+    return `In ${hours} hour${hours === 1 ? '' : 's'}`
+  }
   if (diffDays === 1) return 'Tomorrow'
-  if (diffDays <= 7) return `${diffDays} days`
-  if (diffDays <= 14) return '1-2 weeks'
-  return `${Math.ceil(diffDays / 7)} weeks`
+  if (diffDays <= 7) return `In ${diffDays} days`
+  if (diffDays <= 14) return 'In 1-2 weeks'
+  return `In ${Math.ceil(diffDays / 7)} weeks`
 }
 
 function isPast(dateString: string) {
@@ -82,6 +96,27 @@ function getRecsCacheKey(userId: string | undefined) {
   return userId ? aiCacheKey('event-recs', userId, localIsoDate()) : null
 }
 
+// Shown when the assistant fails without saying why (no response, or a body
+// with no message). The chat panel says the same.
+const ASSISTANT_UNREACHABLE = "Couldn't reach the assistant right now. Try again in a moment."
+
+type AssistantAnswer = { reply: string } | { error: string }
+
+// The picks from an /api/assistant response, or the message to show instead.
+// Get Picks used to read only `reply`, so the hourly limit's 429 and the 502
+// when Groq fails put the button back with nothing said. A 200 marked
+// busy or offline carries a status line, not picks, so it is shown as the
+// message and never cached as the day's picks.
+async function readAssistantAnswer(res: Response): Promise<AssistantAnswer> {
+  const data = (await res.json().catch(() => null)) as { reply?: unknown; source?: unknown; error?: unknown } | null
+  const reply = typeof data?.reply === 'string' ? data.reply : ''
+  if (res.ok && reply && data?.source !== 'busy' && data?.source !== 'offline') return { reply }
+  // The limiter sends `error` as a string; the app's error handler sends { message }.
+  const error = data?.error as string | { message?: unknown } | null | undefined
+  const message = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
+  return { error: message || reply || ASSISTANT_UNREACHABLE }
+}
+
 export default function Events() {
   const { user, onboarding } = useAuth()
   const userId = user?.id as string | undefined
@@ -90,14 +125,20 @@ export default function Events() {
   const calendarQuery = useMyCalendar<EventItem>(CAMPUS_EVENTS_CALENDAR)
   const items = useMemo<EventItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
   const loading = calendarQuery.isPending
+  // isPending turns false once the retries are spent, so a failed read fell
+  // through to "No events found" and told the student their calendar was
+  // empty. With no earlier answer to show, the page says it failed.
+  const loadFailed = calendarQuery.isError && !calendarQuery.data
   const [showPast, setShowPast] = useState(false)
   const [freeFoodOnly, setFreeFoodOnly] = useState(false)
   const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
 
   const [eventRecs, setEventRecs] = useState<string | null>(() => {
     return readAiCache(getRecsCacheKey(userId))?.text ?? null
   })
   const [recsLoading, setRecsLoading] = useState(false)
+  const [recsError, setRecsError] = useState('')
   // Recommendations that land after sign-out unmounted the page must not write
   // the cache back once sign-out has cleared it (issue #219).
   const mountedRef = useRef(true)
@@ -108,28 +149,45 @@ export default function Events() {
     }
   }, [])
 
-  const generateRecs = () => {
+  const generateRecs = async () => {
     setRecsLoading(true)
-    fetch('/api/assistant', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{
-          role: 'user',
-          content: 'Pick 2-3 upcoming campus events I should attend based on my free time this week. One "-" bullet each: the event name in bold, then the day and time, then one sentence on why it fits my schedule. No intro line, no closing line.',
-        }],
-      }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.reply && mountedRef.current) {
-          setEventRecs(d.reply)
-          writeAiCache(getRecsCacheKey(userId), d.reply)
-        }
+    setRecsError('')
+    try {
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: 'Pick 2-3 upcoming campus events I should attend based on my free time this week. One "-" bullet each: the event name in bold, then the day and time, then one sentence on why it fits my schedule. No intro line, no closing line.',
+          }],
+        }),
       })
-      .catch(() => {})
-      .finally(() => setRecsLoading(false))
+      const answer = await readAssistantAnswer(res)
+      if (!mountedRef.current) return
+      if ('error' in answer) {
+        setRecsError(answer.error)
+        return
+      }
+      setEventRecs(answer.reply)
+      writeAiCache(getRecsCacheKey(userId), answer.reply)
+    } catch {
+      if (mountedRef.current) setRecsError(ASSISTANT_UNREACHABLE)
+    } finally {
+      setRecsLoading(false)
+    }
+  }
+
+  // Below lg the details card stacks under the whole list, a screen or more
+  // below the row, so a tap on a phone seemed to do nothing. Bring the
+  // card into view there; from lg it sits beside the list and is already in
+  // view. No `behavior`: the page's CSS scroll-behavior is smooth, and auto
+  // when the student asks for reduced motion.
+  const selectEvent = (item: EventItem) => {
+    setSelectedItem(item)
+    const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches
+    if (!wide) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start' }))
   }
 
   const filteredItems = useMemo(() => {
@@ -190,7 +248,7 @@ export default function Events() {
         <div>
           <h1 className="page-title">Campus Events</h1>
           <p className="page-sub tnum">
-            {filteredItems.length} upcoming events from your calendar
+            {loadFailed ? 'Upcoming events from your calendar' : `${filteredItems.length} upcoming events from your calendar`}
           </p>
         </div>
         {/* Filter toggles as one row of plates, the same height as the
@@ -281,13 +339,18 @@ export default function Events() {
               <div className="card-title lowercase first-letter:uppercase">Recommended for You</div>
             </div>
             <button
-              onClick={generateRecs}
+              onClick={() => void generateRecs()}
               disabled={recsLoading}
               className="head-link disabled:opacity-40"
             >
               {recsLoading ? 'Thinking…' : eventRecs ? 'Refresh' : 'Get Picks'}
             </button>
           </div>
+          {recsError && (
+            <p role="alert" className="text-[13px] text-[var(--color-error)] mb-2">
+              {recsError}
+            </p>
+          )}
           {recsLoading && !eventRecs ? (
             <div className="flex items-center gap-2 text-[14px] text-[var(--color-txt-2)]">
               <div className="w-3.5 h-3.5 border-2 border-[var(--color-txt-2)] border-t-transparent rounded-full animate-spin shrink-0" />
@@ -306,6 +369,28 @@ export default function Events() {
       {loading ? (
         <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">
           Loading events...
+        </div>
+      ) : loadFailed ? (
+        <div className="card card-pad" role="alert">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="alert" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">Could not load your calendar</div>
+              <p className="text-[13px] mt-0.5">
+                Your events are not shown. Check your connection and try again.
+              </p>
+              <button
+                type="button"
+                onClick={() => void calendarQuery.refetch()}
+                disabled={calendarQuery.isFetching}
+                className="btn btn-secondary btn-sm mt-3"
+              >
+                {calendarQuery.isFetching ? 'Trying again…' : 'Try again'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : filteredItems.length === 0 ? (
         <div className="card card-pad">
@@ -343,7 +428,7 @@ export default function Events() {
                     return (
                       <li key={item.id} className={isToday(item.startTime) ? 'urgent' : undefined}>
                         <button
-                          onClick={() => setSelectedItem(item)}
+                          onClick={() => selectEvent(item)}
                           className={`-mx-3 w-[calc(100%+24px)] px-3 rounded-[var(--radius-md)] transition-colors ${
                             isSelected
                               ? 'bg-[var(--route-tint)] shadow-[inset_3px_0_0_var(--route)]'
@@ -400,8 +485,9 @@ export default function Events() {
 
           {/* On phones and tablets this column stacks under the whole list, so
               the empty placeholder only shows from lg; a selected event still
-              shows. As on Assignments. */}
-          <div className={`lg:sticky lg:top-24 min-w-0 ${selectedItem ? '' : 'hidden lg:block'}`}>
+              shows. As on Assignments. selectEvent scrolls it into view there,
+              and scroll-mt keeps it clear of the fixed top bar. */}
+          <div ref={detailRef} className={`lg:sticky lg:top-24 min-w-0 scroll-mt-24 ${selectedItem ? '' : 'hidden lg:block'}`}>
             {selectedItem ? (
               <div className="card card-pad r-evt min-w-0 overflow-hidden">
                 <div className="flex items-center justify-between gap-3 mb-3">
@@ -409,7 +495,9 @@ export default function Events() {
                     {(categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).label}
                   </span>
                   <button
+                    type="button"
                     onClick={() => setSelectedItem(null)}
+                    aria-label="Close event details"
                     className="btn btn-ghost btn-sm px-2 text-[var(--color-txt-2)]"
                   >
                     <Icon name="close" size={18} />
@@ -460,7 +548,7 @@ export default function Events() {
                       <Icon name="clock" size={15} />
                     </span>
                     <div className={`tnum ${isPast(selectedItem.startTime) ? 'text-[var(--color-txt-3)]' : 'text-[var(--color-txt-1)]'}`}>
-                      {isPast(selectedItem.startTime) ? 'Event has passed' : `In ${getRelativeTime(selectedItem.startTime)}`}
+                      {getRelativeTime(selectedItem.startTime)}
                     </div>
                   </div>
                 </div>

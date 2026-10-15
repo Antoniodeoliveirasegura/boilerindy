@@ -2,6 +2,8 @@
 // validation, active-window, row mapping - kept here so they are unit-testable
 // without the DB or HTTP layer.
 
+import { endOfDayInZone } from './pushReminders.mjs'
+
 export const DEAL_CATEGORIES = ['food', 'coffee', 'entertainment', 'services', 'other']
 const DEAL_CATEGORY_SET = new Set(DEAL_CATEGORIES)
 
@@ -11,6 +13,9 @@ export const CAMPUS_COORDS = { lat: 39.774, lng: -86.172 }
 export const MAX_BUSINESS_NAME = 120
 export const MAX_DEAL_DESCRIPTION = 2000
 export const MAX_ADDRESS = 200
+
+// The admin form's expiry is a calendar day (an <input type="date">).
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * Great-circle distance in miles between two coordinates.
@@ -27,12 +32,28 @@ export function haversineMiles(lat1, lng1, lat2, lng2) {
 }
 
 /**
+ * When a stored expiry ends. A day picked in the form is now saved as 23:59
+ * that day on campus, but deals saved before that hold 00:00 UTC of the picked
+ * day, which is the evening before in Indianapolis: they left the list and
+ * showed the previous day. Those are read as the end of their day too. New
+ * writes land at 03:59 or 04:59 UTC, never at midnight, so they pass through,
+ * as does anything unparseable (it never reads as active).
+ */
+function expiryInstant(value) {
+  const t = new Date(value)
+  if (Number.isNaN(t.getTime())) return t
+  const utcMidnight =
+    t.getUTCHours() === 0 && t.getUTCMinutes() === 0 && t.getUTCSeconds() === 0 && t.getUTCMilliseconds() === 0
+  return utcMidnight ? endOfDayInZone(t.toISOString().slice(0, 10)) : t
+}
+
+/**
  * A deal is shown only while active and not past its expiry.
  */
 export function isDealActive(deal, now = new Date()) {
   if (!deal || deal.active === false) return false
   if (!deal.expires_at) return true
-  return new Date(deal.expires_at).getTime() > now.getTime()
+  return expiryInstant(deal.expires_at).getTime() > now.getTime()
 }
 
 function parseCoord(value, max) {
@@ -106,7 +127,11 @@ export function validateDealInput(body, { partial = false } = {}) {
     } else {
       const t = new Date(raw)
       if (Number.isNaN(t.getTime())) return { error: 'Expiry date is invalid' }
-      updates.expires_at = t.toISOString()
+      // A picked day is stored as 23:59 that day on campus. new Date('2026-10-31')
+      // is midnight UTC, the evening of Oct 30 in Indianapolis, so the card read
+      // one day early and isDealActive dropped the deal the evening before.
+      const day = String(raw).trim()
+      updates.expires_at = DATE_ONLY.test(day) ? endOfDayInZone(day).toISOString() : t.toISOString()
     }
   }
   if (has('featured')) updates.featured = body.featured === true || body.featured === 'true'
@@ -123,6 +148,9 @@ export function mapDealRow(row) {
   const distanceMiles = hasCoords
     ? Math.round(haversineMiles(CAMPUS_COORDS.lat, CAMPUS_COORDS.lng, row.lat, row.lng) * 10) / 10
     : null
+  // Through expiryInstant, so the card and the Edit form show the picked day
+  // for a deal saved before the end-of-day rule, and a re-save keeps it.
+  const expiry = row.expires_at ? expiryInstant(row.expires_at) : null
   return {
     id: row.id,
     businessName: row.business_name,
@@ -133,7 +161,7 @@ export function mapDealRow(row) {
     lat: row.lat ?? null,
     lng: row.lng ?? null,
     distanceMiles,
-    expiresAt: row.expires_at || null,
+    expiresAt: expiry && !Number.isNaN(expiry.getTime()) ? expiry.toISOString() : row.expires_at || null,
     featured: Boolean(row.featured),
     active: row.active !== false,
     createdAt: row.created_at,

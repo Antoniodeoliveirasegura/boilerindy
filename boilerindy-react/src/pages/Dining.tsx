@@ -33,6 +33,25 @@ import PageTitle from '../components/PageTitle'
 // would send the visitor to /login.
 
 const UNAVAILABLE_MESSAGE = 'Live menus are temporarily unavailable.'
+// Shown when the assistant fails without saying why (no response, or a body
+// with no message). The chat panel says the same.
+const ASSISTANT_UNREACHABLE = "Couldn't reach the assistant right now. Try again in a moment."
+
+type AssistantAnswer = { reply: string } | { error: string }
+
+// The pick from an /api/assistant response, or the message to show instead.
+// What should I eat? read only `reply`, so the hourly limit's 429 and the 502
+// when Groq fails put the button back with nothing said (R60). A 200 marked
+// busy or offline carries a status line, not a pick, so it is the message.
+async function readAssistantAnswer(res: Response): Promise<AssistantAnswer> {
+  const data = (await res.json().catch(() => null)) as { reply?: unknown; source?: unknown; error?: unknown } | null
+  const reply = typeof data?.reply === 'string' ? data.reply : ''
+  if (res.ok && reply && data?.source !== 'busy' && data?.source !== 'offline') return { reply }
+  // The limiter sends `error` as a string; the app's error handler sends { message }.
+  const error = data?.error as string | { message?: unknown } | null | undefined
+  const message = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
+  return { error: message || reply || ASSISTANT_UNREACHABLE }
+}
 
 // The server answered (a 5xx with ok: false, say) versus nothing answered at all.
 function diningErrorMessage(error: unknown): string {
@@ -165,6 +184,8 @@ export default function Dining() {
 
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  // Why the last AI pick failed (R60).
+  const [aiError, setAiError] = useState('')
 
   // Favorites (issue #49): a Set of normalized item names. Loaded once per
   // signed-in user; failures leave it empty so the page still works.
@@ -243,6 +264,7 @@ export default function Dining() {
   const askWhatToEat = () => {
     if (!signedIn) return
     setAiLoading(true)
+    setAiError('')
     fetch('/api/assistant', {
       method: 'POST',
       credentials: 'include',
@@ -254,11 +276,12 @@ export default function Dining() {
         }],
       }),
     })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.reply) setAiSuggestion(d.reply)
+      .then(readAssistantAnswer)
+      .then((answer) => {
+        if ('error' in answer) setAiError(answer.error)
+        else setAiSuggestion(answer.reply)
       })
-      .catch(() => {})
+      .catch(() => setAiError(ASSISTANT_UNREACHABLE))
       .finally(() => setAiLoading(false))
   }
 
@@ -392,6 +415,16 @@ export default function Dining() {
         </div>
       )}
 
+      {signedIn && aiError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"
+          data-dining-ai-error
+        >
+          {aiError}
+        </div>
+      )}
+
       {loading ? (
         /* Skeleton */
         <div>
@@ -422,8 +455,13 @@ export default function Dining() {
         </div>
       ) : (
         <>
+          {/* The scroller clips on every side (overflow-x auto makes overflow-y
+              clip too), so it pads 6px around the pills for the 5px focus ring,
+              which lost its top edge, and on wider screens the first pill's left
+              edge (R65). The negative top margin and the smaller bottom margin
+              keep the pills where they were. */}
           {locations.length > 0 && (
-            <div className="flex gap-2 mb-5 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
+            <div className="flex gap-2 -mt-1.5 mb-[18px] overflow-x-auto pt-1.5 pb-1.5 -mx-4 px-4 sm:-mx-1.5 sm:px-1.5 scrollbar-hide">
               {locations.map((loc) => {
                 const isSelected = selected && loc.id === selected.id
                 return (
@@ -535,10 +573,16 @@ export default function Dining() {
               <div className="divide-y divide-[var(--color-border)]">
                 {withHours.map((loc) => (
                   <div key={loc.id} className="py-4 first:pt-1 last:pb-0" data-dining-hours-for={loc.slug}>
+                    {/* Phones give the status its own line under the name, without
+                        the separator: wrapped on a 320px phone it started its line
+                        with a stray dot (R66). 18px is the dot plus the gap. */}
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mb-3">
                       <span className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'}`} />
                       <span className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{loc.name}</span>
-                      <span className="text-[12.5px] text-[var(--color-txt-2)]">· {statusLine(loc)}</span>
+                      <span className="max-sm:basis-full max-sm:pl-[18px] text-[12.5px] text-[var(--color-txt-2)]">
+                        <span className="max-sm:hidden">· </span>
+                        {statusLine(loc)}
+                      </span>
                     </div>
                     {/* A week strip: a 4px rule per day, amber for the campus
                         day. Phones list the days as rows with the rule on the left. */}

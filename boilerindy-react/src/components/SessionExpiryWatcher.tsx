@@ -13,13 +13,17 @@ const DISMISS_FOR_MS = 5 * 60 * 1000
  * rolling sessions - any authenticated request resets the cookie clock.
  */
 export default function SessionExpiryWatcher() {
-  const { session, establishSession, refreshSession } = useAuth()
+  const { session, establishSession, refreshSession, sessionCheckFailed } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [now, setNow] = useState(() => Date.now())
   const [extending, setExtending] = useState(false)
   const [checking, setChecking] = useState(false)
   const [dismissedUntil, setDismissedUntil] = useState(0)
+  // The expiry the student last pressed a button about, so the "could not
+  // reach" line answers their press, not an earlier failed read elsewhere,
+  // and goes once a new session arrives.
+  const [attemptedFor, setAttemptedFor] = useState<number | null>(null)
 
   const expiresAtMs = session?.expiresAt
     ? new Date(session.expiresAt as string).getTime()
@@ -40,14 +44,26 @@ export default function SessionExpiryWatcher() {
   if (!expired && now < dismissedUntil) return null
 
   const minutesLeft = Math.max(1, Math.ceil(msLeft / 60000))
+  const nextPath = encodeURIComponent(location.pathname + location.search)
+  // A read that got no answer keeps the session, so the warning stays up; say
+  // why, or the press looks like it did nothing.
+  const unreachable = attemptedFor === expiresAtMs && sessionCheckFailed && !extending && !checking
 
   const handleStaySignedIn = async () => {
+    setAttemptedFor(expiresAtMs)
     setExtending(true)
     try {
       // Recover via establishSession, not the cheap refreshSession (issue #149):
       // if the cookie has already lapsed, only re-minting it from the Supabase
       // token brings the session back. A plain /api/session re-read cannot.
-      await establishSession()
+      const fresh = await establishSession()
+      if (!fresh) {
+        // The server already ended the session. Leaving it to RequireAuth
+        // landed on a plain sign-in form without the 'session-expired'
+        // notice that "Sign in again" gives.
+        navigate(`/login?next=${nextPath}&message=session-expired`, { replace: true })
+        return
+      }
       setNow(Date.now())
     } finally {
       setExtending(false)
@@ -61,7 +77,7 @@ export default function SessionExpiryWatcher() {
   // form with its 'session-expired' notice. Replace, as RequireAuth and the
   // 401 redirect in authRequest do.
   const handleSignInAgain = async () => {
-    const nextPath = encodeURIComponent(location.pathname + location.search)
+    setAttemptedFor(expiresAtMs)
     setChecking(true)
     try {
       const fresh = await refreshSession()
@@ -101,6 +117,11 @@ export default function SessionExpiryWatcher() {
               ? 'Sign in again to continue - unsaved drafts on this device are kept.'
               : 'Extend it now so you don’t lose your place.'}
           </p>
+          {unreachable && (
+            <p className="text-[12px] font-medium text-[var(--color-error)] mt-1.5 leading-relaxed">
+              BoilerIndy could not be reached. Check your connection and try again.
+            </p>
+          )}
           <div className="flex items-center gap-2 mt-3">
             {expired ? (
               <button

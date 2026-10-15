@@ -18,7 +18,7 @@ export default function AuthCallback() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { establishSession } = useAuth()
-  const [error, setError] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -59,8 +59,12 @@ export default function AuthCallback() {
         const search = next ? `?next=${encodeURIComponent(next)}` : ''
         navigate(resolvePostLoginPath(search, backendSession?.onboarding), { replace: true })
       } catch (err) {
+        // The detail goes to the console only. The page showed the error text
+        // itself, and ?error_description comes straight from the URL, so
+        // anyone could link a student to their own words on the BoilerIndy
+        // domain. A fixed message, as Login shows for its ?error keys.
         console.error('Auth callback error:', err)
-        setError(err instanceof Error ? err.message : 'Authentication failed')
+        setFailed(true)
         setTimeout(() => {
           navigate('/login?error=oauth-error', { replace: true })
         }, 2000)
@@ -70,13 +74,15 @@ export default function AuthCallback() {
     handleCallback()
   }, [navigate, establishSession, searchParams])
 
-  if (error) {
+  if (failed) {
     return (
       <div className="flex-1 flex items-center justify-center px-4 py-12">
         <PageTitle>Signing in</PageTitle>
-        <div className="card card-pad w-full max-w-[420px] border-l-4 border-l-[var(--color-error)]">
-          <div className="font-display text-[15px] font-bold text-[var(--color-error)]">Authentication failed</div>
-          <div className="mt-1 text-[13.5px] text-[var(--color-txt-1)] [overflow-wrap:anywhere]">{error}</div>
+        {/* An alert under a page heading, so a screen reader hears the failure
+            before the redirect. */}
+        <div role="alert" className="card card-pad w-full max-w-[420px] border-l-4 border-l-[var(--color-error)]">
+          <h1 className="font-display text-[15px] font-bold text-[var(--color-error)]">Authentication failed</h1>
+          <div className="mt-1 text-[13.5px] text-[var(--color-txt-1)]">Google sign-in could not be completed.</div>
           <div className="mt-2 text-[12.5px] text-[var(--color-txt-3)]">Redirecting to login...</div>
         </div>
       </div>

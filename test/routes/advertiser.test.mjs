@@ -802,6 +802,75 @@ test("PATCH answers 404 for another advertiser's campaign, 400 for draft to acti
   })
 })
 
+// An approved side banner could be paused, given a link, headline and photo
+// nobody reviewed, and resumed, and students were served the new content at
+// once. Pause and resume still work on their own; an edit to what students see
+// sends the campaign back to draft, and only the owner can make it live again.
+const APPROVED_BANNER = {
+  headline: 'Half off lattes',
+  ctaLabel: 'Visit website',
+  ctaUrl: 'https://cafe.example/',
+  imageUrls: ['https://img.example/1.jpg', 'https://img.example/2.jpg', 'https://img.example/3.jpg'],
+  imageUrl: 'https://img.example/1.jpg',
+}
+
+test('PATCH pauses and resumes an approved campaign, but an edit to its banner sends it back to draft', async () => {
+  const banner = campaignRow({ id: CAMPAIGN_ID, status: 'active', placement: 'side-rail', creative: APPROVED_BANNER })
+  await withApp({ seed: { advertisers: [ADVERTISER], campaigns: [banner] } }, async ({ call, sessionFor, db, supabase }) => {
+    const cookie = await sessionFor({ advertiserId: ADVERTISER.id })
+    const student = await sessionFor({ userId: STUDENT_ID })
+    const path = `/api/advertiser/campaigns/${CAMPAIGN_ID}`
+    const row = () => db.campaigns.find((c) => c.id === CAMPAIGN_ID)
+
+    assert.equal((await call('PATCH', path, { body: { status: 'paused' }, cookie })).status, 200)
+    assert.equal((await call('PATCH', path, { body: { status: 'active' }, cookie })).status, 200)
+    assert.equal(row().status, 'active')
+    assert.equal((await call('PATCH', path, { body: { status: 'paused' }, cookie })).status, 200)
+
+    // The dashboard's Save changes sends every field of the form.
+    const edited = await call('PATCH', path, {
+      body: {
+        name: banner.name,
+        placement: 'side-rail',
+        startsOn: null,
+        endsOn: null,
+        creative: { ...APPROVED_BANNER, headline: 'UNREVIEWED headline', ctaUrl: 'https://never-reviewed.example/landing' },
+      },
+      cookie,
+    })
+    assert.equal(edited.status, 200)
+    assert.equal(edited.body.campaign.status, 'draft')
+    assert.equal(row().status, 'draft')
+    const lastUpdate = supabase.queriesOf('campaigns').filter((q) => operation(q.chain) === 'update').at(-1)
+    assert.ok(hasCall(lastUpdate.chain, 'eq', 'status', 'paused'), 'the edit only lands on the paused row it was checked against')
+
+    const resumed = await call('PATCH', path, { body: { status: 'active' }, cookie })
+    assert.equal(resumed.status, 400)
+    assert.match(resumed.body.error.message, /must be approved before it can go live/)
+
+    const served = await call('GET', '/api/spotlight/active?placement=side-rail', { cookie: student })
+    assert.deepEqual(served.body, { ad: null, ads: [] })
+  })
+})
+
+test('PATCH answers 409 and changes nothing when the campaign changed status after it was read', async () => {
+  const banner = campaignRow({ id: CAMPAIGN_ID, status: 'paused', placement: 'side-rail', creative: APPROVED_BANNER })
+  await withApp({ seed: { advertisers: [ADVERTISER], campaigns: [banner] } }, async ({ call, sessionFor, db, failures }) => {
+    const cookie = await sessionFor({ advertiserId: ADVERTISER.id })
+    // A banner edit sent with the resume lands between the resume's read and
+    // its write, and takes the campaign back to draft.
+    failures.campaigns = (chain) => {
+      if (operation(chain) === 'update') db.campaigns[0].status = 'draft'
+    }
+    const res = await call('PATCH', `/api/advertiser/campaigns/${CAMPAIGN_ID}`, { body: { status: 'active' }, cookie })
+    assert.equal(res.status, 409)
+    assert.deepEqual(res.body, {
+      error: { message: 'This campaign changed while you were saving. Reload the page and try again.', status: 409 },
+    })
+    assert.equal(db.campaigns[0].status, 'draft')
+  })
+})
+
 test('stats runs two head counts on the campaign, answers ctr 0 with no impressions, and 404 for a campaign not its own', async () => {
   const mine = campaignRow({ id: CAMPAIGN_ID, status: 'active' })
   const quiet = campaignRow({ status: 'active' })

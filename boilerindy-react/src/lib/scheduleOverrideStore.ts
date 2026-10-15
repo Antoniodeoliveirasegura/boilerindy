@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import { authRequest } from './authApi'
+import { localIsoDate } from './localDate'
 
 export type ScheduleSeriesOverride = {
   code?: string
@@ -444,7 +445,7 @@ export function applyScheduleOverridesToItems<T extends OverridableClassItem>(
   return out
 }
 
-/** Turn manual schedule classes into dated items for a given calendar day (Home today strip). */
+/** Turn manual schedule classes into dated items for a given calendar day (manualClassesForDays covers a run of days). */
 export function manualClassesAsItems(
   manual: ManualClass[],
   dayDate: Date = new Date(),
@@ -463,6 +464,25 @@ export function manualClassesAsItems(
         endTime: applyHmToIso(anchor.toISOString(), row.endHm),
       }
     })
+}
+
+/**
+ * Manual classes as dated items for each of `days` calendar days from
+ * `firstDay` (Home's week strip and next-class board). Home used to expand
+ * them for today alone, so a class added by hand never showed on any other
+ * day and the board skipped tomorrow's. Each meeting's id carries its local
+ * date, so the same class on two days never shares an id.
+ */
+export function manualClassesForDays(
+  manual: ManualClass[],
+  firstDay: Date = new Date(),
+  days = 7,
+): OverridableClassItem[] {
+  return Array.from({ length: Math.max(0, days) }, (_, i) => {
+    const day = new Date(firstDay)
+    day.setDate(firstDay.getDate() + i)
+    return manualClassesAsItems(manual, day).map((item) => ({ ...item, id: `${item.id}-${localIsoDate(day)}` }))
+  }).flat()
 }
 
 export { EMPTY as EMPTY_SCHEDULE_OVERRIDES }

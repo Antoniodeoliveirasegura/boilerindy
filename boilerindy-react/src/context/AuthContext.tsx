@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { clearAiCaches } from '../lib/aiInsightCache'
+import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
 import { dropUserQueries } from '../lib/queries/userData'
 import {
   authRequest,
@@ -20,6 +20,7 @@ import {
   getFirstName,
   getInitials,
   startPurdueLink,
+  type ApiRequestError,
 } from '../lib/authApi'
 
 type AuthUser = {
@@ -58,6 +59,12 @@ type AuthContextValue = {
   supabaseUser: SupabaseUser | null
   onboarding: Onboarding
   loading: boolean
+  /**
+   * True while the last session read got no answer: a 5xx, a dropped
+   * connection or an unreadable reply. Whether the student is signed in is
+   * then unknown, so the session the tab holds is kept as it is.
+   */
+  sessionCheckFailed: boolean
   authConfig: AuthConfig
   refreshSession: () => Promise<BackendSession | null>
   establishSession: () => Promise<BackendSession | null>
@@ -71,15 +78,45 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+const DEFAULT_AUTH_CONFIG: AuthConfig = { authProvider: 'local', purdueAuthMode: 'mock' }
+
+/**
+ * GET /api/session. Resolves to the session, or to null only when the server
+ * says nobody is signed in (its `session: null` answer, or a 401). Throws when
+ * there is no such answer: a 5xx, a dropped connection, or a reply that is not
+ * the session payload (a proxy's error page). Every one of those used to clear
+ * the session, so a server restart or a flaky phone connection signed a
+ * validly signed-in student out with no explanation.
+ */
+async function readServerSession(): Promise<BackendSession | null> {
+  let data: unknown
+  try {
+    data = await authRequest('/api/session')
+  } catch (error) {
+    if ((error as ApiRequestError).status === 401) return null
+    throw error
+  }
+  if (!data || typeof data !== 'object' || !('session' in data)) {
+    throw new Error('The session reply could not be read.')
+  }
+  return (data as { session?: BackendSession | null }).session ?? null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BackendSession | null>(null)
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sessionCheckFailed, setSessionCheckFailed] = useState(false)
   const queryClient = useQueryClient()
-  const [authConfig, setAuthConfig] = useState<AuthConfig>({
-    authProvider: 'local',
-    purdueAuthMode: 'mock',
-  })
+  const [authConfig, setAuthConfig] = useState<AuthConfig>(DEFAULT_AUTH_CONFIG)
+
+  // The session as last rendered, so a session read that gets no answer can
+  // hand its caller the session the tab still holds, and sign-out knows whose
+  // stores to clear.
+  const sessionRef = useRef(session)
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
 
   // Does the backend session we are holding belong to the Supabase client
   // session, or did the sign-in form apply it straight from the server? Only
@@ -153,14 +190,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // are already authenticated and only need fresh session data (e.g. after
   // linking a schedule source or saving profile settings, issue #149). Does not
   // regenerate the cookie, so it must not be used to establish a new session.
+  // A read that gets no answer keeps the session and returns it: clearing it
+  // sent a student to the sign-in form right after a settings save the server
+  // had accepted, because the re-read behind it answered 503 once.
   const refreshSession = useCallback(async (): Promise<BackendSession | null> => {
     try {
-      const data = (await authRequest('/api/session')) as { session?: BackendSession | null }
-      setSession(data.session ?? null)
-      return data.session ?? null
+      const next = await readServerSession()
+      setSession(next)
+      setSessionCheckFailed(false)
+      return next
     } catch {
-      setSession(null)
-      return null
+      setSessionCheckFailed(true)
+      return sessionRef.current
     }
   }, [])
 
@@ -168,7 +209,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // POST /api/auth/supabase-sync re-validates the JWT and regenerates the session
   // cookie. Used on auth events (signup, OAuth callback, password reset, session
   // recovery) where minting the cookie is the point. Falls back to a plain
-  // session re-read when there is no Supabase session. Issue #149.
+  // session re-read when there is no Supabase session. Issue #149. Like
+  // refreshSession, a read that gets no answer keeps the session: "Stay signed
+  // in" answered by a 503 used to sign the student out and lose what they had
+  // typed.
   const establishSession = useCallback(async (): Promise<BackendSession | null> => {
     try {
       // First check Supabase session
@@ -182,17 +226,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (backendSession) {
           supabaseOwnsSession.current = true
           setSession(backendSession)
+          setSessionCheckFailed(false)
           return backendSession
         }
       }
 
       // Fall back to regular backend session
-      const data = (await authRequest('/api/session')) as { session?: BackendSession | null }
-      setSession(data.session ?? null)
-      return data.session ?? null
+      const next = await readServerSession()
+      setSession(next)
+      setSessionCheckFailed(false)
+      return next
     } catch {
-      setSession(null)
-      return null
+      setSessionCheckFailed(true)
+      return sessionRef.current
     }
   }, [syncUserToBackend])
 
@@ -203,12 +249,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // survives a Supabase SIGNED_OUT. Issue #298.
     supabaseOwnsSession.current = false
     setSession(next)
+    setSessionCheckFailed(false)
   }, [])
 
   useEffect(() => {
     let cancelled = false
 
     const initAuth = async () => {
+      // The static auth-config runs alongside the session read (no waterfall,
+      // issue #111), but a failed read falls back to the defaults on its own.
+      // It shared a Promise.all with the session read, so a 500 from this
+      // config signed a validly signed-in student out.
+      const configRead = (authRequest('/api/auth-config') as Promise<AuthConfig>).catch(
+        () => DEFAULT_AUTH_CONFIG,
+      )
       try {
         const {
           data: { session: supabaseSession },
@@ -217,44 +271,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
 
         let backendSession: BackendSession | null = null
-        let config: AuthConfig = { authProvider: 'local', purdueAuthMode: 'mock' }
 
         if (supabaseSession) {
           supabaseOwnsSession.current = true
           setSupabaseUser(supabaseSession.user)
-          // Sync (which establishes the backend session from the Supabase token)
-          // and the static auth-config run together - no waterfall. Issue #111.
-          const [synced, cfg] = (await Promise.all([
-            syncUserToBackend(supabaseSession),
-            authRequest('/api/auth-config'),
-          ])) as [BackendSession | null, AuthConfig]
-          backendSession = synced
-          config = cfg
+          // Sync establishes the backend session from the Supabase token.
+          backendSession = await syncUserToBackend(supabaseSession)
           // Only fall back to the cookie session if the Supabase token no longer
           // syncs (expired server-side); otherwise /api/session is redundant.
-          if (!backendSession) {
-            const sessionData = (await authRequest('/api/session')) as {
-              session?: BackendSession | null
-            }
-            backendSession = sessionData.session ?? null
-          }
+          if (!backendSession) backendSession = await readServerSession()
         } else {
-          const [sessionData, cfg] = (await Promise.all([
-            authRequest('/api/session'),
-            authRequest('/api/auth-config'),
-          ])) as [{ session?: BackendSession | null }, AuthConfig]
-          backendSession = sessionData.session ?? null
-          config = cfg
+          backendSession = await readServerSession()
         }
+        const config = await configRead
 
         if (cancelled) return
 
         setSession(backendSession)
         setAuthConfig(config)
       } catch {
+        // No answer, so whether the student is signed in is unknown. Treating
+        // that as signed out bounced them to a bare sign-in form on every
+        // server hiccup and on every offline launch; RequireAuth now offers a
+        // retry instead.
+        const config = await configRead
         if (!cancelled) {
-          setSession(null)
-          setAuthConfig({ authProvider: 'local', purdueAuthMode: 'mock' })
+          setSessionCheckFailed(true)
+          setAuthConfig(config)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -275,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (backendSession) {
           supabaseOwnsSession.current = true
           setSession(backendSession)
+          setSessionCheckFailed(false)
         }
       } else if (event === 'SIGNED_OUT') {
         // Also fires without signOut(): a revoked or unrefreshable token, a
@@ -291,6 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (supabaseOwnsSession.current) {
           supabaseOwnsSession.current = false
           setSession(null)
+          setSessionCheckFailed(false)
         }
       }
     })
@@ -315,12 +360,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // they go the same way. Only the ['me', ...] rows: clearing the whole
       // client would empty the public snapshot the next launch paints from.
       clearAiCaches()
+      // The student's grades, degree-planner major, schedule edits and
+      // assistant conversation used to stay in browser storage after sign-out,
+      // readable by the next person at this computer.
+      clearUserStores(sessionRef.current?.user?.id as string | undefined)
       dropUserQueries(queryClient)
       // The tab stops acting as this student even when a request failed, so
       // a failed sign-out never leaves the account open behind the landing
       // page; useSignOutAndRedirect tells them the server may still hold it.
       supabaseOwnsSession.current = false
       setSession(null)
+      // Signed out is a known state: a guarded page sends the visitor to the
+      // sign-in form, not to the "cannot reach BoilerIndy" retry.
+      setSessionCheckFailed(false)
       setSupabaseUser(null)
     }
   }, [queryClient])
@@ -345,6 +397,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabaseUser,
       onboarding,
       loading,
+      sessionCheckFailed,
       authConfig,
       refreshSession,
       establishSession,
@@ -361,6 +414,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabaseUser,
       onboarding,
       loading,
+      sessionCheckFailed,
       authConfig,
       refreshSession,
       establishSession,

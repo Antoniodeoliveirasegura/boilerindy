@@ -200,3 +200,243 @@ describe('Board reply drafts', () => {
     expect(await within(thread).findByText('Say which building.')).toBeInTheDocument()
   })
 })
+
+async function article(title: string) {
+  return (await screen.findByText(title)).closest('article') as HTMLElement
+}
+
+function openComposer() {
+  fireEvent.click(screen.getByRole('button', { name: 'New question' }))
+}
+
+/** The JSON bodies of every POST to one path, in order. */
+function sentTo(path: string) {
+  return vi
+    .mocked(authRequest)
+    .mock.calls.filter(([p, options]) => p === path && options?.method === 'POST')
+    .map(([, options]) => JSON.parse(String(options?.body)))
+}
+
+// The composer paired a role="checkbox" square with a hidden native input in
+// one label: a click on the square toggled twice and changed nothing, Space did
+// nothing, and screen readers met two checkboxes, one of them unnamed (R3).
+describe('Board anonymity checkbox', () => {
+  it('is one checkbox named Post anonymously that its square toggles, and the post sends what it shows', async () => {
+    renderBoard()
+    await article('Where is the quiet floor?')
+    openComposer()
+    const box = screen.getByRole('checkbox', { name: 'Post anonymously' })
+    const label = box.closest('label') as HTMLElement
+    expect(label.querySelectorAll('input, [role="checkbox"], [tabindex]')).toHaveLength(1)
+    const square = label.querySelector('[aria-hidden="true"]') as HTMLElement
+    expect(box).toBeChecked()
+
+    fireEvent.click(square)
+    expect(box).not.toBeChecked()
+    fireEvent.click(screen.getByText('Post anonymously'))
+    expect(box).toBeChecked()
+    fireEvent.click(square)
+    expect(box).not.toBeChecked()
+    fireEvent.click(square)
+    expect(box).toBeChecked()
+
+    fireEvent.change(screen.getByLabelText('Question title'), { target: { value: 'Where can I print?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Post' }))
+    await waitFor(() => expect(sentTo('/api/board/posts')).toHaveLength(1))
+    expect(sentTo('/api/board/posts')[0]).toMatchObject({ title: 'Where can I print?', anon: true })
+  })
+})
+
+// A failed board read cleared the list and showed "No threads yet", inviting a
+// first post on a board that had not loaded; a failed Load more or Show all
+// replies only reset its button (R18).
+describe('Board read failures', () => {
+  const SERVER = 'Something went wrong. Please try again.'
+
+  function failing(match: (path: string) => boolean) {
+    const answer = vi.mocked(authRequest).getMockImplementation()
+    vi.mocked(authRequest).mockImplementation(async (path, options) => {
+      if (match(String(path))) throw Object.assign(new Error(SERVER), { status: 500 })
+      return answer?.(path, options)
+    })
+  }
+
+  it('shows a failed board read with Try again instead of an empty board', async () => {
+    let down = true
+    failing((path) => down && path.startsWith('/api/board/posts?'))
+    renderBoard()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Could not load the board')
+    expect(alert).toHaveTextContent(SERVER)
+    expect(screen.queryByText('No threads yet')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ask a question' })).toBeNull()
+
+    down = false
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Where is the quiet floor?')).toBeInTheDocument()
+    expect(screen.queryByText('Could not load the board')).toBeNull()
+  })
+
+  it('says when Load more posts fails and keeps the button for another try', async () => {
+    const answer = vi.mocked(authRequest).getMockImplementation()
+    vi.mocked(authRequest).mockImplementation(async (path, options) => {
+      if (path === '/api/board/posts?sort=recent&page=0') return { posts, page: 0, hasMore: true }
+      if (path === '/api/board/posts?sort=recent&page=1') throw Object.assign(new Error(SERVER), { status: 500 })
+      return answer?.(path, options)
+    })
+    renderBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more posts' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(SERVER)
+    expect(screen.getByRole('button', { name: 'Load more posts' })).toBeEnabled()
+  })
+
+  it('says when Show all replies fails', async () => {
+    posts[0] = post(posts[0].id, posts[0].title, { ...posts[0], replyCount: 8, hasMoreReplies: true })
+    failing((path) => path.startsWith('/api/board/posts/p-named/replies'))
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    fireEvent.click(within(thread).getByRole('button', { name: /^8 replies$/ }))
+    fireEvent.click(within(thread).getByRole('button', { name: 'Show all 8 replies' }))
+    expect(await within(thread).findByRole('alert')).toHaveTextContent(SERVER)
+    expect(within(thread).getByRole('button', { name: 'Show all 8 replies' })).toBeEnabled()
+  })
+})
+
+// Replies were always sent with anon: false, so a follow-up in your own
+// anonymous thread showed your name under a post shown as Anonymous (R19).
+describe('Board reply anonymity', () => {
+  it('starts a reply in your own anonymous thread anonymous, and one elsewhere under your name', async () => {
+    posts.push(post('p-mine-anon', 'How do I ask for an extension?', { user: 'Anonymous', anon: true, isMine: true }))
+    renderBoard()
+
+    const own = await article('How do I ask for an extension?')
+    fireEvent.click(within(own).getByRole('button', { name: /0 replies/ }))
+    expect(within(own).getByRole('checkbox', { name: 'Reply anonymously' })).toBeChecked()
+    fireEvent.change(within(own).getByPlaceholderText('Share what you know…'), { target: { value: 'Update: the dean helped' } })
+    fireEvent.click(within(own).getByRole('button', { name: 'Reply' }))
+    await waitFor(() => expect(sentTo('/api/board/posts/p-mine-anon/reply')).toEqual([{ body: 'Update: the dean helped', anon: true }]))
+
+    const named = await article('Selling a lab coat')
+    const box = within(named).getByRole('checkbox', { name: 'Reply anonymously' })
+    expect(box).not.toBeChecked()
+    fireEvent.change(within(named).getByPlaceholderText('Share what you know…'), { target: { value: 'Still available' } })
+    fireEvent.click(within(named).getByRole('button', { name: 'Reply' }))
+    await waitFor(() => expect(sentTo('/api/board/posts/p-mine/reply')).toEqual([{ body: 'Still available', anon: false }]))
+
+    const other = await article('Anyone else locked out?')
+    fireEvent.click(within(other).getByRole('checkbox', { name: 'Reply anonymously' }))
+    fireEvent.change(within(other).getByPlaceholderText('Share what you know…'), { target: { value: 'Me too' } })
+    fireEvent.click(within(other).getByRole('button', { name: 'Reply' }))
+    await waitFor(() => expect(sentTo('/api/board/posts/p-anon/reply')).toEqual([{ body: 'Me too', anon: true }]))
+  })
+})
+
+// Enter pressed twice or a double click on Reply during a slow send posted the
+// same reply twice, and a reply cannot be deleted (R20).
+describe('Board reply sending', () => {
+  it('sends one reply however often Enter or Reply is pressed while it is on its way', async () => {
+    let answer: (value: unknown) => void = () => {}
+    const original = vi.mocked(authRequest).getMockImplementation()
+    vi.mocked(authRequest).mockImplementation(async (path, options) => {
+      if (path === '/api/board/posts/p-named/reply') return new Promise((resolve) => (answer = resolve))
+      return original?.(path, options)
+    })
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    const input = within(thread).getByPlaceholderText('Share what you know…')
+    fireEvent.change(input, { target: { value: 'I can drive' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    const button = within(thread).getByRole('button', { name: 'Sending…' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(sentTo('/api/board/posts/p-named/reply')).toHaveLength(1)
+    expect(button).toBeDisabled()
+    expect(input).toHaveAttribute('readonly')
+
+    await act(async () => {
+      answer({ reply: { id: 'r-new', body: 'I can drive', user: 'Test Student', anon: false, isMine: true } })
+    })
+    expect(within(thread).getAllByText('I can drive')).toHaveLength(1)
+    expect(within(thread).getByRole('button', { name: /4 replies/ })).toBeInTheDocument()
+    expect(input).toHaveValue('')
+    expect(input).not.toHaveAttribute('readonly')
+  })
+})
+
+// The closed composer and collapsed replies were only styled away, so Tab
+// walked through about 13 invisible controls and typing went into a hidden
+// title; the upvote was named only by its count (R21).
+describe('Board hidden controls', () => {
+  it('makes the closed composer and collapsed replies inert, and names the upvote', async () => {
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    const title = () => document.getElementById('board-new-title') as HTMLElement
+    expect(title().closest('[inert]')).not.toBeNull()
+    openComposer()
+    expect(title().closest('[inert]')).toBeNull()
+
+    const reply = () => within(thread).getByText('Third floor of the library')
+    expect(reply().closest('[inert]')).not.toBeNull()
+    fireEvent.click(within(thread).getByRole('button', { name: /3 replies/ }))
+    expect(reply().closest('[inert]')).toBeNull()
+
+    expect(within(thread).getByRole('button', { name: 'Upvote, 0' })).toHaveTextContent('0')
+  })
+})
+
+// Polish with AI and Summarize long thread read only `reply`: a refusal put the
+// button back with nothing said, and a busy server's status line replaced the
+// draft title (R60).
+describe('Board AI helpers', () => {
+  const LIMIT = 'You have hit the hourly assistant limit. Try again in a little while.'
+  const BUSY = 'The assistant is busy right now. Give it a minute and ask again.'
+
+  function assistantAnswers(status: number, body: unknown) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) =>
+      url === '/api/assistant'
+        ? new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+        : new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+  }
+
+  async function polish(title: string) {
+    renderBoard()
+    await article('Where is the quiet floor?')
+    openComposer()
+    fireEvent.change(screen.getByLabelText('Question title'), { target: { value: title } })
+    fireEvent.click(screen.getByRole('button', { name: 'Polish with AI' }))
+  }
+
+  it('says why Polish with AI failed and keeps the draft', async () => {
+    assistantAnswers(429, { error: LIMIT })
+    await polish('where to print')
+    expect(await screen.findByRole('alert')).toHaveTextContent(LIMIT)
+    expect(screen.getByLabelText('Question title')).toHaveValue('where to print')
+    expect(screen.getByRole('button', { name: 'Polish with AI' })).toBeEnabled()
+  })
+
+  it('shows a busy status line as the message, never as the title', async () => {
+    assistantAnswers(200, { reply: BUSY, source: 'busy' })
+    await polish('where to print')
+    expect(await screen.findByRole('alert')).toHaveTextContent(BUSY)
+    expect(screen.getByLabelText('Question title')).toHaveValue('where to print')
+  })
+
+  it('says the assistant could not be reached when the request itself fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
+    await polish('where to print')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't reach the assistant right now. Try again in a moment.")
+  })
+
+  it('says why Summarize long thread failed and keeps the button', async () => {
+    posts[0] = { ...posts[0], replyCount: 6 }
+    assistantAnswers(502, { error: 'The assistant is unavailable right now.' })
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    fireEvent.click(within(thread).getByRole('button', { name: /6 replies/ }))
+    fireEvent.click(within(thread).getByRole('button', { name: 'Summarize long thread' }))
+    expect(await within(thread).findByRole('alert')).toHaveTextContent('The assistant is unavailable right now.')
+    expect(within(thread).getByRole('button', { name: 'Summarize long thread' })).toBeEnabled()
+  })
+})

@@ -189,3 +189,43 @@ describe('signed in', () => {
     expect(authRequest).toHaveBeenCalledWith('/api/me/dining/favorites')
   })
 })
+
+// What should I eat? read only `reply`, so the hourly limit's 429, the 502 when
+// Groq fails or no answer at all put the button back with nothing said (R60).
+describe('the AI pick', () => {
+  const LIMIT = 'You have hit the hourly assistant limit. Try again in a little while.'
+
+  function assistantAnswers(answer: () => Promise<Response>) {
+    vi.mocked(globalThis.fetch).mockImplementation(async (url) =>
+      url === '/api/assistant' ? answer() : new Response(JSON.stringify(snapshot)),
+    )
+  }
+
+  async function ask() {
+    renderDining()
+    await star()
+    fireEvent.click(screen.getByRole('button', { name: 'What should I eat?' }))
+  }
+
+  it('shows the pick', async () => {
+    assistantAnswers(async () => new Response(JSON.stringify({ reply: 'Try the **Veggie Burger** at Tower Dining.' })))
+    await ask()
+    expect(await screen.findByText(/at Tower Dining\./)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('says why the pick failed', async () => {
+    assistantAnswers(async () => new Response(JSON.stringify({ error: LIMIT }), { status: 429 }))
+    await ask()
+    expect(await screen.findByRole('alert')).toHaveTextContent(LIMIT)
+    expect(screen.getByRole('button', { name: 'What should I eat?' })).toBeEnabled()
+  })
+
+  it('says the assistant could not be reached when the request fails', async () => {
+    assistantAnswers(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    await ask()
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't reach the assistant right now. Try again in a moment.")
+  })
+})

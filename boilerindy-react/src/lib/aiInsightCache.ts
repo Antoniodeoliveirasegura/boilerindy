@@ -7,6 +7,7 @@
  * reads the previous student's insights. Sign-out also wipes them from the
  * device, together with the per-user board drafts and the dashboard's cached
  * location and its permission-prompt flag (issue #294, see useUserLocation).
+ * clearUserStores does the same for the other per-user stores.
  */
 
 import { LOCATION_STORAGE_KEYS } from '../hooks/useUserLocation'
@@ -119,6 +120,57 @@ export function clearAiCaches({ keepBoardDrafts = false }: { keepBoardDrafts?: b
       }
     }
     for (const key of doomed) localStorage.removeItem(key)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+// Per-user stores whose data the server also keeps, so the next sign-in reads
+// it back: the grade tracker cache (lib/gradeTrackerStore), the degree
+// planner's major (hooks/useMajor) and the schedule edits
+// (lib/scheduleOverrideStore). Each key ends with the backend user id.
+const SERVER_BACKED_PREFIXES = ['boilerindy-grades-v1-', 'boilerindy-major-v1-']
+const SCHEDULE_OVERRIDES_PREFIX = 'boilerindy-schedule-overrides-v1-'
+const SCHEDULE_OVERRIDES_DIRTY_PREFIX = 'boilerindy-schedule-overrides-dirty-v1-'
+// The assistant conversation, in sessionStorage (components/CampusAssistant).
+const ASSISTANT_HISTORY_PREFIX = 'boilerindy-assistant-history-v1-'
+
+/**
+ * Remove one student's personal stores from this device. Sign-out and account
+ * deletion used to leave grades, schedule edits and the assistant conversation
+ * in browser storage, readable in devtools by the next person at a shared
+ * computer.
+ *
+ * On sign-out this clears what the server keeps a copy of, plus the assistant
+ * conversation. Task priorities, offline tasks, board layouts and schedule
+ * edits still waiting to upload exist only on this device, so clearing them
+ * would lose the student's own work; they stay, as issue #219 decided.
+ * `accountDeleted` clears every `boilerindy-*-v1-<userId>` store, since that
+ * account can never sign in again.
+ */
+export function clearUserStores(
+  userId: string | null | undefined,
+  { accountDeleted = false }: { accountDeleted?: boolean } = {},
+): void {
+  if (!userId) return
+  try {
+    const scheduleEditsPending = localStorage.getItem(`${SCHEDULE_OVERRIDES_DIRTY_PREFIX}${userId}`) === '1'
+    const signOutKeys = SERVER_BACKED_PREFIXES.map((prefix) => `${prefix}${userId}`)
+    if (!scheduleEditsPending) signOutKeys.push(`${SCHEDULE_OVERRIDES_PREFIX}${userId}`)
+    // Collect first: removing while walking localStorage.key(i) shifts the indexes.
+    const doomed: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key) continue
+      const isUserStore = key.startsWith('boilerindy-') && key.endsWith(`-v1-${userId}`)
+      if (accountDeleted ? isUserStore : signOutKeys.includes(key)) doomed.push(key)
+    }
+    for (const key of doomed) localStorage.removeItem(key)
+  } catch {
+    /* storage unavailable */
+  }
+  try {
+    sessionStorage.removeItem(`${ASSISTANT_HISTORY_PREFIX}${userId}`)
   } catch {
     /* storage unavailable */
   }

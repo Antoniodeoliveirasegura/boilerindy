@@ -80,3 +80,84 @@ describe('Friends report and block', () => {
     expect(vi.mocked(authRequest).mock.calls.filter(([p]) => p === '/api/me/matches')).toHaveLength(2)
   })
 })
+
+describe('Friends profile and Connect feedback', () => {
+  const LIMITED = 'You are posting too quickly. Please wait a moment and try again.'
+
+  function failWith(message: string, status: number) {
+    return Object.assign(new Error(message), { status, payload: { error: { message, status } } })
+  }
+
+  // The default answers from beforeEach, with one path or method overridden.
+  function answer(override: (path: string, method?: string) => unknown) {
+    const fallback = vi.mocked(authRequest).getMockImplementation()
+    vi.mocked(authRequest).mockImplementation(async (path, options) => {
+      const result = override(path, options?.method)
+      if (result instanceof Error) throw result
+      if (result !== undefined) return result
+      return fallback?.(path, options)
+    })
+  }
+
+  it('keeps the profile form closed when it cannot load, so Save cannot overwrite the saved profile', async () => {
+    let profileUp = false
+    answer((path, method) => {
+      if (path === '/api/me/profile-card' && !method) {
+        return profileUp ? { bio: 'CompE junior', interests: ['robotics', 'coffee'], discoverable: true } : failWith('Service unavailable', 503)
+      }
+      return undefined
+    })
+    renderFriends()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load your profile')
+    expect(screen.getByLabelText('Short bio (optional)')).toBeDisabled()
+    expect(screen.getByLabelText('Interests, comma-separated (e.g. chess, hiking)')).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Discoverable to classmates' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeDisabled()
+
+    profileUp = true
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByLabelText('Short bio (optional)')).toHaveValue('CompE junior'))
+    expect(screen.getByLabelText('Interests, comma-separated (e.g. chess, hiking)')).toHaveValue('robotics, coffee')
+    expect(screen.getByRole('checkbox', { name: 'Discoverable to classmates' })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(vi.mocked(authRequest).mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
+  })
+
+  it('says why a refused Connect put the classmate back', async () => {
+    answer((path, method) => (path === '/api/connections' && method === 'POST' ? failWith(LIMITED, 429) : undefined))
+    renderFriends()
+    await screen.findByText('Jordan')
+    fireEvent.click(card('Jordan').getByRole('button', { name: 'Connect' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(LIMITED)
+    expect(await screen.findByText('Jordan')).toBeInTheDocument()
+  })
+
+  it('confirms a sent request', async () => {
+    renderFriends()
+    await screen.findByText('Jordan')
+    fireEvent.click(card('Jordan').getByRole('button', { name: 'Connect' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Request sent to Jordan.')
+    expect(screen.queryByText('Jordan')).not.toBeInTheDocument()
+  })
+
+  it('clears a match error once a later reload succeeds', async () => {
+    let matchesUp = false
+    answer((path, method) => {
+      if (path === '/api/me/matches') return matchesUp ? undefined : failWith('Could not load matches. Please try again.', 500)
+      if (path === '/api/me/profile-card' && method === 'PUT') return { ok: true }
+      return undefined
+    })
+    renderFriends()
+    expect(await screen.findByText('Could not load matches. Please try again.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save profile' })).toBeEnabled())
+
+    matchesUp = true
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    expect(await screen.findByText('Jordan')).toBeInTheDocument()
+    expect(screen.queryByText('Could not load matches. Please try again.')).not.toBeInTheDocument()
+  })
+})

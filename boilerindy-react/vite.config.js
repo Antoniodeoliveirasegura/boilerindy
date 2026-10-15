@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -10,15 +12,34 @@ export default defineConfig(({ mode }) => {
   // (Vercel). Locally/CI the plugin is omitted and no maps are generated.
   const uploadSourceMaps = Boolean(env.SENTRY_AUTH_TOKEN)
 
+  // Minted per build: the query cache persister's buster (issue #251), so
+  // every deploy discards the previous build's persisted rows, and the service
+  // worker's own id (below).
+  const buildId = Date.now().toString(36)
+
   return {
-    // Minted per build: the query cache persister's buster (issue #251), so
-    // every deploy discards the previous build's persisted rows.
     define: {
-      __BUILD_ID__: JSON.stringify(Date.now().toString(36)),
+      __BUILD_ID__: JSON.stringify(buildId),
     },
     plugins: [
       react(),
       tailwindcss(),
+      // A browser installs a new service worker only when sw.js changes byte
+      // for byte, and public/ is copied as is, so a release that did not edit
+      // sw.js never produced a waiting worker and the refresh prompt never
+      // showed (R68). Stamp this build's id into the copied file. It throws if
+      // the line is gone, so the stamp cannot silently stop happening.
+      {
+        name: 'stamp-service-worker',
+        apply: 'build',
+        writeBundle(options) {
+          const file = join(options.dir, 'sw.js')
+          const source = readFileSync(file, 'utf8')
+          const stamped = source.replace("const BUILD_ID = 'dev'", `const BUILD_ID = '${buildId}'`)
+          if (stamped === source) throw new Error("dist/sw.js has no const BUILD_ID = 'dev' line to stamp")
+          writeFileSync(file, stamped)
+        },
+      },
       ...(uploadSourceMaps
         ? [
             sentryVitePlugin({

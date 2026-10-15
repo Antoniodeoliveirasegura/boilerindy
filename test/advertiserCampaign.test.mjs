@@ -112,6 +112,111 @@ test('advertiser CAN pause an active campaign and resume a paused one', () => {
   assert.deepEqual(normalizeCampaignPatch({ status: 'active' }, { status: 'paused' }), { status: 'active' })
 })
 
+// An approved campaign could be paused, given a new link, photos or copy, and
+// resumed, so students saw content the owner never reviewed. Changing what
+// students see now sends it back to draft; pause, resume, a rename and new
+// dates keep the approval.
+const APPROVED_CREATIVE = {
+  headline: 'Half off lattes',
+  body: 'All week',
+  ctaLabel: 'Visit website',
+  ctaUrl: 'https://cafe.example/',
+  imageUrls: ['https://img.example/1.jpg', 'https://img.example/2.jpg', 'https://img.example/3.jpg'],
+  imageUrl: 'https://img.example/1.jpg',
+}
+const approvedRow = (status) => ({ status, placement: 'side-rail', creative: APPROVED_CREATIVE })
+
+test('editing the banner of a paused or live campaign sends it back to draft', () => {
+  for (const status of ['paused', 'active']) {
+    const swappedLink = normalizeCampaignPatch(
+      { creative: { ...APPROVED_CREATIVE, ctaUrl: 'https://never-reviewed.example/landing' } },
+      approvedRow(status),
+    )
+    assert.equal(swappedLink.status, 'draft', `a new link on a ${status} campaign`)
+    assert.equal(swappedLink.creative.ctaUrl, 'https://never-reviewed.example/landing')
+
+    const photos = ['https://img.example/9.jpg', 'https://img.example/2.jpg', 'https://img.example/3.jpg']
+    assert.equal(
+      normalizeCampaignPatch({ creative: { ...APPROVED_CREATIVE, imageUrls: photos } }, approvedRow(status)).status,
+      'draft',
+      `a new photo on a ${status} campaign`,
+    )
+    assert.equal(
+      normalizeCampaignPatch({ creative: { ...APPROVED_CREATIVE, headline: 'UNREVIEWED headline' } }, approvedRow(status)).status,
+      'draft',
+      `new copy on a ${status} campaign`,
+    )
+    assert.equal(
+      normalizeCampaignPatch({ placement: 'home-widget' }, approvedRow(status)).status,
+      'draft',
+      `a new placement on a ${status} campaign`,
+    )
+  }
+})
+
+test('the pause, edit, resume path can no longer put unreviewed content live', () => {
+  const paused = { ...approvedRow('active'), ...normalizeCampaignPatch({ status: 'paused' }, approvedRow('active')) }
+  const edit = normalizeCampaignPatch({ creative: { ...APPROVED_CREATIVE, headline: 'UNREVIEWED headline' } }, paused)
+  const afterEdit = { ...paused, ...edit }
+  assert.equal(afterEdit.status, 'draft')
+  assert.throws(() => normalizeCampaignPatch({ status: 'active' }, afterEdit), /must be approved before it can go live/)
+})
+
+test('a banner change cannot ride along with a status change on an approved campaign', () => {
+  const creative = { ...APPROVED_CREATIVE, ctaUrl: 'https://never-reviewed.example/' }
+  for (const status of ['active', 'paused', 'ended']) {
+    assert.throws(
+      () => normalizeCampaignPatch({ creative, status }, approvedRow('paused')),
+      /send it back to draft for review/,
+      `creative with status ${status}`,
+    )
+  }
+  assert.equal(normalizeCampaignPatch({ creative, status: 'draft' }, approvedRow('paused')).status, 'draft')
+})
+
+// The edit form fills in "Visit website" for a banner stored with no link
+// label, which is also what students see for it. A dates-only save of such an
+// approved banner used to count as a new banner and send it back to draft.
+test('an approved banner with no label of its own keeps its status when saved unchanged', () => {
+  const { ctaLabel: _label, ...unlabelled } = APPROVED_CREATIVE
+  const row = { status: 'paused', placement: 'side-rail', creative: unlabelled }
+  const saved = normalizeCampaignPatch({ startsOn: '2026-11-01', creative: { ...unlabelled, ctaLabel: 'Visit website' } }, row)
+  assert.notEqual(saved.status, 'draft')
+  // A label students would actually see differently still reopens review.
+  assert.equal(normalizeCampaignPatch({ creative: { ...unlabelled, ctaLabel: 'Order now' } }, row).status, 'draft')
+})
+
+test('an approved campaign keeps its status for a rename, new dates or an unchanged banner', () => {
+  // The dashboard's edit form sends every field, the creative included.
+  const sameForm = {
+    name: 'Renamed promo',
+    placement: 'side-rail',
+    startsOn: '2026-11-01',
+    endsOn: '2026-11-30',
+    creative: {
+      headline: 'Half off lattes',
+      body: 'All week',
+      ctaLabel: 'Visit website',
+      ctaUrl: 'https://cafe.example/',
+      imageUrls: APPROVED_CREATIVE.imageUrls,
+    },
+  }
+  for (const status of ['paused', 'active']) {
+    const patch = normalizeCampaignPatch(sameForm, approvedRow(status))
+    assert.equal('status' in patch, false, `a ${status} campaign`)
+    assert.equal(patch.name, 'Renamed promo')
+  }
+  // A legacy single-photo row compares by the photo it serves.
+  const legacy = { status: 'paused', placement: 'dining', creative: { imageUrl: 'https://img.example/1.jpg' } }
+  assert.equal('status' in normalizeCampaignPatch({ creative: { imageUrls: ['https://img.example/1.jpg'] } }, legacy), false)
+})
+
+test('drafts and campaigns in review keep their status when the banner changes', () => {
+  const creative = { ...APPROVED_CREATIVE, headline: 'New headline' }
+  assert.equal('status' in normalizeCampaignPatch({ creative }, approvedRow('draft')), false)
+  assert.equal('status' in normalizeCampaignPatch({ creative }, approvedRow('pending_review')), false)
+})
+
 test('ended is terminal - no transitions allowed', () => {
   assert.deepEqual(ADVERTISER_STATUS_TRANSITIONS.ended, [])
   assert.throws(() => normalizeCampaignPatch({ status: 'draft' }, { status: 'ended' }), /can't change/)

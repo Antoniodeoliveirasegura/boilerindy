@@ -97,20 +97,34 @@ export function normalizeGrades(input) {
  * null when nothing countable is present (so callers can show a placeholder
  * rather than a misleading 0.00).
  *
+ * gpa is rounded once, to the two places every screen shows, so a caller's
+ * toFixed(2) only pads it. It used to be rounded to three places first and
+ * then again by toFixed(2), so 38/11 = 3.4545 became 3.455 and showed as 3.46
+ * (R11). The rounding works on whole numbers (grade points carry one decimal
+ * and credits two), so an exact half such as 39.55/10 = 3.955 rounds up to
+ * 3.96 rather than landing a hair under the half in floating point.
+ *
  * @param {{creditHours: number, letterGrade: string}[]} courses
  */
 export function computeGpa(courses) {
   let credits = 0
   let points = 0
+  // Credits in hundredths, and points in tenths of a grade point times those.
+  let creditUnits = 0
+  let pointUnits = 0
   for (const c of Array.isArray(courses) ? courses : []) {
     const gp = gradePoints(c?.letterGrade)
     const ch = normalizeCredits(c?.creditHours)
     if (gp === null || ch <= 0) continue
     credits += ch
     points += gp * ch
+    const units = Math.round(ch * 100)
+    creditUnits += units
+    pointUnits += Math.round(gp * 10) * units
   }
   return {
-    gpa: credits > 0 ? Math.round((points / credits) * 1000) / 1000 : null,
+    // pointUnits / creditUnits is the GPA times 10, so ten times that is hundredths.
+    gpa: creditUnits > 0 ? Math.round((pointUnits * 10) / creditUnits) / 100 : null,
     credits,
     points,
   }

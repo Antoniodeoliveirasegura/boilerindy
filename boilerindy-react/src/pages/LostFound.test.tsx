@@ -71,3 +71,87 @@ describe('Lost & Found report and block', () => {
     expect(authRequest).toHaveBeenCalledWith('/api/me/blocks/content/lost_found/item-theirs', { method: 'POST' })
   })
 })
+
+describe('Lost & Found errors', () => {
+  const POLICY = 'Please keep the campus board respectful - remove profanity or slurs and try again.'
+
+  function failWith(message: string, status: number) {
+    return Object.assign(new Error(message), { status, payload: { error: { message, status } } })
+  }
+
+  it('shows a rejected post\'s reason in the composer, next to Post item, and keeps the title', async () => {
+    vi.mocked(authRequest).mockImplementation(async (path, options) => {
+      if (options?.method === 'POST') throw failWith(POLICY, 400)
+      if (path === '/api/lost-found') return { items }
+      throw new Error(`unexpected ${path}`)
+    })
+    renderPage()
+    await screen.findByText('Blue water bottle')
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Lost my backpack' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Post item' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(POLICY)
+    // In the form the student just used, not the page header far above it on a phone.
+    const composer = screen.getByRole('button', { name: 'Post item' }).closest('form') as HTMLElement
+    expect(composer).toContainElement(alert)
+    expect(screen.getByLabelText('Title')).toHaveValue('Lost my backpack')
+  })
+
+  it('shows a failed Mark resolved in the row that failed', async () => {
+    vi.mocked(authRequest).mockImplementation(async (path, options) => {
+      if (options?.method === 'PATCH') throw failWith('Could not update the post.', 500)
+      if (path === '/api/lost-found') return { items }
+      throw new Error(`unexpected ${path}`)
+    })
+    renderPage()
+    await screen.findByText('Black backpack')
+    fireEvent.click(card('Black backpack').getByRole('button', { name: 'Mark resolved' }))
+
+    expect(await card('Black backpack').findByRole('alert')).toHaveTextContent('Could not update the post.')
+    expect(card('Blue water bottle').queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('says a failed load failed, instead of an empty board, and Try again reads the list again', async () => {
+    let fail = true
+    vi.mocked(authRequest).mockImplementation(async (path) => {
+      if (path !== '/api/lost-found') throw new Error(`unexpected ${path}`)
+      if (fail) throw failWith('Internal server error.', 500)
+      return { items }
+    })
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load Lost & Found posts.')
+    expect(screen.queryByText('Be the first to post a lost or found item.')).not.toBeInTheDocument()
+
+    fail = false
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Blue water bottle')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    quiet.mockRestore()
+  })
+
+  it('tells students the board is unavailable, without the SQL setup step, and holds the composer', async () => {
+    vi.mocked(authRequest).mockImplementation(async (path) => {
+      if (path === '/api/lost-found') return { items: [], unavailable: true }
+      throw new Error(`unexpected ${path}`)
+    })
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Lost & Found is temporarily unavailable. Try again in a few minutes.')
+    expect(screen.queryByText(/supabase-lost-found\.sql/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Be the first to post a lost or found item.')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Keys' } })
+    expect(screen.getByRole('button', { name: 'Post item' })).toBeDisabled()
+  })
+
+  it('stops each field at the length the server keeps', async () => {
+    renderPage()
+    await screen.findByText('Blue water bottle')
+    expect(screen.getByLabelText('Title')).toHaveAttribute('maxlength', '200')
+    expect(screen.getByLabelText('Location (optional)')).toHaveAttribute('maxlength', '200')
+    expect(screen.getByLabelText('How to reach you (optional)')).toHaveAttribute('maxlength', '200')
+    expect(screen.getByLabelText('Description (optional)')).toHaveAttribute('maxlength', '2000')
+  })
+})

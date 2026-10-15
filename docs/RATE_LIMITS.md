@@ -103,10 +103,13 @@ request, not as being offline
 page stays online, undoes what it showed optimistically and shows the
 response's `error.message`, so a `409` cap or a `429` limit reads the same as
 the server wrote it. Only a request that got no response, or a `5xx`, keeps a
-page's offline behaviour: Assignments switches to device-only tasks, the grade
-tracker keeps its local copy, and the dashboard and Services layouts and the
-selected major stay in the local cache until the next successful save. A
-refused layout or major save puts back the value the server last accepted.
+page's offline behaviour: the dashboard and Services layouts and the selected
+major stay in the local cache until the next successful save. A refused layout
+or major save puts back the value the server last accepted. Assignments and the
+grade tracker keep no device-only copy of a write: one that gets no response or
+a `5xx` is undone and reported with a way to try again, because a copy kept only
+on the device looked saved and was lost on the next visit. Assignments uses
+device-only tasks only when the server answers that its task tables are missing.
 
 ## Configuration
 

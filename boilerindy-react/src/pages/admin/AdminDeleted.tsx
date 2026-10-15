@@ -98,20 +98,28 @@ export default function AdminDeleted() {
   // resolves after the admin changed the field is dropped instead of previewing
   // (and offering to take down) a different item than the one in the field.
   const lookupSeq = useRef(0)
+  // Bumped by every list load, so a list that arrives after another tab was
+  // picked is dropped. A slow Board posts answer used to replace the
+  // Marketplace rows under the Marketplace pill, and Restore or Delete on one
+  // of them then went to the marketplace route with a board post's id.
+  const loadSeq = useRef(0)
   const { confirm, confirmDialog } = useConfirm()
 
   const load = useCallback(async (t: TabKey) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     setError('')
     try {
       const data = (await (isDeletedType(t) ? listDeletedItems(t) : listHiddenMarketplace())) as { items?: Row[] }
+      if (seq !== loadSeq.current) return
       setItems(data.items || [])
     } catch (e) {
+      if (seq !== loadSeq.current) return
       const fallback = isDeletedType(t) ? 'Could not load deleted items.' : 'Could not load hidden listings.'
       setItems([])
       setError(e instanceof Error ? e.message : fallback)
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [])
 
@@ -356,12 +364,13 @@ export default function AdminDeleted() {
         )}
       </section>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label="Deleted content by type">
         {TABS.map((t) => (
           <button
             key={t.key}
             type="button"
             onClick={() => setType(t.key)}
+            aria-pressed={type === t.key}
             className={`pill ${type === t.key ? 'pill-active' : ''}`}
           >
             {t.label}

@@ -28,10 +28,11 @@ function orderClassItemsForDisplay(items) {
 /**
  * The three readers over one Supabase client:
  *
- * - listCalendarItems(userId, { category, categories, limit, order, from }):
+ * - listCalendarItems(userId, { category, categories, limit, order, from, throwOnError }):
  *   the user's calendar_items in start_time order with an id tiebreak, paged
  *   past PostgREST's max-rows by selectUpTo, in the client's camelCase shape
- *   with allDay and freeFood; [] when the read fails.
+ *   with allDay and freeFood; [] when the read fails, or the database error
+ *   thrown when throwOnError is set.
  * - getClassItemsForUser(userId, { limit, term, mode }): the class meetings
  *   of one term ('auto' picks it, 'all' keeps every term, or a key such as
  *   '2026-fall'), read from classScanFrom(term) on. Mode 'display' keeps the
@@ -45,7 +46,7 @@ function orderClassItemsForDisplay(items) {
  * @returns {{ listCalendarItems: Function, getClassItemsForUser: Function, readScheduleOverrides: Function }}
  */
 export function createCalendarReads(supabase) {
-  async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null } = {}) {
+  async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null, throwOnError = false } = {}) {
     const ascending = order === 'asc'
     const rowLimit = Number(limit) || 100
 
@@ -74,7 +75,14 @@ export function createCalendarReads(supabase) {
     // start_time from repeating or vanishing across page boundaries.
     const { data, error } = await selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit)
 
-    if (error) return []
+    // The readers that only add context (the assistant, study groups, friends)
+    // carry on without the calendar. GET /api/me/calendar throws instead: an
+    // empty list there told a student with a quiz due tomorrow that nothing
+    // was due, when the read had failed.
+    if (error) {
+      if (throwOnError) throw error
+      return []
+    }
     return data.map(row => ({
       id: row.id,
       sourceId: row.source_id,

@@ -250,8 +250,20 @@ export default function CampusAssistant() {
         // stops suggesting they open the tab they are already looking at.
         body: JSON.stringify({ messages: nextMessages.map(worded), page: pathname }),
       })
+      // The session ended: send them to sign in with the notice, as
+      // authRequest does for every other read, rather than answer in the panel.
+      if (res.status === 401) {
+        const next = encodeURIComponent(window.location.pathname + window.location.search)
+        window.location.replace(`/login?next=${next}&message=session-expired`)
+        return
+      }
       const data = await res.json()
-      const reply = data.reply || data.error || "Sorry, I couldn't get a response."
+      // The route's own errors are strings, but requireAuth and the final error
+      // handler (a body over the size limit) answer with the envelope
+      // { error: { message } }. Passed on whole, that object rendered as an
+      // empty reply bubble.
+      const error = typeof data.error === 'string' ? data.error : data.error?.message
+      const reply = (typeof data.reply === 'string' && data.reply) || error || "Sorry, I couldn't get a response."
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }])
     } catch {
       setMessages((prev) => [

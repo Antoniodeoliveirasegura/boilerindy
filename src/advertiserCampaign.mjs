@@ -21,7 +21,8 @@ const CREATIVE_LIMITS = {
 // Transitions an ADVERTISER may perform. Activating a campaign (-> 'active' from
 // draft/pending_review) is intentionally absent: only the owner approves, via
 // scripts/review-campaign.mjs. Resuming an already-approved paused campaign IS
-// allowed (paused -> active).
+// allowed (paused -> active); editing its banner or placement first sends it
+// back to draft (see normalizeCampaignPatch), so what resumes is what was approved.
 export const ADVERTISER_STATUS_TRANSITIONS = {
   draft: ['pending_review', 'ended'],
   pending_review: ['draft', 'ended'],
@@ -30,8 +31,24 @@ export const ADVERTISER_STATUS_TRANSITIONS = {
   ended: [],
 }
 
+// Statuses the owner has approved. A campaign in one of them went through
+// review with the placement and creative it holds now.
+const APPROVED_STATUSES = ['active', 'paused']
+
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+// What students see of a creative, as one comparable string. The photo list
+// falls back to the single legacy imageUrl, as toServedAd serves it. A missing
+// link label is the default students see (SpotlightCard), which the edit form
+// also fills in, so a dates-only save of an approved banner with no label of
+// its own is not taken for a new banner and sent back to draft.
+const DEFAULT_CTA_LABEL = 'Visit website'
+function servedCreativeKey(creative) {
+  const c = creative || {}
+  const photos = Array.isArray(c.imageUrls) && c.imageUrls.length > 0 ? c.imageUrls : c.imageUrl ? [c.imageUrl] : []
+  return JSON.stringify([c.headline || '', c.body || '', c.ctaLabel || DEFAULT_CTA_LABEL, c.ctaUrl || '', photos])
 }
 
 export function isValidPlacement(placement) {
@@ -197,13 +214,29 @@ export function normalizeCampaignPatch(input = {}, currentRow = {}) {
     patch.creative = normalizeCreative(input.creative || {})
   }
 
+  // Changing what students see on an approved campaign sends it back to
+  // draft, so it has to be submitted and approved again before it can run.
+  // Without this an advertiser could pause a live campaign, swap its link,
+  // photos, copy or placement, and resume it with content the owner never
+  // reviewed. A new name or new dates keep the approval: students never see
+  // the name, and the dates only bound when the reviewed ad runs.
+  const reopensReview =
+    APPROVED_STATUSES.includes(currentRow.status) &&
+    ((patch.placement !== undefined && patch.placement !== currentRow.placement) ||
+      (patch.creative !== undefined && servedCreativeKey(patch.creative) !== servedCreativeKey(currentRow.creative)))
+
   if (input.status !== undefined) {
     const next = cleanString(input.status)
     const current = currentRow.status
     if (!CAMPAIGN_STATUSES.includes(next)) {
       throw new Error('Unknown campaign status.')
     }
-    if (next !== current) {
+    if (reopensReview && next !== 'draft') {
+      throw new Error(
+        "Changes to an approved campaign's banner or placement send it back to draft for review, so save them without a status change.",
+      )
+    }
+    if (next !== current && !reopensReview) {
       const allowed = ADVERTISER_STATUS_TRANSITIONS[current] || []
       if (!allowed.includes(next)) {
         if (next === 'active') {
@@ -218,6 +251,8 @@ export function normalizeCampaignPatch(input = {}, currentRow = {}) {
       }
     }
     patch.status = next
+  } else if (reopensReview) {
+    patch.status = 'draft'
   }
 
   if (Object.keys(patch).length === 0) {

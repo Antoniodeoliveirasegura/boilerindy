@@ -26,7 +26,7 @@ import {
 } from '../lib/scheduleFilters'
 import {
   applyScheduleOverridesToItems,
-  manualClassesAsItems,
+  manualClassesForDays,
   useScheduleOverrides,
 } from '../lib/scheduleOverrideStore'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
@@ -44,7 +44,8 @@ import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
-import { useMyCalendar, useMyClasses } from '../lib/queries/userData'
+import { useMyCalendar, useMyClasses, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
+import { taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import PageTitle from '../components/PageTitle'
 
 // Each quick action wears its own transit line (route class) on its badge.
@@ -82,6 +83,27 @@ Requirements:
 - Bullet 3: notable campus or career events this week, or say none are scheduled.
 - No headings, no emoji. Stay under 150 words. Write in second person ("you"). Be warm and skimmable.`
 
+// Shown when the assistant fails without saying why (no response, or a body
+// with no message). The chat panel says the same.
+const ASSISTANT_UNREACHABLE = "Couldn't reach the assistant right now. Try again in a moment."
+
+type AssistantAnswer = { reply: string } | { error: string }
+
+// The digest from an /api/assistant response, or the message to show instead.
+// The card used to read only `reply`, so the hourly limit's 429 and the 502
+// when Groq fails left it with no summary and nothing said. A 200 marked busy
+// or offline carries a status line, not a digest, so it is shown as the
+// message and never cached as the week's briefing.
+async function readAssistantAnswer(res: Response): Promise<AssistantAnswer> {
+  const data = (await res.json().catch(() => null)) as { reply?: unknown; source?: unknown; error?: unknown } | null
+  const reply = typeof data?.reply === 'string' ? data.reply : ''
+  if (res.ok && reply && data?.source !== 'busy' && data?.source !== 'offline') return { reply }
+  // The limiter sends `error` as a string; the app's error handler sends { message }.
+  const error = data?.error as string | { message?: unknown } | null | undefined
+  const message = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
+  return { error: message || reply || ASSISTANT_UNREACHABLE }
+}
+
 // Category labels for today's events. The card carries the Events line, so the
 // labels themselves stay neutral badges.
 const homeEventCategory: Record<string, { label: string }> = {
@@ -116,6 +138,19 @@ function filterTodayRelevantEvents(items: any[], now: Date) {
         isStillRelevantToday(item, now),
     )
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+}
+
+/**
+ * A deadline's time for the Tasks due rows: one clock time, never an event's
+ * "start - end" range (a feed deadline ends when it starts, which read as
+ * "11:59 PM - 11:59 PM"). D2L's 23:59 stamp reads as the end of the day and a
+ * midnight or all-day item as all day, as on Assignments.
+ */
+function formatDueTime(item: { startTime: string; allDay?: boolean }) {
+  const due = new Date(item.startTime)
+  if (item.allDay || (due.getHours() === 0 && due.getMinutes() === 0)) return 'All day'
+  if (due.getHours() === 23 && due.getMinutes() === 59) return 'Due by end of day'
+  return shortTime(due)
 }
 
 function formatDashboardEventTime(startTime: string, endTime?: string | null) {
@@ -528,7 +563,7 @@ export default function Home() {
   const overrides = useScheduleOverrides(userId)
   const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError } = useDashboardLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const { summary: gpaSummary } = useGradeTracker(userId)
+  const { summary: gpaSummary, loadFailed: gradesLoadFailed } = useGradeTracker(userId)
   const [now, setNow] = useState(() => new Date())
   // Classes and the calendar window through the per-user query cache (issue
   // #327): keyed by the user, shared with Schedule, Assignments and Events, and
@@ -540,6 +575,20 @@ export default function Home() {
   const calendarLoading = classesQuery.isPending || calendarQuery.isPending
   const classLoadError = classesQuery.isError ? errorMessage(classesQuery.error, 'Could not load classes.') : ''
   const calendarLoadError = calendarQuery.isError ? errorMessage(calendarQuery.error, 'Could not load events.') : ''
+  // Nothing cached and the read failed: Tasks due says so instead of "Nothing
+  // due right now", which told a student with a quiz due tomorrow they were clear.
+  const calendarFailed = calendarQuery.isError && !calendarQuery.data
+  // The task list Assignments keeps: calendar items the student ticked off and
+  // the tasks they added by hand. Home read the calendar alone, so a finished
+  // quiz kept its Heads up and urgent badge, and a task added on Assignments
+  // never showed here. With no task tables on the server, Assignments keeps
+  // them in this browser, and so does this.
+  const taskMetaQuery = useTaskMeta()
+  const taskMeta = useMemo<TaskMeta | undefined>(() => {
+    const data = taskMetaQuery.data
+    return data?.unavailable && userId ? (taskMetaFromLocalStore(userId) as TaskMeta) : data
+  }, [taskMetaQuery.data, userId])
+  const tasksLoading = calendarLoading || taskMetaQuery.isPending
 
   // Live transit through the shared query cache (issue #251): Home and Transit
   // read the same entries, the vehicle poll pauses while the tab is hidden,
@@ -613,6 +662,7 @@ export default function Home() {
   const hasScheduleData = (onboarding?.linkedSourceCount ?? 0) > 0 || overrides.manual.length > 0
 
   const [weekAheadText, setWeekAheadText] = useState(readCachedWeekDigest)
+  const [weekAheadError, setWeekAheadError] = useState('')
   // Start loading when there is no cached digest: the mount effect will fetch
   // one. Deriving the initial value here means the effect never has to flip the
   // flag synchronously (which trips react-hooks/set-state-in-effect).
@@ -640,19 +690,26 @@ export default function Home() {
         messages: [{ role: 'user', content: WEEK_AHEAD_PROMPT }],
       }),
     })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.reply && mountedRef.current) {
-          setWeekAheadText(d.reply)
-          writeAiCache(getWeekDigestStorageKey(), d.reply)
+      .then(readAssistantAnswer)
+      .then((answer) => {
+        if (!mountedRef.current) return
+        if ('error' in answer) {
+          setWeekAheadError(answer.error)
+          return
         }
+        setWeekAheadText(answer.reply)
+        setWeekAheadError('')
+        writeAiCache(getWeekDigestStorageKey(), answer.reply)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (mountedRef.current) setWeekAheadError(ASSISTANT_UNREACHABLE)
+      })
       .finally(() => setWeekAheadLoading(false))
   }
 
   const generateWeekAheadSummary = () => {
     setWeekAheadLoading(true)
+    setWeekAheadError('')
     fetchWeekAheadSummary()
   }
 
@@ -695,11 +752,25 @@ export default function Home() {
     () => calendarItems.filter((i) => i && !isOnlineMeetingNoise(i)),
     [calendarItems],
   )
+  // Deadlines still open, for Tasks due, Heads up, the week strip and the
+  // free-time line: calendar items that are not classes or events and not
+  // ticked off, plus the student's own dated tasks that are not done.
+  const openTasks = useMemo(() => {
+    const done = new Set((taskMeta?.completions ?? []).map((c) => c.calendar_item_id))
+    const fromCalendar = cleanCalendarItems.filter(
+      (item) => item?.startTime && !NOT_TASK_CATEGORIES.includes(item.category) && !done.has(item.id),
+    )
+    const own = (taskMeta?.manualTasks ?? []).filter((task) => task.startTime && !task.completedAt)
+    return [...fromCalendar, ...own]
+  }, [cleanCalendarItems, taskMeta])
   const homeClasses = useMemo(() => {
     // Deletes/edits made on Schedule apply to today's class strip and the
     // free-time math; the hook also refreshes these after the server pull.
+    // Classes added by hand count on each of the seven days the week strip
+    // shows, as feed classes do. Expanding them for today alone left the
+    // strip empty after today and the next-class board skipping them.
     const filtered = applyScheduleOverridesToItems(getHomeClassItems(classes), overrides)
-    return [...filtered, ...manualClassesAsItems(overrides.manual, now)]
+    return [...filtered, ...manualClassesForDays(overrides.manual, now, 7)]
   }, [classes, overrides, now])
   const scheduleState = useMemo(() => deriveScheduleState(homeClasses, now), [homeClasses, now])
   const suggestions = useMemo(() => buildSuggestions({
@@ -777,10 +848,8 @@ export default function Home() {
     const alerts: Array<{ icon: string; route: string; text: string }> = []
     const nowMs = now.getTime()
 
-    // Assignment due within 24 hours
-    const urgentItems = (calendarItems || []).filter((item) => {
-      if (!item || !item.startTime) return false
-      if (['campus_event', 'event', 'class'].includes(item.category)) return false
+    // Assignment due within 24 hours and not done yet
+    const urgentItems = openTasks.filter((item) => {
       const due = new Date(item.startTime).getTime()
       return due > nowMs && due - nowMs < 24 * 60 * 60 * 1000
     })
@@ -836,7 +905,7 @@ export default function Home() {
     }
 
     return alerts.slice(0, 4)
-  }, [now, calendarItems, scheduleState, diningStatus, transitLoading, transitVehicles, transitError])
+  }, [now, openTasks, scheduleState, diningStatus, transitLoading, transitVehicles, transitError])
 
   const quickActions = useMemo(
     () =>
@@ -855,13 +924,8 @@ export default function Home() {
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass
 
-  const tasksDuePreview = (cleanCalendarItems || [])
-    .filter(
-      (item) =>
-        item?.startTime &&
-        !['campus_event', 'event', 'activity', 'class'].includes(item.category) &&
-        new Date(item.startTime).getTime() >= now.getTime(),
-    )
+  const tasksDuePreview = openTasks
+    .filter((item) => new Date(item.startTime).getTime() >= now.getTime())
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     .slice(0, 5)
 
@@ -883,7 +947,7 @@ export default function Home() {
       }
       const classCount = meetings.filter((c) => inDay(c.startTime)).length
       const dated = cleanCalendarItems.filter((item) => item?.startTime && inDay(item.startTime))
-      const tasks = dated.filter((item) => !NOT_TASK_CATEGORIES.includes(item.category))
+      const tasks = openTasks.filter((item) => inDay(item.startTime))
       const exams = tasks.filter((item) => EXAM_CATEGORIES.includes(item.category) || isLikelyExamItem(item))
       const dueCount = tasks.length - exams.length
       const eventCount = dated.filter((item) => EVENT_CATEGORIES.includes(item.category)).length
@@ -913,7 +977,7 @@ export default function Home() {
         label: `${long}${i === 0 ? ', today' : ''}: ${parts.length ? parts.join(', ') : 'nothing scheduled'}`,
       }
     })
-  }, [now, homeClasses, cleanCalendarItems])
+  }, [now, homeClasses, cleanCalendarItems, openTasks])
 
   // Free time drawn as a route line: now, the first deadline that falls before
   // the next class (if any), and the next class as the terminus. Stops sit in
@@ -926,9 +990,8 @@ export default function Home() {
     const startMs = next.startDate.getTime()
     if (startMs <= nowMs) return null
     const dayTag = (d: Date) => (d.toDateString() === now.toDateString() ? '' : shortWeekdayCaps(d))
-    const deadline = cleanCalendarItems
+    const deadline = openTasks
       .filter((item) => {
-        if (!item?.startTime || NOT_TASK_CATEGORIES.includes(item.category)) return false
         const t = new Date(item.startTime).getTime()
         return t > nowMs && t < startMs
       })
@@ -963,7 +1026,7 @@ export default function Home() {
       },
       label: `Now, ${shortTime(now)}.${midLabel} ${next.title} ${startDay ? `${startDay} ` : ''}${shortTime(next.startDate)}${next.location ? `, ${next.location}` : ''}.`,
     }
-  }, [scheduleState.nextClass, cleanCalendarItems, now])
+  }, [scheduleState.nextClass, openTasks, now])
 
   // Card headings keep their original Title Case text (tests and accessible
   // names read it) and display in sentence case through CSS
@@ -977,6 +1040,14 @@ export default function Home() {
     'week-ahead': {
       title: 'Week ahead',
       render: () => {
+        const weekAheadDigest = (
+          <AiMarkdown className="text-[14px] leading-[1.55] text-[var(--color-txt-1)] max-w-[68ch]">{weekAheadText}</AiMarkdown>
+        )
+        const weekAheadFailure = (
+          <p role="alert" className="text-[13px] text-[var(--color-error)]">
+            {weekAheadError}
+          </p>
+        )
         const summary = !hasScheduleData ? (
           <p className="text-[14px] text-[var(--color-txt-2)]">
             <Link to="/setup" className="font-display font-bold text-[var(--color-accent)] hover:underline">
@@ -990,7 +1061,17 @@ export default function Home() {
             Generating your week summary…
           </div>
         ) : typeof weekAheadText === 'string' && weekAheadText ? (
-          <AiMarkdown className="text-[14px] leading-[1.55] text-[var(--color-txt-1)] max-w-[68ch]">{weekAheadText}</AiMarkdown>
+          weekAheadError ? (
+            // A failed Refresh keeps the digest already shown, under the message.
+            <div className="min-w-0 space-y-2">
+              {weekAheadFailure}
+              {weekAheadDigest}
+            </div>
+          ) : (
+            weekAheadDigest
+          )
+        ) : weekAheadError ? (
+          weekAheadFailure
         ) : null
         // Seven blank days say nothing to someone with no schedule, so the
         // strip waits for a schedule or for something landing this week.
@@ -1019,8 +1100,11 @@ export default function Home() {
             </div>
             <div
               className={
+                // One minmax(0,1fr) column below 46rem: the implicit auto column
+                // grew to the summary's longest unbroken word or URL, pushing the
+                // summary and the strip past the card and the page sideways.
                 summary && showStrip
-                  ? 'grid gap-5 items-start @min-[46rem]:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] @min-[46rem]:gap-8'
+                  ? 'grid grid-cols-[minmax(0,1fr)] gap-5 items-start @min-[46rem]:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] @min-[46rem]:gap-8'
                   : ''
               }
             >
@@ -1130,7 +1214,12 @@ export default function Home() {
                   <span className="flap" />
                   <span className="flap" />
                 </span>
-                <p>Track your courses to see your GPA here.</p>
+                {/* A failed grades read is not an empty transcript (R12). */}
+                {gradesLoadFailed ? (
+                  <p role="alert">Could not load your grades. Check your connection and try again.</p>
+                ) : (
+                  <p>Track your courses to see your GPA here.</p>
+                )}
               </div>
             ) : (
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -1742,8 +1831,24 @@ export default function Home() {
               <Icon name="chevronRight" size={14} />
             </Link>
           </div>
-          {calendarLoading ? (
+          {calendarFailed && !tasksLoading && (
+            <p role="alert" className="mb-4 text-[13px] text-[var(--color-txt-2)]">
+              Could not load your calendar, so deadlines from it are missing.{' '}
+              <button
+                type="button"
+                onClick={() => void calendarQuery.refetch()}
+                disabled={calendarQuery.isFetching}
+                className="font-display font-bold text-[var(--color-accent)] hover:underline disabled:opacity-40"
+              >
+                {calendarQuery.isFetching ? 'Trying…' : 'Try again'}
+              </button>
+            </p>
+          )}
+          {tasksLoading ? (
             <p className="text-[14px] text-[var(--color-txt-2)]">Loading your tasks…</p>
+          ) : tasksDuePreview.length === 0 && calendarFailed ? (
+            // The failed read is said above; "Nothing due" would be a guess.
+            null
           ) : tasksDuePreview.length === 0 ? (
             <div className="empty row">
               <span className="ico">
@@ -1774,7 +1879,7 @@ export default function Home() {
                         {code ? ' ' : null}
                         <span className="ttl">{name}</span>
                         <span className="meta">
-                          {formatDashboardEventTime(item.startTime, item.endTime)}
+                          {formatDueTime(item)}
                           {' · '}
                           {due.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                         </span>

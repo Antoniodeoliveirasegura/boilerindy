@@ -156,16 +156,31 @@ test('GET /api/me/calendar hands listCalendarItems the filters, ascending, from 
     assert.equal(name, 'listCalendarItems')
     assert.equal(userId, STUDENT.id)
     const { from, ...rest } = options
-    assert.deepEqual(rest, { category: null, categories: null, limit: 100, order: 'asc' })
+    assert.deepEqual(rest, { category: null, categories: null, limit: 100, order: 'asc', throwOnError: true })
     assertAboutDaysAgo(from, 14)
 
     await call('GET', '/api/me/calendar?category=exam&categories=exam,,quiz&limit=5&from=2026-09-01T00:00:00.000Z')
     assert.deepEqual(readerCalls[1].args, [
       STUDENT.id,
-      { category: 'exam', categories: ['exam', 'quiz'], limit: 5, order: 'asc', from: '2026-09-01T00:00:00.000Z' },
+      { category: 'exam', categories: ['exam', 'quiz'], limit: 5, order: 'asc', from: '2026-09-01T00:00:00.000Z', throwOnError: true },
     ])
     assert.equal(supabase.queries.length, 0, 'the injected reader does the querying')
   })
+})
+
+// An empty 200 for a failed read told Home, Assignments and Events that
+// nothing was due; the reader now throws for this route and it answers 500.
+test('GET /api/me/calendar answers 500 without the database text when the read fails', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {})
+  const failing = () => {
+    throw { code: '57014', message: 'canceling statement due to statement timeout' }
+  }
+  await withApp({ readers: { listCalendarItems: failing } }, async ({ call }) => {
+    const answer = await call('GET', '/api/me/calendar')
+    assert.equal(answer.status, 500)
+    assert.deepEqual(answer.body, { error: { message: 'Could not load your calendar.', status: 500 } })
+  })
+  assert.equal(logged.mock.callCount(), 1)
 })
 
 test('GET /api/me/events reads category event, 20 by default, from 14 days back unless ?from= is given', async () => {
@@ -256,20 +271,46 @@ test('GET /api/me/tasks/meta: completions from 120 days back, open or recently d
   })
 })
 
-test('GET /api/me/tasks/meta answers unavailable when either read fails', async (t) => {
+test('GET /api/me/tasks/meta answers unavailable when either task table is missing', async (t) => {
   t.mock.method(console, 'error', () => {})
+  const missing = [
+    { code: '42P01', message: 'relation "user_manual_tasks" does not exist' },
+    { code: 'PGRST205', message: "Could not find the table 'public.user_task_completions' in the schema cache" },
+  ]
+  for (const failing of ['user_task_completions', 'user_manual_tasks']) {
+    for (const error of missing) {
+      const handlers = {
+        user_task_completions: () => ({ data: [], error: null }),
+        user_manual_tasks: () => ({ data: [], error: null }),
+        [failing]: () => ({ data: null, error }),
+      }
+      await withApp({ handlers }, async ({ call }) => {
+        const answer = await call('GET', '/api/me/tasks/meta')
+        assert.equal(answer.status, 200, `${failing} ${error.code}`)
+        assert.deepEqual(answer.body, { completions: [], manualTasks: [], unavailable: true }, `${failing} ${error.code}`)
+      })
+    }
+  }
+})
+
+// Any other failure used to answer unavailable too, which put Assignments
+// into device-only mode: the account's tasks vanished and later writes never
+// reached the server. It is a 500 now, so the page can offer to try again.
+test('GET /api/me/tasks/meta answers 500, never unavailable, when a read fails for another reason', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {})
   for (const failing of ['user_task_completions', 'user_manual_tasks']) {
     const handlers = {
       user_task_completions: () => ({ data: [], error: null }),
       user_manual_tasks: () => ({ data: [], error: null }),
-      [failing]: () => ({ data: null, error: { code: '42P01', message: 'relation does not exist' } }),
+      [failing]: () => ({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }),
     }
     await withApp({ handlers }, async ({ call }) => {
       const answer = await call('GET', '/api/me/tasks/meta')
-      assert.equal(answer.status, 200, failing)
-      assert.deepEqual(answer.body, { completions: [], manualTasks: [], unavailable: true }, failing)
+      assert.equal(answer.status, 500, failing)
+      assert.deepEqual(answer.body, { error: { message: 'Could not load your tasks.', status: 500 } }, failing)
     })
   }
+  assert.equal(logged.mock.callCount(), 2)
 })
 
 test("POST /api/me/tasks/calendar/complete: 400 without an item and a boolean, 404 for another student's item", async () => {

@@ -27,11 +27,12 @@ test.describe('Transit route pills', () => {
 
     const crimson = page.locator('button.pill', { hasText: 'Crimson' })
     await expect(crimson).toContainText('(1)')
-    await expect(crimson).not.toHaveClass(/opacity-40/)
+    await expect(crimson.locator('.opacity-35')).toHaveCount(0)
     await expect(crimson).not.toContainText('not running')
 
     const yellow = page.locator('button.pill', { hasText: 'Yellow' })
-    await expect(yellow).toHaveClass(/opacity-40/)
+    // Only the route square's fill fades; its number stays at full strength.
+    await expect(yellow.locator('.opacity-35')).toHaveCount(1)
     await expect(yellow).toContainText('not running now')
 
     await expect(page.locator('button.pill', { hasText: /\boff\b/ })).toHaveCount(0)

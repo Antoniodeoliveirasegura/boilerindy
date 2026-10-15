@@ -5,6 +5,7 @@ import {
   getLiveContent,
   listDeletedItems,
   listHiddenMarketplace,
+  restoreDeletedItem,
   takeDownContent,
   takeDownHiddenListing,
   unhideMarketplaceListing,
@@ -192,3 +193,37 @@ it('surfaces a failure to load the hidden queue', async () => {
   expect(await screen.findByText('nope')).toBeInTheDocument()
 })
 
+
+// A slow Board posts answer used to land after the admin picked Marketplace
+// and replace the marketplace rows under the Marketplace pill, so Restore on
+// one sent a board post's id to the marketplace route ("Item not found.").
+it('drops a list that arrives after another tab was picked', async () => {
+  const BOARD_ID = '66666666-6666-4666-8666-666666666666'
+  const MARKET_ID = '77777777-7777-4777-8777-777777777777'
+  let resolveBoard!: (value: unknown) => void
+  vi.mocked(listDeletedItems).mockImplementation(async (type) => {
+    if (type === 'board') {
+      return new Promise((resolve) => {
+        resolveBoard = resolve
+      })
+    }
+    return { items: [{ id: MARKET_ID, title: 'Deleted desk lamp', deleted_at: '2026-10-01T12:00:00.000Z' }] }
+  })
+  vi.mocked(restoreDeletedItem).mockReset().mockResolvedValue({ ok: true })
+  render(<AdminDeleted />)
+  await waitFor(() => expect(listDeletedItems).toHaveBeenCalledWith('board'))
+
+  fireEvent.click(screen.getByRole('button', { name: 'Marketplace' }))
+  expect(await screen.findByText('Deleted desk lamp')).toBeInTheDocument()
+  await act(async () => {
+    resolveBoard({ items: [{ id: BOARD_ID, title: 'Deleted board post', deleted_at: '2026-10-01T12:00:00.000Z' }] })
+  })
+
+  expect(screen.queryByText('Deleted board post')).not.toBeInTheDocument()
+  expect(screen.getByText('Deleted desk lamp')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Marketplace' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Board posts' })).toHaveAttribute('aria-pressed', 'false')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+  await waitFor(() => expect(restoreDeletedItem).toHaveBeenCalledWith('marketplace', MARKET_ID))
+})

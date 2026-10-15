@@ -20,6 +20,9 @@ vi.mock('../lib/supabase', () => ({ supabase: { storage: { from: () => ({}) } } 
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock, confirmDialog: null }) }))
 
 const free = { id: 'free', title: 'Chair', priceCents: 0, images: ['https://example.com/a.jpg', 'https://example.com/b.jpg'] }
+
+// jsdom does not scroll: opening a listing and the edit form scroll them into view.
+const scrollIntoView = vi.fn()
 const REPORT_REASONS = 'Why are you reporting this listing?'
 
 // The Report and Block actions refresh per-user queries, so the page needs a client.
@@ -33,6 +36,8 @@ function refusal(status: number, message: string) {
 }
 
 beforeEach(() => {
+  scrollIntoView.mockReset()
+  Element.prototype.scrollIntoView = scrollIntoView
   confirmMock.mockReset().mockResolvedValue(true)
   vi.spyOn(window, 'alert').mockImplementation(() => {})
   vi.spyOn(window, 'prompt').mockImplementation(() => null)
@@ -244,3 +249,52 @@ it('counts a single report in the singular and leaves a live listing unmarked', 
   expect(ok.queryByText(/Hidden after/)).not.toBeInTheDocument()
 })
 
+// The detail panel renders above the tabs and the grid, so a listing opened
+// from low in the grid showed its detail off screen and the tap seemed to do
+// nothing, and a failed open said nothing at all (R30).
+
+it('scrolls an opened listing into view', async () => {
+  render(<Marketplace />)
+  fireEvent.click(await screen.findByText('Chair'))
+  await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1))
+  expect(scrollIntoView.mock.contexts[0]).toBe(document.querySelector('[data-listing-detail="free"]'))
+})
+
+it('says when a listing is gone, reads the list again and scrolls the message into view', async () => {
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace/free' && !options) throw refusal(404, 'Listing not found.')
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  fireEvent.click(await screen.findByText('Chair'))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Listing not found.')
+  await waitFor(() => expect(requestsTo('/api/marketplace?')).toHaveLength(1))
+  await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1))
+  expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('alert'))
+  expect(screen.getByRole('alert')).toHaveTextContent('Listing not found.')
+  expect(document.querySelector('[data-listing-detail]')).toBeNull()
+})
+
+it('says when a listing will not open without reading the list again on a server error', async () => {
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace/free' && !options) throw refusal(500, 'Something went wrong. Please try again.')
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  fireEvent.click(await screen.findByText('Chair'))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong. Please try again.')
+  expect(requestsTo('/api/marketplace?')).toHaveLength(0)
+})
+
+// An explicit behavior: 'smooth' overrode the reduced-motion rule's
+// scroll-behavior: auto, so the scroll to the edit form animated anyway (R76).
+it('scrolls to the edit form without forcing smooth motion', async () => {
+  render(<Marketplace />)
+  const chair = await myListing('Chair')
+  fireEvent.click(chair.getByRole('button', { name: 'Edit' }))
+  await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }))
+  expect(scrollIntoView.mock.contexts[0]).toBe(document.querySelector('[data-listing-form="edit"]'))
+})
