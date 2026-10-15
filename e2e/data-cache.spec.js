@@ -17,8 +17,17 @@ test.describe('Per-user data cache', () => {
     await expect(page.getByText('Tasks Due')).toBeVisible()
     await expect.poll(() => calendarRequests.length).toBe(1)
 
+    // Wait for Events' read to land before leaving: TanStack aborts a read that
+    // nothing on screen uses any more, so leaving while it is in flight makes
+    // Free Food fetch it again. That race is not what this test is about, and
+    // Events now shows its heading before its data, so it lost it more often.
+    const eventsRead = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/me/calendar' && url.searchParams.get('limit') === '500'
+    })
     await page.locator('a[href="/events"]').first().click()
     await expect(page.getByRole('heading', { name: 'Campus Events' })).toBeVisible()
+    await eventsRead
     await expect.poll(() => calendarRequests.length).toBe(2)
 
     // Free Food has no link on the Events page. A client-side navigation keeps

@@ -56,6 +56,10 @@ export default function FreeFood() {
   const calendarQuery = useMyCalendar<CalendarItem>(CAMPUS_EVENTS_CALENDAR)
   const items = useMemo<CalendarItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
   const loading = calendarQuery.isPending
+  // isPending turns false once the retries are spent, so a failed read fell
+  // through to "No free-food events right now". With no earlier answer
+  // to show, the page says it failed and offers a retry.
+  const loadFailed = calendarQuery.isError && !calendarQuery.data
 
   const freeFoodItems = useMemo(
     () =>
@@ -89,7 +93,9 @@ export default function FreeFood() {
             <h1 className="page-title">Free Food</h1>
           </div>
           <p className="page-sub">
-            {freeFoodItems.length} upcoming event{freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food - pizza, snacks, refreshments, and more.
+            {loadFailed
+              ? 'Upcoming events on your calendar that mention free food - pizza, snacks, refreshments, and more.'
+              : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food - pizza, snacks, refreshments, and more.`}
           </p>
         </div>
       </header>
@@ -116,6 +122,28 @@ export default function FreeFood() {
 
       {loading ? (
         <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading free-food events…</div>
+      ) : loadFailed ? (
+        <div className="card card-pad" role="alert">
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="alert" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">Could not load your calendar</div>
+              <p className="text-[13px] mt-0.5">
+                Free-food events are not shown. Check your connection and try again.
+              </p>
+              <button
+                type="button"
+                onClick={() => void calendarQuery.refetch()}
+                disabled={calendarQuery.isFetching}
+                className="btn btn-secondary btn-sm mt-3"
+              >
+                {calendarQuery.isFetching ? 'Trying again…' : 'Try again'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : freeFoodItems.length === 0 ? (
         <div className="card card-pad">
           <div className="empty row">
