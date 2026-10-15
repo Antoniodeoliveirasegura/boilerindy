@@ -66,6 +66,26 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
+// An expiry is a day on campus: the server stores a picked day as 23:59 that
+// day in Indianapolis (validateDealInput in src/campusDeals.mjs), so the card
+// and the edit form read it in that zone. Read in the browser's zone, the card
+// named the next day east of campus, and the edit form's UTC slice of 23:59
+// EDT named the next day everywhere.
+const CAMPUS_TIME_ZONE = 'America/Indiana/Indianapolis'
+
+/** The expiry day as the card shows it, e.g. "10/31/2026". */
+function expiryLabel(expiresAt: string): string {
+  return new Date(expiresAt).toLocaleDateString(undefined, { timeZone: CAMPUS_TIME_ZONE })
+}
+
+/** The expiry day as YYYY-MM-DD, for the edit form's date input. */
+function expiryDateKey(expiresAt: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: CAMPUS_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(expiresAt))
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
 export default function Perks() {
   const { confirm, confirmDialog } = useConfirm()
   const { user } = useAuth()
@@ -144,7 +164,7 @@ export default function Perks() {
       address: deal.address || '',
       lat: deal.lat ?? '',
       lng: deal.lng ?? '',
-      expiresAt: deal.expiresAt ? deal.expiresAt.slice(0, 10) : '',
+      expiresAt: deal.expiresAt ? expiryDateKey(deal.expiresAt) : '',
       featured: deal.featured ?? false,
       active: deal.active ?? false,
     })
@@ -323,7 +343,7 @@ export default function Perks() {
                 </a>
               )}
               {deal.expiresAt && (
-                <div className="text-[12.5px] text-[var(--color-txt-2)] mt-2 tnum">Expires {new Date(deal.expiresAt).toLocaleDateString()}</div>
+                <div className="text-[12.5px] text-[var(--color-txt-2)] mt-2 tnum">Expires {expiryLabel(deal.expiresAt)}</div>
               )}
               {isAdmin && (
                 <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-[var(--color-border)]">

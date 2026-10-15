@@ -4,6 +4,7 @@ import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import PageTitle from '../components/PageTitle'
+import StatusBanner from '../components/StatusBanner'
 
 // Standalone Lost & Found (issue #47) - its own page + table, independent of the
 // campus board. Students post lost/found items, search them, and the author can
@@ -46,19 +47,40 @@ function whenParts(dateString: string | undefined) {
 
 const EMPTY_FORM = { type: 'lost', title: '', description: '', location: '', contact: '' }
 
+// The server trims each field and cuts it to these lengths (cleanField in
+// src/routes/lostFound.mjs). The inputs stop at the same lengths, so a long
+// title is no longer accepted here and then saved cut short without a word.
+const MAX_TITLE = 200
+const MAX_DESCRIPTION = 2000
+const MAX_LOCATION = 200
+const MAX_CONTACT = 200
+
+// A failed read used to show "Nothing here yet. Be the first to post", and
+// the server's `unavailable` answer (sent for any database error, not only a
+// missing table) added the operator's SQL setup step. Students now get one of
+// these in place of the list, with a way to read it again, and the composer
+// waits while the board is unavailable.
+const LOAD_ERROR = 'Could not load Lost & Found posts.'
+const UNAVAILABLE = 'Lost & Found is temporarily unavailable. Try again in a few minutes.'
+
 export default function LostFound() {
   const { confirm, confirmDialog } = useConfirm()
   const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [items, setItems] = useState<LostFoundItem[]>([])
   const [loading, setLoading] = useState(true)
   const [unavailable, setUnavailable] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [tab, setTab] = useState('all') // all | lost | found
   const [showResolved, setShowResolved] = useState(false)
   const [search, setSearch] = useState('')
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  // Each write error shows where the student acted: a post's next to the Post
+  // item button, a row action's in that row. They all used to sit in the page
+  // header, which on a phone is about 1,000px above the composer and most rows.
+  const [formError, setFormError] = useState('')
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
 
   async function loadItems() {
     setLoading(true)
@@ -69,9 +91,11 @@ export default function LostFound() {
       }
       setItems(res.items || [])
       setUnavailable(Boolean(res.unavailable))
+      setLoadError('')
     } catch (e) {
       console.error('Failed to load lost & found:', e)
       setItems([])
+      setLoadError(LOAD_ERROR)
     } finally {
       setLoading(false)
     }
@@ -92,6 +116,7 @@ export default function LostFound() {
         if (!cancelled) {
           console.error('Failed to load lost & found:', e)
           setItems([])
+          setLoadError(LOAD_ERROR)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -121,8 +146,8 @@ export default function LostFound() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    setError('')
-    if (!form.title.trim() || submitting) return
+    setFormError('')
+    if (!form.title.trim() || submitting || unavailable) return
     setSubmitting(true)
     try {
       await authRequest('/api/lost-found', {
@@ -138,14 +163,14 @@ export default function LostFound() {
       setForm(EMPTY_FORM)
       await loadItems()
     } catch (err) {
-      setError(errorText(err, 'Could not post. Please try again.'))
+      setFormError(errorText(err, 'Could not post. Please try again.'))
     } finally {
       setSubmitting(false)
     }
   }
 
   async function toggleResolved(item: LostFoundItem) {
-    setError('')
+    setRowError(null)
     try {
       await authRequest(`/api/lost-found/${item.id}`, {
         method: 'PATCH',
@@ -153,18 +178,18 @@ export default function LostFound() {
       })
       await loadItems()
     } catch (err) {
-      setError(errorText(err, 'Could not update the post.'))
+      setRowError({ id: item.id, message: errorText(err, 'Could not update the post.') })
     }
   }
 
   async function remove(item: LostFoundItem) {
     if (!(await confirm({ title: 'Delete this post?', message: 'This removes your post from the board.', confirmLabel: 'Delete', tone: 'danger' }))) return
-    setError('')
+    setRowError(null)
     try {
       await authRequest(`/api/lost-found/${item.id}`, { method: 'DELETE' })
       await loadItems()
     } catch (err) {
-      setError(errorText(err, 'Could not delete the post.'))
+      setRowError({ id: item.id, message: errorText(err, 'Could not delete the post.') })
     }
   }
 
@@ -186,17 +211,8 @@ export default function LostFound() {
           <p className="page-sub max-w-[680px]">
             Report something you lost or found on campus. Mark your post resolved once it is sorted.
           </p>
-          {error ? <p className="text-[14px] text-[var(--color-error)] mt-2">{error}</p> : null}
         </div>
       </header>
-
-      {unavailable && (
-        <div className="card card-pad mb-6 text-[14px] text-[var(--color-txt-2)] leading-relaxed">
-          <span className="font-semibold text-[var(--color-txt-0)]">Lost &amp; Found needs setup: </span>
-          run <code className="font-mono text-[13px] px-1.5 py-0.5 rounded-[var(--radius-sm)] bg-[var(--color-stat)] text-[var(--color-txt-0)]">supabase-lost-found.sql</code> in the
-          Supabase SQL Editor to enable posting.
-        </div>
-      )}
 
       {/* The feed (filters and list) and the composer: two columns from lg,
           so the list keeps to its column instead of running 1152px wide. */}
@@ -240,6 +256,13 @@ export default function LostFound() {
 
           {loading ? (
             <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading…</div>
+          ) : loadError || unavailable ? (
+            <div className="card card-pad space-y-3">
+              <StatusBanner tone="error">{loadError || UNAVAILABLE}</StatusBanner>
+              <button type="button" onClick={() => void loadItems()} className="btn btn-secondary btn-sm">
+                Try again
+              </button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="empty row">
               <span className="ico">
@@ -322,6 +345,11 @@ export default function LostFound() {
                               </button>
                             </div>
                           )}
+                          {rowError?.id === item.id && (
+                            <StatusBanner tone="error" className="mt-2.5">
+                              {rowError.message}
+                            </StatusBanner>
+                          )}
                         </div>
                         {item.isOwner && (
                           <div className="flex flex-wrap items-center gap-2 max-sm:col-start-2">
@@ -386,6 +414,7 @@ export default function LostFound() {
                   type="text"
                   value={form.title}
                   onChange={(e) => updateForm('title', e.target.value)}
+                  maxLength={MAX_TITLE}
                   placeholder="e.g. Black North Face backpack"
                   className="input"
                 />
@@ -398,6 +427,7 @@ export default function LostFound() {
                     type="text"
                     value={form.location}
                     onChange={(e) => updateForm('location', e.target.value)}
+                    maxLength={MAX_LOCATION}
                     placeholder="e.g. Library 2nd floor"
                     className="input"
                   />
@@ -409,12 +439,14 @@ export default function LostFound() {
                     type="text"
                     value={form.contact}
                     onChange={(e) => updateForm('contact', e.target.value)}
+                    maxLength={MAX_CONTACT}
                     placeholder="e.g. DM on the board, or email"
                     className="input"
                   />
                 </div>
               </div>
             </div>
+            {formError && <StatusBanner tone="error">{formError}</StatusBanner>}
             <div className="flex flex-col gap-3.5 sm:flex-row sm:items-end lg:flex-col lg:items-stretch">
               <div className="flex-1 min-w-0 lg:flex-none">
                 <label htmlFor="lf-desc" className={fieldLabel}>Description (optional)</label>
@@ -422,6 +454,7 @@ export default function LostFound() {
                   id="lf-desc"
                   value={form.description}
                   onChange={(e) => updateForm('description', e.target.value)}
+                  maxLength={MAX_DESCRIPTION}
                   rows={2}
                   placeholder="Distinguishing details, when/where, etc."
                   className="input resize-y block"
@@ -429,7 +462,7 @@ export default function LostFound() {
               </div>
               <button
                 type="submit"
-                disabled={submitting || !form.title.trim()}
+                disabled={submitting || unavailable || !form.title.trim()}
                 className="btn btn-primary w-fit shrink-0"
               >
                 {submitting ? 'Posting…' : 'Post item'}
