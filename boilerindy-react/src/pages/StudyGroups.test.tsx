@@ -86,6 +86,23 @@ it('offers Report and Block author on a group someone else started, and neither 
   await waitFor(() => expect(vi.mocked(authRequest).mock.calls.filter(([p]) => p === '/api/me/study-groups')).toHaveLength(2))
 })
 
+// Leaving never took a group down, and the creator had no other control.
+it('lets the creator delete their own group after confirming, and offers it on no one else\'s', async () => {
+  myGroups = [
+    { id: 'g-theirs', title: 'Exam 2 review crew', courseCode: 'CS 18000', memberCount: 3, joinedByMe: true, isMine: false },
+    { id: 'g-mine', title: 'Lab partners', courseCode: 'CS 18000', memberCount: 1, joinedByMe: true, isMine: true },
+  ]
+  render(<StudyGroups />)
+  const theirs = within((await screen.findByText('Exam 2 review crew')).closest('li') as HTMLElement)
+  const mine = within(screen.getByText('Lab partners').closest('li') as HTMLElement)
+  expect(theirs.queryByRole('button', { name: 'Delete group' })).not.toBeInTheDocument()
+
+  fireEvent.click(mine.getByRole('button', { name: 'Delete group' }))
+  fireEvent.click(within(await screen.findByRole('dialog', { name: 'Delete this group?' })).getByRole('button', { name: 'Delete' }))
+  await waitFor(() => expect(authRequest).toHaveBeenCalledWith('/api/study-groups/g-mine', { method: 'DELETE' }))
+  await waitFor(() => expect(vi.mocked(authRequest).mock.calls.filter(([p]) => p === '/api/me/study-groups')).toHaveLength(2))
+})
+
 describe('Study group join, leave and create', () => {
   const COURSE_PATH = `/api/study-groups?course=${encodeURIComponent('CS 25100')}`
   const FULL = 'This group is full.'
