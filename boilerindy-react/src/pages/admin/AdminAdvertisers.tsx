@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../../components/Icons'
 import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
@@ -92,8 +92,11 @@ export default function AdminAdvertisers() {
   // focus stayed on the page's Create account button behind the scrim, Tab
   // walked out to the footer links under it, and Escape did nothing.
   // Keyed on showForm alone, so a re-render while the dialog is up does not
-  // send focus back out and in again.
-  useEffect(() => {
+  // send focus back out and in again. A layout effect, so focus comes back in
+  // the commit that closes the dialog. As a passive effect the hand-back ran a
+  // task after the dialog was gone whenever the close was the create's answer
+  // rather than a click or a key, and focus sat on <body> until then.
+  useLayoutEffect(() => {
     if (!showForm) return undefined
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     emailRef.current?.focus()

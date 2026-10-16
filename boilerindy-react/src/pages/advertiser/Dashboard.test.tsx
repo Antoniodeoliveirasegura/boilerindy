@@ -111,7 +111,9 @@ describe('AdvertiserDashboard sign-out', () => {
     await screen.findByText('No campaigns yet')
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
-    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/advertise'))
+    // Anchored: the starting /advertise/dashboard already contains "/advertise",
+    // so the old wait passed before the sign-out navigation had committed.
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/advertise$/))
     expect(screen.getByTestId('where')).toHaveAttribute('data-navigation', 'REPLACE')
 
     fireEvent.click(screen.getByRole('button', { name: 'History back' }))
