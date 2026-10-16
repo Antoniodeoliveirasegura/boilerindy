@@ -744,10 +744,14 @@ export default function Schedule() {
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
         <section className="card r-cls min-w-0 animate-fade-in-up stagger-1">
-          {/* Weekday strip scrolls inside the card on narrow screens (issue #162);
-              the day buttons keep their minimum width instead of compressing.
-              Each day carries a 4px top rule: amber for today, ink for the
-              selected day, and one small square per meeting. */}
+          {/* Weekday strip. On phones the five short names share the card's
+              width: at 88px each, Thu and Fri sat past the edge of a 390px
+              screen behind a sideways scroll. A day keeps at least 48px, so
+              only a screen narrower than about 300px still scrolls, inside
+              the card and never the page (issue #162). From sm the full
+              names keep 88px. Each day carries a 4px top rule: amber for
+              today, ink for the selected day, and one small square per
+              meeting. */}
           <div className="flex gap-1 overflow-x-auto rounded-t-[var(--radius-xl)] border-b border-[var(--color-border)] p-1.5">
             {DAYS.map((day) => {
               const isSelected = selectedDay === day
@@ -756,8 +760,11 @@ export default function Schedule() {
               return (
                 <button
                   key={day}
+                  type="button"
                   onClick={() => setSelectedDay(day)}
-                  className={`flex min-w-[88px] flex-1 shrink-0 flex-col items-start gap-1.5 whitespace-nowrap border-t-4 px-3 pb-2 pt-2 text-left font-display text-[14px] transition-colors
+                  aria-pressed={isSelected}
+                  aria-current={isToday ? 'date' : undefined}
+                  className={`flex min-w-[48px] flex-1 shrink-0 flex-col items-start gap-1.5 whitespace-nowrap border-t-4 px-2 pb-2 pt-2 text-left font-display text-[14px] transition-colors sm:min-w-[88px] sm:px-3
                     ${isToday ? 'border-[var(--color-gold)]' : isSelected ? 'border-[var(--color-txt-0)]' : 'border-[var(--color-bg-3)]'}
                     ${isSelected
                       ? 'bg-[var(--color-stat)] font-extrabold text-[var(--color-txt-0)]'
