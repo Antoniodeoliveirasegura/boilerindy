@@ -532,10 +532,14 @@ export function createAuthRouter({
 
   // An ask expires like a confirmation does, so an abandoned one cannot turn a
   // much later, unrelated Google sign-in into a confirmation.
+  function isProviderConfirmPending(session, now = Date.now()) {
+    const askedAt = Number(session?.providerConfirmAskedAt)
+    return Number.isFinite(askedAt) && now - askedAt < PROVIDER_CONFIRM_MS
+  }
+
   function isAskedProviderConfirmation(session, providerSignInAt, now = Date.now()) {
     const askedAt = Number(session?.providerConfirmAskedAt)
-    return Number.isFinite(askedAt)
-      && now - askedAt < PROVIDER_CONFIRM_MS
+    return isProviderConfirmPending(session, now)
       && providerSignInAt > (Number(session.providerSignInAt) || 0)
       && providerSignInAt >= askedAt - CLOCK_SKEW_MS
       && providerSignInAt <= askedAt + PROVIDER_CONFIRM_MS
@@ -1110,6 +1114,20 @@ export function createAuthRouter({
       const syncAvatarUrl = avatarResult.value
 
       let user = await getUserByEmail(normalizedEmail)
+
+      // While Settings waits on a Confirm with Google, a sign-in as anyone else
+      // is refused. Picking another account at Google used to switch this
+      // browser to it, or create it, in place of the confirmation; AuthCallback
+      // then drops that account's Supabase session from the browser.
+      if (req.session?.userId && user?.id !== req.session.userId && isProviderConfirmPending(req.session)) {
+        return res.status(409).json({
+          error: {
+            message: 'That Google account is not the one signed in here, so nothing was confirmed.',
+            status: 409,
+            code: 'provider-confirm-mismatch',
+          },
+        })
+      }
 
       // Anyone holding the password can mint a password-only Supabase token
       // directly, so with the gate on such a token may only refresh the session

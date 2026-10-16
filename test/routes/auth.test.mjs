@@ -1362,6 +1362,45 @@ test('a Confirm with Google ask expires: a Google sign-in long after it does not
   })
 })
 
+// Google can return any account signed in to the browser. Picking another one
+// while confirming switched this browser to it, or created it.
+test('while a Confirm with Google is pending, a sign-in as another account is refused, switching and creating nothing', async () => {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const googleToken = (who) =>
+    `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp: Math.floor(Date.now() / 1000) }], who })}.sig`
+  const otherToken = googleToken('other')
+  const strangerToken = googleToken('stranger')
+  const tokens = { [otherToken]: { id: U2, email: 'other@example.com' }, [strangerToken]: { id: U3, email: 'new@example.com' } }
+  const asOther = { supabaseUserId: U2, email: 'other@example.com', provider: 'google' }
+  const asStranger = { supabaseUserId: U3, email: 'new@example.com', provider: 'google' }
+  const users = [{ ...STUDENT, auth_provider: 'google' }, { ...OTHER, auth_provider: 'google' }]
+  await withApp({ seed: { users }, tokens }, async ({ call, sessionFor, sessions, db }) => {
+    const cookie = await sessionFor({ userId: U1, providerConfirmAskedAt: Date.now() })
+    for (const [token, body] of [[otherToken, asOther], [strangerToken, asStranger]]) {
+      const res = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(res.status, 409)
+      assert.deepEqual(res.body, {
+        error: {
+          message: 'That Google account is not the one signed in here, so nothing was confirmed.',
+          status: 409,
+          code: 'provider-confirm-mismatch',
+        },
+      })
+    }
+    // Nobody was created, and this browser is still Pete's, still waiting.
+    assert.deepEqual(db.users.map((u) => u.id), [U1, U2])
+    const [stored] = await sessions()
+    assert.equal(stored.userId, U1)
+    assert.equal(typeof stored.providerConfirmAskedAt, 'number')
+
+    // With no confirmation waiting, signing in as someone else works as before.
+    const plain = await sessionFor({ userId: U1 })
+    const switched = await call('POST', '/api/auth/supabase-sync', { cookie: plain, body: asOther, headers: { Authorization: `Bearer ${otherToken}` } })
+    assert.equal(switched.status, 200)
+    assert.equal(switched.body.session.user.id, U2)
+  })
+})
+
 test('delete-account accepts a legacy password, tolerates an Auth user already gone, and stops on an Auth failure', async () => {
   const legacy = { ...STUDENT, password_hash: hashPassword(PASSWORD) }
   await withApp({ seed: { users: [legacy] }, authErrors: { deleteUser: { code: 'user_not_found', message: 'gone' } } }, async ({ call, sessionFor, db }) => {

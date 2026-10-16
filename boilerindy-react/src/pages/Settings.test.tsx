@@ -19,6 +19,7 @@ const auth = vi.hoisted(() => ({
     email: string
     authProvider?: string
   },
+  supabaseUser: null as null | { identities?: { provider: string; identity_data?: Record<string, unknown> }[] },
   onboarding: { linkedSourceCount: 0, classCount: 0 },
   refreshSession: () => Promise.resolve(null),
   startPurdueLink: () => {},
@@ -61,6 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete auth.user.authProvider
+  auth.supabaseUser = null
   cleanup()
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -164,6 +166,41 @@ describe('Settings: account details for a Google account', () => {
   })
 })
 
+// Google can offer every account signed in to the browser, and picking another
+// one switched the browser to it (or created it) instead of confirming.
+// AuthCallback now sends a wrong account back here with ?confirm=wrong-account.
+describe('Settings: Confirm with Google names the account', () => {
+  test('asks Google for the account by its own Google address and notes the account to expect back', async () => {
+    auth.user.authProvider = 'google'
+    auth.supabaseUser = { identities: [{ provider: 'google', identity_data: { email: 'pete.google@gmail.com' } }] }
+    mocks.signInWithGoogle.mockResolvedValue({})
+    renderSettings()
+    const accountForm = screen.getByRole('button', { name: 'Save changes' }).closest('form') as HTMLFormElement
+    fireEvent.click(within(accountForm).getByRole('button', { name: 'Confirm with Google' }))
+
+    await waitFor(() => expect(mocks.signInWithGoogle).toHaveBeenCalledWith({ loginHint: 'pete.google@gmail.com' }))
+    expect(JSON.parse(sessionStorage.getItem('googleConfirm') as string)).toMatchObject({
+      email: 'student@example.edu',
+      forDelete: false,
+    })
+  })
+
+  test('says a different Google account confirmed nothing', () => {
+    auth.user.authProvider = 'google'
+    renderSettings('/settings?confirm=wrong-account')
+    expect(screen.getByText(/That was a different Google account, so nothing was confirmed\./)).toBeInTheDocument()
+    expect(screen.queryByText(/Google confirmed it/)).toBeNull()
+  })
+
+  test('from the delete card, says so in that card and puts its Confirm with Google in focus', () => {
+    auth.user.authProvider = 'google'
+    renderSettings('/settings?confirm=wrong-account&for=delete')
+    const deleteForm = screen.getByRole('button', { name: 'Delete my account' }).closest('form') as HTMLFormElement
+    expect(within(deleteForm).getByText(/That was a different Google account, so nothing was confirmed\./)).toBeInTheDocument()
+    expect(within(deleteForm).getByRole('button', { name: 'Confirm with Google' })).toHaveFocus()
+  })
+})
+
 // A Google account has no password, so the password box blocked deletion.
 describe('Settings: delete a Google account', () => {
   test('offers Confirm with Google instead of a password, returning to Settings', async () => {
@@ -177,6 +214,9 @@ describe('Settings: delete a Google account', () => {
 
     await waitFor(() => expect(mocks.signInWithGoogle).toHaveBeenCalled())
     expect(sessionStorage.getItem('postAuthNext')).toBe('/settings?confirmed=google&for=delete')
+    // Google is asked for the account signed in here, by its login email when
+    // Supabase has no Google address for it.
+    expect(mocks.signInWithGoogle).toHaveBeenCalledWith({ loginHint: 'student@example.edu' })
     // The server is told first, so it counts the Google sign-in that follows.
     const askedAt = mocks.authRequest.mock.calls.findIndex(([url]) => url === '/api/me/provider-confirm')
     expect(mocks.authRequest.mock.calls[askedAt][1]).toEqual({ method: 'POST' })

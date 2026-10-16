@@ -4,6 +4,7 @@ import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { authRequest, type ApiRequestError } from '../lib/authApi'
 import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
+import { clearGoogleConfirm, startGoogleConfirm } from '../lib/googleConfirm'
 import { signInWithGoogle, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
@@ -53,7 +54,7 @@ function CardHead({
 }
 
 export default function Settings() {
-  const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
+  const { user, supabaseUser, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
   const { theme, setTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
   const { confirm, confirmDialog } = useConfirm()
@@ -63,9 +64,15 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  // Confirm with Google came back as another Google account (AuthCallback).
+  const wrongGoogleAccount = searchParams.get('confirm') === 'wrong-account'
+  const confirmingDelete = searchParams.get('for') === 'delete'
+  const WRONG_GOOGLE_ACCOUNT =
+    'That was a different Google account, so nothing was confirmed. Confirm with the Google account you use for BoilerIndy.'
   // Seed the banner from the redirect URL once at mount (CAS redirect), reading
   // it in the initializer rather than a setState-in-effect.
   const [banner, setBanner] = useState(() => {
+    if (wrongGoogleAccount && !confirmingDelete) return WRONG_GOOGLE_ACCOUNT
     const error = searchParams.get('error')
     if (!error) return ''
     const messages: Record<string, string> = {
@@ -84,7 +91,7 @@ export default function Settings() {
   // The delete form's own error. It went to the page banner, two or three
   // screens above this last card, so a wrong password looked like nothing
   // happened.
-  const [deleteError, setDeleteError] = useState('')
+  const [deleteError, setDeleteError] = useState(() => (wrongGoogleAccount && confirmingDelete ? WRONG_GOOGLE_ACCOUNT : ''))
   const deletePasswordRef = useRef<HTMLInputElement>(null)
   const deleteConfirmRef = useRef<HTMLInputElement>(null)
   // A Google account has no password to type, so it confirms an email change,
@@ -92,15 +99,23 @@ export default function Settings() {
   // back here with ?confirmed=google (&for=delete from the delete card). The
   // server takes that sign-in for 10 minutes.
   const isGoogleAccount = user?.authProvider === 'google'
+  // The Google account to confirm with: its own address when Supabase knows it
+  // (an email changed here no longer matches it), else the login email.
+  const googleIdentityEmail = supabaseUser?.identities?.find((identity) => identity.provider === 'google')?.identity_data?.email
+  const googleEmail = (typeof googleIdentityEmail === 'string' && googleIdentityEmail) || user?.email || undefined
   const [googleConfirmed, setGoogleConfirmed] = useState(() => searchParams.get('confirmed') === 'google')
   const [usePasswordToDelete, setUsePasswordToDelete] = useState(false)
   const [confirmingGoogle, setConfirmingGoogle] = useState(false)
   const showDeletePassword = !isGoogleAccount || usePasswordToDelete
   const newPasswordRef = useRef<HTMLInputElement>(null)
+  const confirmGoogleDeleteRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
+    // A wrong account from the delete card: its message and its Confirm with
+    // Google button sit at the bottom of the page.
+    if (wrongGoogleAccount && confirmingDelete) confirmGoogleDeleteRef.current?.focus()
     if (!googleConfirmed) return
-    if (searchParams.get('for') === 'delete') deleteConfirmRef.current?.focus()
+    if (confirmingDelete) deleteConfirmRef.current?.focus()
     else newPasswordRef.current?.focus()
     // Only on arrival from the Google redirect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -315,9 +330,12 @@ export default function Settings() {
       // Without this, the server does not count the Google sign-in that follows.
       await authRequest('/api/me/provider-confirm', { method: 'POST' })
       sessionStorage.setItem('postAuthNext', `/settings?confirmed=google${forDelete ? '&for=delete' : ''}`)
-      await signInWithGoogle()
+      // AuthCallback checks the account Google returns against this one.
+      if (user?.email) startGoogleConfirm(user.email, forDelete)
+      await signInWithGoogle({ loginHint: googleEmail })
     } catch {
       sessionStorage.removeItem('postAuthNext')
+      clearGoogleConfirm()
       showError('Google sign-in could not be started. Please try again.')
       setConfirmingGoogle(false)
     }
@@ -692,6 +710,7 @@ export default function Settings() {
                       </p>
                     ) : (
                       <button
+                        ref={confirmGoogleDeleteRef}
                         type="button"
                         onClick={() => handleConfirmWithGoogle(true)}
                         disabled={confirmingGoogle}
