@@ -8,12 +8,15 @@ import { useConfirm } from '../hooks/useConfirm'
 import PageTitle from '../components/PageTitle'
 
 // Campus Perks (issue #24): admin-curated local student deals.
+// Plain words, no emoji: screen readers read an emoji out ("hamburger Food"),
+// it renders differently on every platform, and each deal card already
+// carries its category's line icon (CATEGORY_ICON below).
 const CATEGORIES = [
-  { key: 'food', label: '🍔 Food' },
-  { key: 'coffee', label: '☕ Coffee' },
-  { key: 'entertainment', label: '🎟️ Fun' },
-  { key: 'services', label: '🛠️ Services' },
-  { key: 'other', label: '✨ Other' },
+  { key: 'food', label: 'Food' },
+  { key: 'coffee', label: 'Coffee' },
+  { key: 'entertainment', label: 'Fun' },
+  { key: 'services', label: 'Services' },
+  { key: 'other', label: 'Other' },
 ]
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
   CATEGORIES.map((c) => [c.key, c.label]),

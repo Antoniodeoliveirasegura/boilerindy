@@ -19,12 +19,37 @@ type EventItem = {
   freeFood?: boolean
 }
 
-// Category labels. Every event row sits on the Events line (one route per
-// card), so a category is a label, not a colour.
-const categoryConfig: Record<string, { label: string }> = {
-  campus_event: { label: 'Campus Event' },
-  event: { label: 'Event' },
-  deadline: { label: 'Deadline' },
+// Category labels for the row badge, the details badge and the filter pills.
+// Every event row sits on the Events line (one route per card), so a category
+// is a label, not a colour. The page asks for campus_event, event and deadline
+// (CAMPUS_EVENTS_CALENDAR); any other category the calendar sends still reads
+// as itself, singular (CALENDAR_CATEGORY_LABELS on the server has the plural
+// names). Every exam and assignment used to wear an "Event" badge while its
+// pill read "Exam" or "Assignment".
+const CATEGORY_LABEL: Record<string, string> = {
+  campus_event: 'Campus Event',
+  event: 'Event',
+  deadline: 'Deadline',
+  exam: 'Exam',
+  assignment: 'Assignment',
+  quiz: 'Quiz',
+  project: 'Project',
+  lab: 'Lab',
+  class: 'Class',
+  resource: 'Resource',
+}
+
+// An item without a category counts, filters and reads as an Event.
+function categoryOf(item: EventItem) {
+  return item.category || 'event'
+}
+
+// An unknown category reads as its own words ("career_fair" as "Career fair").
+function categoryLabel(category: string) {
+  const known = CATEGORY_LABEL[category]
+  if (known) return known
+  const words = category.replace(/[_-]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : CATEGORY_LABEL.event
 }
 
 function formatDate(dateString: string) {
@@ -194,7 +219,7 @@ export default function Events() {
     let filtered = items
     
     if (selectedCategories.length > 0) {
-      filtered = filtered.filter(item => selectedCategories.includes(item.category ?? ''))
+      filtered = filtered.filter(item => selectedCategories.includes(categoryOf(item)))
     }
 
     if (!showPast) {
@@ -221,12 +246,12 @@ export default function Events() {
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const item of items) {
-      const cat = item.category ?? 'event'
+      const cat = categoryOf(item)
       counts[cat] = (counts[cat] || 0) + 1
     }
     return Object.entries(counts).map(([id, count]) => ({
       id,
-      label: categoryConfig[id]?.label || id,
+      label: categoryLabel(id),
       count
     }))
   }, [items])
@@ -309,6 +334,7 @@ export default function Events() {
         <div className="flex flex-wrap gap-2 mb-5">
           <button
             onClick={() => setSelectedCategories([])}
+            aria-pressed={selectedCategories.length === 0}
             className={`pill whitespace-nowrap tnum ${selectedCategories.length === 0 ? 'pill-active' : ''}`}
           >
             All ({items.length})
@@ -319,7 +345,8 @@ export default function Events() {
               <button
                 key={cat.id}
                 onClick={() => toggleCategory(cat.id)}
-                className={`pill whitespace-nowrap tnum capitalize ${isActive ? 'pill-active' : ''}`}
+                aria-pressed={isActive}
+                className={`pill whitespace-nowrap tnum ${isActive ? 'pill-active' : ''}`}
               >
                 {cat.label} ({cat.count})
               </button>
@@ -420,7 +447,6 @@ export default function Events() {
                 </div>
                 <ol className="dep">
                   {dateItems.map(item => {
-                    const config = categoryConfig[item.category ?? 'event'] || categoryConfig.event
                     const isSelected = selectedItem?.id === item.id
                     const past = isPast(item.startTime)
                     const block = dateBlock(item.startTime)
@@ -457,7 +483,7 @@ export default function Events() {
                               )}
                               {/* On the selected row's route tint the label keeps a surface plate. */}
                               <span className={`badge badge-route ${isSelected ? 'bg-[var(--color-surface)]' : ''}`}>
-                                {config.label}
+                                {categoryLabel(categoryOf(item))}
                               </span>
                               <span className="inline-flex items-center gap-1">
                                 <Icon name="clock" size={12} />
@@ -492,7 +518,7 @@ export default function Events() {
               <div className="card card-pad r-evt min-w-0 overflow-hidden">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <span className="badge badge-route">
-                    {(categoryConfig[selectedItem.category ?? 'event'] || categoryConfig.event).label}
+                    {categoryLabel(categoryOf(selectedItem))}
                   </span>
                   <button
                     type="button"
