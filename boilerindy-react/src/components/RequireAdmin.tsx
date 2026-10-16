@@ -32,7 +32,11 @@ export default function RequireAdmin({ children }: { children: ReactNode }) {
             </span>
             <h1 className="page-title compact mb-2">Access denied</h1>
             <p className="text-[14px] text-[var(--color-txt-2)] mb-6 leading-relaxed">
-              You don&apos;t have permission to view the admin console. Contact a platform owner if you need access.
+              You don&apos;t have permission to view the admin console. If you need access, ask through{' '}
+              <Link to="/support" className="prose-link">
+                support
+              </Link>
+              .
             </p>
             <Link to="/dashboard" className="btn btn-primary no-underline">
               Back to dashboard

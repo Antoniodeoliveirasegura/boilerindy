@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import Icon from './Icons'
 import StatusBanner from './StatusBanner'
+import WithSupportLink from './WithSupportLink'
 import { useAuth } from '../context/AuthContext'
 import { authRequest } from '../lib/authApi'
 import { invalidateUserQueries, usePurdueEmailStatus, userKeys, useUserId } from '../lib/queries/userData'
@@ -196,7 +197,7 @@ export default function PurdueEmailVerification({ allowDevLink = false, onLinked
 
   const noticeEl = notice ? (
     <StatusBanner tone={notice.tone} className="mb-3">
-      {notice.text}
+      <WithSupportLink text={notice.text} />
     </StatusBanner>
   ) : null
 

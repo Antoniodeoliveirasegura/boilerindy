@@ -12,6 +12,7 @@ import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import { useConfirm } from '../hooks/useConfirm'
 import StatusBanner from '../components/StatusBanner'
 import PageTitle from '../components/PageTitle'
+import WithSupportLink from '../components/WithSupportLink'
 
 // Field labels, body copy and the sync tiles share one look across the cards.
 const FIELD_LABEL = 'mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]'
@@ -724,7 +725,7 @@ export default function Settings() {
               </div>
               {deleteError && (
                 <StatusBanner tone="error" className="mt-4">
-                  {deleteError}
+                  <WithSupportLink text={deleteError} />
                 </StatusBanner>
               )}
               <button
