@@ -1449,6 +1449,36 @@ test('PATCH profile lets a Google account set a first password and change its em
   })
 })
 
+test('password-reset-complete stamps the change, keeps this session and ends older ones; only a recent reset link may ask', async () => {
+  const tokenWith = (method, secondsAgo) => {
+    const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const timestamp = Math.floor(Date.now() / 1000) - secondsAgo
+    return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method, timestamp }] })}.sig`
+  }
+  const recent = tokenWith('recovery', 60)
+  const old = tokenWith('recovery', 2 * 60 * 60)
+  const password = tokenWith('password', 60)
+  const tokens = { [recent]: TOKEN_USER, [old]: TOKEN_USER, [password]: TOKEN_USER }
+  const OLD_AUTH_AT = '2026-01-01T00:00:00.000Z'
+  await withApp({ seed: { users: [STUDENT] }, tokens }, async ({ call, sessionFor, db }) => {
+    const none = await call('POST', '/api/auth/password-reset-complete')
+    assert.equal(none.status, 401)
+    for (const token of [old, password]) {
+      const refused = await call('POST', '/api/auth/password-reset-complete', { headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(refused.status, 403)
+    }
+    assert.equal(db.users[0].password_changed_at, null)
+
+    const here = await sessionFor({ userId: U1, authAt: OLD_AUTH_AT })
+    const elsewhere = await sessionFor({ userId: U1, authAt: OLD_AUTH_AT })
+    const res = await call('POST', '/api/auth/password-reset-complete', { cookie: here, headers: { Authorization: `Bearer ${recent}` } })
+    assert.equal(res.status, 200)
+    assert.ok(isRecent(db.users[0].password_changed_at))
+    assert.equal((await call('GET', '/api/me/profile', { cookie: here })).status, 200)
+    assert.equal((await call('GET', '/api/me/profile', { cookie: elsewhere })).status, 401)
+  })
+})
+
 // ── The Purdue link: connect ────────────────────────────────────────────────
 
 test('connect with linking off sends the website to settings and the app to its return URL', async () => {

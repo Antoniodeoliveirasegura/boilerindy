@@ -25,7 +25,7 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `account-create` | `POST /api/auth/register-supabase`, `POST /api/advertiser/request-access` | 10 | 1 hour | IP |
 | `password-reset` | `POST /api/advertiser/forgot-password`, `POST /api/advertiser/reset-password` | 10 | 1 hour | IP |
 | `session-sync` | `POST /api/auth/supabase-sync` (the inner per-user cap) | 120 | 15 min | Supabase user (`sub` of the request's token, or `supabaseUserId`), falls back to IP (#217) |
-| `session-sync-ip` | `POST /api/auth/supabase-sync` (outer cap so one address cannot mint unlimited user buckets) | 600 | 15 min | IP |
+| `session-sync-ip` | `POST /api/auth/supabase-sync` (outer cap so one address cannot mint unlimited user buckets), `POST /api/auth/password-reset-complete` | 600 | 15 min | IP |
 | `purdue-link-token` | `POST /api/purdue/link-token` (native app Purdue link handoff, issue #214) | 20 | 15 min | user, falls back to IP |
 | `login-code` | `POST /api/auth/sign-in/verify` (two-step sign-in code checks, the outer cap; each code also allows only five guesses, counted in `sign_in_challenges` so parallel requests cannot share one count; a request with no pending sign-in skips it, so stray requests cannot spend a shared address's bucket) | 30 | 15 min | IP |
 | `login-code-account` | `POST /api/auth/sign-in/verify` (the inner per-account cap, across addresses and restarted sign-ins; skipped without a pending sign-in) | 10 | 1 hour | the pending sign-in's user (only a correct password sets it) |

@@ -27,6 +27,7 @@ import {
   resendStatus,
   tokenNeedsSignInCode,
   tokenProviderSignInAt,
+  tokenRecoveryAt,
 } from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
@@ -1003,6 +1004,47 @@ export function createAuthRouter({
       res.clearCookie(SESSION_COOKIE_NAME)
       res.json({ ok: true })
     })
+  })
+
+  // /reset-password sets the new password in Supabase Auth from the browser, so
+  // the server never saw the change: it stamps password_changed_at here, which
+  // ends every older session and trusted device (#132) as a Settings change
+  // does. Only a token whose reset link was opened in the last hour may ask,
+  // so a stolen session alone cannot sign the owner out everywhere.
+  const RECOVERY_WINDOW_MS = 60 * 60 * 1000
+  router.post('/api/auth/password-reset-complete', sessionSyncIpRateLimit, async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || ''
+      const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+      if (!accessToken) {
+        return res.status(401).json({ error: { message: 'Missing access token.', status: 401 } })
+      }
+      const { data: tokenData, error: tokenError } = await supabase.auth.getUser(accessToken)
+      if (tokenError || !tokenData?.user) {
+        return res.status(401).json({ error: { message: 'Invalid or expired access token.', status: 401 } })
+      }
+      const recoveryAt = tokenRecoveryAt(accessToken)
+      if (!recoveryAt || Date.now() - recoveryAt > RECOVERY_WINDOW_MS) {
+        return res.status(403).json({ error: { message: 'Open the reset link from your email again.', status: 403 } })
+      }
+      const stamp = new Date().toISOString()
+      const { error: stampError } = await supabase
+        .from('users')
+        .update({ password_changed_at: stamp })
+        .eq('id', tokenData.user.id)
+      if (stampError) {
+        console.warn('[password-reset-complete] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
+      }
+      // This browser keeps its session: it is the one that just reset.
+      if (req.session?.userId === tokenData.user.id) {
+        req.session.authAt = stamp
+        await save(req)
+      }
+      res.json({ ok: true })
+    } catch (error) {
+      logRouteError('[password-reset-complete] failed', error)
+      res.status(500).json({ error: { message: 'Could not finish the password reset.', status: 500 } })
+    }
   })
 
   router.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit, async (req, res) => {

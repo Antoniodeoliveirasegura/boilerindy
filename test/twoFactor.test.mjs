@@ -22,6 +22,7 @@ import {
   tokenAuthMethods,
   tokenNeedsSignInCode,
   tokenProviderSignInAt,
+  tokenRecoveryAt,
 } from '../src/twoFactor.mjs'
 
 const SECRET = 'test-secret-that-is-long-enough-for-hmac'
@@ -195,6 +196,8 @@ test('tokenProviderSignInAt is the latest Google sign-in time from amr, or null'
   assert.equal(tokenProviderSignInAt(fakeJwt({ amr: [{ method: 'password', timestamp: 9 }] })), null)
   assert.equal(tokenProviderSignInAt(fakeJwt({ amr: [{ method: 'oauth' }] })), null)
   assert.equal(tokenProviderSignInAt('not-a-jwt'), null)
+  assert.equal(tokenRecoveryAt(fakeJwt({ amr: [{ method: 'recovery', timestamp: 7 }] })), 7000)
+  assert.equal(tokenRecoveryAt(google), null)
 })
 
 test('parseCookies reads a Cookie header', () => {
