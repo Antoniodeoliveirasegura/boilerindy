@@ -30,7 +30,7 @@ const REPORT_REASONS = 'Why are you reporting this listing?'
 function render(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return renderUi(
-    <MemoryRouter>
+    <MemoryRouter useTransitions={false}>
       <QueryClientProvider client={client}>{ui}</QueryClientProvider>
     </MemoryRouter>,
   )

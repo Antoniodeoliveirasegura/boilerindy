@@ -63,7 +63,7 @@ function renderCard(
 ) {
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <PurdueEmailVerification {...props} />
       </MemoryRouter>
     </QueryClientProvider>,

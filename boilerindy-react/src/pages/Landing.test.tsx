@@ -16,7 +16,7 @@ afterEach(cleanup)
 describe('Landing closing CTA', () => {
   test('links to sign-up and to the live dining preview', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <Landing />
       </MemoryRouter>,
     )
@@ -35,7 +35,7 @@ describe('Landing closing CTA', () => {
 describe('Landing sign-up and sign-in links', () => {
   test('every Get started opens sign-up, and the nav has its own Sign in', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <Landing />
       </MemoryRouter>,
     )

@@ -37,7 +37,7 @@ function renderWith(onboarding: Partial<typeof auth.onboarding>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <Schedule />
       </MemoryRouter>
     </QueryClientProvider>,

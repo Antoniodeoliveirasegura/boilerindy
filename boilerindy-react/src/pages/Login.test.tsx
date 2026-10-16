@@ -43,7 +43,7 @@ const restartAnswer = () =>
 
 function renderLogin(entry = '/login') {
   return render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={[entry]} useTransitions={false}>
       <Login />
     </MemoryRouter>,
   )

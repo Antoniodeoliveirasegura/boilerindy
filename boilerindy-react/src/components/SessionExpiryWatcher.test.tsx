@@ -65,7 +65,7 @@ function Where() {
 
 function renderAt(entry: string) {
   return render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={[entry]} useTransitions={false}>
       <Routes>
         <Route path="*" element={<Where />} />
       </Routes>
@@ -225,7 +225,7 @@ describe('SessionExpiryWatcher: placement', () => {
     }
     store.set(sessionEnding(5 * 60 * 1000))
     render(
-      <MemoryRouter initialEntries={['/schedule']}>
+      <MemoryRouter initialEntries={['/schedule']} useTransitions={false}>
         <SessionExpiryWatcher />
         <UpdateToast enabled register={register} apply={() => {}} />
       </MemoryRouter>,

@@ -31,7 +31,7 @@ function Where() {
 
 function renderAt(entry: string) {
   return render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={[entry]} useTransitions={false}>
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="*" element={<Where />} />
