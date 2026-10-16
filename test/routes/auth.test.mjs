@@ -1302,28 +1302,39 @@ test('delete-account needs DELETE typed and the password, then removes the Auth 
   })
 })
 
-test('delete-account takes a Google sign-in from the last 10 minutes in place of a password, never an older one', async () => {
+test('delete-account takes an asked-for Google sign-in in place of a password, never the one that opened the session', async () => {
   const googleToken = (secondsAgo) => {
     const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
     const timestamp = Math.floor(Date.now() / 1000) - secondsAgo
     return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp }] })}.sig`
   }
-  const stale = googleToken(11 * 60)
-  const fresh = googleToken(5)
-  const tokens = { [stale]: TOKEN_USER, [fresh]: TOKEN_USER }
+  const login = googleToken(30)
+  const unasked = googleToken(20)
+  const again = googleToken(0)
+  const tokens = { [login]: TOKEN_USER, [unasked]: TOKEN_USER, [again]: TOKEN_USER }
   const body = { supabaseUserId: U1, email: 'pete@example.com', provider: 'google' }
   const google = { ...STUDENT, auth_provider: 'google' }
   await withApp({ seed: { users: [google] }, tokens }, async ({ call, db, authCalls }) => {
-    // Signed in with Google a while ago, and the browser refreshed its token since.
-    const signedIn = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${stale}` } })
+    // Just signed in with Google: the cookie alone must not be enough.
+    const signedIn = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${login}` } })
     const cookie = signedIn.cookie
     const refused = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
     assert.equal(refused.status, 400)
     assert.equal(refused.body.error.code, 'reauth-required')
+
+    // A newer Google sign-in nobody asked for does not count either.
+    await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${unasked}` } })
+    assert.equal((await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })).status, 400)
+
+    // Asked for, a token refresh still carries the old sign-in and changes nothing.
+    assert.equal((await call('POST', '/api/me/provider-confirm')).status, 401)
+    assert.deepEqual((await call('POST', '/api/me/provider-confirm', { cookie })).body, { ok: true })
+    await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${unasked}` } })
+    assert.equal((await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })).status, 400)
     assert.equal(db.users.length, 1)
 
-    // Signing in with Google again on the same session confirms it.
-    const confirmed = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${fresh}` } })
+    // Signing in with Google again after asking confirms it.
+    const confirmed = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${again}` } })
     assert.equal(confirmed.body.reused, true)
     const res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
     assert.equal(res.status, 200)
@@ -1430,12 +1441,15 @@ test('PATCH profile changes the login email in Auth too, after checking the curr
 test('PATCH profile lets a Google account set a first password and change its email after confirming with Google', async () => {
   const google = { ...STUDENT, auth_provider: 'google' }
   await withApp({ seed: { users: [google] } }, async ({ call, sessionFor, authCalls, db }) => {
-    const stale = await sessionFor({ userId: U1, providerSignInAt: Date.now() - 11 * 60 * 1000 })
-    const refused = await call('PATCH', '/api/me/profile', { cookie: stale, body: { newPassword: NEW_PASSWORD } })
-    assert.equal(refused.body.error.code, 'reauth-required')
+    const loginOnly = await sessionFor({ userId: U1, providerSignInAt: Date.now() - 60 * 1000 })
+    const stale = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() - 11 * 60 * 1000 })
+    for (const before of [loginOnly, stale]) {
+      const refused = await call('PATCH', '/api/me/profile', { cookie: before, body: { newPassword: NEW_PASSWORD } })
+      assert.equal(refused.body.error.code, 'reauth-required')
+    }
     assert.deepEqual(authCalls, [])
 
-    const cookie = await sessionFor({ userId: U1, providerSignInAt: Date.now() - 60 * 1000 })
+    const cookie = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() - 60 * 1000 })
     const short = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: 'short' } })
     assert.deepEqual(short.body, { error: { message: 'New password must be at least 8 characters.', status: 400 } })
     const set = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: NEW_PASSWORD } })

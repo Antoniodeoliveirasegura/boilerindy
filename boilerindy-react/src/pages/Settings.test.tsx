@@ -177,6 +177,25 @@ describe('Settings: delete a Google account', () => {
 
     await waitFor(() => expect(mocks.signInWithGoogle).toHaveBeenCalled())
     expect(sessionStorage.getItem('postAuthNext')).toBe('/settings?confirmed=google&for=delete')
+    // The server is told first, so it counts the Google sign-in that follows.
+    const askedAt = mocks.authRequest.mock.calls.findIndex(([url]) => url === '/api/me/provider-confirm')
+    expect(mocks.authRequest.mock.calls[askedAt][1]).toEqual({ method: 'POST' })
+    expect(mocks.authRequest.mock.invocationCallOrder[askedAt]).toBeLessThan(mocks.signInWithGoogle.mock.invocationCallOrder[0])
+  })
+
+  test('does not leave for Google when the server cannot start the confirmation', async () => {
+    auth.user.authProvider = 'google'
+    mocks.authRequest.mockImplementation(async (url: string) => {
+      if (url === '/api/me/provider-confirm') throw new Error('nope')
+      return { feedUrl: null }
+    })
+    renderSettings()
+    const deleteForm = screen.getByRole('button', { name: 'Delete my account' }).closest('form') as HTMLFormElement
+    fireEvent.click(within(deleteForm).getByRole('button', { name: 'Confirm with Google' }))
+
+    expect(await within(deleteForm).findByRole('alert')).toHaveTextContent('Google sign-in could not be started. Please try again.')
+    expect(mocks.signInWithGoogle).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('postAuthNext')).toBeNull()
   })
 
   test('after the Google confirmation, DELETE alone deletes the account', async () => {

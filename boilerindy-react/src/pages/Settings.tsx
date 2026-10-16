@@ -312,6 +312,8 @@ export default function Settings() {
     showError('')
     setConfirmingGoogle(true)
     try {
+      // Without this, the server does not count the Google sign-in that follows.
+      await authRequest('/api/me/provider-confirm', { method: 'POST' })
       sessionStorage.setItem('postAuthNext', `/settings?confirmed=google${forDelete ? '&for=delete' : ''}`)
       await signInWithGoogle()
     } catch {

@@ -513,18 +513,29 @@ export function createAuthRouter({
   }
 
   // A Google account has no password to type, so a Google sign-in this recent
-  // stands in for it. supabase-sync records the time from the token's own
-  // `amr` timestamp; a refresh or a password sign-in never resets it.
+  // stands in for it. Only one made on purpose counts: after POST
+  // /api/me/provider-confirm, supabase-sync records a Google sign-in newer than
+  // the session's own as providerConfirmedAt (times from the token's `amr`, which
+  // a refresh never resets). The sign-in that opened the session never counts,
+  // or anyone holding the cookie would get through for its first ten minutes.
   const PROVIDER_CONFIRM_MS = 10 * 60 * 1000
+  const CLOCK_SKEW_MS = 60 * 1000
 
-  function hasRecentProviderSignIn(providerSignInAt, now = Date.now()) {
-    const at = Number(providerSignInAt)
-    return Number.isFinite(at) && at <= now + 60 * 1000 && now - at < PROVIDER_CONFIRM_MS
+  function hasRecentProviderSignIn(session, now = Date.now()) {
+    const at = Number(session?.providerConfirmedAt)
+    return Number.isFinite(at) && at <= now + CLOCK_SKEW_MS && now - at < PROVIDER_CONFIRM_MS
   }
 
-  async function verifyUserPasswordForDeletion(userRow, password, providerSignInAt) {
+  function isAskedProviderConfirmation(session, providerSignInAt) {
+    const askedAt = Number(session?.providerConfirmAskedAt)
+    return Number.isFinite(askedAt)
+      && providerSignInAt > (Number(session.providerSignInAt) || 0)
+      && providerSignInAt >= askedAt - CLOCK_SKEW_MS
+  }
+
+  async function verifyUserPasswordForDeletion(userRow, password, session) {
     if (!password) {
-      if (hasRecentProviderSignIn(providerSignInAt)) return
+      if (hasRecentProviderSignIn(session)) return
       const error = new Error('Enter your password, or confirm with Google, to delete your account.')
       error.code = 'reauth-required'
       throw error
@@ -535,11 +546,11 @@ export function createAuthRouter({
     throw new Error('Password is incorrect.')
   }
 
-  async function deleteUserAccount(userRow, { password, confirmation, providerSignInAt }) {
+  async function deleteUserAccount(userRow, { password, confirmation, session }) {
     if (confirmation !== 'DELETE') {
       throw new Error('Type DELETE in the confirmation box to permanently delete your account.')
     }
-    await verifyUserPasswordForDeletion(userRow, password, providerSignInAt)
+    await verifyUserPasswordForDeletion(userRow, password, session)
 
     const userId = userRow.id
 
@@ -1158,11 +1169,15 @@ export function createAuthRouter({
       // The same user re-syncing (token refresh, app relaunch) already holds a
       // valid cookie session: answer from it instead of regenerating and saving a
       // new one on every call (#217). The profile update above still ran.
-      // A Google re-sign-in on the same session (to confirm account deletion)
-      // is the one change saved on the reuse path.
+      // A Google re-sign-in on the same session (Confirm with Google in
+      // Settings) is the one change saved on the reuse path.
       const providerSignInAt = tokenProviderSignInAt(accessToken)
       if (req.session?.userId === user.id) {
         if (providerSignInAt && providerSignInAt !== req.session.providerSignInAt) {
+          if (isAskedProviderConfirmation(req.session, providerSignInAt)) {
+            req.session.providerConfirmedAt = providerSignInAt
+            delete req.session.providerConfirmAskedAt
+          }
           req.session.providerSignInAt = providerSignInAt
           await save(req)
         }
@@ -1358,6 +1373,19 @@ export function createAuthRouter({
     res.json({ user: payload.user })
   })
 
+  // Settings calls this right before sending a Google account to Google to
+  // confirm an email change, a new password or a delete. Only a Google sign-in
+  // made after it stands in for a password (isAskedProviderConfirmation).
+  router.post('/api/me/provider-confirm', signInRateLimit, requireAuth, async (req, res) => {
+    req.session.providerConfirmAskedAt = Date.now()
+    try {
+      await save(req)
+    } catch {
+      return res.status(500).json({ error: { message: 'Could not start the confirmation. Please try again.', status: 500 } })
+    }
+    res.json({ ok: true })
+  })
+
   router.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
     // A missing or blank name keeps the stored one. Settings resends the stored
     // name on every save, so an unchanged name from before the cap is cut rather
@@ -1373,7 +1401,7 @@ export function createAuthRouter({
         currentPassword: req.body.currentPassword,
         newPassword: req.body.newPassword,
         analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
-        providerConfirmed: hasRecentProviderSignIn(req.session.providerSignInAt),
+        providerConfirmed: hasRecentProviderSignIn(req.session),
       })
       // The user just changed their own password: refresh this session's
       // establishment time so it survives its own change (#132).
@@ -1398,7 +1426,7 @@ export function createAuthRouter({
       await deleteUserAccount(req.currentUser, {
         password: req.body?.password,
         confirmation: req.body?.confirmation,
-        providerSignInAt: req.session.providerSignInAt,
+        session: req.session,
       })
       req.session.destroy(() => {
         res.clearCookie(SESSION_COOKIE_NAME)

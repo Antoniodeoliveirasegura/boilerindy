@@ -21,7 +21,7 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 
 | Limiter | Endpoints | Default limit | Window | Keyed by |
 |---|---|---|---|---|
-| `sign-in` | `POST /api/auth/sign-in`, `PATCH /api/me/profile`, `POST /api/me/delete-account`, `POST /api/advertiser/sign-in` | 20 | 15 min | IP |
+| `sign-in` | `POST /api/auth/sign-in`, `PATCH /api/me/profile`, `POST /api/me/provider-confirm`, `POST /api/me/delete-account`, `POST /api/advertiser/sign-in` | 20 | 15 min | IP |
 | `account-create` | `POST /api/auth/register-supabase`, `POST /api/advertiser/request-access` | 10 | 1 hour | IP |
 | `password-reset` | `POST /api/advertiser/forgot-password`, `POST /api/advertiser/reset-password` | 10 | 1 hour | IP |
 | `session-sync` | `POST /api/auth/supabase-sync` (the inner per-user cap) | 120 | 15 min | Supabase user (`sub` of the request's token, or `supabaseUserId`), falls back to IP (#217) |
