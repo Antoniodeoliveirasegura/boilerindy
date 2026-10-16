@@ -224,6 +224,23 @@ export function tokenAuthMethods(accessToken) {
   }
 }
 
+/**
+ * When the token's provider (Google) sign-in happened, in ms, or null. Read
+ * from the `amr` entry's own timestamp: a refreshed token keeps it, so a
+ * token refresh hours later never looks like a fresh sign-in.
+ */
+export function tokenProviderSignInAt(accessToken) {
+  try {
+    const payload = JSON.parse(Buffer.from(String(accessToken).split('.')[1], 'base64url').toString('utf8'))
+    const stamps = (Array.isArray(payload?.amr) ? payload.amr : [])
+      .filter((entry) => entry?.method === 'oauth' && Number.isFinite(entry.timestamp))
+      .map((entry) => entry.timestamp * 1000)
+    return stamps.length ? Math.max(...stamps) : null
+  } catch {
+    return null
+  }
+}
+
 /** True unless the token shows a non-password sign-in. Unknown tokens need a code. */
 export function tokenNeedsSignInCode(accessToken) {
   return !tokenAuthMethods(accessToken).some((method) => NON_PASSWORD_METHODS.has(method))

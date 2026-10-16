@@ -1278,7 +1278,9 @@ test('delete-account needs DELETE typed and the password, then removes the Auth 
       error: { message: 'Type DELETE in the confirmation box to permanently delete your account.', status: 400 },
     })
     const noPassword = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
-    assert.deepEqual(noPassword.body, { error: { message: 'Please enter your password to confirm deletion.', status: 400 } })
+    assert.deepEqual(noPassword.body, {
+      error: { message: 'Enter your password, or confirm with Google, to delete your account.', status: 400, code: 'reauth-required' },
+    })
     const wrong = await call('POST', '/api/me/delete-account', { cookie, body: { password: 'wrong password', confirmation: 'DELETE' } })
     assert.deepEqual(wrong.body, { error: { message: 'Password is incorrect.', status: 400 } })
     assert.deepEqual(authCalls, [])
@@ -1297,6 +1299,36 @@ test('delete-account needs DELETE typed and the password, then removes the Auth 
     assert.deepEqual(invalidated, [U1])
     assert.deepEqual(await sessions(), [])
     assert.deepEqual((await call('GET', '/api/session', { cookie })).body, { authenticated: false, session: null })
+  })
+})
+
+test('delete-account takes a Google sign-in from the last 10 minutes in place of a password, never an older one', async () => {
+  const googleToken = (secondsAgo) => {
+    const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const timestamp = Math.floor(Date.now() / 1000) - secondsAgo
+    return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp }] })}.sig`
+  }
+  const stale = googleToken(11 * 60)
+  const fresh = googleToken(5)
+  const tokens = { [stale]: TOKEN_USER, [fresh]: TOKEN_USER }
+  const body = { supabaseUserId: U1, email: 'pete@example.com', provider: 'google' }
+  const google = { ...STUDENT, auth_provider: 'google' }
+  await withApp({ seed: { users: [google] }, tokens }, async ({ call, db, authCalls }) => {
+    // Signed in with Google a while ago, and the browser refreshed its token since.
+    const signedIn = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${stale}` } })
+    const cookie = signedIn.cookie
+    const refused = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
+    assert.equal(refused.status, 400)
+    assert.equal(refused.body.error.code, 'reauth-required')
+    assert.equal(db.users.length, 1)
+
+    // Signing in with Google again on the same session confirms it.
+    const confirmed = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${fresh}` } })
+    assert.equal(confirmed.body.reused, true)
+    const res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(authCalls.filter(([method]) => method === 'deleteUser'), [['deleteUser', U1]])
+    assert.deepEqual(db.users, [])
   })
 })
 

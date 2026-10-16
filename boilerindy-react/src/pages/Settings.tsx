@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { authRequest } from '../lib/authApi'
+import { authRequest, type ApiRequestError } from '../lib/authApi'
 import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
-import { supabase } from '../lib/supabase'
+import { signInWithGoogle, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
 import BlockedUsersCard from '../components/settings/BlockedUsersCard'
@@ -86,6 +86,20 @@ export default function Settings() {
   const [deleteError, setDeleteError] = useState('')
   const deletePasswordRef = useRef<HTMLInputElement>(null)
   const deleteConfirmRef = useRef<HTMLInputElement>(null)
+  // A Google account has no password to type, so it confirms deletion by
+  // signing in with Google again, which lands back here with ?delete=confirmed.
+  // The server takes that sign-in for 10 minutes.
+  const isGoogleAccount = user?.authProvider === 'google'
+  const [googleConfirmed, setGoogleConfirmed] = useState(() => searchParams.get('delete') === 'confirmed')
+  const [usePasswordToDelete, setUsePasswordToDelete] = useState(false)
+  const [confirmingGoogle, setConfirmingGoogle] = useState(false)
+  const showDeletePassword = !isGoogleAccount || usePasswordToDelete
+
+  useEffect(() => {
+    if (googleConfirmed) deleteConfirmRef.current?.focus()
+    // Only on arrival from the Google redirect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
   const [feedUrl, setFeedUrl] = useState<string | null>(null)
@@ -228,9 +242,14 @@ export default function Settings() {
       deleteConfirmRef.current?.focus()
       return
     }
-    if (!deletePassword) {
-      setDeleteError('Enter your password to confirm deletion.')
-      deletePasswordRef.current?.focus()
+    const viaGoogle = isGoogleAccount && googleConfirmed && !deletePassword
+    if (!deletePassword && !viaGoogle) {
+      if (showDeletePassword) {
+        setDeleteError('Enter your password to confirm deletion.')
+        deletePasswordRef.current?.focus()
+      } else {
+        setDeleteError('Confirm with Google first, then delete your account.')
+      }
       return
     }
     if (
@@ -249,7 +268,7 @@ export default function Settings() {
       await authRequest('/api/me/delete-account', {
         method: 'POST',
         body: JSON.stringify({
-          password: deletePassword,
+          ...(deletePassword ? { password: deletePassword } : {}),
           confirmation: deleteConfirm,
         }),
       })
@@ -266,10 +285,28 @@ export default function Settings() {
       }
       window.location.replace('/')
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Could not delete your account.')
-      deletePasswordRef.current?.focus()
+      if ((error as ApiRequestError)?.code === 'reauth-required' && viaGoogle) {
+        setGoogleConfirmed(false)
+        setDeleteError('That Google confirmation has expired. Confirm with Google again.')
+      } else {
+        setDeleteError(error instanceof Error ? error.message : 'Could not delete your account.')
+        deletePasswordRef.current?.focus()
+      }
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleConfirmWithGoogle() {
+    setDeleteError('')
+    setConfirmingGoogle(true)
+    try {
+      sessionStorage.setItem('postAuthNext', '/settings?delete=confirmed')
+      await signInWithGoogle()
+    } catch {
+      sessionStorage.removeItem('postAuthNext')
+      setDeleteError('Google sign-in could not be started. Please try again.')
+      setConfirmingGoogle(false)
     }
   }
 
@@ -583,21 +620,60 @@ export default function Settings() {
             </p>
             <form onSubmit={handleDeleteAccount} className="mt-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={FIELD_LABEL} htmlFor="delete-password">
-                    Password
-                  </label>
-                  <input
-                    ref={deletePasswordRef}
-                    id="delete-password"
-                    type="password"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    className="input"
-                    placeholder="Your current password"
-                    autoComplete="current-password"
-                  />
-                </div>
+                {showDeletePassword ? (
+                  <div>
+                    <label className={FIELD_LABEL} htmlFor="delete-password">
+                      Password
+                    </label>
+                    <input
+                      ref={deletePasswordRef}
+                      id="delete-password"
+                      type="password"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      className="input"
+                      placeholder="Your current password"
+                      autoComplete="current-password"
+                    />
+                    {isGoogleAccount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUsePasswordToDelete(false)
+                          setDeletePassword('')
+                        }}
+                        className="mt-2 text-[13px] font-semibold text-[var(--color-txt-2)] underline"
+                      >
+                        Confirm with Google instead
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <span className={FIELD_LABEL}>Confirm it&apos;s you</span>
+                    {googleConfirmed ? (
+                      <p className={`${BODY} mt-1`}>
+                        Google confirmed it&apos;s you. Type DELETE and delete within 10 minutes.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConfirmWithGoogle}
+                        disabled={confirmingGoogle}
+                        className="btn btn-secondary"
+                      >
+                        {confirmingGoogle ? 'Opening Google…' : 'Confirm with Google'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setUsePasswordToDelete(true)}
+                      className="mt-2 block text-[13px] font-semibold text-[var(--color-txt-2)] underline"
+                    >
+                      I have a password
+                    </button>
+                  </div>
+                )}
                 <div>
                   <label className={FIELD_LABEL} htmlFor="delete-confirm">
                     Type DELETE to confirm

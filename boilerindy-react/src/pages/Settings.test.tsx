@@ -6,13 +6,19 @@ import Settings from './Settings'
 const mocks = vi.hoisted(() => ({
   authRequest: vi.fn(),
   signOut: vi.fn(),
+  signInWithGoogle: vi.fn(),
   replace: vi.fn(),
 }))
 
 // One object for every render: Settings re-seeds its fields whenever `user`
 // changes identity.
 const auth = vi.hoisted(() => ({
-  user: { id: 'user-1', name: 'Test Student', email: 'student@example.edu' },
+  user: { id: 'user-1', name: 'Test Student', email: 'student@example.edu' } as {
+    id: string
+    name: string
+    email: string
+    authProvider?: string
+  },
   onboarding: { linkedSourceCount: 0, classCount: 0 },
   refreshSession: () => Promise.resolve(null),
   startPurdueLink: () => {},
@@ -25,15 +31,18 @@ vi.mock('../context/AuthContext', () => ({
 }))
 vi.mock('../context/ThemeContext', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }))
 vi.mock('../lib/authApi', () => ({ authRequest: mocks.authRequest }))
-vi.mock('../lib/supabase', () => ({ supabase: { auth: { signOut: mocks.signOut } } }))
+vi.mock('../lib/supabase', () => ({
+  supabase: { auth: { signOut: mocks.signOut } },
+  signInWithGoogle: mocks.signInWithGoogle,
+}))
 // The cards with their own data and tests.
 vi.mock('../components/settings/PushNotificationsCard', () => ({ default: () => null }))
 vi.mock('../components/settings/BlockedUsersCard', () => ({ default: () => null }))
 vi.mock('../components/PurdueEmailVerification', () => ({ default: () => null }))
 
-function renderSettings() {
+function renderSettings(path = '/settings') {
   return render(
-    <MemoryRouter initialEntries={['/settings']}>
+    <MemoryRouter initialEntries={[path]}>
       <Settings />
     </MemoryRouter>,
   )
@@ -51,6 +60,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  delete auth.user.authProvider
   cleanup()
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -127,5 +137,36 @@ describe('Settings: delete account', () => {
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith('/'))
     expect(Object.keys(localStorage)).toEqual(['boilerindy-grades-v1-user-2'])
     expect(sessionStorage.length).toBe(0)
+  })
+})
+
+// A Google account has no password, so the password box blocked deletion.
+describe('Settings: delete a Google account', () => {
+  test('offers Confirm with Google instead of a password, returning to Settings', async () => {
+    auth.user.authProvider = 'google'
+    mocks.signInWithGoogle.mockResolvedValue({})
+    renderSettings()
+
+    expect(screen.queryByLabelText('Password')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm with Google' }))
+
+    await waitFor(() => expect(mocks.signInWithGoogle).toHaveBeenCalled())
+    expect(sessionStorage.getItem('postAuthNext')).toBe('/settings?delete=confirmed')
+  })
+
+  test('after the Google confirmation, DELETE alone deletes the account', async () => {
+    auth.user.authProvider = 'google'
+    renderSettings('/settings?delete=confirmed')
+
+    expect(screen.getByText(/Google confirmed it's you/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
+
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith('/'))
+    expect(mocks.authRequest).toHaveBeenCalledWith('/api/me/delete-account', {
+      method: 'POST',
+      body: JSON.stringify({ confirmation: 'DELETE' }),
+    })
   })
 })

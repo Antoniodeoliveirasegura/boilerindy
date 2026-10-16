@@ -26,6 +26,7 @@ import {
   parseCookies,
   resendStatus,
   tokenNeedsSignInCode,
+  tokenProviderSignInAt,
 } from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
@@ -501,9 +502,22 @@ export function createAuthRouter({
     return data
   }
 
-  async function verifyUserPasswordForDeletion(userRow, password) {
+  // A Google account has no password to type, so a Google sign-in this recent
+  // stands in for it. supabase-sync records the time from the token's own
+  // `amr` timestamp; a refresh or a password sign-in never resets it.
+  const PROVIDER_CONFIRM_MS = 10 * 60 * 1000
+
+  function hasRecentProviderSignIn(providerSignInAt, now = Date.now()) {
+    const at = Number(providerSignInAt)
+    return Number.isFinite(at) && at <= now + 60 * 1000 && now - at < PROVIDER_CONFIRM_MS
+  }
+
+  async function verifyUserPasswordForDeletion(userRow, password, providerSignInAt) {
     if (!password) {
-      throw new Error('Please enter your password to confirm deletion.')
+      if (hasRecentProviderSignIn(providerSignInAt)) return
+      const error = new Error('Enter your password, or confirm with Google, to delete your account.')
+      error.code = 'reauth-required'
+      throw error
     }
     const authUser = await verifySupabasePassword(userRow.email, password)
     if (authUser) return
@@ -511,11 +525,11 @@ export function createAuthRouter({
     throw new Error('Password is incorrect.')
   }
 
-  async function deleteUserAccount(userRow, { password, confirmation }) {
+  async function deleteUserAccount(userRow, { password, confirmation, providerSignInAt }) {
     if (confirmation !== 'DELETE') {
       throw new Error('Type DELETE in the confirmation box to permanently delete your account.')
     }
-    await verifyUserPasswordForDeletion(userRow, password)
+    await verifyUserPasswordForDeletion(userRow, password, providerSignInAt)
 
     const userId = userRow.id
 
@@ -1093,7 +1107,14 @@ export function createAuthRouter({
       // The same user re-syncing (token refresh, app relaunch) already holds a
       // valid cookie session: answer from it instead of regenerating and saving a
       // new one on every call (#217). The profile update above still ran.
+      // A Google re-sign-in on the same session (to confirm account deletion)
+      // is the one change saved on the reuse path.
+      const providerSignInAt = tokenProviderSignInAt(accessToken)
       if (req.session?.userId === user.id) {
+        if (providerSignInAt && providerSignInAt !== req.session.providerSignInAt) {
+          req.session.providerSignInAt = providerSignInAt
+          await save(req)
+        }
         const session = await buildSessionPayload(user, req)
         return res.json({ session, reused: true })
       }
@@ -1104,6 +1125,7 @@ export function createAuthRouter({
         }
         req.session.userId = user.id
         req.session.authAt = new Date().toISOString()
+        if (providerSignInAt) req.session.providerSignInAt = providerSignInAt
         req.session.save(async () => {
           const session = await buildSessionPayload(user, req)
           res.json({ session })
@@ -1318,13 +1340,20 @@ export function createAuthRouter({
       await deleteUserAccount(req.currentUser, {
         password: req.body?.password,
         confirmation: req.body?.confirmation,
+        providerSignInAt: req.session.providerSignInAt,
       })
       req.session.destroy(() => {
         res.clearCookie(SESSION_COOKIE_NAME)
         res.json({ ok: true })
       })
     } catch (error) {
-      res.status(400).json({ error: { message: error.message || 'Could not delete account.', status: 400 } })
+      res.status(400).json({
+        error: {
+          message: error.message || 'Could not delete account.',
+          status: 400,
+          ...(error.code === 'reauth-required' ? { code: error.code } : {}),
+        },
+      })
     }
   })
 
