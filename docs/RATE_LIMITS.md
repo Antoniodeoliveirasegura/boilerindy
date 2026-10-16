@@ -13,8 +13,11 @@ a credential such as the calendar feed token (#422).
 
 ## Endpoint coverage
 
-Every bucket below is a `createRateLimiter` call in `server.mjs`, except the two
-AI limits, `login-code-mail` and `purdue-link-flow`, which are noted as such.
+Every bucket below is a `createRateLimiter` call in `server.mjs` except three:
+`login-code-mail` and `ai-board-tags` are `createRateWindow` counters, not
+middleware, as their rows say, and `purdue-link-flow` is a `createRateLimiter`
+built in [`purdueLinkThrottle.mjs`](../src/purdueLinkThrottle.mjs). The AI
+limits `ai-assistant` and `ai-board` are ordinary buckets since issue #191.
 [`rateLimitDocs.test.mjs`](../test/rateLimitDocs.test.mjs) fails the build when a
 limiter or one of its routes is missing from this table, or when the table names
 a route the server does not serve, so it cannot drift from the code again (#201).
