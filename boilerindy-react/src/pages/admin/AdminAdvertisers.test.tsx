@@ -110,7 +110,10 @@ describe('AdminAdvertisers history', () => {
     fireEvent.submit(within(dialog).getByRole('button', { name: 'Create account' }).closest('form') as HTMLFormElement)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(createAdminAdvertiser).toHaveBeenCalledWith(expect.objectContaining({ leadId: 'lead-new' }))
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\/advertisers$/)
+    // This router keeps React Router's transitions (App.tsx turns them off), so
+    // the cleared prefill commits a render after the one that removes the
+    // dialog, and the URL gets its own wait.
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\/advertisers$/))
 
     fireEvent.click(screen.getByRole('button', { name: 'History back' }))
     expect(screen.getByTestId('where')).toHaveTextContent('/admin/leads')
