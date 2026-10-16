@@ -41,7 +41,7 @@ import { useUserLocation } from '../hooks/useUserLocation'
 import { mapHrefForRoom } from '../lib/buildingCode'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { splitCourseCode } from '../lib/courseCode'
-import { dueSoonLabel } from '../lib/urgency'
+import { dueSoonHours, dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import { useMyCalendar, useMyClasses, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
@@ -848,13 +848,12 @@ export default function Home() {
     const alerts: Array<{ icon: string; route: string; text: string }> = []
     const nowMs = now.getTime()
 
-    // Assignment due within 24 hours and not done yet
-    const urgentItems = openTasks.filter((item) => {
-      const due = new Date(item.startTime).getTime()
-      return due > nowMs && due - nowMs < 24 * 60 * 60 * 1000
-    })
-    for (const item of urgentItems.slice(0, 2)) {
-      const hoursLeft = Math.round((new Date(item.startTime).getTime() - nowMs) / 3600000)
+    // Assignment due within 24 hours and not done yet. The hours come from
+    // lib/urgency, as on the task rows, so both say the same number.
+    const urgentItems = openTasks
+      .map((item) => ({ item, hoursLeft: dueSoonHours(item.startTime, { now: nowMs }) }))
+      .filter((entry): entry is { item: (typeof openTasks)[number]; hoursLeft: number } => entry.hoursLeft !== null)
+    for (const { item, hoursLeft } of urgentItems.slice(0, 2)) {
       alerts.push({
         icon: 'document',
         route: 'r-tsk',

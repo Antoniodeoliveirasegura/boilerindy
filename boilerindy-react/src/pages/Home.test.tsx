@@ -148,6 +148,22 @@ it('leaves finished tasks out of Tasks due and Heads up and lists the tasks adde
   expect(screen.queryByText(/Return library books/)).toBeNull()
 })
 
+// Heads up rounded to the nearest hour and the task rows round up, so a task
+// due in 15 and a half hours read "due in 15h" up top and "Due in 16h" on its
+// row, and one due in 15 minutes read "due in 0h".
+it('gives Heads up and the task rows the same hours', async () => {
+  tasks.manualTasks = [
+    { id: 'm1', title: 'Pay tuition', startTime: inHours(15.5), completedAt: null, category: 'manual_task' },
+    { id: 'm2', title: 'Submit lab report', startTime: inHours(0.25), completedAt: null, category: 'manual_task' },
+  ]
+  renderHome()
+
+  expect(await screen.findByText('Pay tuition is due in 16h')).toBeInTheDocument()
+  expect(screen.getByText('Submit lab report is due in 1h')).toBeInTheDocument()
+  expect(within(tasksDueCard()).getByText('Due in 16h')).toBeInTheDocument()
+  expect(within(tasksDueCard()).getByText('Due in 1h')).toBeInTheDocument()
+})
+
 // A feed deadline ends when it starts, and the rows used the event formatter.
 it('shows a deadline as one time, never a zero-length range', async () => {
   const due = new Date()

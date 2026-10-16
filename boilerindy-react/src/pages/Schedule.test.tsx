@@ -244,3 +244,27 @@ describe('Schedule editor', () => {
     })
   })
 })
+
+describe('Weekday tabs', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // The selected day showed only as an ink rule and today only as an amber
+  // one, so a screen reader heard five identical buttons.
+  test('mark the selected day as pressed and today as the current date', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 14, 9, 0)) // Wednesday
+    renderClasses([meeting('PHYS 17200 Modern Mechanics', 'Lecture', 'PHYS 112', 0, '09:30', '10:20')])
+
+    expect(dayTab('Wednesday')).toHaveAttribute('aria-pressed', 'true')
+    expect(dayTab('Wednesday')).toHaveAttribute('aria-current', 'date')
+    expect(dayTab('Monday')).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(dayTab('Monday'))
+    expect(dayTab('Monday')).toHaveAttribute('aria-pressed', 'true')
+    expect(dayTab('Monday')).not.toHaveAttribute('aria-current')
+    expect(dayTab('Wednesday')).toHaveAttribute('aria-pressed', 'false')
+    expect(dayTab('Wednesday')).toHaveAttribute('aria-current', 'date')
+  })
+})

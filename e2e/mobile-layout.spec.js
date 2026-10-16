@@ -1,10 +1,11 @@
 import { test, expect } from './fixtures/mock-backend.js'
 
 // Mobile layout guard (issue #162). At a phone-width viewport the Schedule
-// weekday strip and the Transit route chips must scroll inside their own row
-// instead of widening the page. The page-level check is the same measurement
-// the issue was filed with: documentElement.scrollWidth must not exceed
-// clientWidth once the page has settled.
+// weekday strip must fit all five days and the Transit route chips must
+// scroll inside their own row, instead of either widening the page. The
+// page-level check is the same measurement the issue was filed with:
+// documentElement.scrollWidth must not exceed clientWidth once the page has
+// settled.
 
 test.use({ viewport: { width: 390, height: 844 } })
 
@@ -86,7 +87,9 @@ const settledBox = async (locator) => {
 }
 
 test.describe('Mobile layout (390px)', () => {
-  test('the schedule weekday strip scrolls inside its card instead of widening the page', async ({
+  // The strip used to scroll inside its card here, with Thu and Fri past the
+  // edge: five 88px days need 468px. On phones the days now share the width.
+  test('the schedule weekday strip fits all five days at 390px and 320px without widening the page', async ({
     page,
     mockApi,
   }) => {
@@ -97,21 +100,29 @@ test.describe('Mobile layout (390px)', () => {
     await expect(page.getByRole('heading', { name: 'Class Schedule' })).toBeVisible()
     await expect(page.getByText(/Fall 2026/)).toBeVisible()
 
-    // All five weekday buttons render (short labels at this width) and the row
-    // they sit in is the element that overflows, not the page.
+    // All five weekday buttons render (short labels at these widths), each one
+    // wholly inside the strip, and the strip has nothing hidden to scroll to.
     const dayButtons = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day) =>
       page.getByRole('button', { name: new RegExp(`^${day}`) }),
     )
-    for (const button of dayButtons) {
-      await expect(button).toBeVisible()
-    }
     const strip = dayButtons[0].locator('..')
-    expect(await scrollsHorizontally(strip)).toBe(true)
-
-    // Once the fetches are done the measurement is polled, not taken after a
-    // fixed wait, so a slow commit cannot fail it and a fast one is not padded.
+    // Once the fetches are done the measurements are polled, not taken after a
+    // fixed wait, so a slow commit cannot fail them and a fast one is not padded.
     await page.waitForLoadState('networkidle')
-    await expect.poll(() => pageFitsViewport(page)).toBe(true)
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 })
+      for (const button of dayButtons) {
+        await expect(button).toBeVisible()
+      }
+      await expect.poll(() => scrollsHorizontally(strip)).toBe(false)
+      const stripBox = await settledBox(strip)
+      for (const button of dayButtons) {
+        const box = await button.boundingBox()
+        expect(box.x).toBeGreaterThanOrEqual(stripBox.x)
+        expect(box.x + box.width).toBeLessThanOrEqual(stripBox.x + stripBox.width)
+      }
+      await expect.poll(() => pageFitsViewport(page)).toBe(true)
+    }
   })
 
   test('the transit route chips scroll inside their row instead of widening the page', async ({

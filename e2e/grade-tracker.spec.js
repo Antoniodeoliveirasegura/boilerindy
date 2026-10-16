@@ -12,9 +12,9 @@ test.describe('Grade tracker', () => {
 
     await expect(page.getByRole('heading', { name: 'Grade Tracker' })).toBeVisible()
 
-    await page.getByPlaceholder(/Course/).fill('CS 18000 Problem Solving')
-    await page.getByPlaceholder(/Term/).fill('Fall 2025')
-    await page.locator('input[type="number"]').fill('4')
+    await page.getByLabel('Course', { exact: true }).fill('CS 18000 Problem Solving')
+    await page.getByLabel('Term', { exact: true }).fill('Fall 2025')
+    await page.getByLabel('Credits', { exact: true }).fill('4')
     await page.getByLabel('Letter grade').selectOption('A')
     await page.getByRole('button', { name: 'Add course' }).click()
 

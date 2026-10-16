@@ -13,7 +13,7 @@ vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 
 const HOUR = 60 * 60 * 1000
 
-type Item = { id: string; title: string; category: string; startTime: string; location?: string }
+type Item = { id: string; title: string; category?: string; startTime: string; location?: string }
 let calendar: { items: Item[] } | Error
 
 function event(id: string, title: string, fromNowMs: number): Item {
@@ -81,6 +81,45 @@ describe('a failed calendar read', () => {
     renderPage()
     expect(await screen.findByText('No events found')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('category labels', () => {
+  // Every exam and assignment wore the fallback "Event" badge while its pill
+  // read "Exam" or "Assignment", and a row with no category counted under the
+  // Event pill but that pill filtered it out.
+  it('gives each category its own badge, matching its pill and its filter', async () => {
+    calendar = {
+      items: [
+        event('ev-1', 'Career fair prep workshop', 2 * HOUR),
+        { ...event('ex-1', 'CS 25100 Midterm', 3 * HOUR), category: 'exam' },
+        { ...event('as-1', 'ECE 20200 Homework 6', 4 * HOUR), category: 'assignment' },
+        { ...event('sh-1', 'Startup showcase', 5 * HOUR), category: 'demo_day' },
+        { ...event('mic-1', 'Open mic night', 6 * HOUR), category: undefined },
+      ],
+    }
+    renderPage()
+
+    const row = async (title: string) => screen.findByRole('button', { name: new RegExp(title) })
+    expect(within(await row('Career fair prep workshop')).getByText('Campus Event')).toBeInTheDocument()
+    expect(within(await row('CS 25100 Midterm')).getByText('Exam')).toBeInTheDocument()
+    expect(within(await row('ECE 20200 Homework 6')).getByText('Assignment')).toBeInTheDocument()
+    expect(within(await row('Startup showcase')).getByText('Demo day')).toBeInTheDocument()
+    expect(within(await row('Open mic night')).getByText('Event')).toBeInTheDocument()
+
+    for (const name of ['All (5)', 'Campus Event (1)', 'Exam (1)', 'Assignment (1)', 'Demo day (1)', 'Event (1)']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    }
+
+    fireEvent.click(await row('CS 25100 Midterm'))
+    expect(within(detailCard('CS 25100 Midterm')).getByText('Exam')).toBeInTheDocument()
+
+    const eventPill = screen.getByRole('button', { name: 'Event (1)' })
+    fireEvent.click(eventPill)
+    expect(eventPill).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'All (5)' })).toHaveAttribute('aria-pressed', 'false')
+    expect(await row('Open mic night')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Career fair prep workshop/ })).not.toBeInTheDocument()
   })
 })
 
