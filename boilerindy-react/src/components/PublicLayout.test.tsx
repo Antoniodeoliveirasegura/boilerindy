@@ -15,7 +15,7 @@ const COVERED = ['/reset-password', '/auth/callback', '/advertise/reset-password
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]} useTransitions={false}>
       <Routes>
         <Route element={<PublicLayout />}>
           {COVERED.map((p) => (
@@ -41,7 +41,7 @@ describe('PublicLayout', () => {
 describe('SiteDisclaimer wording', () => {
   test('disclaims affiliation, endorsement, sponsorship and trademark ownership', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <SiteDisclaimer />
       </MemoryRouter>,
     )
@@ -55,7 +55,7 @@ describe('SiteDisclaimer wording', () => {
   // Support next to Terms and Privacy on every route.
   test('links Terms, Privacy and Support', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <SiteDisclaimer />
       </MemoryRouter>,
     )

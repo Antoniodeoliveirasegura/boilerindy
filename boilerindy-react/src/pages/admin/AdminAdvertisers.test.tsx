@@ -47,7 +47,7 @@ const LEAD_URL = '/admin/advertisers?lead=lead-new&email=owner%40beanco.test&com
 
 function renderPage(entries: string[] = ['/admin/advertisers']) {
   return render(
-    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1} useTransitions={false}>
       <Routes>
         <Route path="/admin/leads" element={<p>Access requests</p>} />
         <Route path="/admin/advertisers" element={<AdminAdvertisers />} />
@@ -125,9 +125,9 @@ describe('AdminAdvertisers history', () => {
     fireEvent.submit(within(dialog).getByRole('button', { name: 'Create account' }).closest('form') as HTMLFormElement)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(createAdminAdvertiser).toHaveBeenCalledWith(expect.objectContaining({ leadId: 'lead-new' }))
-    // This router keeps React Router's transitions (App.tsx turns them off), so
-    // the cleared prefill commits a render after the one that removes the
-    // dialog, and the URL gets its own wait.
+    // The URL gets its own wait, so the check holds whatever the router's
+    // useTransitions: with transitions on, the cleared prefill commits a render
+    // after the one that removes the dialog.
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\/advertisers$/))
 
     fireEvent.click(screen.getByRole('button', { name: 'History back' }))

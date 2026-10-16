@@ -80,7 +80,7 @@ function HistoryBack() {
 // Reached from the landing page, so one Back after signing out returns to "/".
 function renderDashboard() {
   return render(
-    <MemoryRouter initialEntries={['/', '/advertise/dashboard']} initialIndex={1}>
+    <MemoryRouter initialEntries={['/', '/advertise/dashboard']} initialIndex={1} useTransitions={false}>
       <Routes>
         <Route path="/" element={<p>Landing</p>} />
         <Route path="/advertise" element={<p>Advertiser sign in</p>} />

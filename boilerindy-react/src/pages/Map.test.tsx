@@ -44,7 +44,7 @@ function answerBuildings(response: { ok: boolean; json?: () => Promise<unknown> 
 
 function renderMap(entry = '/map') {
   return render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={[entry]} useTransitions={false}>
       <Map />
     </MemoryRouter>,
   )

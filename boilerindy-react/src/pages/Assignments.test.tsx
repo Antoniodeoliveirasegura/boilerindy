@@ -113,7 +113,7 @@ async function renderPage(ready = 'Read chapter four') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <Assignments />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -286,7 +286,7 @@ it('a failed calendar read says so instead of "No items found"', async () => {
   api.manualTasks = []
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <Assignments />
       </MemoryRouter>
     </QueryClientProvider>,

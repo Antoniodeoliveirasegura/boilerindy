@@ -75,7 +75,9 @@ rights to the BoilerIndy name or logo.
   applied file in place.
 - Frontend logic: `lib/` with a colocated `*.test.ts`; components and pages get
   `*.test.tsx` next to them (Vitest and Testing Library, `pnpm -C
-  boilerindy-react test`).
+  boilerindy-react test`). A test's router is
+  `<MemoryRouter useTransitions={false}>`, like the `BrowserRouter` in
+  `App.tsx`; lint fails on a router without it.
 - Route guards: every app route in `App.tsx` is wrapped in `RequireAuth`
   except the public preview (issue #366), `/dining` and `/transit`, listed in
   `lib/publicPreview.ts`. Signed out, AppLayout shows the preview bar there

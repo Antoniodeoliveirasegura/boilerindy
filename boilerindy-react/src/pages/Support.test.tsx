@@ -19,7 +19,7 @@ beforeEach(() => {
 
 function renderSupport(path = '/support') {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]} useTransitions={false}>
       <Support />
     </MemoryRouter>,
   )

@@ -43,7 +43,7 @@ vi.mock('../components/PurdueEmailVerification', () => ({ default: () => null })
 
 function renderSettings(path = '/settings') {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]} useTransitions={false}>
       <Settings />
     </MemoryRouter>,
   )
