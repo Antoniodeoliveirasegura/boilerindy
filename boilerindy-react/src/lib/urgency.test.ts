@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { dueSoonLabel } from './urgency'
+import { dueSoonHours, dueSoonLabel } from './urgency'
 
 // The urgent badge on Home's Tasks due card and on Assignments: open and due
 // within 24 hours reads "Due in Nh" (hours rounded up, at least 1). Overdue
@@ -56,5 +56,25 @@ describe('dueSoonLabel', () => {
   test('uses the current time when no now is given', () => {
     expect(dueSoonLabel(new Date(Date.now() + 2 * HOUR - 1000))).toBe('Due in 2h')
     expect(dueSoonLabel(new Date(Date.now() - HOUR))).toBeNull()
+  })
+})
+
+// Home's Heads up says "<title> is due in Nh" with these hours. It rounded to
+// the nearest hour on its own, so it disagreed with the row badge.
+describe('dueSoonHours', () => {
+  test('gives the hours the badge shows, rounded up and at least 1', () => {
+    expect(dueSoonHours(at(15.5 * HOUR), { now: NOW })).toBe(16)
+    expect(dueSoonHours(at(15 * 60_000), { now: NOW })).toBe(1)
+    expect(dueSoonHours(at(24 * HOUR), { now: NOW })).toBe(24)
+    for (const ms of [1, 30 * 60_000, 15.5 * HOUR, 23.9 * HOUR]) {
+      expect(dueSoonLabel(at(ms), { now: NOW })).toBe(`Due in ${dueSoonHours(at(ms), { now: NOW })}h`)
+    }
+  })
+
+  test('is null wherever the badge is', () => {
+    expect(dueSoonHours(at(0), { now: NOW })).toBeNull()
+    expect(dueSoonHours(at(24 * HOUR + 1), { now: NOW })).toBeNull()
+    expect(dueSoonHours(at(2 * HOUR), { now: NOW, completed: true })).toBeNull()
+    expect(dueSoonHours('not a date', { now: NOW })).toBeNull()
   })
 })
