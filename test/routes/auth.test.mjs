@@ -1343,6 +1343,25 @@ test('delete-account takes an asked-for Google sign-in in place of a password, n
   })
 })
 
+test('a Confirm with Google ask expires: a Google sign-in long after it does not count', async () => {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const fresh = `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp: Math.floor(Date.now() / 1000) }] })}.sig`
+  const body = { supabaseUserId: U1, email: 'pete@example.com', provider: 'google' }
+  const google = { ...STUDENT, auth_provider: 'google' }
+  await withApp({ seed: { users: [google] }, tokens: { [fresh]: TOKEN_USER } }, async ({ call, sessionFor, sessions, db }) => {
+    const longAgo = Date.now() - 11 * 60 * 1000
+    const cookie = await sessionFor({ userId: U1, providerSignInAt: longAgo - 60 * 1000, providerConfirmAskedAt: longAgo })
+    const synced = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${fresh}` } })
+    assert.equal(synced.body.reused, true)
+    const [stored] = await sessions()
+    assert.equal(stored.providerConfirmedAt, undefined)
+    assert.equal(stored.providerConfirmAskedAt, undefined, 'the abandoned ask is used up')
+    const refused = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
+    assert.equal(refused.body.error.code, 'reauth-required')
+    assert.equal(db.users.length, 1)
+  })
+})
+
 test('delete-account accepts a legacy password, tolerates an Auth user already gone, and stops on an Auth failure', async () => {
   const legacy = { ...STUDENT, password_hash: hashPassword(PASSWORD) }
   await withApp({ seed: { users: [legacy] }, authErrors: { deleteUser: { code: 'user_not_found', message: 'gone' } } }, async ({ call, sessionFor, db }) => {

@@ -526,11 +526,15 @@ export function createAuthRouter({
     return Number.isFinite(at) && at <= now + CLOCK_SKEW_MS && now - at < PROVIDER_CONFIRM_MS
   }
 
-  function isAskedProviderConfirmation(session, providerSignInAt) {
+  // An ask expires like a confirmation does, so an abandoned one cannot turn a
+  // much later, unrelated Google sign-in into a confirmation.
+  function isAskedProviderConfirmation(session, providerSignInAt, now = Date.now()) {
     const askedAt = Number(session?.providerConfirmAskedAt)
     return Number.isFinite(askedAt)
+      && now - askedAt < PROVIDER_CONFIRM_MS
       && providerSignInAt > (Number(session.providerSignInAt) || 0)
       && providerSignInAt >= askedAt - CLOCK_SKEW_MS
+      && providerSignInAt <= askedAt + PROVIDER_CONFIRM_MS
   }
 
   async function verifyUserPasswordForDeletion(userRow, password, session) {
@@ -1176,8 +1180,8 @@ export function createAuthRouter({
         if (providerSignInAt && providerSignInAt !== req.session.providerSignInAt) {
           if (isAskedProviderConfirmation(req.session, providerSignInAt)) {
             req.session.providerConfirmedAt = providerSignInAt
-            delete req.session.providerConfirmAskedAt
           }
+          delete req.session.providerConfirmAskedAt
           req.session.providerSignInAt = providerSignInAt
           await save(req)
         }
