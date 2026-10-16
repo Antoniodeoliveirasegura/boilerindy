@@ -1479,6 +1479,15 @@ test('PATCH profile lets a Google account set a first password and change its em
     const moved = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'pete2@example.com' } })
     assert.equal(moved.status, 200)
     assert.equal(db.users[0].email, 'pete2@example.com')
+
+    // An autofilled current password does not override the Google confirmation.
+    const autofilled = await call('PATCH', '/api/me/profile', {
+      cookie,
+      body: { email: 'pete3@example.com', currentPassword: 'autofilled', newPassword: 'another-password' },
+    })
+    assert.equal(autofilled.status, 200)
+    assert.equal(db.users[0].email, 'pete3@example.com')
+    assert.deepEqual(authCalls.at(-2), ['updateUserById', U1, { password: 'another-password' }])
   })
 })
 

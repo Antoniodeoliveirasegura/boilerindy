@@ -446,7 +446,11 @@ export function createAuthRouter({
       if (error) throw new Error(error.message || 'Could not update your password.')
     }
 
-    if (wantsPasswordChange && !hasCurrentPassword) {
+    // A Google confirmation wins over whatever sits in the current password box
+    // (an autofilled one, say), so the account is never asked for a password it
+    // may not have.
+    const checkPassword = hasCurrentPassword && !providerConfirmed
+    if (wantsPasswordChange && !checkPassword) {
       await applyPasswordSet({ setSupabasePassword }, user, newPassword)
     } else if (wantsPasswordChange) {
       await applyPasswordChange(
@@ -459,7 +463,7 @@ export function createAuthRouter({
         currentPassword,
         newPassword,
       )
-    } else if (wantsEmailChange && hasCurrentPassword) {
+    } else if (wantsEmailChange && checkPassword) {
       // Email-only change: verify the current password without altering it.
       await verifyCurrentPassword({ verifySupabasePassword }, user, currentPassword)
     }
@@ -538,8 +542,8 @@ export function createAuthRouter({
   }
 
   async function verifyUserPasswordForDeletion(userRow, password, session) {
+    if (hasRecentProviderSignIn(session)) return
     if (!password) {
-      if (hasRecentProviderSignIn(session)) return
       const error = new Error('Enter your password, or confirm with Google, to delete your account.')
       error.code = 'reauth-required'
       throw error
