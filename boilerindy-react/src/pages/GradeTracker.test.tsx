@@ -53,7 +53,7 @@ async function renderPage() {
 }
 
 function courseInput() {
-  return screen.getByPlaceholderText('Course (e.g. CS 30200)')
+  return screen.getByLabelText('Course', { selector: 'input' })
 }
 
 function writesWith(method: string) {
@@ -163,5 +163,20 @@ describe('Grade tracker load failure', () => {
 
     expect(await screen.findByText('CS 18000')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+// The fields were named by placeholders alone, and Credits comes filled in,
+// so a student saw a bare number and an unlabelled grade list.
+describe('Grade tracker form labels', () => {
+  test('labels every field visibly', async () => {
+    await renderPage()
+    expect(screen.getByLabelText('Course', { selector: 'input' })).toHaveAttribute('placeholder', 'e.g. CS 30200')
+    expect(screen.getByLabelText('Term', { selector: 'input' })).toHaveAttribute('placeholder', 'e.g. Fall 2025')
+    expect(screen.getByLabelText('Credits', { selector: 'input' })).toHaveValue(3)
+    expect(screen.getByLabelText('Letter grade', { selector: 'select' })).toBeInTheDocument()
+    for (const text of ['Course', 'Term', 'Credits', 'Letter grade']) {
+      expect(screen.getByText(text, { selector: 'label', exact: false })).toBeVisible()
+    }
   })
 })

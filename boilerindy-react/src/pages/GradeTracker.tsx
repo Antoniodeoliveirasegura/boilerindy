@@ -247,53 +247,66 @@ export default function GradeTracker() {
         <div className="eyebrow mb-4">
           {editingId ? 'Edit course' : 'Add a course'}
         </div>
+        {/* Every field carries a visible label. The fields used to be named by
+            placeholders alone, and Credits comes filled in, so its placeholder
+            never showed: a student saw a bare "3" and an unlabelled grade. */}
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-12">
-          <input
-            ref={courseInputRef}
-            className="input col-span-2 sm:col-span-5"
-            placeholder="Course (e.g. CS 30200)"
-            value={form.courseName}
-            onChange={setField('courseName')}
-            maxLength={120}
-            required
-          />
-          <input
-            className="input col-span-2 sm:col-span-3"
-            placeholder="Term (e.g. Fall 2025)"
-            value={form.term}
-            onChange={setField('term')}
-            list="grade-term-options"
-            maxLength={60}
-          />
+          <label className="col-span-2 block text-[13px] font-semibold text-[var(--color-txt-1)] sm:col-span-5">
+            Course
+            <input
+              ref={courseInputRef}
+              className="input mt-1.5 w-full font-normal"
+              placeholder="e.g. CS 30200"
+              value={form.courseName}
+              onChange={setField('courseName')}
+              maxLength={120}
+              required
+            />
+          </label>
+          <label className="col-span-2 block text-[13px] font-semibold text-[var(--color-txt-1)] sm:col-span-3">
+            Term
+            <input
+              className="input mt-1.5 w-full font-normal"
+              placeholder="e.g. Fall 2025"
+              value={form.term}
+              onChange={setField('term')}
+              list="grade-term-options"
+              maxLength={60}
+            />
+          </label>
           <datalist id="grade-term-options">
             {termOptions.map((t) => (
               <option key={t} value={t} />
             ))}
           </datalist>
-          <input
-            className="input tnum sm:col-span-2"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            max="30"
-            step="0.5"
-            placeholder="Credits"
-            value={form.creditHours}
-            onChange={setField('creditHours')}
-            required
-          />
-          <select
-            className="input sm:col-span-2"
-            value={form.letterGrade}
-            onChange={setField('letterGrade')}
-            aria-label="Letter grade"
-          >
-            {LETTER_GRADES.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
+          <label className="block text-[13px] font-semibold text-[var(--color-txt-1)] sm:col-span-2">
+            Credits
+            <input
+              className="input tnum mt-1.5 w-full font-normal"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              max="30"
+              step="0.5"
+              value={form.creditHours}
+              onChange={setField('creditHours')}
+              required
+            />
+          </label>
+          <label className="block text-[13px] font-semibold text-[var(--color-txt-1)] sm:col-span-2">
+            Letter grade
+            <select
+              className="input mt-1.5 w-full font-normal"
+              value={form.letterGrade}
+              onChange={setField('letterGrade')}
+            >
+              {LETTER_GRADES.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
           <button type="submit" disabled={saving} className="btn btn-primary">
