@@ -15,10 +15,16 @@ we will follow up privately.
 
 - All database access goes through the Express API using the Supabase
   **service-role** key (server-side only). The browser holds only the **anon**
-  key and uses it **solely for Supabase Auth** - it never queries tables
-  directly (verified: no `supabase.from(...)` calls in the frontend).
-- **Row-Level Security is ENABLED on every table** (28/28) with **no policies**,
-  which is _deny-all_ for the `anon`/`authenticated` roles. Because the server
+  key and uses it for **Supabase Auth** and for one Storage call: the
+  marketplace photo upload (`uploadToSignedUrl` in
+  `boilerindy-react/src/lib/marketplacePhotos.ts`), which carries a token the
+  API mints for that one path (`POST /api/marketplace/photos/authorize`, see
+  [docs/marketplace-photos.md](docs/marketplace-photos.md)). It never queries
+  tables directly: the frontend has no `supabase.from(...)` call (the upload's
+  `supabase.storage.from(...)` picks the Storage bucket).
+- **Row-Level Security is ENABLED on every table** `db/` creates
+  (`test/rlsCoverage.test.mjs` fails the build on a table without it) with **no
+  policies**, which is _deny-all_ for the `anon`/`authenticated` roles. Because the server
   uses the service-role key (which bypasses RLS) and the client never touches
   tables, this is the intended defense-in-depth: any accidental anon-key table
   access is denied by default.
@@ -98,10 +104,13 @@ security audit
 [docs/security/security-audit-2026-07-16.md](docs/security/security-audit-2026-07-16.md)
 and issue #135):
 
-- **In-process session store.** `express-session` uses the default `MemoryStore`.
-  Fine for the current single Render instance, but it grows in memory over long
-  uptimes and can't be shared across instances - move to a Postgres/Redis-backed
-  store before any horizontal scale.
+- **Session store fallback.** Sessions persist in the Supabase `user_sessions`
+  table (`src/sessionStore.mjs`, issue #111), so they survive a restart and can
+  be shared across instances. If that table cannot be read when the server
+  boots (the migration has not run, or Supabase is unreachable), the server
+  logs a `[session]` warning and keeps express-session's in-process
+  `MemoryStore` until the next restart: sessions then die with the process and
+  cannot be shared across instances.
 - **Supabase tokens in `localStorage`.** `@supabase/supabase-js` stores its
   access/refresh JWTs in `localStorage` by default (XSS-readable). Largely inherent
   to the SDK; the CSP in `boilerindy-react/vercel.json` reduces the XSS that would

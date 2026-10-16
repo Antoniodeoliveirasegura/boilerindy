@@ -124,12 +124,12 @@ code starts reading a name that file does not list (issue #210).
 | `BACKEND_PUBLIC_URL` | Public base URL the backend uses for links to itself. Defaults to `BETTER_AUTH_URL`, then `http://HOST:PORT` |
 | `PURDUE_CAS_LOGIN_URL`, `PURDUE_CAS_VALIDATE_URL` | Required when `PURDUE_AUTH_MODE=cas`; not read in `mock` mode |
 | `ADMIN_EMAILS` | Comma-separated addresses that get the admin pages and the moderation routes |
-| `BOARD_BLOCKED_WORDS` | Extra comma-separated blocked words for the board and guide filter, added to the built-in list. Read once at first use |
+| `BOARD_BLOCKED_WORDS` | Extra comma-separated blocked words for the community text filter (board, guide, lost and found, study groups, marketplace, friend bio), added to the built-in list. Read once at first use |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_<NAME>_MAX`, `RATE_LIMIT_<NAME>_WINDOW_MS` | Master switch and per-bucket tuning. See [docs/RATE_LIMITS.md](docs/RATE_LIMITS.md) for the bucket names |
 | `RESEND_API_KEY`, `RESEND_FROM`, `MAIL_REPLY_TO`, `MAIL_POSTAL_ADDRESS` | Outbound email: advertiser password resets, the Purdue email verification codes (issue #181) and the two-step sign-in codes, on the same sender; blank keeps email off, and a production code request then answers 503 |
 | `LOGIN_TWO_FACTOR` | `off` (default; only `on`, `1` or `true` turn it on). When on, email + password sign-in and sign-up wait on an emailed 6-digit code; "Trust this device" skips it for 30 days; Google sign-in skips it. Needs step 41 below and, in production, `RESEND_*` with a domain that delivers to students. Locally without `RESEND_*`, the code prints to the server console |
 | `LOGIN_TWO_FACTOR_SYNC_GATE` | `off` (default) until the native app has a code screen. When `on`, `POST /api/auth/supabase-sync` refuses password-only Supabase tokens, so the code cannot be skipped |
-| `TRANSLOC_API_KEY` | Live transit feed; blank falls back to the cached snapshot |
+| `TRANSLOC_API_KEY` | Live transit feed. Blank turns transit off: `/api/transit/*` answers 503 `Transit is not configured.` |
 | `NUTRISLICE_API_BASE`, `NUTRISLICE_CACHE_MS` | Dining menu upstream and how long its answers are cached |
 | `PARKING_STATUS_URL`, `PARKING_STATUS_CACHE_MS` | Garage occupancy upstream and its cache window |
 | `BOILERLINK_CLUBS_URL`, `BOILERLINK_CLUBS_CACHE_MS` | Club directory upstream and its cache window |

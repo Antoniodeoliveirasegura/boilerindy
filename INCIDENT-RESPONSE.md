@@ -41,13 +41,19 @@ never in the repo.
 
 **a. Rotate the Supabase keys** (service-role leak, or any DB compromise)
 - Supabase → Settings → API → **roll** the `service_role` and `anon` keys.
-- Update `SUPABASE_SERVICE_ROLE_KEY` on Render and `VITE_SUPABASE_ANON_KEY` on
-  Vercel; redeploy both. The old keys stop working immediately.
+- Update `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_ANON_KEY` on Render (the
+  server checks email + password sign-ins with the anon key) and
+  `VITE_SUPABASE_ANON_KEY` on Vercel; redeploy both. The old keys stop working
+  immediately.
 
 **b. Log everyone out** (session/cookie compromise)
 - Rotate `SESSION_SECRET` on Render and redeploy. Existing `pih.sid` cookies no
-  longer verify, so all server sessions are invalidated. (Sessions are in-memory,
-  so a redeploy/restart already clears them.)
+  longer verify, so all server sessions are invalidated. A redeploy or restart
+  alone does not do it: sessions persist in the Supabase `user_sessions` table
+  (`src/sessionStore.mjs`), and memory holds them only when that table could not
+  be read at boot.
+- To drop the stored sessions as well, Supabase SQL editor:
+  `DELETE FROM user_sessions;` Everyone has to sign in again.
 - In Supabase → Authentication, revoke active sessions if the Supabase-Auth side
   is implicated.
 
@@ -60,7 +66,7 @@ never in the repo.
 - Supabase SQL editor: `DELETE FROM advertiser_password_resets;`
 
 **e. Rotate any other exposed secret**
-- `RESEND_API_KEY`, `XAI_API_KEY`, `TRANSLOC_API_KEY`, `SENTRY_DSN` - roll at
+- `RESEND_API_KEY`, `GROQ_API_KEY`, `TRANSLOC_API_KEY`, `SENTRY_DSN` - roll at
   the provider, update the host env, redeploy.
 
 **f. Cut off a specific abused surface**
