@@ -140,6 +140,30 @@ describe('Settings: delete account', () => {
   })
 })
 
+// A Google account has no current password, so it could never set one or change its email.
+describe('Settings: account details for a Google account', () => {
+  test('Confirm with Google returns to Settings, then a first password saves without a current one', async () => {
+    auth.user.authProvider = 'google'
+    mocks.signInWithGoogle.mockResolvedValue({})
+    const { unmount } = renderSettings()
+    const accountForm = screen.getByRole('button', { name: 'Save changes' }).closest('form') as HTMLFormElement
+    fireEvent.click(within(accountForm).getByRole('button', { name: 'Confirm with Google' }))
+    await waitFor(() => expect(mocks.signInWithGoogle).toHaveBeenCalled())
+    expect(sessionStorage.getItem('postAuthNext')).toBe('/settings?confirmed=google')
+    unmount()
+
+    renderSettings('/settings?confirmed=google')
+    expect(screen.getByLabelText('New password')).toHaveFocus()
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-new-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-new-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(screen.getByText('Settings updated.')).toBeInTheDocument())
+    const [, init] = mocks.authRequest.mock.calls.find(([url]) => url === '/api/me/profile') as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toMatchObject({ currentPassword: '', newPassword: 'a-new-password' })
+  })
+})
+
 // A Google account has no password, so the password box blocked deletion.
 describe('Settings: delete a Google account', () => {
   test('offers Confirm with Google instead of a password, returning to Settings', async () => {
@@ -148,17 +172,19 @@ describe('Settings: delete a Google account', () => {
     renderSettings()
 
     expect(screen.queryByLabelText('Password')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm with Google' }))
+    const deleteForm = screen.getByRole('button', { name: 'Delete my account' }).closest('form') as HTMLFormElement
+    fireEvent.click(within(deleteForm).getByRole('button', { name: 'Confirm with Google' }))
 
     await waitFor(() => expect(mocks.signInWithGoogle).toHaveBeenCalled())
-    expect(sessionStorage.getItem('postAuthNext')).toBe('/settings?delete=confirmed')
+    expect(sessionStorage.getItem('postAuthNext')).toBe('/settings?confirmed=google&for=delete')
   })
 
   test('after the Google confirmation, DELETE alone deletes the account', async () => {
     auth.user.authProvider = 'google'
-    renderSettings('/settings?delete=confirmed')
+    renderSettings('/settings?confirmed=google&for=delete')
 
-    expect(screen.getByText(/Google confirmed it's you/)).toBeInTheDocument()
+    const deleteForm = screen.getByRole('button', { name: 'Delete my account' }).closest('form') as HTMLFormElement
+    expect(within(deleteForm).getByText(/Google confirmed it's you/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Type DELETE to confirm'), { target: { value: 'DELETE' } })
     fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))

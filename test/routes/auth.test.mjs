@@ -1369,7 +1369,11 @@ test('PATCH profile refuses a bad name and an email or password change without t
       const res = await call('PATCH', '/api/me/profile', { cookie, body })
       assert.equal(res.status, 400)
       assert.deepEqual(res.body, {
-        error: { message: 'Please enter your current password to change your email or password.', status: 400 },
+        error: {
+          message: 'Enter your current password, or confirm with Google, to change your email or password.',
+          status: 400,
+          code: 'reauth-required',
+        },
       })
     }
     const wrong = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: NEW_PASSWORD, currentPassword: 'nope nope' } })
@@ -1419,6 +1423,28 @@ test('PATCH profile changes the login email in Auth too, after checking the curr
     assert.equal(res.status, 200)
     assert.equal(res.body.user.email, 'pete2@example.com')
     assert.deepEqual(authCalls, [['updateUserById', U1, { email: 'pete2@example.com', email_confirm: true }]])
+    assert.equal(db.users[0].email, 'pete2@example.com')
+  })
+})
+
+test('PATCH profile lets a Google account set a first password and change its email after confirming with Google', async () => {
+  const google = { ...STUDENT, auth_provider: 'google' }
+  await withApp({ seed: { users: [google] } }, async ({ call, sessionFor, authCalls, db }) => {
+    const stale = await sessionFor({ userId: U1, providerSignInAt: Date.now() - 11 * 60 * 1000 })
+    const refused = await call('PATCH', '/api/me/profile', { cookie: stale, body: { newPassword: NEW_PASSWORD } })
+    assert.equal(refused.body.error.code, 'reauth-required')
+    assert.deepEqual(authCalls, [])
+
+    const cookie = await sessionFor({ userId: U1, providerSignInAt: Date.now() - 60 * 1000 })
+    const short = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: 'short' } })
+    assert.deepEqual(short.body, { error: { message: 'New password must be at least 8 characters.', status: 400 } })
+    const set = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: NEW_PASSWORD } })
+    assert.equal(set.status, 200)
+    assert.deepEqual(authCalls, [['updateUserById', U1, { password: NEW_PASSWORD }]])
+    assert.ok(isRecent(db.users[0].password_changed_at))
+
+    const moved = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'pete2@example.com' } })
+    assert.equal(moved.status, 200)
     assert.equal(db.users[0].email, 'pete2@example.com')
   })
 })

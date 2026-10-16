@@ -86,17 +86,21 @@ export default function Settings() {
   const [deleteError, setDeleteError] = useState('')
   const deletePasswordRef = useRef<HTMLInputElement>(null)
   const deleteConfirmRef = useRef<HTMLInputElement>(null)
-  // A Google account has no password to type, so it confirms deletion by
-  // signing in with Google again, which lands back here with ?delete=confirmed.
-  // The server takes that sign-in for 10 minutes.
+  // A Google account has no password to type, so it confirms an email change,
+  // a first password or deletion by signing in with Google again, which lands
+  // back here with ?confirmed=google (&for=delete from the delete card). The
+  // server takes that sign-in for 10 minutes.
   const isGoogleAccount = user?.authProvider === 'google'
-  const [googleConfirmed, setGoogleConfirmed] = useState(() => searchParams.get('delete') === 'confirmed')
+  const [googleConfirmed, setGoogleConfirmed] = useState(() => searchParams.get('confirmed') === 'google')
   const [usePasswordToDelete, setUsePasswordToDelete] = useState(false)
   const [confirmingGoogle, setConfirmingGoogle] = useState(false)
   const showDeletePassword = !isGoogleAccount || usePasswordToDelete
+  const newPasswordRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (googleConfirmed) deleteConfirmRef.current?.focus()
+    if (!googleConfirmed) return
+    if (searchParams.get('for') === 'delete') deleteConfirmRef.current?.focus()
+    else newPasswordRef.current?.focus()
     // Only on arrival from the Google redirect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -223,7 +227,12 @@ export default function Settings() {
       setConfirmPassword('')
       setStatus('Settings updated.')
     } catch (error) {
-      setBanner(error instanceof Error ? error.message : 'Could not update settings.')
+      if ((error as ApiRequestError)?.code === 'reauth-required' && isGoogleAccount && googleConfirmed) {
+        setGoogleConfirmed(false)
+        setBanner('That Google confirmation has expired. Confirm with Google again.')
+      } else {
+        setBanner(error instanceof Error ? error.message : 'Could not update settings.')
+      }
     } finally {
       setSaving(false)
     }
@@ -297,15 +306,16 @@ export default function Settings() {
     }
   }
 
-  async function handleConfirmWithGoogle() {
-    setDeleteError('')
+  async function handleConfirmWithGoogle(forDelete: boolean) {
+    const showError = forDelete ? setDeleteError : setBanner
+    showError('')
     setConfirmingGoogle(true)
     try {
-      sessionStorage.setItem('postAuthNext', '/settings?delete=confirmed')
+      sessionStorage.setItem('postAuthNext', `/settings?confirmed=google${forDelete ? '&for=delete' : ''}`)
       await signInWithGoogle()
     } catch {
       sessionStorage.removeItem('postAuthNext')
-      setDeleteError('Google sign-in could not be started. Please try again.')
+      showError('Google sign-in could not be started. Please try again.')
       setConfirmingGoogle(false)
     }
   }
@@ -385,12 +395,34 @@ export default function Settings() {
                     className="input"
                     placeholder="Current password"
                   />
+                  {isGoogleAccount &&
+                    (googleConfirmed ? (
+                      <p className={`${BODY} mt-2`}>
+                        Google confirmed it&apos;s you. For the next 10 minutes you can change your email or set a
+                        password without a current one.
+                      </p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <span className="text-[13px] text-[var(--color-txt-2)]">
+                          Signed in with Google and never set a password?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmWithGoogle(false)}
+                          disabled={confirmingGoogle}
+                          className="btn btn-secondary btn-sm"
+                        >
+                          {confirmingGoogle ? 'Opening Google…' : 'Confirm with Google'}
+                        </button>
+                      </div>
+                    ))}
                 </div>
                 <div>
                   <label className={FIELD_LABEL} htmlFor="settings-new-password">
                     New password
                   </label>
                   <input
+                    ref={newPasswordRef}
                     id="settings-new-password"
                     type="password"
                     value={newPassword}
@@ -658,7 +690,7 @@ export default function Settings() {
                     ) : (
                       <button
                         type="button"
-                        onClick={handleConfirmWithGoogle}
+                        onClick={() => handleConfirmWithGoogle(true)}
                         disabled={confirmingGoogle}
                         className="btn btn-secondary"
                       >

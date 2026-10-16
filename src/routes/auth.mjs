@@ -9,7 +9,7 @@ import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
 import { isSessionStale } from '../sessionFreshness.mjs'
-import { applyPasswordChange, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
+import { applyPasswordChange, applyPasswordSet, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
 import {
   CODE_TTL_MS,
   DEVICE_TRUST_TTL_MS,
@@ -411,7 +411,7 @@ export function createAuthRouter({
     return data
   }
 
-  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut }) {
+  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, providerConfirmed = false }) {
     const user = await getUserById(userId)
     if (!user) throw new Error('User not found.')
 
@@ -430,26 +430,35 @@ export function createAuthRouter({
 
     // Changing the login email is as account-takeover-sensitive as changing the
     // password: require the current password either way, so a stolen session alone
-    // can't silently repoint the account's identity (#124).
-    if ((wantsPasswordChange || wantsEmailChange) && !(currentPassword && currentPassword.trim())) {
-      throw new Error('Please enter your current password to change your email or password.')
+    // can't silently repoint the account's identity (#124). A Google account has
+    // no current password, so a Google sign-in from the last few minutes
+    // (providerConfirmed) stands in for it.
+    const hasCurrentPassword = Boolean(currentPassword && currentPassword.trim())
+    if ((wantsPasswordChange || wantsEmailChange) && !hasCurrentPassword && !providerConfirmed) {
+      const error = new Error('Enter your current password, or confirm with Google, to change your email or password.')
+      error.code = 'reauth-required'
+      throw error
     }
 
-    if (wantsPasswordChange) {
+    const setSupabasePassword = async (authUserId, password) => {
+      const { error } = await supabase.auth.admin.updateUserById(authUserId, { password })
+      if (error) throw new Error(error.message || 'Could not update your password.')
+    }
+
+    if (wantsPasswordChange && !hasCurrentPassword) {
+      await applyPasswordSet({ setSupabasePassword }, user, newPassword)
+    } else if (wantsPasswordChange) {
       await applyPasswordChange(
         {
           verifySupabasePassword,
-          setSupabasePassword: async (authUserId, password) => {
-            const { error } = await supabase.auth.admin.updateUserById(authUserId, { password })
-            if (error) throw new Error(error.message || 'Could not update your password.')
-          },
+          setSupabasePassword,
           migrateLegacyUser: migrateLegacyUserToSupabaseAuth,
         },
         user,
         currentPassword,
         newPassword,
       )
-    } else if (wantsEmailChange) {
+    } else if (wantsEmailChange && hasCurrentPassword) {
       // Email-only change: verify the current password without altering it.
       await verifyCurrentPassword({ verifySupabasePassword }, user, currentPassword)
     }
@@ -1322,6 +1331,7 @@ export function createAuthRouter({
         currentPassword: req.body.currentPassword,
         newPassword: req.body.newPassword,
         analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
+        providerConfirmed: hasRecentProviderSignIn(req.session.providerSignInAt),
       })
       // The user just changed their own password: refresh this session's
       // establishment time so it survives its own change (#132).
@@ -1331,7 +1341,13 @@ export function createAuthRouter({
       const payload = await buildSessionPayload(user, req)
       res.json({ user: payload.user })
     } catch (error) {
-      res.status(400).json({ error: { message: error.message || 'Could not update profile.', status: 400 } })
+      res.status(400).json({
+        error: {
+          message: error.message || 'Could not update profile.',
+          status: 400,
+          ...(error.code === 'reauth-required' ? { code: error.code } : {}),
+        },
+      })
     }
   })
 
