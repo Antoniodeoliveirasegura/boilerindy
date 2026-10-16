@@ -42,3 +42,18 @@ describe('Perks expiry', () => {
     },
   )
 })
+
+// The filter and card labels carried emoji, which screen readers read out
+// ("hamburger Food") and which render differently on every platform.
+describe('Perks category labels', () => {
+  it('names the filters and the card category in plain words', async () => {
+    render(<Perks />)
+    await screen.findByText('Bean Counter Cafe')
+    for (const name of ['All', 'Food', 'Coffee', 'Fun', 'Services', 'Other']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    }
+    const pictograph = /\p{Extended_Pictographic}/u
+    for (const button of screen.getAllByRole('button')) expect(button.textContent).not.toMatch(pictograph)
+    expect(screen.getAllByText('Coffee').length).toBeGreaterThan(1)
+  })
+})

@@ -36,15 +36,18 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
 
+// Plain words, no emoji: screen readers read an emoji out ("hamburger Food"),
+// it renders differently on every platform, and the app's signage uses its
+// own line icons.
 const CATEGORIES = [
-  { key: 'food', label: 'Food', emoji: '🍔' },
-  { key: 'study', label: 'Study', emoji: '📚' },
-  { key: 'parking', label: 'Parking', emoji: '🅿️' },
-  { key: 'safety', label: 'Safety', emoji: '🛟' },
-  { key: 'other', label: 'Other', emoji: '📌' },
+  { key: 'food', label: 'Food' },
+  { key: 'study', label: 'Study' },
+  { key: 'parking', label: 'Parking' },
+  { key: 'safety', label: 'Safety' },
+  { key: 'other', label: 'Other' },
 ]
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.key, `${c.emoji} ${c.label}`]),
+  CATEGORIES.map((c) => [c.key, c.label]),
 )
 
 const EMPTY_FORM = { category: 'food', title: '', body: '', placeName: '', lat: '', lng: '' }
@@ -299,7 +302,7 @@ export default function Guide() {
               onClick={() => selectCategory(key)}
               className={`pill ${activeCat === key ? 'pill-active' : ''}`}
             >
-              {key === 'all' ? '✦ All' : CATEGORY_LABEL[key]}
+              {key === 'all' ? 'All' : CATEGORY_LABEL[key]}
             </button>
           ))}
         </div>
@@ -362,7 +365,10 @@ export default function Guide() {
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {rec.pinned && (
                         <span className="badge badge-route">
-                          📌 Pinned
+                          <span aria-hidden="true" className="flex">
+                            <Icon name="pin" size={12} />
+                          </span>
+                          Pinned
                         </span>
                       )}
                       <span className="chip">

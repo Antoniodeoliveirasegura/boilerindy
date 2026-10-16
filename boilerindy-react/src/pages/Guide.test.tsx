@@ -73,3 +73,18 @@ describe('Guide upvote', () => {
     expect(card('Quiet corner in the library').getByRole('button', { name: 'Upvote, 1' })).toBeInTheDocument()
   })
 })
+
+// The filters and the card chips carried emoji, which screen readers read out
+// ("hamburger Food") and which render differently on every platform.
+describe('Guide category labels', () => {
+  it('names the filters and the card categories in plain words', async () => {
+    renderGuide()
+    await screen.findByText('Greyhouse Coffee')
+    for (const name of ['All', 'Food', 'Study', 'Parking', 'Safety', 'Other']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    }
+    const pictograph = /\p{Extended_Pictographic}/u
+    for (const button of screen.getAllByRole('button')) expect(button.textContent).not.toMatch(pictograph)
+    expect(card('Greyhouse Coffee').getByText('Food')).toBeInTheDocument()
+  })
+})
