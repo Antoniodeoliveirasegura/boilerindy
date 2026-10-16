@@ -60,7 +60,8 @@ async function withApp({ user = STUDENT, handlers = {} } = {}, run) {
     marketplace_reports: () => ({ data: [], error: null }),
     // The admin queue a listing report also writes (#192).
     content_reports: () => ({ data: null, error: null }),
-    users: () => ({ data: { display_name: 'Sam Seller', email: 'seller@purdue.edu' }, error: null }),
+    // The login email differs from the linked Purdue one, which is the contact.
+    users: () => ({ data: { display_name: 'Sam Seller', email: 'sam@gmail.com', purdue_email: 'seller@purdue.edu' }, error: null }),
     // Nobody is blocked unless a test says so (#192).
     blocked_users: () => ({ data: [], error: null }),
     ...handlers,
