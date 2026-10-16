@@ -164,6 +164,21 @@ it('gives Heads up and the task rows the same hours', async () => {
   expect(within(tasksDueCard()).getByText('Due in 1h')).toBeInTheDocument()
 })
 
+// The free-time suggestion took the feed's first event, so one that ended two
+// weeks ago still showed as what to do next.
+it('suggests the next event that is not over, never one that already ended', async () => {
+  calendar.items = [
+    { id: 'old', title: 'Banned Books Week', category: 'campus_event', startTime: inHours(-13 * 24), endTime: inHours(-13 * 24 + 2) },
+    { id: 'later', title: 'Career Fair', category: 'campus_event', startTime: inHours(50), endTime: inHours(52) },
+    { id: 'soon', title: 'Club Night', category: 'event', startTime: inHours(30), endTime: inHours(32) },
+  ]
+  renderHome()
+
+  expect(await screen.findByText('Club Night')).toBeInTheDocument()
+  expect(screen.queryByText('Banned Books Week')).toBeNull()
+  expect(screen.queryByText('Career Fair')).toBeNull()
+})
+
 // A feed deadline ends when it starts, and the rows used the event formatter.
 it('shows a deadline as one time, never a zero-length range', async () => {
   const due = new Date()

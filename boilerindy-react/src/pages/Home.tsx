@@ -129,6 +129,21 @@ function isStillRelevantToday(item: any, now: Date) {
   return start >= now
 }
 
+/**
+ * Events not over yet, soonest first: one still running (a week-long event,
+ * say) counts, one that ended does not. The free-time suggestion takes the
+ * first, and the feed lists past events too, in no particular order.
+ */
+function upcomingEventsFrom(items: any[], now: Date) {
+  return (items || [])
+    .filter((item) => {
+      if (!item?.startTime) return false
+      const end = item.endTime ? new Date(item.endTime) : null
+      return end ? end > now : new Date(item.startTime) >= now
+    })
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+}
+
 function filterTodayRelevantEvents(items: any[], now: Date) {
   return (items || [])
     .filter(
@@ -501,7 +516,7 @@ function buildSuggestions({
     })
   }
 
-  // Upcoming event today?
+  // The next event that is not over yet (upcomingEventsFrom).
   const nextEvent = upcomingEvents?.[0]
   if (nextEvent && (nextEvent.title || nextEvent.startTime)) {
     list.push({
@@ -778,7 +793,10 @@ export default function Home() {
     nextClass: scheduleState.nextClass,
     currentClass: scheduleState.currentClass,
     diningStatus,
-    upcomingEvents: cleanCalendarItems.filter((i) => ['campus_event', 'event', 'activity'].includes(i.category)),
+    upcomingEvents: upcomingEventsFrom(
+      cleanCalendarItems.filter((i) => ['campus_event', 'event', 'activity'].includes(i.category)),
+      now,
+    ),
     now,
   }), [scheduleState, diningStatus, cleanCalendarItems, now])
 
