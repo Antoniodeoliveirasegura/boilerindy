@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
+import { useConfirm } from '../hooks/useConfirm'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
@@ -31,6 +32,7 @@ function errorText(e: unknown, fallback: string): string {
 
 export default function Friends() {
   const { report, blockUser, moderationUi } = useReportAndBlock()
+  const { confirm, confirmDialog } = useConfirm()
   const [bio, setBio] = useState('')
   const [interests, setInterests] = useState('')
   const [discoverable, setDiscoverable] = useState(false)
@@ -50,6 +52,7 @@ export default function Friends() {
 
   const [accepted, setAccepted] = useState<Connection[]>([])
   const [incoming, setIncoming] = useState<IncomingRequest[]>([])
+  const [outgoing, setOutgoing] = useState<IncomingRequest[]>([])
   const [requestError, setRequestError] = useState('')
 
   useEffect(() => {
@@ -72,9 +75,10 @@ export default function Friends() {
   const loadConnections = useCallback(() => {
     authRequest('/api/me/connections')
       .then((data) => {
-        const d = data as { accepted?: Connection[]; incoming?: IncomingRequest[] }
+        const d = data as { accepted?: Connection[]; incoming?: IncomingRequest[]; outgoing?: IncomingRequest[] }
         setAccepted(Array.isArray(d?.accepted) ? d.accepted : [])
         setIncoming(Array.isArray(d?.incoming) ? d.incoming : [])
+        setOutgoing(Array.isArray(d?.outgoing) ? d.outgoing : [])
       })
       .catch(() => {})
   }, [])
@@ -169,6 +173,33 @@ export default function Friends() {
       })
   }
 
+  // Cancels a sent request, or ends an accepted connection. Either way the
+  // classmate can show up in matches again.
+  async function disconnect(person: { userId: string; displayName?: string }, kind: 'cancel' | 'remove') {
+    const name = person.displayName || 'this student'
+    if (
+      kind === 'remove' &&
+      !(await confirm({
+        title: `Remove ${name}?`,
+        message: 'You will no longer see each other’s email. You can send a new request later.',
+        confirmLabel: 'Remove',
+        tone: 'danger',
+      }))
+    ) {
+      return
+    }
+    setRequestError('')
+    try {
+      await authRequest(`/api/connections/${person.userId}`, { method: 'DELETE' })
+    } catch (err) {
+      setRequestError(
+        writeFailureMessage(err, kind === 'cancel' ? 'Could not cancel the request. Please try again.' : 'Could not remove the connection. Please try again.'),
+      )
+    }
+    loadConnections()
+    loadMatches()
+  }
+
   function reportUser(person: { userId: string; displayName?: string }, opener: HTMLElement) {
     report({ targetType: 'user', targetId: person.userId, targetLabel: person.displayName || 'this student' }, opener)
   }
@@ -188,6 +219,7 @@ export default function Friends() {
       <div className="page-measure">
         <PageTitle>People</PageTitle>
         {moderationUi}
+        {confirmDialog}
         <header className="page-head">
           <div>
             <h1 className="page-title">People</h1>
@@ -322,7 +354,31 @@ export default function Friends() {
                           Report user
                         </button>
                         <button type="button" onClick={() => void handleBlock(c)}>Block</button>
+                        <button type="button" onClick={() => void disconnect(c, 'remove')}>Remove</button>
                       </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Sent requests */}
+          {outgoing.length > 0 && (
+            <section className="card card-pad">
+              <div className="card-head">
+                <span className="route-badge" aria-hidden="true">
+                  <Icon name="plus" size={18} />
+                </span>
+                <div className="card-title">Sent requests</div>
+              </div>
+              <ul className="-mt-1">
+                {outgoing.map((req) => (
+                  <li key={req.userId} className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-x-3.5 py-3 border-t border-[var(--color-border)] first:border-t-0">
+                    <span className="ava" aria-hidden="true">{initial(req.displayName)}</span>
+                    <div className="min-w-0 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-2">
+                      <span className="min-w-0 font-display font-bold text-[15px] text-[var(--color-txt-0)] [overflow-wrap:anywhere]">{req.displayName}</span>
+                      <button type="button" onClick={() => void disconnect(req, 'cancel')} className="btn btn-secondary btn-sm">Cancel request</button>
                     </div>
                   </li>
                 ))}

@@ -19,13 +19,14 @@ beforeEach(() => {
   vi.mocked(authRequest)
     .mockReset()
     .mockImplementation(async (path, options) => {
-      if (options?.method === 'POST') return { ok: true }
+      if (options?.method === 'POST' || options?.method === 'DELETE') return { ok: true }
       if (path === '/api/me/profile-card') return { bio: '', interests: [], discoverable: true }
       if (path === '/api/me/matches') return { matches }
       if (path === '/api/me/connections') {
         return {
           accepted: [{ userId: 'user-friend', displayName: 'Casey', email: 'casey@purdue.edu' }],
           incoming: [{ userId: 'user-asking', displayName: 'Morgan' }],
+          outgoing: [{ userId: 'user-asked', displayName: 'Riley' }],
         }
       }
       throw new Error(`unexpected ${path}`)
@@ -78,6 +79,29 @@ describe('Friends report and block', () => {
     await waitFor(() => expect(authRequest).toHaveBeenCalledWith('/api/me/blocks/user-asking', { method: 'POST' }))
     await waitFor(() => expect(vi.mocked(authRequest).mock.calls.filter(([p]) => p === '/api/me/connections')).toHaveLength(2))
     expect(vi.mocked(authRequest).mock.calls.filter(([p]) => p === '/api/me/matches')).toHaveLength(2)
+  })
+})
+
+describe('Friends cancel and remove', () => {
+  const callsTo = (path: string) => vi.mocked(authRequest).mock.calls.filter(([p]) => p === path)
+
+  it('cancels a sent request without asking, then reads both lists again', async () => {
+    renderFriends()
+    await screen.findByText('Riley')
+    fireEvent.click(card('Riley').getByRole('button', { name: 'Cancel request' }))
+    await waitFor(() => expect(authRequest).toHaveBeenCalledWith('/api/connections/user-asked', { method: 'DELETE' }))
+    await waitFor(() => expect(callsTo('/api/me/connections')).toHaveLength(2))
+    expect(callsTo('/api/me/matches')).toHaveLength(2)
+  })
+
+  it('removes a connection only after the prompt is confirmed', async () => {
+    renderFriends()
+    await screen.findByText('Casey')
+    fireEvent.click(card('Casey').getByRole('button', { name: 'Remove' }))
+    const prompt = await screen.findByRole('dialog', { name: 'Remove Casey?' })
+    expect(callsTo('/api/connections/user-friend')).toHaveLength(0)
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(authRequest).toHaveBeenCalledWith('/api/connections/user-friend', { method: 'DELETE' }))
   })
 })
 
