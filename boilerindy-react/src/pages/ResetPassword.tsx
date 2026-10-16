@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase, updateUserPassword } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { parseNextPath } from '../lib/authApi'
+import { authRequest, parseNextPath } from '../lib/authApi'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import StatusBanner from '../components/StatusBanner'
@@ -90,6 +90,20 @@ export default function ResetPassword() {
     setSubmitting(true)
     try {
       await updateUserPassword(password)
+      // Tells the server the password changed, which signs out every other
+      // session and trusted device. The new password stands either way.
+      try {
+        const { data } = await supabase.auth.getSession()
+        const token = data.session?.access_token
+        if (token) {
+          await authRequest('/api/auth/password-reset-complete', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          })
+        }
+      } catch (error) {
+        console.warn('Could not sign out other sessions after the reset:', error)
+      }
       await establishSession()
       navigate(parseNextPath(''), { replace: true })
     } catch (error) {

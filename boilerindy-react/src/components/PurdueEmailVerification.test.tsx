@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import PurdueEmailVerification from './PurdueEmailVerification'
 import { authRequest } from '../lib/authApi'
 
@@ -62,7 +63,9 @@ function renderCard(
 ) {
   return render(
     <QueryClientProvider client={client}>
-      <PurdueEmailVerification {...props} />
+      <MemoryRouter>
+        <PurdueEmailVerification {...props} />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -100,6 +103,15 @@ describe('PurdueEmailVerification', () => {
     fireEvent.click(resend)
     await waitFor(() => expect(bodiesSentTo('/api/me/purdue-email/request')).toHaveLength(2))
     expect(bodiesSentTo('/api/me/purdue-email/request')[1]).toEqual({ email: EMAIL })
+  })
+
+  it('links to support when the server says to contact support', async () => {
+    const held = 'Your BoilerIndy profile is already linked to a different Purdue account. Contact support to release that link before linking another one.'
+    queue('/api/me/purdue-email/request', refusal(400, held))
+    renderCard()
+    await requestCode()
+    expect(await screen.findByText(/Contact support to release that link/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to support' })).toHaveAttribute('href', '/support')
   })
 
   it('shows a wrong code as the server words it and keeps the code step', async () => {

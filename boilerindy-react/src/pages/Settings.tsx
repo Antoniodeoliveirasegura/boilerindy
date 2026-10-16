@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { authRequest } from '../lib/authApi'
+import { authRequest, type ApiRequestError } from '../lib/authApi'
 import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
-import { supabase } from '../lib/supabase'
+import { clearGoogleConfirm, startGoogleConfirm } from '../lib/googleConfirm'
+import { signInWithGoogle, supabase } from '../lib/supabase'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
 import BlockedUsersCard from '../components/settings/BlockedUsersCard'
@@ -12,6 +13,7 @@ import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import { useConfirm } from '../hooks/useConfirm'
 import StatusBanner from '../components/StatusBanner'
 import PageTitle from '../components/PageTitle'
+import WithSupportLink from '../components/WithSupportLink'
 
 // Field labels, body copy and the sync tiles share one look across the cards.
 const FIELD_LABEL = 'mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]'
@@ -52,7 +54,7 @@ function CardHead({
 }
 
 export default function Settings() {
-  const { user, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
+  const { user, supabaseUser, onboarding, refreshSession, startPurdueLink, authConfig } = useAuth()
   const { theme, setTheme } = useTheme()
   const signOutAndRedirect = useSignOutAndRedirect()
   const { confirm, confirmDialog } = useConfirm()
@@ -62,9 +64,15 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  // Confirm with Google came back as another Google account (AuthCallback).
+  const wrongGoogleAccount = searchParams.get('confirm') === 'wrong-account'
+  const confirmingDelete = searchParams.get('for') === 'delete'
+  const WRONG_GOOGLE_ACCOUNT =
+    'That was a different Google account, so nothing was confirmed. Confirm with the Google account you use for BoilerIndy.'
   // Seed the banner from the redirect URL once at mount (CAS redirect), reading
   // it in the initializer rather than a setState-in-effect.
   const [banner, setBanner] = useState(() => {
+    if (wrongGoogleAccount && !confirmingDelete) return WRONG_GOOGLE_ACCOUNT
     const error = searchParams.get('error')
     if (!error) return ''
     const messages: Record<string, string> = {
@@ -83,9 +91,35 @@ export default function Settings() {
   // The delete form's own error. It went to the page banner, two or three
   // screens above this last card, so a wrong password looked like nothing
   // happened.
-  const [deleteError, setDeleteError] = useState('')
+  const [deleteError, setDeleteError] = useState(() => (wrongGoogleAccount && confirmingDelete ? WRONG_GOOGLE_ACCOUNT : ''))
   const deletePasswordRef = useRef<HTMLInputElement>(null)
   const deleteConfirmRef = useRef<HTMLInputElement>(null)
+  // A Google account has no password to type, so it confirms an email change,
+  // a first password or deletion by signing in with Google again, which lands
+  // back here with ?confirmed=google (&for=delete from the delete card). The
+  // server takes that sign-in for 10 minutes.
+  const isGoogleAccount = user?.authProvider === 'google'
+  // The Google account to confirm with: its own address when Supabase knows it
+  // (an email changed here no longer matches it), else the login email.
+  const googleIdentityEmail = supabaseUser?.identities?.find((identity) => identity.provider === 'google')?.identity_data?.email
+  const googleEmail = (typeof googleIdentityEmail === 'string' && googleIdentityEmail) || user?.email || undefined
+  const [googleConfirmed, setGoogleConfirmed] = useState(() => searchParams.get('confirmed') === 'google')
+  const [usePasswordToDelete, setUsePasswordToDelete] = useState(false)
+  const [confirmingGoogle, setConfirmingGoogle] = useState(false)
+  const showDeletePassword = !isGoogleAccount || usePasswordToDelete
+  const newPasswordRef = useRef<HTMLInputElement>(null)
+  const confirmGoogleDeleteRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    // A wrong account from the delete card: its message and its Confirm with
+    // Google button sit at the bottom of the page.
+    if (wrongGoogleAccount && confirmingDelete) confirmGoogleDeleteRef.current?.focus()
+    if (!googleConfirmed) return
+    if (confirmingDelete) deleteConfirmRef.current?.focus()
+    else newPasswordRef.current?.focus()
+    // Only on arrival from the Google redirect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Calendar feed (issue #48): a subscribable .ics URL gated by a secret token.
   const [feedUrl, setFeedUrl] = useState<string | null>(null)
@@ -209,7 +243,12 @@ export default function Settings() {
       setConfirmPassword('')
       setStatus('Settings updated.')
     } catch (error) {
-      setBanner(error instanceof Error ? error.message : 'Could not update settings.')
+      if ((error as ApiRequestError)?.code === 'reauth-required' && isGoogleAccount && googleConfirmed) {
+        setGoogleConfirmed(false)
+        setBanner('That Google confirmation has expired. Confirm with Google again.')
+      } else {
+        setBanner(error instanceof Error ? error.message : 'Could not update settings.')
+      }
     } finally {
       setSaving(false)
     }
@@ -228,9 +267,14 @@ export default function Settings() {
       deleteConfirmRef.current?.focus()
       return
     }
-    if (!deletePassword) {
-      setDeleteError('Enter your password to confirm deletion.')
-      deletePasswordRef.current?.focus()
+    const viaGoogle = isGoogleAccount && googleConfirmed && !deletePassword
+    if (!deletePassword && !viaGoogle) {
+      if (showDeletePassword) {
+        setDeleteError('Enter your password to confirm deletion.')
+        deletePasswordRef.current?.focus()
+      } else {
+        setDeleteError('Confirm with Google first, then delete your account.')
+      }
       return
     }
     if (
@@ -249,7 +293,7 @@ export default function Settings() {
       await authRequest('/api/me/delete-account', {
         method: 'POST',
         body: JSON.stringify({
-          password: deletePassword,
+          ...(deletePassword ? { password: deletePassword } : {}),
           confirmation: deleteConfirm,
         }),
       })
@@ -266,10 +310,34 @@ export default function Settings() {
       }
       window.location.replace('/')
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Could not delete your account.')
-      deletePasswordRef.current?.focus()
+      if ((error as ApiRequestError)?.code === 'reauth-required' && viaGoogle) {
+        setGoogleConfirmed(false)
+        setDeleteError('That Google confirmation has expired. Confirm with Google again.')
+      } else {
+        setDeleteError(error instanceof Error ? error.message : 'Could not delete your account.')
+        deletePasswordRef.current?.focus()
+      }
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleConfirmWithGoogle(forDelete: boolean) {
+    const showError = forDelete ? setDeleteError : setBanner
+    showError('')
+    setConfirmingGoogle(true)
+    try {
+      // Without this, the server does not count the Google sign-in that follows.
+      await authRequest('/api/me/provider-confirm', { method: 'POST' })
+      sessionStorage.setItem('postAuthNext', `/settings?confirmed=google${forDelete ? '&for=delete' : ''}`)
+      // AuthCallback checks the account Google returns against this one.
+      if (user?.email) startGoogleConfirm(user.email, forDelete)
+      await signInWithGoogle({ loginHint: googleEmail })
+    } catch {
+      sessionStorage.removeItem('postAuthNext')
+      clearGoogleConfirm()
+      showError('Google sign-in could not be started. Please try again.')
+      setConfirmingGoogle(false)
     }
   }
 
@@ -348,12 +416,34 @@ export default function Settings() {
                     className="input"
                     placeholder="Current password"
                   />
+                  {isGoogleAccount &&
+                    (googleConfirmed ? (
+                      <p className={`${BODY} mt-2`}>
+                        Google confirmed it&apos;s you. For the next 10 minutes you can change your email or set a
+                        password without a current one.
+                      </p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <span className="text-[13px] text-[var(--color-txt-2)]">
+                          Signed in with Google and never set a password?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmWithGoogle(false)}
+                          disabled={confirmingGoogle}
+                          className="btn btn-secondary btn-sm"
+                        >
+                          {confirmingGoogle ? 'Opening Google…' : 'Confirm with Google'}
+                        </button>
+                      </div>
+                    ))}
                 </div>
                 <div>
                   <label className={FIELD_LABEL} htmlFor="settings-new-password">
                     New password
                   </label>
                   <input
+                    ref={newPasswordRef}
                     id="settings-new-password"
                     type="password"
                     value={newPassword}
@@ -583,21 +673,61 @@ export default function Settings() {
             </p>
             <form onSubmit={handleDeleteAccount} className="mt-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={FIELD_LABEL} htmlFor="delete-password">
-                    Password
-                  </label>
-                  <input
-                    ref={deletePasswordRef}
-                    id="delete-password"
-                    type="password"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    className="input"
-                    placeholder="Your current password"
-                    autoComplete="current-password"
-                  />
-                </div>
+                {showDeletePassword ? (
+                  <div>
+                    <label className={FIELD_LABEL} htmlFor="delete-password">
+                      Password
+                    </label>
+                    <input
+                      ref={deletePasswordRef}
+                      id="delete-password"
+                      type="password"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      className="input"
+                      placeholder="Your current password"
+                      autoComplete="current-password"
+                    />
+                    {isGoogleAccount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUsePasswordToDelete(false)
+                          setDeletePassword('')
+                        }}
+                        className="mt-2 text-[13px] font-semibold text-[var(--color-txt-2)] underline"
+                      >
+                        Confirm with Google instead
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <span className={FIELD_LABEL}>Confirm it&apos;s you</span>
+                    {googleConfirmed ? (
+                      <p className={`${BODY} mt-1`}>
+                        Google confirmed it&apos;s you. Type DELETE and delete within 10 minutes.
+                      </p>
+                    ) : (
+                      <button
+                        ref={confirmGoogleDeleteRef}
+                        type="button"
+                        onClick={() => handleConfirmWithGoogle(true)}
+                        disabled={confirmingGoogle}
+                        className="btn btn-secondary"
+                      >
+                        {confirmingGoogle ? 'Opening Google…' : 'Confirm with Google'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setUsePasswordToDelete(true)}
+                      className="mt-2 block text-[13px] font-semibold text-[var(--color-txt-2)] underline"
+                    >
+                      I have a password
+                    </button>
+                  </div>
+                )}
                 <div>
                   <label className={FIELD_LABEL} htmlFor="delete-confirm">
                     Type DELETE to confirm
@@ -616,7 +746,7 @@ export default function Settings() {
               </div>
               {deleteError && (
                 <StatusBanner tone="error" className="mt-4">
-                  {deleteError}
+                  <WithSupportLink text={deleteError} />
                 </StatusBanner>
               )}
               <button

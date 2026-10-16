@@ -38,7 +38,7 @@ const SECTIONS: { title: string; icon: string; body: ReactNode }[] = [
         , and use the Delete account card: enter your password, type DELETE, and confirm. Your account
         is deleted right away and you are signed out, and your Purdue link and calendar feed link stop
         working immediately. This cannot be undone. If you signed up with a sign-in provider such as
-        Google and never set a password, use the email option below instead.
+        Google and never set a password, choose Confirm with Google instead of entering one.
       </>
     ),
   },

@@ -290,7 +290,35 @@ test('accept or decline is only honoured by the addressee of a pending request f
   })
 })
 
-test('my connections: accepted ones carry the email, incoming requests do not, outgoing ones are not listed', async () => {
+test('DELETE a connection cancels my own pending request or ends an accepted one, never a declined one', async () => {
+  let deleted = { mine: [], theirs: [] }
+  const handlers = {
+    connections: (chain) => (hasCall(chain, 'eq', 'requester_id', ME.id) ? { data: deleted.mine, error: null } : { data: deleted.theirs, error: null }),
+  }
+  await withApp({ handlers }, async ({ call, supabase, limiterHits }) => {
+    const bad = await call('DELETE', '/api/connections/nope')
+    assert.equal(bad.status, 404)
+    assert.equal(supabase.queries.length, 0)
+
+    const none = await call('DELETE', `/api/connections/${ANA}`)
+    assert.equal(none.status, 404)
+    const [mine, theirs] = supabase.queriesOf('connections')
+    assert.equal(operation(mine.chain), 'delete')
+    assert.ok(hasCall(mine.chain, 'eq', 'addressee_id', ANA))
+    assert.ok(hasCall(mine.chain, 'in', 'status', ['pending', 'accepted']))
+    assert.ok(hasCall(theirs.chain, 'eq', 'requester_id', ANA))
+    assert.ok(hasCall(theirs.chain, 'eq', 'addressee_id', ME.id))
+    assert.ok(hasCall(theirs.chain, 'eq', 'status', 'accepted'), 'an incoming request is declined, not deleted')
+
+    deleted = { mine: [{ status: 'pending' }], theirs: [] }
+    assert.deepEqual((await call('DELETE', `/api/connections/${ANA}`)).body, { ok: true })
+    deleted = { mine: [], theirs: [{ status: 'accepted' }] }
+    assert.deepEqual((await call('DELETE', `/api/connections/${ANA}`)).body, { ok: true })
+    assert.ok(limiterHits.includes(`userWriteRateLimit DELETE /api/connections/${ANA}`))
+  })
+})
+
+test('my connections: accepted ones carry the Purdue email, requests either way carry only a name', async () => {
   const handlers = {
     connections: () => ({
       data: [
@@ -300,19 +328,27 @@ test('my connections: accepted ones carry the email, incoming requests do not, o
       ],
       error: null,
     }),
-    users: () => ({ data: [{ id: ANA, display_name: 'Ana', email: 'ana@purdue.edu' }, { id: BO, display_name: 'Bo', email: 'bo@purdue.edu' }], error: null }),
+    users: () => ({
+      data: [
+        { id: ANA, display_name: 'Ana', email: 'ana@gmail.com', purdue_email: 'ana@purdue.edu' },
+        { id: BO, display_name: 'Bo', email: 'bo@purdue.edu' },
+        { id: CY, display_name: 'Cy', email: 'cy@purdue.edu' },
+      ],
+      error: null,
+    }),
   }
   await withApp({ handlers }, async ({ call, supabase }) => {
     const answer = await call('GET', '/api/me/connections')
     assert.deepEqual(answer.body, {
       accepted: [{ userId: ANA, displayName: 'Ana', email: 'ana@purdue.edu' }],
       incoming: [{ userId: BO, displayName: 'Bo' }],
+      outgoing: [{ userId: CY, displayName: 'Cy' }],
     })
     const [users] = supabase.queriesOf('users')
     assert.ok(hasCall(users.chain, 'in', 'id', [ANA, BO, CY]))
   })
   await withApp({}, async ({ call, supabase }) => {
-    assert.deepEqual((await call('GET', '/api/me/connections')).body, { accepted: [], incoming: [] })
+    assert.deepEqual((await call('GET', '/api/me/connections')).body, { accepted: [], incoming: [], outgoing: [] })
     assert.equal(supabase.queriesOf('users').length, 0, 'no user lookup without connections')
   })
 })
@@ -356,7 +392,7 @@ test('a block either way keeps a user out of my matches, my connections and my r
   }
   await withApp({ handlers: connectionHandlers }, async ({ call, supabase }) => {
     const answer = await call('GET', '/api/me/connections')
-    assert.deepEqual(answer.body, { accepted: [], incoming: [{ userId: CY, displayName: 'Cy' }] })
+    assert.deepEqual(answer.body, { accepted: [], incoming: [{ userId: CY, displayName: 'Cy' }], outgoing: [] })
     const [users] = supabase.queriesOf('users')
     assert.ok(hasCall(users.chain, 'in', 'id', [CY]))
   })

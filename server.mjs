@@ -922,7 +922,7 @@ app.use(createFriendsRouter({ supabase, requireAuth, getClassItemsForUser, board
 const [ADVERTISER_SQL_FILE, ADVERTISER_CAMPAIGNS_SQL_FILE] = DB_FEATURES.advertiser.sqlFile
 const ADVERTISER_AD_EVENTS_SQL_FILE = 'db/supabase-advertiser-ad-events.sql'
 
-app.use(createAdvertiserRouter({ supabase, signInRateLimit, accountCreateRateLimit, passwordResetRateLimit, advertiserWriteRateLimit, sendAdvertiserPasswordResetEmail, clientAppUrl, isProduction }))
+app.use(createAdvertiserRouter({ supabase, signInRateLimit, accountCreateRateLimit, passwordResetRateLimit, advertiserWriteRateLimit, sendAdvertiserPasswordResetEmail, clientAppUrl, isProduction, isEmailConfigured }))
 app.use(createSpotlightRouter({ supabase, requireAuth, adEventRateLimit, getCached }))
 
 // ============================================================

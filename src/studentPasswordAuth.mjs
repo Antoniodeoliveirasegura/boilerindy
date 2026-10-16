@@ -59,13 +59,17 @@ export async function resolveSignIn(deps, email, password) {
  * }} deps
  * @throws {Error} with a user-facing message when the change is rejected
  */
-export async function applyPasswordChange(deps, userRow, currentPassword, newPassword) {
+function checkNewPassword(newPassword) {
   if (!newPassword || newPassword.length < 8) {
     throw new Error('New password must be at least 8 characters.')
   }
   if (newPassword.length > 128) {
     throw new Error('New password must be at most 128 characters.')
   }
+}
+
+export async function applyPasswordChange(deps, userRow, currentPassword, newPassword) {
+  checkNewPassword(newPassword)
 
   const authUser = await deps.verifySupabasePassword(userRow.email, currentPassword || '')
   if (authUser) {
@@ -83,6 +87,19 @@ export async function applyPasswordChange(deps, userRow, currentPassword, newPas
   if (!migrated) {
     throw new Error('Current password is incorrect.')
   }
+}
+
+/**
+ * Set a password for a user who re-confirmed with their sign-in provider
+ * (Google) instead of typing a current one, which a Google account never had.
+ * The caller decides that the confirmation is recent enough.
+ *
+ * @param {{ setSupabasePassword: (authUserId: string, newPassword: string) => Promise<void> }} deps
+ * @throws {Error} with a user-facing message when the new password is rejected
+ */
+export async function applyPasswordSet(deps, userRow, newPassword) {
+  checkNewPassword(newPassword)
+  await deps.setSupabasePassword(userRow.id, newPassword)
 }
 
 /**

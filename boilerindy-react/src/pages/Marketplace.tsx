@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Icon from '../components/Icons'
 import { authRequest, type ApiRequestError } from '../lib/authApi'
 import { track } from '../lib/usageStats'
@@ -633,7 +634,12 @@ export default function Marketplace() {
             {showForm ? 'Close' : 'Post a listing'}
           </button>
         ) : (
-          <span className="text-[13px] text-[var(--color-txt-2)]">Link Purdue in setup to post.</span>
+          <span className="text-[13px] text-[var(--color-txt-2)]">
+            <Link to="/setup" className="prose-link">
+              Link Purdue in setup
+            </Link>{' '}
+            to post.
+          </span>
         )}
       </header>
 
@@ -889,7 +895,18 @@ export default function Marketplace() {
           </span>
           <div>
             <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">You have no listings</p>
-            <p className="mt-0.5">{canPost ? 'Post one above.' : 'Link Purdue in setup to post.'}</p>
+            <p className="mt-0.5">
+              {canPost ? (
+                'Post one above.'
+              ) : (
+                <>
+                  <Link to="/setup" className="prose-link">
+                    Link Purdue in setup
+                  </Link>{' '}
+                  to post.
+                </>
+              )}
+            </p>
           </div>
         </div>
       ) : (
