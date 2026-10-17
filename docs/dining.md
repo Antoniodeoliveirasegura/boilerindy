@@ -18,6 +18,30 @@ Nutrislice publishes campus menus. The JSON API is
   rows carrying `name`, `rounded_nutrition_info.calories` and
   `icons.food_icons` (Vegan, Avoiding Gluten, ...).
 
+### The source is a deactivated site's API (operator note, issue #467)
+
+`iupui.nutrislice.com` now redirects to a "Deactivated" page that says
+"Indiana University - Indianapolis no longer uses Nutrislice", and
+`/menu/api/settings/` reports `menus_backend_only: true` with
+`primary_enterprise_name: "Chartwells US Higher Ed"` (both checked
+2026-10-17). The API this module reads still answers, and Chartwells still
+maintains it: lunch and dinner were republished on 2026-10-10 and menus ran
+through 2026-11-27. It could be switched off without notice. The official
+source is Dine On Campus, "IU Indy Eats" (`https://dineoncampus.com/iuindy/`,
+menus at `/whats-on-the-menu`, hours at `/hours-of-operation`); Cloudflare
+blocks it from outside the US, so it is untested (#119 item H).
+
+What to watch:
+
+- The snapshot's `menu_source.stale` with `reason: "not_updated"` (the newest
+  `last_updated` across a hall's meals for the week is more than 28 days old)
+  or `"empty_week"` (no food on any day of any meal that week). The page then
+  shows a notice that links the official menu, which it links anyway.
+- `ok: false` / `stale: true` snapshots or `menu_<meal>_<status>` warnings
+  mean the API itself is failing, which the outage handling below covers.
+- If the API goes away for good, point students at Dine On Campus and decide
+  between an adapter for it (from a US network) and retiring the menus.
+
 **Decision (#119 question 1):** the iupui district is the right source. It
 exposes exactly two locations and both are the halls Purdue in Indianapolis
 students use; no Purdue-specific district exists on Nutrislice (checked
@@ -79,6 +103,19 @@ between yesterday and today + 14 on the Indianapolis calendar
 (`clampDiningDate`, the same 16 days as the cache bound); anything else, a
 malformed date included, answers
 `400 { ok: false, error: "dining_bad_date", locations: [] }`.
+
+Under the dates, the menu weeks are cached too (issue #467). Each meal's
+payload is a whole Sunday to Saturday week of 0.4 to 2.5 MB of JSON, and the
+per-date cache used to download the same three weeks for each of a week's
+seven dates. Now a week is fetched once per school, meal and week (keyed by
+its Sunday, `weekStartYmd`), cut down to the rows the menu code reads
+(`processWeek`: station headers, and foods with id, name, calories and diet
+icons) and kept for `NUTRISLICE_CACHE_MS`, at most `MAX_CACHE_WEEKS` (24),
+the week written longest ago dropped first. A new date in a cached week costs
+only the schools list; concurrent misses share one week download; a failed
+download is never kept; a forced refresh past its floor refetches the date's
+weeks. A date missing from its week has no menu (it used to fall back to the
+week's first day, which was another day's menu).
 
 ## Weekend hours (issue #465)
 
@@ -149,6 +186,7 @@ is missing.
     menusPublished,
     menus: [{ meal: "breakfast" | "lunch" | "dinner" | ..., stations: [{ name, everyday, items: [{ name, calories, icons }] }] }],
     stations: [{ name, items: [{ name, calories, icons, meals }] }],   (deprecated: every meal merged)
+    menu_source: { last_updated, stale, reason: null | "empty_week" | "not_updated" } | null,   (null for retail)
     warnings?
   }] }
 ```
@@ -182,6 +220,10 @@ has nothing else. A snapshot without `menus` shows its merged stations with no
 pills. Home's dining widget previews the same meal, specials first, under
 "Today's lunch" (or the meal it is).
 
+A dining hall's header has an "Official menu" button next to the
+directions, and when its `menu_source` is stale a notice above the menu says
+why and links the official menu too.
+
 Signed-out visitors can open the page too (the public preview, issue #366):
 they get the menus, hours and refresh, under the preview bar. The favorite
 stars, the "Your favorites on today's menu" card and the "What should I eat?"
@@ -206,7 +248,9 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   windows and a Saturday with a published menu, station parsing with skipped
   condiments and dedupe, the per-meal menus and the every-day rule (real weeks
   and synthetic edge cases), the snapshot for both halls with an injected
-  fetch, the cache
+  fetch, the week cache (one download per meal for a week's seven dates,
+  shared concurrent misses, TTL, forced refresh, the 24-week bound), the
+  missing-day rule, the freshness flags, the cache
   (status recomputed per read, date rollover, stale-on-outage, short retry,
   per-date entries and the 16-date bound, one crawl for concurrent misses, the
   refresh floor) and the `clampDiningDate` window.
@@ -216,8 +260,9 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   state included), status dots, week grid cells, per-meal menus and the
   specials split, empty states, directions URL, campus weekday, header pill.
 - `e2e/dining.spec.js`: the page against the mocked snapshot, including a
-  Saturday with a posted menu, the meal tabs on a fixed clock, the feed-down
-  and stale states and favorites surviving a reload. `boilerindy-react/src/pages/Home.test.tsx` checks the
+  Saturday with a posted menu, the meal tabs on a fixed clock, the official
+  menu link and a stale feed's notice, the feed-down and stale states and
+  favorites surviving a reload. `boilerindy-react/src/pages/Home.test.tsx` checks the
   dashboard widget and suggestion for the same Saturday, and
   `test/assistantContext.test.mjs`, `test/assistantRouter.test.mjs` and
   `test/routes/assistant.test.mjs` the assistant's three readers.

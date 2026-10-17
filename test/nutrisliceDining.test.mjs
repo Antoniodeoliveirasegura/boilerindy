@@ -12,9 +12,13 @@ import {
   HOURS_NOT_LISTED,
   LOCATION_FILTERS,
   MAX_CACHE_DATES,
+  MAX_CACHE_WEEKS,
   MIN_REFRESH_INTERVAL_MS,
   NO_MENU_NOTE,
+  OFFICIAL_MENU_URL,
   RETAIL_MENU_NOTE,
+  STALE_FEED_DAYS,
+  __diningCacheSizesForTests,
   __resetDiningCacheForTests,
   buildDiningBase,
   clampDiningDate,
@@ -29,11 +33,14 @@ import {
   ingestMenuStations,
   locationKind,
   mealSlugsForSchool,
+  menuFreshness,
   pickSchools,
+  processWeek,
   renderSnapshot,
   shouldSkipSection,
   stationFoods,
   todayYmdInZone,
+  weekStartYmd,
   weekdayForYmd,
   weekdayInZone,
 } from '../src/nutrisliceDining.mjs'
@@ -719,4 +726,205 @@ test('NUTRISLICE_API_BASE points every request at another district', async () =>
   const { fetchImpl, calls } = stubFetch(liveDistrict)
   await getDiningSnapshot({ now: at('12:00'), fetchImpl })
   assert.ok(calls.every((u) => u.startsWith('https://example.test/nutrislice/menu/api/')))
+})
+
+// ── Week cache and freshness (issue #467) ───────────────────────────────────
+
+// A Nutrislice week for whatever date a URL asks for: Sunday to Saturday,
+// each day carrying the template week's rows for the same weekday. Lets the
+// cache tests ask for any date and still get that date's week.
+function weekFor(url, template, lastUpdated = template.last_updated) {
+  const [, y, m, d] = /\/(\d{4})\/(\d{1,2})\/(\d{1,2})\/\?format=json$/.exec(url)
+  const start = weekStartYmd(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
+  const byWeekday = new Map(template.days.map((day) => [weekdayForYmd(day.date), day.menu_items]))
+  return {
+    ...template,
+    last_updated: lastUpdated,
+    days: Array.from({ length: 7 }, (_, i) => {
+      const date = plusDays(start, i)
+      return { date, menu_items: byWeekday.get(weekdayForYmd(date)) || [] }
+    }),
+  }
+}
+
+// Tower's three meals for any week; the Campus Center publishes none.
+const towerWeeks = ({ lunch = WEEKEND_LUNCH, lastUpdated } = {}) => (url) => {
+  if (url.includes('/menu/api/schools/')) return SCHOOLS
+  if (url.includes('/menu-type/breakfast/')) return weekFor(url, WEEKEND_BREAKFAST, lastUpdated)
+  if (url.includes('/menu-type/lunch/') || url.includes('/menu-type/dinner/')) return weekFor(url, lunch, lastUpdated)
+  return 404
+}
+const menuCalls = (calls) => calls.filter((u) => u.includes('/menu-type/'))
+
+test('weekStartYmd gives the Sunday that starts a date\'s week', () => {
+  assert.equal(weekStartYmd('2026-10-17'), '2026-10-11')
+  assert.equal(weekStartYmd('2026-10-11'), '2026-10-11')
+  assert.equal(weekStartYmd('2026-10-18'), '2026-10-18')
+  assert.equal(weekStartYmd('2027-01-01'), '2026-12-27')
+  assert.equal(weekStartYmd('nope'), null)
+})
+
+test('processWeek keeps the week as small rows: headers, and foods with id, name, calories and icons', () => {
+  const raw = {
+    last_updated: '2026-10-10T04:26:22Z',
+    days: [
+      {
+        date: '2026-10-14',
+        menu_items: [
+          { id: 1, is_section_title: true, is_station_header: true, text: 'Daily Grill', food: null, station_logo: 'x.png' },
+          {
+            id: 2,
+            is_section_title: false,
+            is_station_header: false,
+            text: '',
+            food: {
+              id: 7,
+              name: 'Silver Star Burger',
+              description: 'kept out for now',
+              rounded_nutrition_info: { calories: 190, g_protein: 17 },
+              icons: { food_icons: [{ enabled: true, synced_name: 'Avoiding Gluten', name: 'AG', slug: 'ag', custom_icon_url: 'y.png' }] },
+            },
+          },
+          { id: 3, is_section_title: false, is_station_header: false, text: 'a note', food: null },
+        ],
+      },
+      { date: '2026-10-15', menu_items: [] },
+      { menu_items: [] },
+    ],
+  }
+  const week = processWeek(raw)
+  assert.equal(week.lastUpdated, '2026-10-10T04:26:22Z')
+  assert.deepEqual([...week.days.keys()], ['2026-10-14', '2026-10-15'])
+  assert.deepEqual(week.days.get('2026-10-14'), [
+    { is_section_title: true, is_station_header: true, text: 'Daily Grill' },
+    {
+      food: {
+        id: 7,
+        name: 'Silver Star Burger',
+        rounded_nutrition_info: { calories: 190 },
+        icons: { food_icons: [{ enabled: true, synced_name: 'Avoiding Gluten', name: 'AG', slug: 'ag' }] },
+      },
+    },
+  ])
+  assert.deepEqual(week.days.get('2026-10-15'), [])
+  assert.equal(processWeek(null).lastUpdated, null)
+})
+
+test('the seven dates of one week cost one download per meal, plus the schools list each', async () => {
+  const { fetchImpl, calls } = stubFetch(towerWeeks())
+  const dates = Array.from({ length: 7 }, (_, i) => plusDays('2026-10-11', i))
+  for (const date of dates) {
+    const snap = await getDiningSnapshot({ now: at('12:00', '2026-10-14'), fetchImpl, date })
+    assert.equal(snap.date, date)
+    assert.ok(snap.locations[0].menus.length > 0, date)
+  }
+  assert.equal(schoolsCalls(calls), 7)
+  assert.deepEqual(menuCalls(calls).map((u) => /menu-type\/(\w+)\//.exec(u)[1]).sort(), ['breakfast', 'dinner', 'lunch'])
+  assert.equal(__diningCacheSizesForTests().weeks, 3)
+  // The next week is a new download per meal.
+  await getDiningSnapshot({ now: at('12:00', '2026-10-14'), fetchImpl, date: '2026-10-18' })
+  assert.equal(menuCalls(calls).length, 6)
+})
+
+test('two dates of one week asked at once share each week download', async () => {
+  const { fetchImpl, calls } = stubFetch(towerWeeks())
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const gated = async (url, init) => {
+    const answer = fetchImpl(url, init)
+    if (url.includes('/menu-type/')) await gate
+    return answer
+  }
+  const first = getDiningSnapshot({ now: at('12:00', '2026-10-14'), fetchImpl: gated, date: '2026-10-14' })
+  const second = getDiningSnapshot({ now: at('12:00', '2026-10-14'), fetchImpl: gated, date: '2026-10-15' })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  release()
+  const [a, b] = await Promise.all([first, second])
+  assert.equal(a.date, '2026-10-14')
+  assert.equal(b.date, '2026-10-15')
+  assert.equal(menuCalls(calls).length, 3)
+})
+
+test('a week expires with the cache TTL, and a forced refresh refetches it for the dates after', async () => {
+  process.env.NUTRISLICE_CACHE_MS = String(60 * 60 * 1000)
+  const { fetchImpl, calls } = stubFetch(towerWeeks())
+  await getDiningSnapshot({ now: at('08:00', '2026-10-14'), fetchImpl, date: '2026-10-14' })
+  assert.equal(menuCalls(calls).length, 3)
+  // Within the hour another date of the week is free; after it, the week is fetched again.
+  await getDiningSnapshot({ now: at('08:30', '2026-10-14'), fetchImpl, date: '2026-10-15' })
+  assert.equal(menuCalls(calls).length, 3)
+  await getDiningSnapshot({ now: at('09:30', '2026-10-14'), fetchImpl, date: '2026-10-16' })
+  assert.equal(menuCalls(calls).length, 6)
+
+  // A forced refresh past its floor refetches the weeks, and the next new date uses them.
+  const refreshed = await getDiningSnapshot({ now: at('09:45', '2026-10-14'), fetchImpl, date: '2026-10-16', forceRefresh: true })
+  assert.equal(refreshed.refreshed, true)
+  assert.equal(menuCalls(calls).length, 9)
+  await getDiningSnapshot({ now: at('09:50', '2026-10-14'), fetchImpl, date: '2026-10-17' })
+  assert.equal(menuCalls(calls).length, 9)
+})
+
+test('the week cache holds MAX_CACHE_WEEKS weeks', async () => {
+  assert.equal(MAX_CACHE_WEEKS, 24)
+  const { fetchImpl, calls } = stubFetch(towerWeeks())
+  // Nine weeks of three meals is 27 weeks to hold.
+  for (let w = 0; w < 9; w += 1) {
+    await getDiningSnapshot({ now: at('12:00', '2026-10-14'), fetchImpl, date: plusDays('2026-10-14', 7 * w) })
+  }
+  assert.equal(menuCalls(calls).length, 27)
+  assert.equal(__diningCacheSizesForTests().weeks, MAX_CACHE_WEEKS)
+})
+
+test('a date missing from its week has no menu, never another day\'s', async () => {
+  // A week whose payload holds Wednesday only: Thursday is not in it.
+  const wednesdayOnly = { ...TOWER_LUNCH, days: TOWER_LUNCH.days.filter((d) => d.date === '2026-09-09') }
+  const { fetchImpl } = stubFetch((url) => (url.includes('/tower-dining/menu-type/lunch/') ? wednesdayOnly : 404))
+  const base = await buildDiningBase(SCHOOLS, '2026-09-10', { fetchImpl })
+  const [t] = renderSnapshot(base, at('12:00', '2026-09-10')).locations
+  assert.deepEqual(t.menus, [])
+  assert.deepEqual(t.stations, [])
+  assert.equal(t.meal, NO_MENU_NOTE)
+})
+
+test('menuFreshness: empty weeks and a feed not updated for STALE_FEED_DAYS are stale; an outage is not', () => {
+  assert.equal(STALE_FEED_DAYS, 28)
+  const now = new Date('2026-10-17T12:00:00Z')
+  const menu = (extra) => ({ weeksLoaded: 3, menuWeekdays: ['Monday'], lastUpdated: '2026-10-10T04:26:22Z', ...extra })
+  assert.deepEqual(menuFreshness(menu(), now), { last_updated: '2026-10-10T04:26:22Z', stale: false, reason: null })
+  assert.deepEqual(menuFreshness(menu({ menuWeekdays: [] }), now), { last_updated: '2026-10-10T04:26:22Z', stale: true, reason: 'empty_week' })
+  assert.equal(menuFreshness(menu({ lastUpdated: '2026-09-18T11:00:00Z' }), now).reason, 'not_updated')
+  // Exactly 28 days is still fresh.
+  assert.equal(menuFreshness(menu({ lastUpdated: '2026-09-19T12:00:00Z' }), now).stale, false)
+  assert.equal(menuFreshness(menu({ lastUpdated: null }), now).stale, false)
+  assert.deepEqual(menuFreshness(menu({ weeksLoaded: 0, menuWeekdays: [] }), now), { last_updated: '2026-10-10T04:26:22Z', stale: false, reason: null })
+  assert.equal(OFFICIAL_MENU_URL, 'https://dineoncampus.com/iuindy/whats-on-the-menu')
+})
+
+test('the snapshot says how fresh each hall\'s menu feed is', async () => {
+  const { fetchImpl } = stubFetch(towerWeeks())
+  const base = await buildDiningBase(SCHOOLS, '2026-10-14', { fetchImpl })
+  // The newest of the meals counts: lunch and dinner were republished
+  // 2026-10-10, breakfast last on 2026-09-05.
+  const [t, cc] = renderSnapshot(base, at('12:00', '2026-10-17')).locations
+  assert.deepEqual(t.menu_source, { last_updated: '2026-10-10T04:26:22.481211Z', stale: false, reason: null })
+  assert.equal(cc.menu_source, null)
+  // Five weeks on with nothing republished, the same data is flagged.
+  const later = renderSnapshot(base, at('12:00', '2026-11-20')).locations[0]
+  assert.deepEqual(later.menu_source, { last_updated: '2026-10-10T04:26:22.481211Z', stale: true, reason: 'not_updated' })
+})
+
+test('a week with no food at any meal is flagged empty_week, and an outage is not', async () => {
+  const emptyWeek = { ...WEEKEND_LUNCH, days: WEEKEND_LUNCH.days.map((d) => ({ ...d, menu_items: [] })) }
+  const empty = stubFetch((url) => (url.includes('/tower-dining/menu-type/') ? emptyWeek : 404))
+  const [t] = renderSnapshot(await buildDiningBase(SCHOOLS, '2026-10-14', { fetchImpl: empty.fetchImpl }), at('12:00', '2026-10-14')).locations
+  assert.equal(t.meal, NO_MENU_NOTE)
+  assert.equal(t.menu_source.reason, 'empty_week')
+  assert.equal(t.menu_source.stale, true)
+
+  const down = stubFetch((url) => (url.includes('/menu-type/') ? 503 : 404))
+  const [d] = renderSnapshot(await buildDiningBase(SCHOOLS, '2026-10-14', { fetchImpl: down.fetchImpl }), at('12:00', '2026-10-14')).locations
+  assert.deepEqual(d.menu_source, { last_updated: null, stale: false, reason: null })
+  assert.deepEqual(d.warnings, ['menu_dinner_503', 'menu_breakfast_503', 'menu_lunch_503'])
 })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Dining from './Dining'
 import { authRequest } from '../lib/authApi'
@@ -351,5 +351,43 @@ describe('meal tabs', () => {
     expect(await screen.findByText('Veggie Burger')).toBeVisible()
     expect(screen.queryByRole('group', { name: 'Meal' })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Every day/ })).toBeNull()
+  })
+})
+
+// Issue #467: an always-visible link to the official menu for a dining hall,
+// and a notice when the feed has gone stale.
+describe('the official menu and a stale feed', () => {
+  const tower = snapshot.locations[0]
+  const serve = (body: unknown) => vi.mocked(globalThis.fetch).mockImplementation(async () => new Response(JSON.stringify(body)))
+
+  it('links the official menu from a dining hall, not from a food court, and says nothing when the feed is fresh', async () => {
+    serve({
+      ...snapshot,
+      locations: [
+        { ...tower, menu_source: { last_updated: '2026-10-10T04:26:22Z', stale: false, reason: null } },
+        { ...tower, id: 'campus-center', slug: 'campus-center', name: 'Campus Center', kind: 'retail', stations: [], menu_source: null },
+      ],
+    })
+    renderDining()
+    const link = await screen.findByRole('link', { name: 'Official menu' })
+    expect(link).toHaveAttribute('href', 'https://dineoncampus.com/iuindy/whats-on-the-menu')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(screen.queryByRole('status')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Center' }))
+    expect(screen.queryByRole('link', { name: 'Official menu' })).toBeNull()
+  })
+
+  it('says when the feed has not been updated, and links the official menu there too', async () => {
+    serve({ ...snapshot, locations: [{ ...tower, menu_source: { last_updated: '2026-09-12T06:49:29Z', stale: true, reason: 'not_updated' } }] })
+    renderDining()
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('The campus menu feed has not been updated since Sep 12, so this menu may be out of date.')
+    expect(within(notice).getByRole('link', { name: 'Official menu at IU Indy Eats' })).toHaveAttribute(
+      'href',
+      'https://dineoncampus.com/iuindy/whats-on-the-menu',
+    )
+    // The menu it has still shows.
+    expect(screen.getByText('Veggie Burger')).toBeInTheDocument()
   })
 })

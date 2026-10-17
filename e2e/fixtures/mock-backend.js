@@ -362,6 +362,8 @@ export function sampleDiningLocation(overrides = {}) {
     // tab specs seed their own menus and fix the clock.
     menus: ['breakfast', 'lunch', 'dinner'].map((meal) => ({ meal, stations: SAMPLE_STATIONS.map((st) => ({ ...st, everyday: false })) })),
     stations: SAMPLE_STATIONS,
+    // A feed republished a week before the sample date (issue #467).
+    menu_source: { last_updated: '2026-09-02T04:26:22Z', stale: false, reason: null },
     ...overrides,
   }
 }
@@ -416,6 +418,7 @@ export function sampleDining(overrides = {}) {
         menusPublished: false,
         menus: [],
         stations: [],
+        menu_source: null,
       }),
     ],
     ...overrides,

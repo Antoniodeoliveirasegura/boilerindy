@@ -11,10 +11,12 @@ import { ApiError, refreshDining, useDining } from '../lib/queries/publicData'
 import {
   ALL_MEALS,
   OFFICIAL_HOURS_URL,
+  OFFICIAL_MENU_URL,
   SHORT_DAY,
   WEEKDAY_ORDER,
   diningDirectionsUrl,
   emptyMenuState,
+  feedNotice,
   headerBlurb,
   locationMenus,
   snapshotWeekday,
@@ -581,17 +583,46 @@ export default function Dining() {
                       </div>
                     </div>
                   </div>
-                  <a
-                    href={diningDirectionsUrl(selected)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-primary w-fit shrink-0 no-underline"
-                  >
-                    <Icon name="mapPin" size={16} />
-                    Get Directions
-                  </a>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <a
+                      href={diningDirectionsUrl(selected)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-primary w-fit shrink-0 no-underline"
+                    >
+                      <Icon name="mapPin" size={16} />
+                      Get Directions
+                    </a>
+                    {/* The official menu, always one tap away: the feed this
+                        page reads is a deactivated site's API (issue #467). */}
+                    {selected.kind !== 'retail' && (
+                      <a
+                        href={OFFICIAL_MENU_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary w-fit shrink-0 no-underline"
+                        data-dining-official-menu
+                      >
+                        Official menu
+                        <Icon name="arrowUpRight" size={15} />
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {feedNotice(selected) && (
+                <div
+                  role="status"
+                  className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"
+                  data-dining-feed-stale
+                >
+                  {feedNotice(selected)}{' '}
+                  <a href={OFFICIAL_MENU_URL} target="_blank" rel="noopener noreferrer" className="prose-link">
+                    Official menu at IU Indy Eats
+                  </a>
+                </div>
+              )}
 
               {signedIn && favoriteError && (
                 <div
