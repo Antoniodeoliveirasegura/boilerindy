@@ -140,6 +140,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-dining-favorite-alerts.sql',
     'Could not save notification settings.',
   ),
+  // The shared campus events table the ingest cron writes (#30).
+  campus_events: dbFeature(
+    'campus_events',
+    'The shared campus events feed',
+    'db/supabase-campus-events.sql',
+    'Could not save campus events.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',

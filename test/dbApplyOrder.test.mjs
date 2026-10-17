@@ -26,6 +26,21 @@ test('the core schema comes first and the list is long enough to be the real one
   assert.ok(order.length >= 30, `only ${order.length} files parsed from README`)
 })
 
+test('the shared campus events table follows the core schema, and its cron snippet follows both it and keep-warm', () => {
+  // db/supabase-campus-events.sql reuses uuid_generate_v4() and
+  // update_updated_at_column() from step 1; the ingest cron in
+  // db/supabase-campus-events-ingest.sql writes to that table and calls pg_net,
+  // which db/supabase-keep-warm.sql creates (issue #30).
+  const at = (file) => {
+    const index = order.indexOf(file)
+    assert.ok(index >= 0, `${file} is missing from README "Database setup"`)
+    return index
+  }
+  assert.ok(at('supabase-campus-events.sql') > at('supabase-schema.sql'))
+  assert.ok(at('supabase-campus-events-ingest.sql') > at('supabase-campus-events.sql'))
+  assert.ok(at('supabase-campus-events-ingest.sql') > at('supabase-keep-warm.sql'))
+})
+
 test('readmeApplyOrder reads only the Database setup section, in order of appearance', () => {
   const readme = [
     '## Local Development Setup',
