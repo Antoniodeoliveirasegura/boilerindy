@@ -57,6 +57,7 @@ const PUBLIC_READS = [
   '/api/clubs',
   '/api/push/config',
   '/api/dining',
+  '/api/campus-news',
 ]
 
 test('the session middleware uses the exported cookie name', () => {

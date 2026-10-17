@@ -180,6 +180,33 @@ test('parking serves the cached snapshot with a short public lifetime', async ()
   })
 })
 
+test('campus news serves The Circuit\'s headlines through the public-read limiters, cached for an hour (issue #470)', async () => {
+  const news = { ok: true, source: 'The Circuit', site: 'https://circuitpress.org/', fetchedAt: '2026-10-17T06:30:00.000Z', posts: [{ title: 'Launch', url: 'https://circuitpress.org/launch/' }] }
+  await withApp({ cached: { 'news:circuit': news } }, async ({ base, limiterHits, cacheCalls }) => {
+    const res = await fetch(`${base}/api/campus-news`)
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), news)
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=600, s-maxage=1800')
+    assert.equal(res.headers.get('set-cookie'), null)
+    assert.deepEqual(cacheCalls, [{ key: 'news:circuit', ttlMs: 60 * 60 * 1000 }])
+    assert.deepEqual(limiterHits, ['public-read-ip /api/campus-news', 'public-read /api/campus-news'])
+  })
+})
+
+test('with the feed down and nothing cached, campus news answers an empty list, never cached, and leaves the feed alone for a while', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  await withApp({ cached: { 'news:circuit': new Error('The Circuit feed answered 503') } }, async ({ base, cacheCalls }) => {
+    const res = await fetch(`${base}/api/campus-news`)
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await res.json(), { ok: false, error: 'campus_news_unavailable', posts: [] })
+    // The next read inside the five-minute wait answers the same without asking the feed.
+    const again = await fetch(`${base}/api/campus-news`)
+    assert.deepEqual(await again.json(), { ok: false, error: 'campus_news_unavailable', posts: [] })
+    assert.equal(cacheCalls.length, 1)
+  })
+})
+
 test('clubs search the injected directory and are cached for five minutes', async () => {
   await withApp({ clubs: { get: async () => ({ directory: DIRECTORY, stale: true }) } }, async ({ base }) => {
     const query = { q: 'club', scope: 'all', page: '1', pageSize: '5' }

@@ -1,13 +1,14 @@
 import express from 'express'
 import { parseClubSearchParams, searchClubDirectory } from '../boilerlinkClubs.mjs'
+import { fetchCircuitNews } from '../circuitNews.mjs'
 import { fetchParkingStatus } from '../parkingStatus.mjs'
 import { UpstreamError, fetchUpstreamJson } from '../upstreamFetch.mjs'
 
-// Campus: the TransLoc shuttle proxies, live garage availability and the club
-// directory search. Moved out of server.mjs as a feature router (issue #191)
-// with the handlers unchanged. All five routes are session-free public reads
-// (issue #250), so there is only the public router, mounted ahead of the
-// session middleware.
+// Campus: the TransLoc shuttle proxies, live garage availability, the club
+// directory search and the campus news headlines (issue #470). Moved out of
+// server.mjs as a feature router (issue #191) with the handlers unchanged. All
+// six routes are session-free public reads (issue #250), so there is only the
+// public router, mounted ahead of the session middleware.
 
 // TransLoc API proxy endpoints (to avoid CORS issues)
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
@@ -43,6 +44,14 @@ function translocReady(res) {
 // module never throws: an unreachable page yields a degraded snapshot with the
 // static garage list and status 'unknown'. See docs/parking-status.md.
 const PARKING_CACHE_MS = Math.max(15_000, Number(process.env.PARKING_STATUS_CACHE_MS) || 60_000)
+
+// The Circuit's RSS (issue #470), fetched at most once an hour per process.
+// The paper posts a few times a month; an hour keeps a new story from waiting
+// long without asking their site for more.
+const CAMPUS_NEWS_CACHE_MS = 60 * 60 * 1000
+// After a failed fetch with no list to fall back on, the feed is left alone
+// for five minutes, so a paper whose site is down is not asked on every read.
+const CAMPUS_NEWS_RETRY_MS = 5 * 60 * 1000
 
 /**
  * The campus public reads, mounted by server.mjs in its public reads block,
@@ -148,11 +157,36 @@ export function createCampusPublicRouter({
     }
   }
 
+  // Campus news (issue #470): The Circuit's latest headlines, date, tag,
+  // author and excerpt, never the articles. A failed refresh keeps serving the
+  // last good list (getCached); with nothing to serve the read says so with
+  // an empty list rather than an error, and waits CAMPUS_NEWS_RETRY_MS before
+  // asking the feed again. getCached only throws when it holds no list, so
+  // skipping it during that wait loses nothing.
+  let campusNewsFailedAt = -Infinity
+  function campusNewsUnavailable(res) {
+    res.set('Cache-Control', 'no-store')
+    res.json({ ok: false, error: 'campus_news_unavailable', posts: [] })
+  }
+  async function handleCampusNews(_req, res) {
+    if (Date.now() - campusNewsFailedAt < CAMPUS_NEWS_RETRY_MS) return campusNewsUnavailable(res)
+    try {
+      const data = await getCached('news:circuit', CAMPUS_NEWS_CACHE_MS, () => fetchCircuitNews())
+      res.set('Cache-Control', 'public, max-age=600, s-maxage=1800')
+      res.json(data)
+    } catch (error) {
+      campusNewsFailedAt = Date.now()
+      console.warn('Campus news unavailable:', error?.message || error)
+      campusNewsUnavailable(res)
+    }
+  }
+
   router.get('/api/transit/vehicles', transitVehiclesIpRateLimit, transitVehiclesRateLimit, handleTransitVehicles)
   router.get('/api/transit/stops', publicReadIpRateLimit, publicReadRateLimit, handleTransitStops)
   router.get('/api/transit/routes', publicReadIpRateLimit, publicReadRateLimit, handleTransitRoutes)
   router.get('/api/parking/garages', publicReadIpRateLimit, publicReadRateLimit, handleParkingGarages)
   router.get('/api/clubs', clubsReadRateLimit, handleClubs)
+  router.get('/api/campus-news', publicReadIpRateLimit, publicReadRateLimit, handleCampusNews)
 
   return router
 }

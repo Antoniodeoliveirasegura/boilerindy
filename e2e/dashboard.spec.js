@@ -99,6 +99,20 @@ test.describe('Dashboard customization', () => {
   })
 })
 
+test.describe('Campus news', () => {
+  test('the dashboard shows The Circuit\'s headlines, each opening the article on its site (issue #470)', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/dashboard')
+    const widget = page.locator('[data-widget-id="campus-news"]')
+    const story = widget.getByRole('link', { name: 'A Look Inside The Academic Success Building' })
+    await expect(story).toHaveAttribute('href', 'https://circuitpress.org/a-look-inside-the-academic-success-building/')
+    await expect(story).toHaveAttribute('target', '_blank')
+    await expect(widget).toContainText('News · By Omkar Govil-Nair')
+    await expect(widget).toContainText("Purdue Indy's student newspaper")
+    await expect(widget.locator('img')).toHaveCount(0)
+  })
+})
+
 // Issue #221 - a keyboard user's first Tab reaches "Skip to main content", and
 // following it moves focus into <main id="main">, past the navbar and rails.
 test.describe('Skip link', () => {
