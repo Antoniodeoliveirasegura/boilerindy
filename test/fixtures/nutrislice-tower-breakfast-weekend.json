@@ -1,0 +1,866 @@
+{
+  "id": 294543,
+  "last_updated": "2026-09-05T08:41:18.921441Z",
+  "start_date": "2026-10-12",
+  "menu_type_id": 13261,
+  "bold_all_entrees_enabled": false,
+  "days": [
+    {
+      "date": "2026-10-11",
+      "menu_items": [
+        {
+          "id": 429370536,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 429370538,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370540,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-12",
+      "menu_items": [
+        {
+          "id": 429370727,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Breakfast Entree Line",
+          "food": null
+        },
+        {
+          "id": 429370729,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1928940,
+            "name": "Scrambled Eggs",
+            "rounded_nutrition_info": {
+              "calories": 207.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370728,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2806555,
+            "name": "Sweet Potato Brussel Date Egg Bake",
+            "rounded_nutrition_info": {
+              "calories": 676.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370739,
+          "position": 10,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 429370742,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370745,
+          "position": 12,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-13",
+      "menu_items": [
+        {
+          "id": 429370569,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Breakfast Entree Line",
+          "food": null
+        },
+        {
+          "id": 429370572,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1928940,
+            "name": "Scrambled Eggs",
+            "rounded_nutrition_info": {
+              "calories": 207.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370574,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1928899,
+            "name": "Latin Tofu Scramble",
+            "rounded_nutrition_info": {
+              "calories": 155.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Climate Friendly",
+                  "name": "Climate Friendly",
+                  "slug": "climate-friendly"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370589,
+          "position": 10,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 429370591,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370593,
+          "position": 12,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-14",
+      "menu_items": [
+        {
+          "id": 429370619,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Breakfast Entree Line",
+          "food": null
+        },
+        {
+          "id": 433875753,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1928940,
+            "name": "Scrambled Eggs",
+            "rounded_nutrition_info": {
+              "calories": 207.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370622,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1941412,
+            "name": "Bruschetta Egg Scramble",
+            "rounded_nutrition_info": {
+              "calories": 206.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370641,
+          "position": 10,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 429370644,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370645,
+          "position": 12,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-15",
+      "menu_items": [
+        {
+          "id": 429370828,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Breakfast Entree Line",
+          "food": null
+        },
+        {
+          "id": 433875763,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1928940,
+            "name": "Scrambled Eggs",
+            "rounded_nutrition_info": {
+              "calories": 207.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370830,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2373031,
+            "name": "Tofu, Mushroom and Tomato Scramble",
+            "rounded_nutrition_info": {
+              "calories": 164.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370846,
+          "position": 10,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 429370848,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370850,
+          "position": 12,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "menu_items": [
+        {
+          "id": 429370774,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Breakfast Entree Line",
+          "food": null
+        },
+        {
+          "id": 429370776,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1928940,
+            "name": "Scrambled Eggs",
+            "rounded_nutrition_info": {
+              "calories": 207.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370778,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027933,
+            "name": "Hot Honey Chicken and Waffle Bake",
+            "rounded_nutrition_info": {
+              "calories": 317.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370791,
+          "position": 9,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 429370792,
+          "position": 10,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370794,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "menu_items": [
+        {
+          "id": 430121812,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Breakfast Options",
+          "food": null
+        },
+        {
+          "id": 430121814,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929300,
+            "name": "Shredded Cheddar Cheese",
+            "rounded_nutrition_info": {
+              "calories": 28.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 430121816,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2006373,
+            "name": "Shredded Mozzarella Cheese",
+            "rounded_nutrition_info": {
+              "calories": 21.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

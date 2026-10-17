@@ -1,13 +1,17 @@
 import { describe, expect, test } from 'vitest'
 import {
+  ALL_MEALS,
   HOURS_NOT_LISTED,
   diningDirectionsUrl,
   emptyMenuState,
   headerBlurb,
+  locationMenus,
   openState,
   snapshotWeekday,
+  splitStations,
   statusDotClass,
   statusLine,
+  todaysMealHeading,
   weeklyHoursCell,
 } from './dining'
 
@@ -88,5 +92,36 @@ describe('headerBlurb', () => {
     expect(headerBlurb({ hours: undefined, weekly_hours: null, meal: '' }, 'Monday')).toBe('Today: Hours not posted')
     const weekend = { hours: HOURS_NOT_LISTED, weekly_hours: { Saturday: HOURS_NOT_LISTED }, meal: 'Menus: breakfast, lunch, dinner' }
     expect(headerBlurb(weekend, 'Saturday')).toBe('Today: Hours not listed · Menus: breakfast, lunch, dinner')
+  })
+})
+
+// Issue #466: one menu per meal, specials ahead of the every-day stations.
+describe('locationMenus', () => {
+  const grill = { name: 'Daily Grill', everyday: true, items: [{ name: 'Cheeseburger' }] }
+  test('uses the per-meal menus, or one combined view for an older snapshot', () => {
+    const menus = [{ meal: 'lunch', stations: [grill] }]
+    expect(locationMenus({ menus, stations: [grill] })).toBe(menus)
+    expect(locationMenus({ stations: [grill] })).toEqual([{ meal: ALL_MEALS, stations: [grill] }])
+    expect(locationMenus({ menus: [], stations: [] })).toEqual([])
+    expect(locationMenus({})).toEqual([])
+  })
+})
+
+describe('splitStations', () => {
+  test('keeps feed order inside each group and treats a missing flag as a special', () => {
+    const soup = { name: 'Chef Made Soups', everyday: false, items: [] }
+    const grill = { name: 'Daily Grill', everyday: true, items: [] }
+    const pizza = { name: 'Pizza', everyday: true, items: [] }
+    const old = { name: 'Homestyle', items: [] }
+    expect(splitStations([grill, soup, pizza, old])).toEqual({ specials: [soup, old], everyday: [grill, pizza] })
+  })
+})
+
+describe('todaysMealHeading', () => {
+  test('names the meal when it is a real one', () => {
+    expect(todaysMealHeading('lunch')).toBe("Today's lunch")
+    expect(todaysMealHeading('breakfast')).toBe("Today's breakfast")
+    expect(todaysMealHeading(ALL_MEALS)).toBe("Today's menu")
+    expect(todaysMealHeading(null)).toBe("Today's menu")
   })
 })

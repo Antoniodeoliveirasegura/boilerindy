@@ -183,10 +183,49 @@ test('a hall that posts dinner before lunch lists the meal being served, or the 
 
   // Naming a meal beats the clock.
   assert.match(context('12:00', "what's for dinner tonight?"), /\(dinner menu\)\n {2}Homestyle: Turkey Tamale Pie/)
-  // No breakfast menu posted: every item is listed, with no meal label.
+  // No breakfast menu posted: the next meal with food, lunch, and it says so
+  // (issue #466; with only the merged list every item was listed unlabelled).
   const breakfast = context('08:00', 'breakfast?')
-  assert.match(breakfast, /^Tower Dining: OPEN until 9:00 PM$/m)
-  assert.match(breakfast, /^ {2}Homestyle: Turkey Tamale Pie/m)
+  assert.match(breakfast, /^Tower Dining: OPEN until 9:00 PM \(lunch menu\)$/m)
+  assert.match(breakfast, /^ {2}Homestyle: Jalapeno Cheddar Sausage/m)
+  assert.doesNotMatch(breakfast, /Turkey Tamale Pie/)
+})
+
+test('per-meal menus: the chosen meal only, the stations that change first (issue #466)', () => {
+  const grill = { name: 'Daily Grill', everyday: true, items: [item('Cheeseburger'), item('Veggie Burger', { icons: ['Vegetarian'] })] }
+  const ctx = (hhmm, question = '') =>
+    buildDiningContext(
+      {
+        ok: true,
+        date: '2026-09-09',
+        locations: [
+          {
+            name: 'Tower Dining',
+            is_open: true,
+            closes_at: '9:00 PM',
+            menus: [
+              { meal: 'lunch', stations: [grill, { name: 'Chef Made Soups', everyday: false, items: [item('Chicken Miso Soup')] }] },
+              { meal: 'dinner', stations: [grill, { name: 'Homestyle', everyday: false, items: [item('Beef Stroganoff')] }] },
+            ],
+            // The deprecated merged list is ignored when menus are there.
+            stations: [{ name: 'Merged', items: [item('Should Not Appear', { meals: ['lunch'] })] }],
+          },
+        ],
+      },
+      { now: at(hhmm), question },
+    )
+  assert.equal(
+    ctx('12:00'),
+    [
+      '=== DINING TODAY (2026-09-09) ===',
+      'Tower Dining: OPEN until 9:00 PM (lunch menu)',
+      '  Chef Made Soups: Chicken Miso Soup',
+      '  Daily Grill: Cheeseburger, Veggie Burger (Vegetarian)',
+    ].join('\n'),
+  )
+  assert.match(ctx('18:00'), /\(dinner menu\)\n {2}Homestyle: Beef Stroganoff\n {2}Daily Grill: /)
+  assert.match(ctx('12:00', 'what is for dinner'), /\(dinner menu\)/)
+  assert.doesNotMatch(ctx('12:00'), /Should Not Appear|Beef Stroganoff/)
 })
 
 test('mealsForPrompt goes by the Indianapolis clock unless the question names a meal', () => {

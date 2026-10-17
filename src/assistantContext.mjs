@@ -7,21 +7,16 @@
 // study and help hints only when the question is about studying. Pure, so it
 // can be tested.
 
-import { FALLBACK_TZ, wallClockMinutesInTimeZone } from './nutrisliceDining.mjs'
+import { FALLBACK_TZ } from './nutrisliceDining.mjs'
+import { chooseMeal, mealsAtMinutes, minutesInZone } from './diningMeals.mjs'
 
 // Diet tags worth a few tokens each; the rest of Nutrislice's icons are noise here.
 const DIET_TAGS = ['Vegan', 'Vegetarian', 'Avoiding Gluten']
 export const DINING_ITEMS_PER_STATION = 5
 
 // Nutrislice says which meals a hall posts but not when they are served, so
-// the clock decides, on Tower Dining's usual windows (breakfast until 10:30 AM,
-// dinner from 4:30 PM). Brunch stands in for breakfast or lunch on days that
-// post it.
-const MEAL_WINDOWS = [
-  { until: 10 * 60 + 30, meals: ['breakfast', 'brunch'] },
-  { until: 16 * 60 + 30, meals: ['lunch', 'brunch'] },
-  { until: 24 * 60, meals: ['dinner'] },
-]
+// the clock decides, on the windows in src/diningMeals.mjs, which the Dining
+// page's meal tabs use too (issue #466).
 const MEAL_WORD_RE = /\b(breakfast|brunch|lunch|dinner)\b/i
 
 /**
@@ -32,28 +27,44 @@ const MEAL_WORD_RE = /\b(breakfast|brunch|lunch|dinner)\b/i
 export function mealsForPrompt(now = new Date(), question = '', timeZone = FALLBACK_TZ) {
   const named = MEAL_WORD_RE.exec(String(question ?? ''))
   if (named) return [named[1].toLowerCase()]
-  const minutes = wallClockMinutesInTimeZone(now, timeZone)
-  return MEAL_WINDOWS.find((w) => minutes < w.until).meals
+  return mealsAtMinutes(minutesInZone(now, timeZone))
 }
 
 /**
  * The first of `wanted` that any item at this location is served at, or null
  * when none is (no `meals` on the items, or a day that posts other meals), in
- * which case every item is listed.
+ * which case every item is listed. For a snapshot without per-meal `menus`.
  */
 function pickMeal(stations, wanted) {
   return wanted.find((meal) => stations.some((s) => (s.items || []).some((it) => it.meals?.includes(meal)))) ?? null
 }
 
 /**
+ * The meal and stations to list for one location. Per-meal `menus` (issue
+ * #466): the wanted meal, or the next one posted (chooseMeal), with the
+ * stations that change day to day ahead of the every-day ones. Without
+ * `menus`, the flat `stations` filtered by each item's `meals`.
+ */
+function mealToList(loc, wanted) {
+  if (Array.isArray(loc.menus) && loc.menus.length) {
+    const meal = chooseMeal(loc.menus.map((m) => m.meal), wanted)
+    const stations = loc.menus.find((m) => m.meal === meal)?.stations || []
+    return { meal, stations: [...stations.filter((s) => !s.everyday), ...stations.filter((s) => s.everyday)] }
+  }
+  const stations = loc.stations || []
+  const meal = stations.length ? pickMeal(stations, wanted) : null
+  return { meal, stations: stations.map((s) => ({ ...s, items: (s.items || []).filter((it) => !meal || it.meals?.includes(meal)) })) }
+}
+
+/**
  * Today's dining for the prompt, from a getDiningSnapshot() payload. Open
- * locations list their stations for the current meal (see mealsForPrompt; at
- * most DINING_ITEMS_PER_STATION items each, diet tags kept, calories dropped);
- * closed ones get a single line. A location whose status is not known
- * (`is_open: null`: a day the feed flags closed but serves a menu, issue #465)
- * is said to have a menu posted and no listed hours, and lists its menu like
- * an open one. `question` is the student's latest message. Returns '' when
- * there is no usable snapshot.
+ * locations list their stations for the current meal (see mealsForPrompt and
+ * mealToList; specials first, at most DINING_ITEMS_PER_STATION items each,
+ * diet tags kept, calories dropped); closed ones get a single line. A
+ * location whose status is not known (`is_open: null`: a day the feed flags
+ * closed but serves a menu, issue #465) is said to have a menu posted and no
+ * listed hours, and lists its menu like an open one. `question` is the
+ * student's latest message. Returns '' when there is no usable snapshot.
  */
 export function buildDiningContext(dining, { now = new Date(), question = '' } = {}) {
   if (!dining?.ok || !dining.locations?.length) return ''
@@ -65,8 +76,7 @@ export function buildDiningContext(dining, { now = new Date(), question = '' } =
       lines.push(`${loc.name}: CLOSED${loc.opens_at ? ` - opens ${loc.opens_at}` : ''}`)
       continue
     }
-    const stations = loc.stations || []
-    const meal = stations.length ? pickMeal(stations, wanted) : null
+    const { meal, stations } = mealToList(loc, wanted)
     const mealNote = meal ? ` (${meal} menu)` : ''
     if (unknown) {
       lines.push(`${loc.name}: MENU POSTED, HOURS NOT LISTED${mealNote}`)
@@ -78,7 +88,6 @@ export function buildDiningContext(dining, { now = new Date(), question = '' } =
     if (stations.length) {
       for (const station of stations) {
         const items = (station.items || [])
-          .filter((it) => !meal || it.meals?.includes(meal))
           .slice(0, DINING_ITEMS_PER_STATION)
           .map((it) => {
             const tags = (it.icons || []).filter((t) => DIET_TAGS.includes(t))

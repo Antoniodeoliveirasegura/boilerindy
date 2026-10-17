@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
@@ -9,13 +9,16 @@ import { writeFailureMessage } from '../lib/writeFailure'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiError, refreshDining, useDining } from '../lib/queries/publicData'
 import {
+  ALL_MEALS,
   OFFICIAL_HOURS_URL,
   SHORT_DAY,
   WEEKDAY_ORDER,
   diningDirectionsUrl,
   emptyMenuState,
   headerBlurb,
+  locationMenus,
   snapshotWeekday,
+  splitStations,
   statusDotClass,
   statusLine,
   weeklyHoursCell,
@@ -23,6 +26,7 @@ import {
   type DiningSnapshot,
   type Station,
 } from '../lib/dining'
+import { defaultMeal, mealLabel } from '../../../src/diningMeals.mjs'
 import PageTitle from '../components/PageTitle'
 
 // Campus Dining (issue #119): the live Nutrislice snapshot from /api/dining,
@@ -146,6 +150,56 @@ function StationCard({
         </button>
       )}
     </div>
+  )
+}
+
+type StationListProps = {
+  stations: Station[]
+  /** Where the icon rotation starts, so the every-day cards do not repeat the specials' icons. */
+  firstIndex?: number
+  favorites: Set<string>
+  onToggleFavorite?: (name: string) => void
+}
+
+function StationGrid({ stations, firstIndex = 0, favorites, onToggleFavorite }: StationListProps) {
+  return (
+    <div className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
+      {stations.map((station, i) => (
+        <StationCard key={station.name} station={station} index={firstIndex + i} favorites={favorites} onToggleFavorite={onToggleFavorite} />
+      ))}
+    </div>
+  )
+}
+
+// The stations that serve the same food all week (issue #466), collapsed
+// under the day's specials. Open from the start when a meal has nothing else,
+// like a weekend breakfast of grill options only.
+function EverydayStations({ defaultOpen, ...list }: StationListProps & { defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const panelId = useId()
+  const count = list.stations.length
+  return (
+    <section className="mt-5" data-dining-everyday>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-surface)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-bg-2)]"
+      >
+        <Icon name="chevronRight" size={16} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        {/* The count wraps under the title on a phone; the title stays on one line. */}
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <span className="whitespace-nowrap font-display font-bold text-[14.5px] text-[var(--color-txt-0)]">Every day</span>{' '}
+          <span className="text-[12.5px] text-[var(--color-txt-2)]">
+            {count} station{count === 1 ? '' : 's'} with the same food all week
+          </span>
+        </span>
+      </button>
+      <div id={panelId} hidden={!open} className="mt-4">
+        <StationGrid {...list} />
+      </div>
+    </section>
   )
 }
 
@@ -323,6 +377,17 @@ export default function Dining() {
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
   const withHours = locations.filter((l) => l.weekly_hours)
   const empty = selected ? emptyMenuState(selected) : null
+
+  // Meal tabs (issue #466): the meal a student picked for this location, else
+  // the one being served now on campus time (defaultMeal). A snapshot from
+  // before per-meal menus has one ALL_MEALS view and no tabs.
+  const [mealChoice, setMealChoice] = useState<{ locationId: string; meal: string } | null>(null)
+  const menus = selected ? locationMenus(selected) : []
+  const mealOptions = menus.map((m) => m.meal)
+  const activeMeal =
+    selected && mealChoice?.locationId === selected.id && mealOptions.includes(mealChoice.meal) ? mealChoice.meal : defaultMeal(mealOptions)
+  const activeMenu = menus.find((m) => m.meal === activeMeal) ?? menus[0]
+  const { specials, everyday } = splitStations(activeMenu?.stations ?? [])
 
   return (
     <div className="page">
@@ -538,8 +603,8 @@ export default function Dining() {
                 </div>
               )}
 
-              {/* Station grid, or the honest reason there is none */}
-              {(selected.stations || []).length === 0 ? (
+              {/* The meal's stations, or the honest reason there are none */}
+              {!activeMenu ? (
                 <div className="empty bg-[var(--color-surface)] p-5" data-dining-empty={empty.kind}>
                   <span className="ico">
                     <Icon name={empty.icon} size={18} />
@@ -548,17 +613,44 @@ export default function Dining() {
                   <p className="max-w-md -mt-1">{empty.body}</p>
                 </div>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
-                  {(selected.stations || []).map((station, i) => (
-                    <StationCard
-                      key={station.name}
-                      station={station}
-                      index={i}
+                <>
+                  {/* One pill per posted meal, defaulting to the one being served. */}
+                  {activeMenu.meal !== ALL_MEALS && (
+                    <div role="group" aria-label="Meal" className="flex flex-wrap gap-2 mb-4" data-dining-meals>
+                      {mealOptions.map((meal) => (
+                        <button
+                          key={meal}
+                          type="button"
+                          onClick={() => setMealChoice({ locationId: selected.id, meal })}
+                          aria-pressed={meal === activeMenu.meal}
+                          data-dining-meal={meal}
+                          className={`pill md:min-h-[36px] px-4 text-[13.5px] ${meal === activeMenu.meal ? 'pill-active' : ''}`}
+                        >
+                          {mealLabel(meal)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {specials.length > 0 && everyday.length > 0 && (
+                    <p className="eyebrow bare mb-3" data-dining-specials-label>
+                      Today&apos;s specials
+                    </p>
+                  )}
+                  {specials.length > 0 && (
+                    <StationGrid stations={specials} favorites={favorites} onToggleFavorite={signedIn ? toggleFavorite : undefined} />
+                  )}
+                  {everyday.length > 0 && (
+                    // Keyed by location and meal, so another tab starts collapsed again.
+                    <EverydayStations
+                      key={`${selected.id}:${activeMenu.meal}`}
+                      stations={everyday}
+                      firstIndex={specials.length}
+                      defaultOpen={specials.length === 0}
                       favorites={favorites}
                       onToggleFavorite={signedIn ? toggleFavorite : undefined}
                     />
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           )}

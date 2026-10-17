@@ -49,6 +49,8 @@ core, a fetch shell with an injectable fetch, and a cache.
 - `ingestMenuStations` builds stations from the flat rows, drops condiment and
   topping sections, and dedupes a food that appears under several stations or
   meals.
+- `fetchMenusForSchool` keeps each meal as its own menu (`menus`, see "Meals
+  and specials" below) next to the deprecated merged `stations`.
 - `deriveStatusFromSchool` decides open / closed in `America/Indiana/Indianapolis`
   (the district rows carry `timezone: null`). It handles 24-hour days, windows
   that end after midnight (11:00 AM to 2:00 AM is open at 1:00 AM, including
@@ -109,6 +111,32 @@ hours:
 The weekly hours card carries a note that the hours come from the menu feed
 and may not be current, linking the official hours page.
 
+## Meals and specials (issue #466)
+
+Each dining hall's day comes as one menu per meal, in serving order
+(breakfast, brunch, lunch, dinner, then anything else), each deduped within
+the meal only, so a Salad Bar food served at lunch and dinner is in both.
+Every station carries `everyday`: whether it serves the same food all week.
+That is learnt from the week payload the menu came with, never from station
+names (`everydayStations`): a station's foods on the day are compared with the
+same station's foods on the other days of that week, and a median overlap
+(Jaccard) of at least 0.6 over at least two other days marks it every day. Over
+the fall 2026 semester that marked Salad Bar, Daily Grill, Pizza, Hasta La
+Pasta, Rice It Up and Grill Breakfast Options on every one of 83 days, and
+Homestyle, Breakfast Entree Line, Chef Made Soups, Dessert and Innovation on
+none. A weekend breakfast is often only Grill Breakfast Options, so a meal can
+have no specials at all.
+
+Nutrislice publishes no meal times. `src/diningMeals.mjs`, shared by the
+assistant and the page, holds the clock's guess (breakfast until 10:30 AM,
+lunch until 4:30 PM, dinner after, on campus time) and `defaultMeal`: the meal
+being served now, else the next one posted, else the first.
+
+The merged `stations` list stays in the snapshot, deprecated, for clients that
+predate `menus` (an open tab, a persisted snapshot, the native app); the page,
+Home and the assistant read `menus` and fall back to `stations` only when it
+is missing.
+
 ## The snapshot
 
 ```
@@ -118,7 +146,10 @@ and may not be current, linking the official hours page.
     is_open: true | false | null, hours, closes_at, opens_at, open24h,
     weekly_hours: { Monday: "7:00 AM - 9:00 PM", Saturday: "Hours not listed" | "Closed", ... }, timezone,
     meal: "Menus: breakfast, lunch, dinner" | "Menu not posted yet" | "Retail dining, no posted menu",
-    menusPublished, stations: [{ name, items: [{ name, calories, icons }] }], warnings?
+    menusPublished,
+    menus: [{ meal: "breakfast" | "lunch" | "dinner" | ..., stations: [{ name, everyday, items: [{ name, calories, icons }] }] }],
+    stations: [{ name, items: [{ name, calories, icons, meals }] }],   (deprecated: every meal merged)
+    warnings?
   }] }
 ```
 
@@ -143,6 +174,14 @@ page. When the feed is down the page says so and the hours card reads
 times are gone, as are the unused sample-venue branch and the dead directions
 button.
 
+The menu has one pill per posted meal, opening on `defaultMeal` for the
+campus clock. Inside a meal, the stations that change come first (headed
+"Today's specials" when there are every-day stations too), and the every-day
+stations sit behind one "Every day" toggle, collapsed, or open when the meal
+has nothing else. A snapshot without `menus` shows its merged stations with no
+pills. Home's dining widget previews the same meal, specials first, under
+"Today's lunch" (or the meal it is).
+
 Signed-out visitors can open the page too (the public preview, issue #366):
 they get the menus, hours and refresh, under the preview bar. The favorite
 stars, the "Your favorites on today's menu" card and the "What should I eat?"
@@ -160,20 +199,25 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
 
 - `test/nutrisliceDining.test.mjs` against `test/fixtures/nutrislice-*.json`
   (the real school rows, one real Tower lunch day trimmed to three foods per
-  station, the Campus Center's real empty week, and Tower's real lunch week of
-  2026-10-11 to 2026-10-17 trimmed to a few foods a day, weekends included):
-  hours and status including 24-hour and past-midnight windows and a Saturday
-  with a published menu, station parsing with skipped condiments
-  and dedupe, the snapshot for both halls with an injected fetch, the cache
+  station, the Campus Center's real empty week, and Tower's real lunch and
+  breakfast weeks of 2026-10-11 to 2026-10-17 trimmed to a few foods a day per
+  station, weekends included, each trim checked to keep every station's
+  every-day class): hours and status including 24-hour and past-midnight
+  windows and a Saturday with a published menu, station parsing with skipped
+  condiments and dedupe, the per-meal menus and the every-day rule (real weeks
+  and synthetic edge cases), the snapshot for both halls with an injected
+  fetch, the cache
   (status recomputed per read, date rollover, stale-on-outage, short retry,
   per-date entries and the 16-date bound, one crawl for concurrent misses, the
   refresh floor) and the `clampDiningDate` window.
+- `test/diningMeals.test.mjs`: the meal windows, serving order and the
+  default meal on campus time.
 - `boilerindy-react/src/lib/dining.test.ts`: status line (the "not known"
-  state included), status dots, week grid cells, empty states, directions URL,
-  campus weekday, header pill.
+  state included), status dots, week grid cells, per-meal menus and the
+  specials split, empty states, directions URL, campus weekday, header pill.
 - `e2e/dining.spec.js`: the page against the mocked snapshot, including a
-  Saturday with a posted menu, the feed-down and stale states and favorites
-  surviving a reload. `boilerindy-react/src/pages/Home.test.tsx` checks the
+  Saturday with a posted menu, the meal tabs on a fixed clock, the feed-down
+  and stale states and favorites surviving a reload. `boilerindy-react/src/pages/Home.test.tsx` checks the
   dashboard widget and suggestion for the same Saturday, and
   `test/assistantContext.test.mjs`, `test/assistantRouter.test.mjs` and
   `test/routes/assistant.test.mjs` the assistant's three readers.

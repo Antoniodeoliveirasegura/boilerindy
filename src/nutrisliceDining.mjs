@@ -16,6 +16,8 @@
  * recomputed on every read, so "Open now" is never hours stale.
  */
 
+import { sortMeals } from './diningMeals.mjs'
+
 export const DEFAULT_API_BASE = 'https://iupui.api.nutrislice.com'
 export const FALLBACK_TZ = 'America/Indiana/Indianapolis'
 const USER_AGENT =
@@ -295,6 +297,69 @@ function weekdaysOf(dates) {
   return DAY_LABELS.filter((d) => names.has(d))
 }
 
+// A station serves "every day" (issue #466) when its foods on a day match the
+// same station's foods on the other days of that week, same meal: a median
+// overlap (Jaccard) of at least EVERYDAY_MIN_OVERLAP over at least
+// EVERYDAY_MIN_OTHER_DAYS other days that have the station. Over the fall 2026
+// semester this marks Salad Bar, Daily Grill, Pizza, Hasta La Pasta, Rice It Up
+// and Grill Breakfast Options every day on all 83 days, and Homestyle,
+// Breakfast Entree Line, Chef Made Soups, Dessert and Innovation on none.
+export const EVERYDAY_MIN_OVERLAP = 0.6
+export const EVERYDAY_MIN_OTHER_DAYS = 2
+
+/** Station name -> Set of food keys for one day's flat menu_items, skipped sections dropped. */
+export function stationFoods(menuItems) {
+  const foods = new Map()
+  if (!Array.isArray(menuItems)) return foods
+  let station = 'Menu'
+  let skip = false
+  for (const row of menuItems) {
+    if (row?.is_section_title || row?.is_station_header) {
+      station = (row.text || '').trim() || 'Menu'
+      skip = shouldSkipSection(station)
+      continue
+    }
+    if (skip || !row?.food?.name) continue
+    if (!foods.has(station)) foods.set(station, new Set())
+    foods.get(station).add(row.food.id != null ? `id:${row.food.id}` : `name:${row.food.name}`)
+  }
+  return foods
+}
+
+function jaccard(a, b) {
+  let shared = 0
+  for (const key of a) if (b.has(key)) shared += 1
+  const union = a.size + b.size - shared
+  return union ? shared / union : 1
+}
+
+function median(values) {
+  const sorted = [...values].sort((x, y) => x - y)
+  const mid = sorted.length >> 1
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/**
+ * The names of the stations on `ymd` that serve the same food on most other
+ * days of `days`, one meal's week as Nutrislice sends it (Sunday to Saturday).
+ * Learnt from the week, never from station names, so a station that starts or
+ * stops rotating moves on its own.
+ */
+export function everydayStations(days, ymd) {
+  const byDate = new Map((days || []).filter((d) => d?.date).map((d) => [d.date, stationFoods(d.menu_items)]))
+  const everyday = new Set()
+  const today = byDate.get(ymd)
+  if (!today) return everyday
+  for (const [station, foods] of today) {
+    const overlaps = []
+    for (const [date, stations] of byDate) {
+      if (date !== ymd && stations.has(station)) overlaps.push(jaccard(foods, stations.get(station)))
+    }
+    if (overlaps.length >= EVERYDAY_MIN_OTHER_DAYS && median(overlaps) >= EVERYDAY_MIN_OVERLAP) everyday.add(station)
+  }
+  return everyday
+}
+
 /**
  * One meal's flat menu_items -> [{ name: station, items: [{ name, calories, icons, meals }] }].
  * Sections matching SKIP_SECTION_RE are dropped. `seen` (dedupe key -> item)
@@ -376,20 +441,23 @@ async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
 }
 
 /**
- * Today's stations for one hall, plus `menuWeekdays`: the weekdays of the
+ * Today's menus for one hall: `menus`, one entry per meal in serving order,
+ * each a complete menu whose stations say whether they serve the same food
+ * every day (issue #466); the deprecated flat `stations`, all meals merged and
+ * deduped, kept for older clients; and `menuWeekdays`, the weekdays of the
  * fetched week (each meal's payload covers Sunday to Saturday) on which any
  * meal publishes food. The status and the weekly hours read it, so a day the
  * feed flags closed but serves a menu is not shown as Closed (issue #465).
  */
 async function fetchMenusForSchool(school, ymd, fetchImpl) {
   const parts = ymdParts(ymd)
-  if (!parts) return { stations: [], meals: [], warnings: ['invalid_date'], menuWeekdays: [] }
+  if (!parts) return { menus: [], stations: [], meals: [], warnings: ['invalid_date'], menuWeekdays: [] }
 
   const { year, month, day } = parts
   const slug = school.slug
   const seen = new Map()
   const stationMerge = new Map()
-  const mealsFound = []
+  const menus = []
   const warnings = []
   const menuDates = new Set()
 
@@ -407,9 +475,17 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
     const target = days.find((d) => d.date === ymd) || days[0]
     if (!target?.menu_items?.length) continue
 
-    const stations = ingestMenuStations(target.menu_items, meal, seen)
-    if (stations.length) mealsFound.push(meal)
-    for (const { name, items } of stations) {
+    // This meal on its own: deduped within the meal only, so each tab is a
+    // whole menu, and every station flagged from the week it came with.
+    const everyday = everydayStations(days, target.date)
+    const mealStations = ingestMenuStations(target.menu_items, meal).map(({ name, items }) => ({
+      name,
+      everyday: everyday.has(name),
+      items: items.map(({ name, calories, icons }) => ({ name, calories, icons })),
+    }))
+    if (mealStations.length) menus.push({ meal, stations: mealStations })
+
+    for (const { name, items } of ingestMenuStations(target.menu_items, meal, seen)) {
       if (!stationMerge.has(name)) stationMerge.set(name, [])
       stationMerge.get(name).push(...items)
     }
@@ -418,8 +494,10 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
   const stations = [...stationMerge.entries()]
     .map(([name, items]) => ({ name, items: items.map(({ name, calories, icons, meals }) => ({ name, calories, icons, meals })) }))
     .filter((s) => s.items.length > 0)
+  const order = sortMeals(menus.map((m) => m.meal))
+  menus.sort((a, b) => order.indexOf(a.meal) - order.indexOf(b.meal))
 
-  return { stations, meals: mealsFound, warnings, menuWeekdays: weekdaysOf(menuDates) }
+  return { menus, stations, meals: order, warnings, menuWeekdays: weekdaysOf(menuDates) }
 }
 
 /**
@@ -433,12 +511,12 @@ export async function buildDiningBase(allSchools, ymd, { fetchImpl } = {}) {
   const entries = []
   for (const { spec, school } of picked) {
     const kind = locationKind(school)
-    let menu = { stations: [], meals: [], warnings: [], menuWeekdays: [] }
+    let menu = { menus: [], stations: [], meals: [], warnings: [], menuWeekdays: [] }
     if (kind === 'dining-hall') {
       try {
         menu = await fetchMenusForSchool(school, ymd, fetchImpl)
       } catch (e) {
-        menu = { stations: [], meals: [], warnings: [`menu_exception:${String(e?.message || e)}`], menuWeekdays: [] }
+        menu = { menus: [], stations: [], meals: [], warnings: [`menu_exception:${String(e?.message || e)}`], menuWeekdays: [] }
       }
     }
     entries.push({ spec, school, kind, menu })
@@ -473,6 +551,10 @@ export function renderSnapshot(base, now = new Date()) {
       timezone: status.tz,
       meal,
       menusPublished,
+      // One whole menu per meal, stations flagged `everyday` (issue #466).
+      menus: menu.menus || [],
+      // Deprecated: every meal merged into one list. Kept until the clients
+      // that read only this are gone; the page, Home and the assistant read `menus`.
       stations: menu.stations,
       warnings: menu.warnings.length ? menu.warnings : undefined,
     }
