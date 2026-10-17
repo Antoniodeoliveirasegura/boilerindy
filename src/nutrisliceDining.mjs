@@ -287,10 +287,61 @@ function extractIconLabels(food) {
   return [...new Set(out)]
 }
 
+// The menu item's own words, cut for the list (issue #468); the detail read
+// has the whole description.
+export const DESC_CHARS = 140
+
+const finiteOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+/** "1 each", "4 oz": a food's serving size, or null. */
+function servingOf(food) {
+  const info = food?.serving_size_info
+  const text = [info?.serving_size_amount, info?.serving_size_unit].filter((part) => part != null && String(part).trim()).join(' ').trim()
+  return text || null
+}
+
+/** A description cut at a word to DESC_CHARS, with an ellipsis when cut; null when there is none. */
+export function shortDescription(text, max = DESC_CHARS) {
+  const clean = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : ''
+  if (!clean) return null
+  if (clean.length <= max) return clean
+  const cut = clean.slice(0, max)
+  const atWord = cut.lastIndexOf(' ')
+  return `${(atWord > max * 0.6 ? cut.slice(0, atWord) : cut).replace(/[\s,.;:]+$/, '')}…`
+}
+
+/**
+ * One food for the menu lists: name, calories and diet labels, plus the
+ * compact facts the item rows and the detail view open with (issue #468):
+ * id, serving, protein, carbs, fat, sodium, a 220 px thumbnail and a short
+ * description. Missing facts are null.
+ */
 function normalizeFoodEntry(food) {
   if (!food?.name) return null
-  const cal = food.rounded_nutrition_info?.calories
-  return { name: food.name, calories: typeof cal === 'number' ? cal : null, icons: extractIconLabels(food) }
+  const n = food.rounded_nutrition_info || {}
+  return {
+    name: food.name,
+    calories: finiteOrNull(n.calories),
+    icons: extractIconLabels(food),
+    id: food.id ?? null,
+    serving: servingOf(food),
+    protein: finiteOrNull(n.g_protein),
+    carbs: finiteOrNull(n.g_carbs),
+    fat: finiteOrNull(n.g_fat),
+    sodium: finiteOrNull(n.mg_sodium),
+    thumb: typeof food.hoverpic_url === 'string' && food.hoverpic_url ? food.hoverpic_url : null,
+    desc: shortDescription(food.description),
+  }
+}
+
+// The compact fields a per-meal menu item carries, null ones left out to keep
+// /api/dining small (measured in #468: about 8 KB gzip on a full day).
+const COMPACT_FIELDS = ['id', 'serving', 'protein', 'carbs', 'fat', 'sodium', 'thumb', 'desc']
+
+function compactItem({ name, calories, icons, ...rest }) {
+  const item = { name, calories, icons }
+  for (const key of COMPACT_FIELDS) if (rest[key] != null) item[key] = rest[key]
+  return item
 }
 
 // Station/section names to omit entirely - condiments, toppings, garnishes, etc.
@@ -470,25 +521,92 @@ async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
 // One menu row cut to what the menu code reads: a station header, or a food
 // with its id, name, calories and diet icons. A week of these is what the
 // week cache holds, a small fraction of the raw payload (issue #467).
-function slimRow(row) {
-  if (row?.is_section_title || row?.is_station_header) {
-    return { is_section_title: Boolean(row.is_section_title), is_station_header: Boolean(row.is_station_header), text: row.text || '' }
-  }
-  const food = row?.food
-  if (!food?.name) return null
+// The nutrition values a food keeps, under Nutrislice's own keys (issue
+// #468). The vitamin fields come as published, units and all; some rows are
+// implausible, so nothing here ranks foods by them.
+export const NUTRITION_KEYS = [
+  'calories',
+  'g_fat',
+  'g_saturated_fat',
+  'g_trans_fat',
+  'mg_cholesterol',
+  'mg_sodium',
+  'g_carbs',
+  'g_fiber',
+  'g_sugar',
+  'g_added_sugar',
+  'g_protein',
+  'mg_potassium',
+  'mg_calcium',
+  'mg_iron',
+  'iu_vitamin_a',
+  'mg_vitamin_c',
+  'mcg_vitamin_d',
+]
+
+/** A food cut to what the menu and the detail read use. */
+function slimFood(food) {
   const icons = Array.isArray(food.icons?.food_icons)
     ? food.icons.food_icons.map((ic) => ({ enabled: ic?.enabled, synced_name: ic?.synced_name, name: ic?.name, slug: ic?.slug }))
     : []
-  return { food: { id: food.id ?? null, name: food.name, rounded_nutrition_info: { calories: food.rounded_nutrition_info?.calories ?? null }, icons: { food_icons: icons } } }
+  const n = food.rounded_nutrition_info || {}
+  const serving = food.serving_size_info
+  return {
+    id: food.id ?? null,
+    name: food.name,
+    description: typeof food.description === 'string' ? food.description : null,
+    image_url: typeof food.image_url === 'string' ? food.image_url : null,
+    hoverpic_url: typeof food.hoverpic_url === 'string' ? food.hoverpic_url : null,
+    ingredients: typeof food.ingredients === 'string' ? food.ingredients : null,
+    serving_size_info: serving ? { serving_size_amount: serving.serving_size_amount ?? null, serving_size_unit: serving.serving_size_unit ?? null } : null,
+    rounded_nutrition_info: Object.fromEntries(NUTRITION_KEYS.map((key) => [key, finiteOrNull(n[key])])),
+    icons: { food_icons: icons },
+  }
 }
 
-/** A week payload -> { lastUpdated, days: Map(YYYY-MM-DD -> slim rows) }. */
+/**
+ * A week payload -> { lastUpdated, days: Map(YYYY-MM-DD -> rows), foods:
+ * Map(key -> food) }. Rows are station headers and { food } rows cut to what
+ * the menu code and the detail read use; a food listed on several days or
+ * stations is one shared object, so the week cache holds each once (issues
+ * #467 and #468).
+ */
 export function processWeek(data) {
   const days = new Map()
-  for (const d of data?.days || []) {
-    if (d?.date) days.set(d.date, (d.menu_items || []).map(slimRow).filter(Boolean))
+  const foods = new Map()
+  const row = (r) => {
+    if (r?.is_section_title || r?.is_station_header) {
+      return { is_section_title: Boolean(r.is_section_title), is_station_header: Boolean(r.is_station_header), text: r.text || '' }
+    }
+    if (!r?.food?.name) return null
+    const key = r.food.id != null ? `id:${r.food.id}` : `name:${r.food.name}`
+    if (!foods.has(key)) foods.set(key, slimFood(r.food))
+    return { food: foods.get(key) }
   }
-  return { lastUpdated: typeof data?.last_updated === 'string' ? data.last_updated : null, days }
+  for (const d of data?.days || []) {
+    if (d?.date) days.set(d.date, (d.menu_items || []).map(row).filter(Boolean))
+  }
+  return { lastUpdated: typeof data?.last_updated === 'string' ? data.last_updated : null, days, foods }
+}
+
+/** The detail read's view of a food (issue #468): everything the dialog shows. */
+export function foodDetail(food) {
+  const nutrition = {}
+  for (const key of NUTRITION_KEYS) {
+    const value = finiteOrNull(food.rounded_nutrition_info?.[key])
+    if (value != null) nutrition[key] = value
+  }
+  return {
+    id: food.id ?? null,
+    name: food.name,
+    description: typeof food.description === 'string' && food.description.trim() ? food.description.trim() : null,
+    image: food.image_url || null,
+    thumb: food.hoverpic_url || null,
+    serving: servingOf(food),
+    ingredients: typeof food.ingredients === 'string' && food.ingredients.trim() ? food.ingredients.trim() : null,
+    icons: extractIconLabels(food),
+    nutrition,
+  }
 }
 
 // Writing a week moves it to the back of the Map; past MAX_CACHE_WEEKS the
@@ -579,7 +697,7 @@ async function fetchMenusForSchool(school, ymd, { fetchImpl, cache, refresh, now
     const mealStations = ingestMenuStations(target, meal).map(({ name, items }) => ({
       name,
       everyday: everyday.has(name),
-      items: items.map(({ name, calories, icons }) => ({ name, calories, icons })),
+      items: items.map(compactItem),
     }))
     if (mealStations.length) menus.push({ meal, stations: mealStations })
 
@@ -802,6 +920,30 @@ export async function getDiningSnapshot(options = {}) {
     snapshot = snapshotFromEntry(result.entry, now, ttl, result.cached)
   }
   return forceRefresh ? { ...snapshot, refreshed: !snapshot.cached } : snapshot
+}
+
+/**
+ * One dish's details for a date (issue #468): `foodDetail` of the food with
+ * `foodId` on that date's menus, or null when it is not on them. It reads the
+ * week cache, which the date's snapshot fills; after a restart or an eviction
+ * it builds the snapshot first and loads the date's weeks again.
+ */
+export async function findDiningFood(foodId, ymd, { now = new Date(), fetchImpl } = {}) {
+  const snapshot = await getDiningSnapshot({ date: ymd, now, fetchImpl })
+  const entry = entries.get(ymd)
+  if (!snapshot.ok || !entry?.base) return null
+  const key = `id:${foodId}`
+  for (const { school, kind, menu } of entry.base.entries) {
+    if (kind !== 'dining-hall') continue
+    // Only the meals that day's menu has.
+    for (const meal of menu.meals || []) {
+      const res = await loadWeek(school.slug, meal, ymd, { fetchImpl, cache: true, nowMs: now.getTime() })
+      const food = res.ok ? res.week.foods.get(key) : null
+      // On the menu that day, not merely somewhere in the week.
+      if (food && (res.week.days.get(ymd) || []).some((row) => row.food === food)) return foodDetail(food)
+    }
+  }
+  return null
 }
 
 export function __resetDiningCacheForTests() {

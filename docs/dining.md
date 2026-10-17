@@ -174,6 +174,56 @@ predate `menus` (an open tab, a persisted snapshot, the native app); the page,
 Home and the assistant read `menus` and fall back to `stations` only when it
 is missing.
 
+## Dish details and diet filters (issue #468)
+
+Each food in a week payload carries much more than the menu lists used:
+`description`, `image_url` (1024 px) and `hoverpic_url` (220 px) on about 61%
+of distinct foods, and `ingredients`, `serving_size_info` and
+`rounded_nutrition_info` (calories, fats, cholesterol, sodium, carbs, fiber,
+sugars, protein, potassium, calcium, iron, vitamins A, C and D) on all of them.
+Measured on the real 2026-10-14 snapshot (196 items, 62 with a photo):
+
+| What the per-meal items carry | Raw | Gzip |
+|---|---|---|
+| name, calories, icons (before) | 31.6 KB | 3.3 KB |
+| plus compact facts (shipped) | 59.3 KB | 8.2 KB |
+| plus everything inline | 142.2 KB | 23.4 KB |
+
+So the snapshot's per-meal items carry the compact facts (`id`, `serving`,
+`protein`, `carbs`, `fat`, `sodium`, `thumb` = `hoverpic_url`, and `desc`, the
+description cut at a word to 140 characters; a fact the food lacks is left
+out), and the rest comes from a session-free read when a student opens a dish:
+
+`GET /api/dining/foods/:id?date=YYYY-MM-DD` (date optional, today by default,
+the same window as `/api/dining`) answers
+`{ ok, date, food: { id, name, description, image, thumb, serving, ingredients, icons, nutrition } }`,
+`nutrition` keyed by Nutrislice's names (`calories`, `g_fat`, `mg_sodium`, ...)
+with only the values the feed has. It reads the week cache, which the date's
+snapshot filled, so it costs no upstream request; after a restart or an
+eviction (`findDiningFood`) it builds the date and loads its weeks again. Only
+a dish on that date's menu is found. It carries the public-read limiter pair
+and `Cache-Control: public, max-age=600, s-maxage=3600`; errors use the
+envelope (`dining_bad_food`, `dining_bad_date`, `dining_food_not_found`,
+`dining_internal`). The deprecated merged `stations` list stays as it was.
+
+The page: a dish's name is a button that opens a dialog with the photo when
+there is one, the description, serving size, a nutrition table (main facts,
+then vitamins and minerals, as published) and ingredients, plus the favorite
+star when signed in. Stations where any dish has a photo show 40 px
+thumbnails (`loading="lazy"`). Nothing the feed lacks is invented, and no
+macro ranking is offered: some rows are implausible (Garlic Cheese Bread
+Sticks: 39 g protein and 761 cal for "1 each").
+
+**No allergen data.** The feed has no allergen icons, and `ingredients` lists
+component names ("Breaded Honey Chicken^, Honey Garlic Sauce^"), not
+allergens. The diet filters are the feed's own labels (Vegetarian, Vegan,
+Avoiding Gluten): a dish shows when it carries every chosen label, stations
+left empty hide, and the choice is remembered on the device
+(`boilerindy-dining-diet-filters-v1`; per device, not per user, since the page
+is public). A line beside them always says they are not allergen information
+and to ask dining staff about allergies, and the dialog says the feed lists no
+allergens. Dine On Campus may carry allergens (#119 item H).
+
 ## The snapshot
 
 ```
@@ -184,7 +234,8 @@ is missing.
     weekly_hours: { Monday: "7:00 AM - 9:00 PM", Saturday: "Hours not listed" | "Closed", ... }, timezone,
     meal: "Menus: breakfast, lunch, dinner" | "Menu not posted yet" | "Retail dining, no posted menu",
     menusPublished,
-    menus: [{ meal: "breakfast" | "lunch" | "dinner" | ..., stations: [{ name, everyday, items: [{ name, calories, icons }] }] }],
+    menus: [{ meal: "breakfast" | "lunch" | "dinner" | ..., stations: [{ name, everyday,
+      items: [{ name, calories, icons, id?, serving?, protein?, carbs?, fat?, sodium?, thumb?, desc? }] }] }],
     stations: [{ name, items: [{ name, calories, icons, meals }] }],   (deprecated: every meal merged)
     menu_source: { last_updated, stale, reason: null | "empty_week" | "not_updated" } | null,   (null for retail)
     warnings?
@@ -250,7 +301,9 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   and synthetic edge cases), the snapshot for both halls with an injected
   fetch, the week cache (one download per meal for a week's seven dates,
   shared concurrent misses, TTL, forced refresh, the 24-week bound), the
-  missing-day rule, the freshness flags, the cache
+  missing-day rule, the freshness flags, the compact facts and the dish
+  lookup (`findDiningFood`, including a week that expired before its date),
+  the cache
   (status recomputed per read, date rollover, stale-on-outage, short retry,
   per-date entries and the 16-date bound, one crawl for concurrent misses, the
   refresh floor) and the `clampDiningDate` window.
@@ -258,7 +311,11 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   default meal on campus time.
 - `boilerindy-react/src/lib/dining.test.ts`: status line (the "not known"
   state included), status dots, week grid cells, per-meal menus and the
-  specials split, empty states, directions URL, campus weekday, header pill.
+  specials split, the diet filters and their storage, the nutrition rows,
+  empty states, directions URL, campus weekday, header pill.
+  `boilerindy-react/src/components/DishDialog.test.tsx`: the dish dialog.
+  `test/routes/dining.test.mjs`: the dish read's limiters, cache headers and
+  errors.
 - `e2e/dining.spec.js`: the page against the mocked snapshot, including a
   Saturday with a posted menu, the meal tabs on a fixed clock, the official
   menu link and a stale feed's notice, the feed-down and stale states and

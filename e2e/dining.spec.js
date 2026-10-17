@@ -193,6 +193,33 @@ test.describe('Campus dining', () => {
     await expect(page.locator('[data-dining-feed-stale]')).toHaveCount(0)
   })
 
+  test('a dish opens its details, and the diet filters narrow the menu (issue #468)', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/dining')
+
+    await page.locator('[data-dining-station="Daily Grill"]').getByRole('button', { name: 'Silver Star Burger', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Silver Star Burger' })
+    await expect(dialog).toContainText('Daily Grill · 1 each · 190 cal')
+    await expect(dialog.locator('[data-dish-nutrition]')).toContainText('Saturated fat')
+    await expect(dialog.locator('[data-dish-nutrition]')).toContainText('4.9 g')
+    await expect(dialog).toContainText('Beef Patty')
+    await expect(dialog).toContainText('The feed lists no allergens')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+
+    // Filters: the feed's diet labels, with the allergen caveat beside them.
+    await expect(page.locator('[data-dining-diet-note]')).toContainText('not allergen information')
+    await page.locator('[data-dining-diet-filter="Vegan"]').click()
+    await expect(page.locator('[data-dining-station="Salad Bar"]')).toContainText('Baby Spinach')
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toHaveCount(0)
+    // Remembered on this device.
+    await page.reload()
+    await expect(page.locator('[data-dining-diet-filter="Vegan"]')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toHaveCount(0)
+    await page.locator('[data-dining-diet-filter="Vegan"]').click()
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toBeVisible()
+  })
+
   test('starring an item lists it under favorites and survives a reload', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/dining')

@@ -36,7 +36,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createClubDirectoryCache } from './src/boilerlinkClubs.mjs'
 import { loadVapidKeys } from './src/webPush.mjs'
 import { describeFailure } from './src/cronTick.mjs'
-import { getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
+import { findDiningFood, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { createGroqClient } from './src/groqClient.mjs'
 import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
@@ -529,7 +529,7 @@ try {
 // declared further down would not be initialized yet when these lines run.
 app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
-app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot }))
+app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood }))
 
 // Everything below runs behind the cookie session.
 app.use(

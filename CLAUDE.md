@@ -25,8 +25,8 @@ rights to the BoilerIndy name or logo.
   mounted where their routes used to be, with absolute paths inside.
   `docs/api-routes.md` is the generated inventory of every route and the file
   it lives in (`pnpm run docs:routes`; `test/apiRoutesDoc.test.mjs` fails when
-  it is stale). The eight session-free public reads (transit, parking, clubs,
-  push config, dining, campus news) are registered ahead of `app.use(session(...))` with a
+  it is stale). The nine session-free public reads (transit, parking, clubs,
+  push config, dining and its dish details, campus news) are registered ahead of `app.use(session(...))` with a
   `Cache-Control` header so Vercel's edge can cache them; `test/publicReadKey.test.mjs`
   pins that block.
 - `src/*.mjs`: backend modules, camelCase, named exports. Anything that needs a

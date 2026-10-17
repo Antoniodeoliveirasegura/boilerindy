@@ -25,8 +25,12 @@ export const QUERY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
  */
 export const MAX_RETRY_WAIT_MS = 30_000
 
-/** Public keys that are never written to storage: live positions are stale after 10 s and would only paint yesterday's buses. */
-const NEVER_PERSISTED = [['transit', 'vehicles']] as const
+/**
+ * Public keys that are never written to storage: live positions are stale
+ * after 10 s and would only paint yesterday's buses, and a dish's details
+ * (issue #468) are opened a few at a time and would only pile up.
+ */
+const NEVER_PERSISTED = [['transit', 'vehicles'], ['dining', 'food']] as const
 
 /**
  * Minted per build in vite.config.js (`define`). Every deploy discards the

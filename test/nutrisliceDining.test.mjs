@@ -22,11 +22,14 @@ import {
   __resetDiningCacheForTests,
   buildDiningBase,
   clampDiningDate,
+  DESC_CHARS,
   EVERYDAY_MIN_OTHER_DAYS,
   EVERYDAY_MIN_OVERLAP,
   deriveStatusFromSchool,
   everydayStations,
   extractWeeklyHours,
+  findDiningFood,
+  foodDetail,
   formatClock12,
   getDiningSnapshot,
   hasPublishedFood,
@@ -37,6 +40,7 @@ import {
   pickSchools,
   processWeek,
   renderSnapshot,
+  shortDescription,
   shouldSkipSection,
   stationFoods,
   todayYmdInZone,
@@ -59,6 +63,9 @@ const WEEKEND_LUNCH = load('nutrislice-tower-lunch-weekend.json')
 // Breakfast for the same week: Breakfast Entree Line on weekdays (it rotates)
 // and Grill Breakfast Options every day (it does not).
 const WEEKEND_BREAKFAST = load('nutrislice-tower-breakfast-weekend.json')
+// The same lunch week with the food fields the detail read uses, foods kept on
+// Tuesday 10-13 and Wednesday 10-14 only (issue #468).
+const DETAILS_LUNCH = load('nutrislice-tower-lunch-details.json')
 const ALL_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 // Indianapolis is UTC-4 in September and October; 2026-09-09 is a Wednesday
@@ -279,7 +286,22 @@ test('ingestMenuStations keeps stations in order, skips condiments and dedupes r
     ['Homestyle', 'Daily Grill', 'Pizza', 'Hasta La Pasta', 'Salad Bar', 'Dessert', 'Innovation'],
   )
   const grill = stations.find((s) => s.name === 'Daily Grill')
-  assert.deepEqual(grill.items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'], meals: ['lunch'] })
+  // This fixture keeps only name, calories and icons, so the compact facts of
+  // issue #468 are there and null.
+  assert.deepEqual(grill.items[0], {
+    name: 'Silver Star Burger',
+    calories: 190,
+    icons: ['Avoiding Gluten', 'Good Source of Protein'],
+    id: 1929009,
+    serving: null,
+    protein: null,
+    carbs: null,
+    fat: null,
+    sodium: null,
+    thumb: null,
+    desc: null,
+    meals: ['lunch'],
+  })
   // "Crushed Red Pepper" is listed under Pizza and again under Hasta La Pasta; it stays with the first.
   assert.ok(stations.find((s) => s.name === 'Pizza').items.some((i) => i.name === 'Crushed Red Pepper'))
   assert.ok(!stations.find((s) => s.name === 'Hasta La Pasta').items.some((i) => i.name === 'Crushed Red Pepper'))
@@ -408,7 +430,7 @@ test('buildDiningBase fetches menus for the dining hall only, and renderSnapshot
   assert.deepEqual(t.menus.map((m) => m.meal), ['lunch'])
   assert.equal(t.menus[0].stations.length, 7)
   assert.ok(t.menus[0].stations.every((s) => s.everyday === false))
-  assert.deepEqual(t.menus[0].stations[1].items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] })
+  assert.deepEqual(t.menus[0].stations[1].items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'], id: 1929009 })
   assert.equal(cc.slug, 'campus-center')
   assert.equal(cc.kind, 'retail')
   assert.equal(cc.address, '420 University Blvd, Indianapolis, IN 46202')
@@ -764,7 +786,7 @@ test('weekStartYmd gives the Sunday that starts a date\'s week', () => {
   assert.equal(weekStartYmd('nope'), null)
 })
 
-test('processWeek keeps the week as small rows: headers, and foods with id, name, calories and icons', () => {
+test('processWeek keeps the week as small rows: headers, and each food once, cut to what the menu and the detail read use', () => {
   const raw = {
     last_updated: '2026-10-10T04:26:22Z',
     days: [
@@ -780,8 +802,8 @@ test('processWeek keeps the week as small rows: headers, and foods with id, name
             food: {
               id: 7,
               name: 'Silver Star Burger',
-              description: 'kept out for now',
-              rounded_nutrition_info: { calories: 190, g_protein: 17 },
+              description: 'kept for the detail read',
+              rounded_nutrition_info: { calories: 190, g_protein: 17, re_vitamin_a: 3 },
               icons: { food_icons: [{ enabled: true, synced_name: 'Avoiding Gluten', name: 'AG', slug: 'ag', custom_icon_url: 'y.png' }] },
             },
           },
@@ -795,17 +817,21 @@ test('processWeek keeps the week as small rows: headers, and foods with id, name
   const week = processWeek(raw)
   assert.equal(week.lastUpdated, '2026-10-10T04:26:22Z')
   assert.deepEqual([...week.days.keys()], ['2026-10-14', '2026-10-15'])
-  assert.deepEqual(week.days.get('2026-10-14'), [
-    { is_section_title: true, is_station_header: true, text: 'Daily Grill' },
-    {
-      food: {
-        id: 7,
-        name: 'Silver Star Burger',
-        rounded_nutrition_info: { calories: 190 },
-        icons: { food_icons: [{ enabled: true, synced_name: 'Avoiding Gluten', name: 'AG', slug: 'ag' }] },
-      },
-    },
-  ])
+  const [header, burger] = week.days.get('2026-10-14')
+  assert.deepEqual(header, { is_section_title: true, is_station_header: true, text: 'Daily Grill' })
+  assert.equal(week.days.get('2026-10-14').length, 2)
+  assert.equal(burger.food.id, 7)
+  assert.equal(burger.food.name, 'Silver Star Burger')
+  assert.equal(burger.food.description, 'kept for the detail read')
+  assert.equal(burger.food.rounded_nutrition_info.calories, 190)
+  assert.equal(burger.food.rounded_nutrition_info.g_protein, 17)
+  assert.equal(burger.food.rounded_nutrition_info.g_fat, null)
+  assert.ok(!('re_vitamin_a' in burger.food.rounded_nutrition_info))
+  assert.deepEqual(burger.food.icons, { food_icons: [{ enabled: true, synced_name: 'Avoiding Gluten', name: 'AG', slug: 'ag' }] })
+  assert.ok(!('custom_icon_url' in burger.food.icons.food_icons[0]))
+  // The food is kept once for the week, and every row points at that one object.
+  assert.equal(week.foods.size, 1)
+  assert.equal(week.foods.get('id:7'), burger.food)
   assert.deepEqual(week.days.get('2026-10-15'), [])
   assert.equal(processWeek(null).lastUpdated, null)
 })
@@ -927,4 +953,99 @@ test('a week with no food at any meal is flagged empty_week, and an outage is no
   const [d] = renderSnapshot(await buildDiningBase(SCHOOLS, '2026-10-14', { fetchImpl: down.fetchImpl }), at('12:00', '2026-10-14')).locations
   assert.deepEqual(d.menu_source, { last_updated: null, stale: false, reason: null })
   assert.deepEqual(d.warnings, ['menu_dinner_503', 'menu_breakfast_503', 'menu_lunch_503'])
+})
+
+// ── Dish details (issue #468) ───────────────────────────────────────────────
+
+const detailsDistrict = (url) => {
+  if (url.includes('/menu/api/schools/')) return SCHOOLS
+  if (url.includes('/tower-dining/menu-type/lunch/')) return DETAILS_LUNCH
+  return 404
+}
+
+test('shortDescription cuts at a word with an ellipsis and keeps short text as it is', () => {
+  assert.equal(DESC_CHARS, 140)
+  assert.equal(shortDescription('  Crispy   chicken  '), 'Crispy chicken')
+  const long = 'A crispy fried chicken thigh tossed in a sticky honey garlic glaze, served with scallions and toasted sesame seeds, a Tower favorite on Wednesdays.'
+  assert.ok(long.length > 140)
+  const cut = shortDescription(long)
+  assert.ok(cut.length <= 141, cut)
+  assert.ok(cut.endsWith('…'))
+  assert.ok(long.startsWith(cut.slice(0, -1)))
+  assert.ok(!/\s…$/.test(cut))
+  assert.equal(shortDescription(''), null)
+  assert.equal(shortDescription(null), null)
+})
+
+test('per-meal items carry the compact facts, and leave out the ones a food does not have', async () => {
+  const { fetchImpl } = stubFetch(detailsDistrict)
+  const base = await buildDiningBase(SCHOOLS, '2026-10-14', { fetchImpl })
+  const [t] = renderSnapshot(base, at('12:00', '2026-10-14')).locations
+  const items = t.menus[0].stations.flatMap((st) => st.items)
+  const chicken = items.find((i) => i.name === 'Honey Garlic Fried Chicken')
+  assert.equal(chicken.id, 2577937)
+  assert.equal(chicken.serving, '6 oz')
+  assert.equal(typeof chicken.calories, 'number')
+  assert.equal(typeof chicken.protein, 'number')
+  assert.match(chicken.thumb, /^https:\/\/.+220x0/)
+  assert.ok(chicken.desc && chicken.desc.length <= DESC_CHARS + 1)
+  const burger = items.find((i) => i.name === 'Silver Star Burger')
+  assert.equal(burger.serving, '1 each')
+  assert.ok(!('thumb' in burger))
+  assert.ok(!('desc' in burger))
+  // The deprecated merged list keeps its old shape.
+  assert.deepEqual(Object.keys(t.stations[0].items[0]).sort(), ['calories', 'icons', 'meals', 'name'])
+})
+
+test('foodDetail is everything the dialog shows, nutrition without the empty values', () => {
+  const day = DETAILS_LUNCH.days.find((d) => d.date === '2026-10-14')
+  const raw = day.menu_items.find((r) => r.food?.name === 'Honey Garlic Fried Chicken').food
+  const detail = foodDetail({ ...raw, rounded_nutrition_info: { ...raw.rounded_nutrition_info, g_trans_fat: null } })
+  assert.equal(detail.id, 2577937)
+  assert.equal(detail.name, 'Honey Garlic Fried Chicken')
+  assert.equal(detail.serving, '6 oz')
+  assert.match(detail.image, /1024x0/)
+  assert.match(detail.thumb, /220x0/)
+  assert.ok(detail.description)
+  assert.ok(detail.ingredients)
+  assert.ok(Array.isArray(detail.icons))
+  assert.equal(detail.nutrition.calories, raw.rounded_nutrition_info.calories)
+  assert.ok(!('g_trans_fat' in detail.nutrition))
+  assert.ok(!('re_vitamin_a' in detail.nutrition))
+})
+
+test('findDiningFood finds a dish on that day\'s menu, and nothing that is not on it', async () => {
+  const { fetchImpl, calls } = stubFetch(detailsDistrict)
+  const now = at('12:00', '2026-10-14')
+  const chicken = await findDiningFood(2577937, '2026-10-14', { now, fetchImpl })
+  assert.equal(chicken.name, 'Honey Garlic Fried Chicken')
+  assert.equal(chicken.serving, '6 oz')
+  // Building the date's snapshot filled the week cache: the next dish is free.
+  const before = calls.length
+  const burger = await findDiningFood(1929009, '2026-10-14', { now, fetchImpl })
+  assert.equal(burger.name, 'Silver Star Burger')
+  assert.equal(calls.length, before)
+  // Tuesday's Chili Lime Chicken is in the week but not on Wednesday's menu.
+  assert.equal(await findDiningFood(3001083, '2026-10-14', { now, fetchImpl }), null)
+  assert.equal((await findDiningFood(3001083, '2026-10-13', { now, fetchImpl })).name, 'Chili Lime Chicken')
+  assert.equal(await findDiningFood(1, '2026-10-14', { now, fetchImpl }), null)
+})
+
+test('findDiningFood loads the week again when it expired before the date\'s snapshot', async () => {
+  process.env.NUTRISLICE_CACHE_MS = String(60 * 60 * 1000)
+  const { fetchImpl, calls } = stubFetch(detailsDistrict)
+  // Tuesday's crawl at 08:00 fetches the week; Wednesday's at 08:30 reuses it.
+  await getDiningSnapshot({ now: at('08:00', '2026-10-14'), fetchImpl, date: '2026-10-13' })
+  await getDiningSnapshot({ now: at('08:30', '2026-10-14'), fetchImpl, date: '2026-10-14' })
+  const lunchFetches = () => calls.filter((u) => u.includes('/menu-type/lunch/')).length
+  assert.equal(lunchFetches(), 1)
+  // At 09:15 Wednesday's snapshot is still cached but the week has expired.
+  const chicken = await findDiningFood(2577937, '2026-10-14', { now: at('09:15', '2026-10-14'), fetchImpl })
+  assert.equal(chicken.name, 'Honey Garlic Fried Chicken')
+  assert.equal(lunchFetches(), 2)
+})
+
+test('findDiningFood answers null while Nutrislice is down with nothing cached', async () => {
+  const { fetchImpl } = stubFetch(() => 503)
+  assert.equal(await findDiningFood(2577937, '2026-10-14', { now: at('12:00', '2026-10-14'), fetchImpl }), null)
 })

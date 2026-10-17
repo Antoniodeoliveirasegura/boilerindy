@@ -1,7 +1,35 @@
 // Client-side types and pure helpers for the Dining page (issue #119). The
 // shapes mirror renderSnapshot() in src/nutrisliceDining.mjs on the server.
 
-export type MenuItem = { name: string; calories?: number | null; icons?: string[] }
+export type MenuItem = {
+  name: string
+  calories?: number | null
+  icons?: string[]
+  // The compact facts of issue #468, on per-meal menu items only; absent when the feed has none.
+  id?: number
+  serving?: string
+  protein?: number
+  carbs?: number
+  fat?: number
+  sodium?: number
+  /** 220 px photo. */
+  thumb?: string
+  /** The description, cut for the list; the detail read has it whole. */
+  desc?: string
+}
+
+/** GET /api/dining/foods/:id (issue #468): one dish, as the detail view shows it. */
+export type DishDetail = {
+  id: number
+  name: string
+  description: string | null
+  image: string | null
+  thumb: string | null
+  serving: string | null
+  ingredients: string | null
+  icons: string[]
+  nutrition: Record<string, number>
+}
 /** `everyday`: the station serves the same food all week (issue #466); absent means it changes. */
 export type Station = { name: string; everyday?: boolean; items: MenuItem[] }
 /** One meal's whole menu (issue #466). */
@@ -177,4 +205,105 @@ export function snapshotWeekday(snapshot: Pick<DiningSnapshot, 'weekday'> | null
 export function headerBlurb(loc: Pick<DiningLocation, 'hours' | 'weekly_hours' | 'meal'>, weekday: string): string {
   const today = loc.weekly_hours?.[weekday] || loc.hours || 'Hours not posted'
   return `Today: ${today}${loc.meal ? ` · ${loc.meal}` : ''}`
+}
+
+// ── Diet filters and dish details (issue #468) ─────────────────────────────
+
+/**
+ * The diet labels the menu can be filtered by: the feed's own names. They are
+ * not allergen information, and the feed carries none, which the page says
+ * next to them.
+ */
+export const DIET_FILTERS = ['Vegetarian', 'Vegan', 'Avoiding Gluten'] as const
+export type DietFilter = (typeof DIET_FILTERS)[number]
+
+export const DIET_LABEL_NOTE =
+  'Diet labels come from the dining menu feed. They are not allergen information: the feed lists no allergens, so ask dining staff about allergies.'
+
+/** The stations with only the items that carry every chosen label; stations left empty are dropped. */
+export function filterStations(stations: Station[], filters: readonly string[]): Station[] {
+  if (!filters.length) return stations
+  return stations
+    .map((station) => ({ ...station, items: station.items.filter((item) => filters.every((f) => item.icons?.includes(f))) }))
+    .filter((station) => station.items.length > 0)
+}
+
+// Per device, not per user: the page is public (signed-out visitors filter
+// too), and a diet label is a preference, not account data.
+export const DIET_FILTERS_KEY = 'boilerindy-dining-diet-filters-v1'
+
+/** The saved filters, or none when storage is missing, throws or holds anything unexpected. */
+export function readDietFilters(storage: Pick<Storage, 'getItem'> | null = safeLocalStorage()): DietFilter[] {
+  try {
+    const parsed: unknown = JSON.parse(storage?.getItem(DIET_FILTERS_KEY) ?? '[]')
+    return Array.isArray(parsed) ? DIET_FILTERS.filter((f) => parsed.includes(f)) : []
+  } catch {
+    return []
+  }
+}
+
+export function writeDietFilters(filters: readonly string[], storage: Pick<Storage, 'setItem'> | null = safeLocalStorage()): void {
+  try {
+    storage?.setItem(DIET_FILTERS_KEY, JSON.stringify(DIET_FILTERS.filter((f) => filters.includes(f))))
+  } catch {
+    // Private mode or a full quota: the filter still works for this visit.
+  }
+}
+
+function safeLocalStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}
+
+export type NutritionRow = { key: string; label: string; value: string }
+
+// Nutrislice's keys, in label order, with the units the feed uses. Values are
+// shown as published; some rows are implausible, so nothing ranks dishes by them.
+const NUTRITION_FACTS: { key: string; label: string; unit: string; minor?: boolean }[] = [
+  { key: 'calories', label: 'Calories', unit: '' },
+  { key: 'g_fat', label: 'Total fat', unit: 'g' },
+  { key: 'g_saturated_fat', label: 'Saturated fat', unit: 'g' },
+  { key: 'g_trans_fat', label: 'Trans fat', unit: 'g' },
+  { key: 'mg_cholesterol', label: 'Cholesterol', unit: 'mg' },
+  { key: 'mg_sodium', label: 'Sodium', unit: 'mg' },
+  { key: 'g_carbs', label: 'Carbohydrates', unit: 'g' },
+  { key: 'g_fiber', label: 'Fiber', unit: 'g' },
+  { key: 'g_sugar', label: 'Sugars', unit: 'g' },
+  { key: 'g_added_sugar', label: 'Added sugars', unit: 'g' },
+  { key: 'g_protein', label: 'Protein', unit: 'g' },
+  { key: 'mg_potassium', label: 'Potassium', unit: 'mg', minor: true },
+  { key: 'mg_calcium', label: 'Calcium', unit: 'mg', minor: true },
+  { key: 'mg_iron', label: 'Iron', unit: 'mg', minor: true },
+  { key: 'iu_vitamin_a', label: 'Vitamin A', unit: 'IU', minor: true },
+  { key: 'mg_vitamin_c', label: 'Vitamin C', unit: 'mg', minor: true },
+  { key: 'mcg_vitamin_d', label: 'Vitamin D', unit: 'mcg', minor: true },
+]
+
+function formatAmount(value: number, unit: string): string {
+  const rounded = Math.round(value * 10) / 10
+  return unit ? `${rounded} ${unit}` : String(rounded)
+}
+
+/** The nutrition table: the main facts, then vitamins and minerals, only the values the feed has. */
+export function nutritionRows(nutrition: Record<string, number> | null | undefined): { main: NutritionRow[]; minor: NutritionRow[] } {
+  const rows = { main: [] as NutritionRow[], minor: [] as NutritionRow[] }
+  for (const fact of NUTRITION_FACTS) {
+    const value = nutrition?.[fact.key]
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    rows[fact.minor ? 'minor' : 'main'].push({ key: fact.key, label: fact.label, value: formatAmount(value, fact.unit) })
+  }
+  return rows
+}
+
+/** "Protein 17 g · Carbs 0 g · Fat 13 g · Sodium 53 mg" from an item's compact facts, or '' when it has none. */
+export function macroLine(item: Pick<MenuItem, 'protein' | 'carbs' | 'fat' | 'sodium'>): string {
+  const parts: string[] = []
+  if (item.protein != null) parts.push(`Protein ${formatAmount(item.protein, 'g')}`)
+  if (item.carbs != null) parts.push(`Carbs ${formatAmount(item.carbs, 'g')}`)
+  if (item.fat != null) parts.push(`Fat ${formatAmount(item.fat, 'g')}`)
+  if (item.sodium != null) parts.push(`Sodium ${formatAmount(item.sodium, 'mg')}`)
+  return parts.join(' · ')
 }

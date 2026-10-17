@@ -2,7 +2,7 @@ import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery,
 import { QUERY_CACHE_MAX_AGE_MS } from '../queryClient'
 import { buildClubsQuery, CLUBS_PAGE_SIZE, type ClubSearchParams, type ClubSearchResult } from '../clubs'
 import type { CampusNews } from '../campusNews'
-import type { DiningSnapshot } from '../dining'
+import type { DiningSnapshot, DishDetail } from '../dining'
 import type { ParkingSnapshot } from '../parking'
 
 // The public reads through the query cache (issue #251). Keys, stale
@@ -116,6 +116,21 @@ export const diningQuery = queryOptions({
   gcTime: PUBLIC_GC_TIME_MS,
 })
 
+// One dish's details (issue #468), fetched when the dish is opened. Kept in
+// memory only (NEVER_PERSISTED in queryClient.ts): a visit opens a handful,
+// and they would only pile up in storage.
+export const DINING_FOOD_STALE_MS = 10 * 60_000
+
+export function diningFoodQuery(id: number, date: string) {
+  return queryOptions({
+    queryKey: ['dining', 'food', id, date] as const,
+    queryFn: ({ signal }) =>
+      fetchJson<{ ok: true; date: string; food: DishDetail }>(`/api/dining/foods/${id}?date=${encodeURIComponent(date)}`, { signal }),
+    staleTime: DINING_FOOD_STALE_MS,
+    gcTime: PUBLIC_GC_TIME_MS,
+  })
+}
+
 // The Circuit's headlines (issue #470). The server refreshes the feed at most
 // once an hour, so half an hour here is fresh enough. An answer without news
 // (the feed was down) is stale at once, so the next visit asks again instead
@@ -181,6 +196,9 @@ export const useTransitRoutes = () => useQuery(transitRoutesQuery)
 export const useTransitStops = () => useQuery(transitStopsQuery)
 export const useTransitVehicles = () => useQuery(transitVehiclesQuery)
 export const useDining = () => useQuery(diningQuery)
+/** A dish's details; nothing is fetched until there is an id and a date. */
+export const useDiningFood = (id: number | null | undefined, date: string | null | undefined) =>
+  useQuery({ ...diningFoodQuery(id ?? 0, date ?? ''), enabled: id != null && Boolean(date) })
 export const useCampusNews = () => useQuery(campusNewsQuery)
 export const useParking = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...parkingQuery, enabled })
 export const useClubSearch = (params: Omit<ClubSearchParams, 'page'>) => useInfiniteQuery(clubSearchQuery(params))
