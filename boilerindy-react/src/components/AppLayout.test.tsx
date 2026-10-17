@@ -33,7 +33,7 @@ afterEach(cleanup)
 function renderLayout(value: typeof auth.value, path = '/events') {
   auth.value = value
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]} useTransitions={false}>
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/events" element={<p>page outlet</p>} />

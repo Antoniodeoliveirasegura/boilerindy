@@ -8,6 +8,7 @@ import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
 import PurdueEmailVerification from '../components/PurdueEmailVerification'
 import StatusBanner from '../components/StatusBanner'
+import WithSupportLink from '../components/WithSupportLink'
 import { invalidateUserQueries } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
 
@@ -309,7 +310,7 @@ export default function ConnectSchedule() {
   const bannerEl = banner && (
     <div ref={bannerRef} className="scroll-mt-24">
       <StatusBanner tone={bannerType === 'success' || bannerType === 'error' ? bannerType : 'info'} className="mb-6">
-        {banner}
+        <WithSupportLink text={banner} />
       </StatusBanner>
     </div>
   )

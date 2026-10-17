@@ -23,7 +23,7 @@ afterEach(() => {
 
 function ui() {
   return (
-    <MemoryRouter>
+    <MemoryRouter useTransitions={false}>
       <CampusAssistant />
     </MemoryRouter>
   )
@@ -62,7 +62,7 @@ function NavButtons() {
 
 function renderOnSchedule() {
   return render(
-    <MemoryRouter initialEntries={['/dashboard', '/schedule']} initialIndex={1}>
+    <MemoryRouter initialEntries={['/dashboard', '/schedule']} initialIndex={1} useTransitions={false}>
       <NavButtons />
       <CampusAssistant />
     </MemoryRouter>,

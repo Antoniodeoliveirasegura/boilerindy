@@ -15,7 +15,7 @@ afterEach(cleanup)
 
 it('labels the Purdue release email field', async () => {
   render(
-    <MemoryRouter>
+    <MemoryRouter useTransitions={false}>
       <AdminOverview />
     </MemoryRouter>,
   )

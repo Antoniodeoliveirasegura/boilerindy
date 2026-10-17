@@ -17,7 +17,7 @@ afterEach(() => {
 
 function renderNotice() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter useTransitions={false}>
       <SourceErrorNotice />
     </MemoryRouter>,
   )

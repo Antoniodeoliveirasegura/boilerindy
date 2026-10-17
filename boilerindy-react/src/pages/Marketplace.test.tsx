@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, render as renderUi, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import Marketplace from './Marketplace'
 import { authRequest } from '../lib/authApi'
 
@@ -28,7 +29,11 @@ const REPORT_REASONS = 'Why are you reporting this listing?'
 // The Report and Block actions refresh per-user queries, so the page needs a client.
 function render(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return renderUi(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return renderUi(
+    <MemoryRouter useTransitions={false}>
+      <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+    </MemoryRouter>,
+  )
 }
 
 function refusal(status: number, message: string) {

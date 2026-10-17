@@ -60,7 +60,7 @@ function HistoryBack() {
 // Opened from the landing page, so one Back should return to "/".
 function renderAt(entry: string) {
   return render(
-    <MemoryRouter initialEntries={['/', entry]} initialIndex={1}>
+    <MemoryRouter initialEntries={['/', entry]} initialIndex={1} useTransitions={false}>
       <Routes>
         <Route path="/" element={<p>Landing</p>} />
         <Route path="/advertise" element={<AdvertiserLogin />} />

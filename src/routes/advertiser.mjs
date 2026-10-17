@@ -94,6 +94,8 @@ function campaignFieldsToColumns(fields) {
  *   { sent: false, skipped: true } when email is not configured (src/email.mjs)
  * @param {string}   deps.clientAppUrl                     the frontend origin the reset link points at
  * @param {boolean}  deps.isProduction                     whether an undelivered reset link must stay out of the log
+ * @param {Function} [deps.isEmailConfigured]              () => whether Resend is set up; in production a
+ *   forgot-password with no way to send the link answers 503 instead of a 200 that promises an email
  */
 export function createAdvertiserRouter({
   supabase,
@@ -104,6 +106,7 @@ export function createAdvertiserRouter({
   sendAdvertiserPasswordResetEmail,
   clientAppUrl,
   isProduction,
+  isEmailConfigured = () => true,
 }) {
   const router = express.Router()
 
@@ -226,8 +229,9 @@ export function createAdvertiserRouter({
   })
 
   // ── Password reset (forgot-password) ─────────────────────────────────────────
-  // Self-serve, isolated from student auth. forgot-password ALWAYS responds 200
-  // (never reveals whether an email has an account); reset-password validates a
+  // Self-serve, isolated from student auth. forgot-password answers the same for
+  // every address (never reveals whether an email has an account): 200, or 503
+  // in production when no email can be sent at all; reset-password validates a
   // single-use, 1h token whose SHA-256 hash is stored in advertiser_password_resets.
 
   async function createAdvertiserResetToken(advertiserId) {
@@ -263,6 +267,15 @@ export function createAdvertiserRouter({
       input = normalizeForgotPasswordInput(req.body)
     } catch (error) {
       return res.status(400).json({ error: { message: error.message, status: 400 } })
+    }
+
+    // Checked before the lookup, so the 503 is the same for every address and
+    // still says nothing about which ones have an account.
+    if (isProduction && !isEmailConfigured()) {
+      console.error('[advertiser reset] email is not configured; no reset link can be sent')
+      return res.status(503).json({
+        error: { message: 'Password reset email is unavailable right now. Please contact support to reset your password.', status: 503 },
+      })
     }
 
     const { advertiser, error } = await getAdvertiserByEmail(input.email)

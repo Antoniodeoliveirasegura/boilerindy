@@ -32,10 +32,11 @@ rights to the BoilerIndy name or logo.
 - `src/*.mjs`: backend modules, camelCase, named exports. Anything that needs a
   test lives here with a matching `test/<name>.test.mjs` (node:test, run with
   `pnpm test:backend`), and the route handler stays thin. The
-  shared modules the frontend also imports (`dashboardLayout.mjs`,
-  `servicesLayout.mjs`, `boardLimits.mjs`, `contentReports.mjs`,
-  `degreePrograms.mjs`, `purdueMajors.mjs`, `gradeTracker.mjs`) keep the browser
-  and the API on one set of values.
+  shared modules the frontend also imports, directly or through one another
+  (`dashboardLayout.mjs`, `servicesLayout.mjs`, `widgetLayout.mjs`,
+  `boardLimits.mjs`, `contentReports.mjs`, `httpGuards.mjs`,
+  `degreePrograms.mjs`, `purdueMajors.mjs`, `gradeTracker.mjs`,
+  `sentryScrub.mjs`) keep the browser and the API on one set of values.
 - `src/dbErrors.mjs` and `docs/api-error-codes.md`: the error envelope
   `{ error: { message, status, code? } }` every new route answers with; a
   missing table answers 503 with `<feature>_schema_missing`.
@@ -75,7 +76,9 @@ rights to the BoilerIndy name or logo.
   applied file in place.
 - Frontend logic: `lib/` with a colocated `*.test.ts`; components and pages get
   `*.test.tsx` next to them (Vitest and Testing Library, `pnpm -C
-  boilerindy-react test`).
+  boilerindy-react test`). A test's router is
+  `<MemoryRouter useTransitions={false}>`, like the `BrowserRouter` in
+  `App.tsx`; lint fails on a router without it.
 - Route guards: every app route in `App.tsx` is wrapped in `RequireAuth`
   except the public preview (issue #366), `/dining` and `/transit`, listed in
   `lib/publicPreview.ts`. Signed out, AppLayout shows the preview bar there
@@ -107,6 +110,8 @@ rights to the BoilerIndy name or logo.
   `boilerindy-react/` (separate lockfile). Never `npm install`.
 - LF line endings everywhere.
 - Lint must be error-clean; the React Compiler advisory rules stay warnings.
+- `AGENTS.md` repeats the first three rules, the `develop` base and the CI
+  mirror below for agents that read only that file; change it with them.
 
 ## Workflow
 

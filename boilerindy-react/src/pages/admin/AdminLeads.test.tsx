@@ -27,7 +27,7 @@ afterEach(cleanup)
 
 function renderLeads() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter useTransitions={false}>
       <AdminLeads />
     </MemoryRouter>,
   )

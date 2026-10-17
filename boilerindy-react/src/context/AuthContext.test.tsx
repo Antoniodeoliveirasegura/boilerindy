@@ -344,7 +344,7 @@ describe('sign-out clears per-user caches (issues #219, #294)', () => {
 describe('useSignOutAndRedirect', () => {
   const routed = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/settings']}>
+      <MemoryRouter initialEntries={['/settings']} useTransitions={false}>
         <AuthProvider>{children}</AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>

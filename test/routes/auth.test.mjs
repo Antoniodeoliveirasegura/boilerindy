@@ -1278,7 +1278,9 @@ test('delete-account needs DELETE typed and the password, then removes the Auth 
       error: { message: 'Type DELETE in the confirmation box to permanently delete your account.', status: 400 },
     })
     const noPassword = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
-    assert.deepEqual(noPassword.body, { error: { message: 'Please enter your password to confirm deletion.', status: 400 } })
+    assert.deepEqual(noPassword.body, {
+      error: { message: 'Enter your password, or confirm with Google, to delete your account.', status: 400, code: 'reauth-required' },
+    })
     const wrong = await call('POST', '/api/me/delete-account', { cookie, body: { password: 'wrong password', confirmation: 'DELETE' } })
     assert.deepEqual(wrong.body, { error: { message: 'Password is incorrect.', status: 400 } })
     assert.deepEqual(authCalls, [])
@@ -1297,6 +1299,105 @@ test('delete-account needs DELETE typed and the password, then removes the Auth 
     assert.deepEqual(invalidated, [U1])
     assert.deepEqual(await sessions(), [])
     assert.deepEqual((await call('GET', '/api/session', { cookie })).body, { authenticated: false, session: null })
+  })
+})
+
+test('delete-account takes an asked-for Google sign-in in place of a password, never the one that opened the session', async () => {
+  const googleToken = (secondsAgo) => {
+    const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const timestamp = Math.floor(Date.now() / 1000) - secondsAgo
+    return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp }] })}.sig`
+  }
+  const login = googleToken(30)
+  const unasked = googleToken(20)
+  const again = googleToken(0)
+  const tokens = { [login]: TOKEN_USER, [unasked]: TOKEN_USER, [again]: TOKEN_USER }
+  const body = { supabaseUserId: U1, email: 'pete@example.com', provider: 'google' }
+  const google = { ...STUDENT, auth_provider: 'google' }
+  await withApp({ seed: { users: [google] }, tokens }, async ({ call, db, authCalls }) => {
+    // Just signed in with Google: the cookie alone must not be enough.
+    const signedIn = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${login}` } })
+    const cookie = signedIn.cookie
+    const refused = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
+    assert.equal(refused.status, 400)
+    assert.equal(refused.body.error.code, 'reauth-required')
+
+    // A newer Google sign-in nobody asked for does not count either.
+    await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${unasked}` } })
+    assert.equal((await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })).status, 400)
+
+    // Asked for, a token refresh still carries the old sign-in and changes nothing.
+    assert.equal((await call('POST', '/api/me/provider-confirm')).status, 401)
+    assert.deepEqual((await call('POST', '/api/me/provider-confirm', { cookie })).body, { ok: true })
+    await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${unasked}` } })
+    assert.equal((await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })).status, 400)
+    assert.equal(db.users.length, 1)
+
+    // Signing in with Google again after asking confirms it.
+    const confirmed = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${again}` } })
+    assert.equal(confirmed.body.reused, true)
+    const res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(authCalls.filter(([method]) => method === 'deleteUser'), [['deleteUser', U1]])
+    assert.deepEqual(db.users, [])
+  })
+})
+
+test('a Confirm with Google ask expires: a Google sign-in long after it does not count', async () => {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const fresh = `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp: Math.floor(Date.now() / 1000) }] })}.sig`
+  const body = { supabaseUserId: U1, email: 'pete@example.com', provider: 'google' }
+  const google = { ...STUDENT, auth_provider: 'google' }
+  await withApp({ seed: { users: [google] }, tokens: { [fresh]: TOKEN_USER } }, async ({ call, sessionFor, sessions, db }) => {
+    const longAgo = Date.now() - 11 * 60 * 1000
+    const cookie = await sessionFor({ userId: U1, providerSignInAt: longAgo - 60 * 1000, providerConfirmAskedAt: longAgo })
+    const synced = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${fresh}` } })
+    assert.equal(synced.body.reused, true)
+    const [stored] = await sessions()
+    assert.equal(stored.providerConfirmedAt, undefined)
+    assert.equal(stored.providerConfirmAskedAt, undefined, 'the abandoned ask is used up')
+    const refused = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE' } })
+    assert.equal(refused.body.error.code, 'reauth-required')
+    assert.equal(db.users.length, 1)
+  })
+})
+
+// Google can return any account signed in to the browser. Picking another one
+// while confirming switched this browser to it, or created it.
+test('while a Confirm with Google is pending, a sign-in as another account is refused, switching and creating nothing', async () => {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const googleToken = (who) =>
+    `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'oauth', timestamp: Math.floor(Date.now() / 1000) }], who })}.sig`
+  const otherToken = googleToken('other')
+  const strangerToken = googleToken('stranger')
+  const tokens = { [otherToken]: { id: U2, email: 'other@example.com' }, [strangerToken]: { id: U3, email: 'new@example.com' } }
+  const asOther = { supabaseUserId: U2, email: 'other@example.com', provider: 'google' }
+  const asStranger = { supabaseUserId: U3, email: 'new@example.com', provider: 'google' }
+  const users = [{ ...STUDENT, auth_provider: 'google' }, { ...OTHER, auth_provider: 'google' }]
+  await withApp({ seed: { users }, tokens }, async ({ call, sessionFor, sessions, db }) => {
+    const cookie = await sessionFor({ userId: U1, providerConfirmAskedAt: Date.now() })
+    for (const [token, body] of [[otherToken, asOther], [strangerToken, asStranger]]) {
+      const res = await call('POST', '/api/auth/supabase-sync', { cookie, body, headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(res.status, 409)
+      assert.deepEqual(res.body, {
+        error: {
+          message: 'That Google account is not the one signed in here, so nothing was confirmed.',
+          status: 409,
+          code: 'provider-confirm-mismatch',
+        },
+      })
+    }
+    // Nobody was created, and this browser is still Pete's, still waiting.
+    assert.deepEqual(db.users.map((u) => u.id), [U1, U2])
+    const [stored] = await sessions()
+    assert.equal(stored.userId, U1)
+    assert.equal(typeof stored.providerConfirmAskedAt, 'number')
+
+    // With no confirmation waiting, signing in as someone else works as before.
+    const plain = await sessionFor({ userId: U1 })
+    const switched = await call('POST', '/api/auth/supabase-sync', { cookie: plain, body: asOther, headers: { Authorization: `Bearer ${otherToken}` } })
+    assert.equal(switched.status, 200)
+    assert.equal(switched.body.session.user.id, U2)
   })
 })
 
@@ -1337,7 +1438,11 @@ test('PATCH profile refuses a bad name and an email or password change without t
       const res = await call('PATCH', '/api/me/profile', { cookie, body })
       assert.equal(res.status, 400)
       assert.deepEqual(res.body, {
-        error: { message: 'Please enter your current password to change your email or password.', status: 400 },
+        error: {
+          message: 'Enter your current password, or confirm with Google, to change your email or password.',
+          status: 400,
+          code: 'reauth-required',
+        },
       })
     }
     const wrong = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: NEW_PASSWORD, currentPassword: 'nope nope' } })
@@ -1388,6 +1493,70 @@ test('PATCH profile changes the login email in Auth too, after checking the curr
     assert.equal(res.body.user.email, 'pete2@example.com')
     assert.deepEqual(authCalls, [['updateUserById', U1, { email: 'pete2@example.com', email_confirm: true }]])
     assert.equal(db.users[0].email, 'pete2@example.com')
+  })
+})
+
+test('PATCH profile lets a Google account set a first password and change its email after confirming with Google', async () => {
+  const google = { ...STUDENT, auth_provider: 'google' }
+  await withApp({ seed: { users: [google] } }, async ({ call, sessionFor, authCalls, db }) => {
+    const loginOnly = await sessionFor({ userId: U1, providerSignInAt: Date.now() - 60 * 1000 })
+    const stale = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() - 11 * 60 * 1000 })
+    for (const before of [loginOnly, stale]) {
+      const refused = await call('PATCH', '/api/me/profile', { cookie: before, body: { newPassword: NEW_PASSWORD } })
+      assert.equal(refused.body.error.code, 'reauth-required')
+    }
+    assert.deepEqual(authCalls, [])
+
+    const cookie = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() - 60 * 1000 })
+    const short = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: 'short' } })
+    assert.deepEqual(short.body, { error: { message: 'New password must be at least 8 characters.', status: 400 } })
+    const set = await call('PATCH', '/api/me/profile', { cookie, body: { newPassword: NEW_PASSWORD } })
+    assert.equal(set.status, 200)
+    assert.deepEqual(authCalls, [['updateUserById', U1, { password: NEW_PASSWORD }]])
+    assert.ok(isRecent(db.users[0].password_changed_at))
+
+    const moved = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'pete2@example.com' } })
+    assert.equal(moved.status, 200)
+    assert.equal(db.users[0].email, 'pete2@example.com')
+
+    // An autofilled current password does not override the Google confirmation.
+    const autofilled = await call('PATCH', '/api/me/profile', {
+      cookie,
+      body: { email: 'pete3@example.com', currentPassword: 'autofilled', newPassword: 'another-password' },
+    })
+    assert.equal(autofilled.status, 200)
+    assert.equal(db.users[0].email, 'pete3@example.com')
+    assert.deepEqual(authCalls.at(-2), ['updateUserById', U1, { password: 'another-password' }])
+  })
+})
+
+test('password-reset-complete stamps the change, keeps this session and ends older ones; only a recent reset link may ask', async () => {
+  const tokenWith = (method, secondsAgo) => {
+    const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const timestamp = Math.floor(Date.now() / 1000) - secondsAgo
+    return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method, timestamp }] })}.sig`
+  }
+  const recent = tokenWith('recovery', 60)
+  const old = tokenWith('recovery', 2 * 60 * 60)
+  const password = tokenWith('password', 60)
+  const tokens = { [recent]: TOKEN_USER, [old]: TOKEN_USER, [password]: TOKEN_USER }
+  const OLD_AUTH_AT = '2026-01-01T00:00:00.000Z'
+  await withApp({ seed: { users: [STUDENT] }, tokens }, async ({ call, sessionFor, db }) => {
+    const none = await call('POST', '/api/auth/password-reset-complete')
+    assert.equal(none.status, 401)
+    for (const token of [old, password]) {
+      const refused = await call('POST', '/api/auth/password-reset-complete', { headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(refused.status, 403)
+    }
+    assert.equal(db.users[0].password_changed_at, null)
+
+    const here = await sessionFor({ userId: U1, authAt: OLD_AUTH_AT })
+    const elsewhere = await sessionFor({ userId: U1, authAt: OLD_AUTH_AT })
+    const res = await call('POST', '/api/auth/password-reset-complete', { cookie: here, headers: { Authorization: `Bearer ${recent}` } })
+    assert.equal(res.status, 200)
+    assert.ok(isRecent(db.users[0].password_changed_at))
+    assert.equal((await call('GET', '/api/me/profile', { cookie: here })).status, 200)
+    assert.equal((await call('GET', '/api/me/profile', { cookie: elsewhere })).status, 401)
   })
 })
 

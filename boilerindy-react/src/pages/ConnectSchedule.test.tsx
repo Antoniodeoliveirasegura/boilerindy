@@ -47,7 +47,7 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/setup']}>
+      <MemoryRouter initialEntries={['/setup']} useTransitions={false}>
         <ConnectSchedule />
       </MemoryRouter>
     </QueryClientProvider>,

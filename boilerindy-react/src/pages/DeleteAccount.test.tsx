@@ -20,7 +20,7 @@ beforeEach(() => {
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]} useTransitions={false}>
       <DeleteAccount />
     </MemoryRouter>,
   )
@@ -89,10 +89,10 @@ describe('DeleteAccount page', () => {
 
 // Issue #365 - only email and Google sign-in are enabled.
 describe('DeleteAccount sign-in providers', () => {
-  test('tells provider sign-ups without a password to use email, naming only Google', () => {
+  test('tells provider sign-ups without a password to confirm with Google, naming only Google', () => {
     const { container } = renderAt('/delete-account')
     const text = container.textContent || ''
-    expect(text).toMatch(/signed up with a sign-in provider such as Google and never set a password/)
+    expect(text).toMatch(/signed up with a sign-in provider such as Google and never set a password, choose Confirm with Google/)
     expect(text).not.toMatch(/Apple|GitHub|Discord/)
   })
 })
