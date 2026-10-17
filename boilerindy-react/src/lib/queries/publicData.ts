@@ -2,7 +2,7 @@ import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery,
 import { QUERY_CACHE_MAX_AGE_MS } from '../queryClient'
 import { buildClubsQuery, CLUBS_PAGE_SIZE, type ClubSearchParams, type ClubSearchResult } from '../clubs'
 import type { CampusNews } from '../campusNews'
-import type { DiningSnapshot, DishDetail } from '../dining'
+import type { DiningSnapshot, DiningUpcoming, DishDetail } from '../dining'
 import type { ParkingSnapshot } from '../parking'
 
 // The public reads through the query cache (issue #251). Keys, stale
@@ -131,6 +131,18 @@ export function diningFoodQuery(id: number, date: string) {
   })
 }
 
+// What is coming up on the menus (issue #469): headliners about six weeks out
+// and this week's specials. The server caches the digest for 12 h, so half an
+// hour here is plenty fresh. Persisted like the snapshot.
+export const DINING_UPCOMING_STALE_MS = 30 * 60_000
+
+export const diningUpcomingQuery = queryOptions({
+  queryKey: ['dining', 'upcoming'] as const,
+  queryFn: ({ signal }) => fetchJson<DiningUpcoming>('/api/dining/upcoming', { signal }),
+  staleTime: DINING_UPCOMING_STALE_MS,
+  gcTime: PUBLIC_GC_TIME_MS,
+})
+
 // The Circuit's headlines (issue #470). The server refreshes the feed at most
 // once an hour, so half an hour here is fresh enough. An answer without news
 // (the feed was down) is stale at once, so the next visit asks again instead
@@ -196,6 +208,7 @@ export const useTransitRoutes = () => useQuery(transitRoutesQuery)
 export const useTransitStops = () => useQuery(transitStopsQuery)
 export const useTransitVehicles = () => useQuery(transitVehiclesQuery)
 export const useDining = () => useQuery(diningQuery)
+export const useDiningUpcoming = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...diningUpcomingQuery, enabled })
 /** A dish's details; nothing is fetched until there is an id and a date. */
 export const useDiningFood = (id: number | null | undefined, date: string | null | undefined) =>
   useQuery({ ...diningFoodQuery(id ?? 0, date ?? ''), enabled: id != null && Boolean(date) })

@@ -7,7 +7,7 @@ import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useQueryClient } from '@tanstack/react-query'
-import { ApiError, refreshDining, useDining } from '../lib/queries/publicData'
+import { ApiError, refreshDining, useDining, useDiningUpcoming } from '../lib/queries/publicData'
 import {
   ALL_MEALS,
   DIET_FILTERS,
@@ -17,10 +17,13 @@ import {
   SHORT_DAY,
   WEEKDAY_ORDER,
   diningDirectionsUrl,
+  comingUpLine,
   emptyMenuState,
+  favoritesComingUp,
   feedNotice,
   filterStations,
   headerBlurb,
+  headlinersFor,
   locationMenus,
   readDietFilters,
   snapshotWeekday,
@@ -276,6 +279,8 @@ export default function Dining() {
   // answer back into it.
   const queryClient = useQueryClient()
   const diningQuery = useDining()
+  // What is coming up (issue #469): the headliner photos and favorites to come.
+  const upcomingQuery = useDiningUpcoming()
   const [refreshing, setRefreshing] = useState(false)
   // Why the last Refresh click failed, shown until a later fetch (a refetch on
   // focus, the next Refresh) lands newer data than the failure.
@@ -425,6 +430,10 @@ export default function Dining() {
   }
 
   const favoritesToday = useMemo(() => favoritesOnTodaysMenu(favorites, live?.locations || []), [favorites, live])
+  const comingUp = useMemo(
+    () => favoritesComingUp(favorites, upcomingQuery.data, upcomingQuery.data?.today, normalizeItemName),
+    [favorites, upcomingQuery.data],
+  )
 
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
   const withHours = locations.filter((l) => l.weekly_hours)
@@ -452,6 +461,18 @@ export default function Dining() {
   const specials = filterStations(split.specials, dietFilters)
   const everyday = filterStations(split.everyday, dietFilters)
   const filteredOut = Boolean(activeMenu) && specials.length === 0 && everyday.length === 0
+
+  // Today's headline dishes for the meal on screen (issue #469), only for the
+  // snapshot of today. A headliner on the menu opens its details.
+  const headliners = activeMenu && live?.date === upcomingQuery.data?.today ? headlinersFor(upcomingQuery.data, live?.date, activeMenu.meal) : []
+  const menuItemNamed = (name: string): { item: MenuItem; station: string } | null => {
+    const key = normalizeItemName(name)
+    for (const station of activeMenu?.stations ?? []) {
+      const item = station.items.find((it) => normalizeItemName(it.name) === key)
+      if (item) return { item, station: station.name }
+    }
+    return null
+  }
 
   // The dish whose details are open (issue #468).
   const [openDish, setOpenDish] = useState<{ item: MenuItem; station: string; trigger: HTMLElement } | null>(null)
@@ -532,6 +553,33 @@ export default function Dining() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Favorites coming up (issue #469): the next time each starred dish is on. */}
+      {signedIn && comingUp.length > 0 && upcomingQuery.data?.today && (
+        <div className="card card-pad r-din mb-4 animate-fade-in-up" data-dining-coming-up>
+          <div className="card-head mb-2">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <span className="card-title">Favorites coming up</span>
+          </div>
+          <div>
+            {comingUp.slice(0, 6).map((entry) => (
+              <div key={entry.name} className="flex items-center justify-between gap-3 py-2 border-t border-[var(--color-border)] first:border-t-0">
+                <span className="font-display font-semibold text-[14px] text-[var(--color-txt-0)]">
+                  {comingUpLine(entry, upcomingQuery.data!.today!)}
+                </span>
+                <span className="text-[12.5px] text-[var(--color-txt-2)] text-right shrink-0">
+                  {mealLabel(entry.meal)}, {entry.location}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[12px] text-[var(--color-txt-3)]">
+            Menus more than a week out are drafts and can still change.
+          </p>
         </div>
       )}
 
@@ -728,6 +776,54 @@ export default function Dining() {
                         </button>
                       ))}
                     </div>
+                  )}
+                  {/* Today's headline dishes for this meal, with their photos (issue #469). */}
+                  {headliners.length > 0 && (
+                    <section className="mb-4" aria-label="Today's headliners" data-dining-headliners>
+                      <p className="eyebrow bare mb-2">Today&apos;s headliners</p>
+                      <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
+                        {headliners.map((dish) => {
+                          const onMenu = menuItemNamed(dish.name)
+                          const inner = (
+                            <>
+                              {dish.image ? (
+                                <img
+                                  src={dish.image}
+                                  alt=""
+                                  width={176}
+                                  height={132}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className="block w-full aspect-[4/3] object-cover rounded-[var(--radius-md)] bg-[var(--color-stat)]"
+                                />
+                              ) : (
+                                <span className="grid place-items-center w-full aspect-[4/3] rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-3)]">
+                                  <Icon name="dining" size={22} />
+                                </span>
+                              )}
+                              <span className="mt-1.5 block font-display font-semibold text-[13.5px] leading-snug text-[var(--color-txt-0)]">
+                                {dish.name}
+                              </span>
+                            </>
+                          )
+                          return onMenu ? (
+                            <button
+                              key={dish.name}
+                              type="button"
+                              onClick={(e) => openItem(onMenu.item, onMenu.station, e.currentTarget)}
+                              className="w-[176px] shrink-0 self-start text-left"
+                              data-dining-headliner={dish.name}
+                            >
+                              {inner}
+                            </button>
+                          ) : (
+                            <div key={dish.name} className="w-[176px] shrink-0 self-start" data-dining-headliner={dish.name}>
+                              {inner}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </section>
                   )}
                   {/* Diet filters, with the allergen caveat always beside them (issue #468). */}
                   <div className="mb-4" data-dining-diet>

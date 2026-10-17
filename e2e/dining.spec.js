@@ -220,6 +220,41 @@ test.describe('Campus dining', () => {
     await expect(page.locator('[data-dining-station="Daily Grill"]')).toBeVisible()
   })
 
+  test('today\'s headliners show with the meal, and a starred dish coming back is listed (issue #469)', async ({ page, mockApi }) => {
+    await page.clock.setFixedTime(new Date('2026-09-09T12:30:00-04:00'))
+    mockApi.login()
+    mockApi.seedDiningUpcoming({
+      ok: true,
+      today: '2026-09-09',
+      days: [
+        {
+          date: '2026-09-09',
+          tentative: false,
+          holiday: null,
+          meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [{ name: 'Silver Star Burger', image: null }, { name: 'Pasta Primavera', image: null }], specials: [] }],
+        },
+        { date: '2026-09-10', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Veggie Burger', image: null }], specials: [] }] },
+        { date: '2026-10-08', tentative: true, holiday: null, meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [{ name: 'Baby Spinach', image: null }], specials: [] }] },
+      ],
+    })
+    await page.goto('/dining')
+
+    const strip = page.locator('[data-dining-headliners]')
+    await expect(strip).toContainText('Silver Star Burger')
+    await expect(strip).toContainText('Pasta Primavera')
+    // A headliner on the menu opens its details.
+    await strip.getByRole('button', { name: 'Silver Star Burger' }).click()
+    await expect(page.getByRole('dialog', { name: 'Silver Star Burger' })).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Add Veggie Burger to favorites' }).first().click()
+    await page.getByRole('button', { name: 'Add Baby Spinach to favorites' }).first().click()
+    const card = page.locator('[data-dining-coming-up]')
+    await expect(card).toContainText('Veggie Burger is back tomorrow')
+    await expect(card).toContainText('Baby Spinach: Thu, Oct 8 (tentative)')
+    await expect(card).toContainText('Menus more than a week out are drafts')
+  })
+
   test('starring an item lists it under favorites and survives a reload', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/dining')

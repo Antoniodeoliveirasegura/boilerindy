@@ -11,8 +11,9 @@ import { DINING_FAVORITES_CAP_MESSAGE, MAX_DINING_FAVORITES, capCheck } from '..
 // edge can cache it (issue #250), while the favorites need the session.
 
 /**
- * GET /api/dining, the public menu snapshot, and GET /api/dining/foods/:id,
- * one dish's details (issue #468). server.mjs mounts this in its
+ * GET /api/dining, the public menu snapshot, GET /api/dining/foods/:id, one
+ * dish's details (issue #468), and GET /api/dining/upcoming, what is coming
+ * up (issue #469). server.mjs mounts this in its
  * public reads block, before the session middleware, where the route used to
  * be registered, so the response never carries the session cookie. Paths stay
  * absolute (`/api/dining`) so docs/RATE_LIMITS.md and its guard test read the
@@ -25,8 +26,10 @@ import { DINING_FAVORITES_CAP_MESSAGE, MAX_DINING_FAVORITES, capCheck } from '..
  *   because server.mjs also hands it to the assistant
  * @param {Function} deps.findDiningFood        findDiningFood from src/nutrisliceDining.mjs, for the
  *   dish details read (issue #468)
+ * @param {Function} deps.getDiningUpcoming     getDiningUpcoming from src/diningHeadliners.mjs, for the
+ *   look-ahead read (issue #469)
  */
-export function createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood }) {
+export function createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }) {
   const router = express.Router()
 
   async function handleDining(req, res) {
@@ -89,8 +92,25 @@ export function createDiningPublicRouter({ publicReadIpRateLimit, publicReadRate
     }
   }
 
+  // GET /api/dining/upcoming, what is coming up on the menus (issue #469): the
+  // digest's headliners about six weeks out and this week's specials, for the
+  // headliners tile and "favorites coming up". The digest is cached for 12 h
+  // in the module, so the edge may keep an answer for half an hour.
+  async function handleDiningUpcoming(_req, res) {
+    try {
+      const data = await getDiningUpcoming()
+      res.set('Cache-Control', data.ok ? 'public, max-age=600, s-maxage=1800' : 'no-store')
+      res.json(data)
+    } catch (error) {
+      console.error('Nutrislice upcoming error:', error)
+      res.set('Cache-Control', 'no-store')
+      res.status(500).json({ error: { message: 'Could not load what is coming up. Try again in a moment.', status: 500, code: 'dining_internal' } })
+    }
+  }
+
   router.get('/api/dining', publicReadIpRateLimit, publicReadRateLimit, handleDining)
   router.get('/api/dining/foods/:id', publicReadIpRateLimit, publicReadRateLimit, handleDiningFood)
+  router.get('/api/dining/upcoming', publicReadIpRateLimit, publicReadRateLimit, handleDiningUpcoming)
 
   return router
 }

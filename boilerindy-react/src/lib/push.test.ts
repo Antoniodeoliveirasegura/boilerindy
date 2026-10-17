@@ -181,7 +181,8 @@ describe('push API wrappers', () => {
     )
     await expect(fetchPushSettings()).resolves.toEqual({
       enabled: true,
-      settings: { deadlineReminders: false, leadMinutes: 120 },
+      settings: { deadlineReminders: false, leadMinutes: 120, diningFavoriteAlerts: false },
+      diningAlertsAvailable: false,
       subscriptions,
       notConfiguredMessage: null,
     })
@@ -204,10 +205,25 @@ describe('push API wrappers', () => {
     )
     await expect(fetchPushSettings()).resolves.toEqual({
       enabled: false,
-      settings: { deadlineReminders: true, leadMinutes: 60 },
+      settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false },
+      diningAlertsAvailable: false,
       subscriptions: [],
       notConfiguredMessage: 'Push tables are missing.',
     })
+  })
+
+  it('fetchPushSettings reads the favorite-dish switch and whether the server has it (issue #469)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        enabled: true,
+        settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: true },
+        diningAlertsAvailable: true,
+        subscriptions: [],
+      }),
+    )
+    const state = await fetchPushSettings()
+    expect(state.settings.diningFavoriteAlerts).toBe(true)
+    expect(state.diningAlertsAvailable).toBe(true)
   })
 
   it('fetchPushSettings rethrows any other failure', async () => {

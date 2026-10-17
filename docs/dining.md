@@ -224,6 +224,42 @@ is public). A line beside them always says they are not allergen information
 and to ask dining staff about allergies, and the dialog says the feed lists no
 allergens. Dine On Campus may carry allergens (#119 item H).
 
+## Headliners and what is coming up (issue #469)
+
+Nutrislice has a cheap digest: for one school, meal and week,
+`GET /menu/api/weeks/digest/school/<slug>/menu-type/<meal>/date/<y>/<m>/<d>/?format=json`
+answers Monday to Friday, each day's few headline dishes with their photos, in
+about 2.3 KB (`[{ date, menu_items: [names], images: [url or null],
+holiday_text }]`; weekends are not in it). `src/diningHeadliners.mjs` reads it
+for lunch and dinner, this week and the six after it, keyed by the week's
+Sunday and cached for `NUTRISLICE_CACHE_MS`, keeping the last good digest
+through an outage. Menus are posted about six weeks ahead (on 2026-10-17 they
+ran through 2026-11-27).
+
+`GET /api/dining/upcoming` (session-free, public-read limiter pair,
+`public, max-age=600, s-maxage=1800`) merges two sources from today on:
+
+```
+{ ok, today, days: [{ date, tentative, holiday, meals: [{ meal, location, headliners: [{ name, image }], specials: [name] }] }] }
+```
+
+- `headliners` from the digest (weekdays, lunch and dinner).
+- `specials` from the cached full week (`weekSpecials` in
+  `src/nutrisliceDining.mjs`): the rest of the current week only, every meal
+  and the weekend included, the dishes of the stations not flagged every day.
+  Beyond this week only the digest's headliners are known, so a starred soup
+  or dessert shows up there only within the week.
+- A day more than 7 days out is `tentative`: those menus are drafts.
+
+The page shows "Today's headliners", a photo strip for the meal on screen,
+when today is a day the digest covers (a headliner on the menu opens its
+details), and, signed in, "Favorites coming up": each starred dish's next day
+after today ("Jamaican Jerk Chicken is back tomorrow", "... is back Thursday",
+"Butter Chicken: Thu, Nov 19 (tentative)"). Home's smart alerts say when a
+favorite is on today's menu or tomorrow's. The once-a-day push for favorites
+is opt-in and lives with the other notifications (see
+[push-notifications.md](push-notifications.md#favorite-dish-alerts-issue-469)).
+
 ## The snapshot
 
 ```
@@ -309,6 +345,11 @@ NUTRISLICE_CACHE_MS=   # schools + menus cache in ms; default 43200000 (12 h)
   refresh floor) and the `clampDiningDate` window.
 - `test/diningMeals.test.mjs`: the meal windows, serving order and the
   default meal on campus time.
+- `test/diningHeadliners.test.mjs` against a real digest week
+  (`nutrislice-tower-digest-lunch.json`): the parser, this week's specials,
+  the merged look-ahead with its tentative days, the digest cache and outage.
+  `test/diningFavoriteAlerts.test.mjs`: the alert window, matching, copy, and
+  the run's claim, skip and not-configured paths.
 - `boilerindy-react/src/lib/dining.test.ts`: status line (the "not known"
   state included), status dots, week grid cells, per-meal menus and the
   specials split, the diet filters and their storage, the nutrition rows,

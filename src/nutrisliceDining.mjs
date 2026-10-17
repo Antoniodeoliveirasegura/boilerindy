@@ -498,7 +498,8 @@ export function pickSchools(allSchools) {
 
 // ── Fetch shell ─────────────────────────────────────────────────────────────
 
-async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
+/** GET a Nutrislice JSON path on the configured district: { ok, status, data }. Never throws. */
+export async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
   const url = `${apiBase()}${path.startsWith('/') ? path : `/${path}`}${path.includes('?') ? '&' : '?'}format=json`
   const controller = new AbortController()
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -944,6 +945,37 @@ export async function findDiningFood(foodId, ymd, { now = new Date(), fetchImpl 
     }
   }
   return null
+}
+
+/**
+ * The dishes that change from day to day (issue #469), for every day of the
+ * week of `fromYmd` from that day on: per dining hall and meal, the foods of
+ * the stations not flagged every day, read from the week cache that the
+ * date's snapshot fills. Returns [{ date, location, meal, dishes: [{ name,
+ * image }] }], `image` the 220 px photo or null.
+ */
+export async function weekSpecials(fromYmd, { now = new Date(), fetchImpl } = {}) {
+  const snapshot = await getDiningSnapshot({ date: fromYmd, now, fetchImpl })
+  const entry = entries.get(fromYmd)
+  if (!snapshot.ok || !entry?.base) return []
+  const out = []
+  for (const { spec, school, kind } of entry.base.entries) {
+    if (kind !== 'dining-hall') continue
+    for (const meal of mealSlugsForSchool(school)) {
+      const res = await loadWeek(school.slug, meal, fromYmd, { fetchImpl, cache: true, nowMs: now.getTime() })
+      if (!res.ok) continue
+      const days = [...res.week.days].map(([date, rows]) => ({ date, menu_items: rows }))
+      for (const { date, menu_items } of days) {
+        if (date < fromYmd) continue
+        const everyday = everydayStations(days, date)
+        const dishes = ingestMenuStations(menu_items, meal)
+          .filter((station) => !everyday.has(station.name))
+          .flatMap((station) => station.items.map((item) => ({ name: item.name, image: item.thumb })))
+        if (dishes.length) out.push({ date, location: school.name || spec.label, meal, dishes })
+      }
+    }
+  }
+  return out
 }
 
 export function __resetDiningCacheForTests() {

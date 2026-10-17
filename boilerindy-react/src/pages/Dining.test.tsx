@@ -475,3 +475,84 @@ describe('diet filters and dish details', () => {
     expect(screen.getByRole('button', { name: 'Black Bean Burger' })).toHaveFocus()
   })
 })
+
+// Issue #469: today's headliners for the meal on screen, and the favorites
+// coming up for a signed-in student.
+describe('headliners and favorites coming up', () => {
+  const tower = snapshot.locations[0]
+  const today = {
+    ...snapshot,
+    date: '2026-10-14',
+    weekday: 'Wednesday',
+    locations: [
+      {
+        ...tower,
+        menus: [
+          {
+            meal: 'lunch',
+            stations: [{ name: 'Homestyle', everyday: false, items: [{ id: 31, name: 'Honey Garlic Fried Chicken', calories: 326, icons: [] }] }],
+          },
+        ],
+      },
+    ],
+  }
+  const upcoming = {
+    ok: true,
+    today: '2026-10-14',
+    days: [
+      {
+        date: '2026-10-14',
+        tentative: false,
+        holiday: null,
+        meals: [
+          {
+            meal: 'lunch',
+            location: 'Tower Dining',
+            headliners: [
+              { name: 'Honey Garlic Fried Chicken', image: 'https://images.example.test/chicken.1024x0.jpg' },
+              { name: 'Fried Cauliflower', image: null },
+            ],
+            specials: [],
+          },
+        ],
+      },
+      { date: '2026-10-15', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Veggie Burger', image: null }], specials: [] }] },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.startsWith('/api/dining/upcoming')) return new Response(JSON.stringify(upcoming))
+      if (url.startsWith('/api/dining/foods/')) return new Response(JSON.stringify({ ok: true, date: '2026-10-14', food: { id: 31, name: 'Honey Garlic Fried Chicken', nutrition: {}, icons: [] } }))
+      return new Response(JSON.stringify(today))
+    })
+  })
+
+  it('shows today\'s headliners for the meal, and one on the menu opens its details', async () => {
+    renderDining()
+    const strip = await screen.findByRole('region', { name: "Today's headliners" })
+    expect(within(strip).getByText('Fried Cauliflower')).toBeInTheDocument()
+    expect(strip.querySelector('img')).toHaveAttribute('src', 'https://images.example.test/chicken.1024x0.jpg')
+    // Fried Cauliflower is not on this menu, so it is not a button.
+    expect(within(strip).queryByRole('button', { name: 'Fried Cauliflower' })).toBeNull()
+    fireEvent.click(within(strip).getByRole('button', { name: 'Honey Garlic Fried Chicken' }))
+    expect(screen.getByRole('dialog', { name: 'Honey Garlic Fried Chicken' })).toBeInTheDocument()
+  })
+
+  it('lists a starred dish that is coming back', async () => {
+    savedFavorites = ['veggie burger']
+    renderDining()
+    const card = await screen.findByText('Favorites coming up')
+    const section = card.closest('[data-dining-coming-up]') as HTMLElement
+    expect(within(section).getByText('Veggie Burger is back tomorrow')).toBeInTheDocument()
+    expect(within(section).getByText('Dinner, Tower Dining')).toBeInTheDocument()
+  })
+
+  it('shows neither to a signed-out visitor\'s favorites, which do not exist, but keeps the headliners', async () => {
+    auth.value = { loading: false, user: null }
+    renderDining()
+    expect(await screen.findByRole('region', { name: "Today's headliners" })).toBeInTheDocument()
+    expect(screen.queryByText('Favorites coming up')).toBeNull()
+  })
+})

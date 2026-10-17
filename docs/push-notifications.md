@@ -63,8 +63,8 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | Route | Purpose | Notes |
 |---|---|---|
 | `GET /api/push/config` | `{ enabled, publicKey }` | Public; `public-read` rate limit. |
-| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes }, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs. |
-| `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes? }` | `leadMinutes` 5 to 10080. `push-write` limit. Shared by browsers and phones. |
+| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts }, diningAlertsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs. |
+| `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts? }` | `leadMinutes` 5 to 10080. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
 | `POST /api/me/push-token` | Body `{ token, platform, deviceName? }`, returns 201 `{ device: { id, createdAt } }` | The native app. Upsert by token; at most 10 phones per user. `push-write` limit. See [Native devices (Expo)](#native-devices-expo). |
@@ -104,6 +104,31 @@ open `/settings`.
 A run handles at most 200 users and 300 sends; the cron comes back 5 minutes
 later for the rest. Subscriptions that a push service reports gone (404 or 410)
 are deleted on the spot; other failures increment `failure_count`.
+
+## Favorite dish alerts (issue #469)
+
+An opt-in second kind of push, off by default: at most one a day naming the
+student's favorite dishes (the stars on the Dining page) on that day's menu.
+
+- The switch is `push_settings.dining_favorite_alerts`, added by
+  `db/supabase-dining-favorite-alerts.sql` (README step 42). Until it runs the
+  Settings card shows the switch disabled ("Not available yet"), `GET
+  /api/push/settings` answers `diningAlertsAvailable: false`, turning it on
+  answers 503 `dining_alerts_schema_missing`, and the run skips the alerts.
+- No new cron job: the reminder tick runs `runDiningFavoriteAlerts`
+  (`src/diningFavoriteAlerts.mjs`) after the deadline reminders, and the
+  summary carries its counts under `dining`.
+- It sends from 8:00 AM to 7:00 PM campus time, once the day's menu is firm.
+  For each opted-in student it matches their favorites (normalized names)
+  against today's dining snapshot, every meal, and claims
+  `dining-favorites:<YYYY-MM-DD>` in `push_deliveries` before sending, so
+  overlapping runs send once. A student with no favorite on the menu is not
+  claimed, and the next tick checks again.
+- The payload: `{ "title": "Beef Stroganoff is on the menu today", "body":
+  "Beef Stroganoff (dinner, Tower Dining).", "url": "/dining", "tag":
+  "dining-favorites-<YYYY-MM-DD>", "kind": "dining-favorites" }`, three dishes
+  named at most, then "and N more". It goes to every browser and phone the
+  student has, through the same delivery path as the reminders.
 
 ## Native devices (Expo)
 

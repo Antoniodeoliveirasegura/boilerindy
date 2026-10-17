@@ -53,6 +53,8 @@ export default function PushNotificationsCard() {
   const [support] = useState<PushSupport>(() => describePushSupport(readPushSupportEnv()))
   const [permission, setPermission] = useState<NotificationPermission | null>(currentPermission)
   const [settings, setSettings] = useState<PushSettings>(DEFAULT_PUSH_SETTINGS)
+  // Favorite dish alerts need a server migration (issue #469).
+  const [diningAlertsAvailable, setDiningAlertsAvailable] = useState(false)
   const [deviceCount, setDeviceCount] = useState(0)
   const [thisDeviceOn, setThisDeviceOn] = useState(false)
   const [busy, setBusy] = useState<Busy>(null)
@@ -87,6 +89,7 @@ export default function PushNotificationsCard() {
         if (!active) return
       }
       setSettings(server.settings)
+      setDiningAlertsAvailable(server.diningAlertsAvailable)
       setDeviceCount(count)
       setThisDeviceOn(subscription !== null)
       setPhase({ kind: 'ready', publicKey: config.publicKey })
@@ -173,19 +176,14 @@ export default function PushNotificationsCard() {
     const previous = settings
     setSettings((current) => ({ ...current, ...patch }))
     setError('')
+    // Only the keys this change touched, so a quick second change is never clobbered.
+    const touched = (source: PushSettings) =>
+      Object.fromEntries((Object.keys(patch) as (keyof PushSettings)[]).map((key) => [key, source[key]])) as Partial<PushSettings>
     try {
       const saved = await savePushSettings(patch)
-      setSettings((current) => ({
-        ...current,
-        ...(patch.deadlineReminders !== undefined ? { deadlineReminders: saved.deadlineReminders } : {}),
-        ...(patch.leadMinutes !== undefined ? { leadMinutes: saved.leadMinutes } : {}),
-      }))
+      setSettings((current) => ({ ...current, ...touched(saved) }))
     } catch (err) {
-      setSettings((current) => ({
-        ...current,
-        ...(patch.deadlineReminders !== undefined ? { deadlineReminders: previous.deadlineReminders } : {}),
-        ...(patch.leadMinutes !== undefined ? { leadMinutes: previous.leadMinutes } : {}),
-      }))
+      setSettings((current) => ({ ...current, ...touched(previous) }))
       setError(errorText(err, 'Could not save your reminder settings.'))
     }
   }
@@ -314,6 +312,24 @@ export default function PushNotificationsCard() {
               ))}
             </select>
           </div>
+          <label className={`flex select-none items-start gap-3 ${diningAlertsAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+            <input
+              type="checkbox"
+              data-testid="push-dining-toggle"
+              checked={settings.diningFavoriteAlerts}
+              disabled={!diningAlertsAvailable}
+              onChange={(e) => updateSettings({ diningFavoriteAlerts: e.target.checked })}
+              className="mt-0.5 size-[18px] shrink-0 accent-[var(--color-txt-0)] disabled:opacity-50"
+            />
+            <span>
+              <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Favorite dishes</span>
+              <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]" data-testid="push-dining-note">
+                {diningAlertsAvailable
+                  ? 'One notification a day, in the morning, when dishes you starred on the Dining page are on the menu.'
+                  : 'Not available yet: the server has not been set up for it.'}
+              </span>
+            </span>
+          </label>
         </div>
 
         <button

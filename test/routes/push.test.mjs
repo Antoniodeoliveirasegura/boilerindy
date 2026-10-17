@@ -37,7 +37,7 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null } = {}, run) {
+async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot } = {}, run) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
@@ -68,6 +68,7 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       PUSH_CRON_SECRET: cronSecret,
       pushCronSecretMatches: (header) => Boolean(cronSecret) && header === `Bearer ${cronSecret}`,
       warnCronTransient: (route, error) => transientWarnings.push({ route, error }),
+      getDiningSnapshot,
       sendExpo,
     }),
   )
@@ -138,6 +139,7 @@ test("GET /api/push/settings answers the student's settings and devices, never c
     assert.deepEqual(res.body, {
       enabled: true,
       settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 120 }),
+      diningAlertsAvailable: true,
       subscriptions: [{ id: 's1', createdAt: '2026-10-01T00:00:00.000Z', userAgent: 'Safari', lastUsedAt: null }],
       devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z' }],
     })
@@ -193,13 +195,93 @@ test('PUT /api/push/settings validates the patch and keeps the field it does not
 
     const res = await call('PUT', '/api/push/settings', { deadlineReminders: false })
     assert.equal(res.status, 200)
-    assert.deepEqual(res.body, { settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 60 }) })
+    assert.deepEqual(res.body, { settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 60 }), diningAlertsAvailable: true })
     const upsert = supabase.queriesOf('push_settings').find((q) => operation(q.chain) === 'upsert')
     const [row, options] = upsert.chain.find((c) => c.method === 'upsert').args
-    assert.deepEqual({ ...row, updated_at: undefined }, { user_id: STUDENT.id, deadline_reminders: false, lead_minutes: 60, updated_at: undefined })
+    assert.deepEqual(
+      { ...row, updated_at: undefined },
+      { user_id: STUDENT.id, deadline_reminders: false, lead_minutes: 60, dining_favorite_alerts: false, updated_at: undefined },
+    )
     assert.ok(!Number.isNaN(Date.parse(row.updated_at)), 'updated_at is an ISO timestamp')
     assert.deepEqual(options, { onConflict: 'user_id' })
     assert.deepEqual(limiterHits, ['push-write PUT /api/push/settings', 'push-write PUT /api/push/settings'])
+  })
+})
+
+// Issue #469: the favorite-dish alerts switch is a column that
+// db/supabase-dining-favorite-alerts.sql adds.
+const settingsSelect = (chain) => chain.find((c) => c.method === 'select')?.args[0] || ''
+
+test('PUT /api/push/settings turns favorite-dish alerts on and keeps them through other changes', async () => {
+  let saved = { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: false }
+  const tables = {
+    push_settings: (chain) => {
+      if (operation(chain) === 'upsert') {
+        saved = chain.find((c) => c.method === 'upsert').args[0]
+        return { data: null, error: null }
+      }
+      return { data: saved, error: null }
+    },
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const on = await call('PUT', '/api/push/settings', { diningFavoriteAlerts: true })
+    assert.equal(on.status, 200)
+    assert.equal(on.body.settings.diningFavoriteAlerts, true)
+    assert.equal(saved.dining_favorite_alerts, true)
+    const lead = await call('PUT', '/api/push/settings', { leadMinutes: 30 })
+    assert.equal(lead.body.settings.diningFavoriteAlerts, true)
+    assert.equal(saved.dining_favorite_alerts, true)
+    const bad = await call('PUT', '/api/push/settings', { diningFavoriteAlerts: 'on' })
+    assert.equal(bad.status, 400)
+  })
+})
+
+test('before db/supabase-dining-favorite-alerts.sql runs, the settings work without the switch, which says it is not set up', async (t) => {
+  const log = t.mock.method(console, 'error', () => {})
+  const upserts = []
+  const tables = {
+    push_settings: (chain) => {
+      if (operation(chain) === 'upsert') {
+        upserts.push(chain.find((c) => c.method === 'upsert').args[0])
+        return { data: null, error: null }
+      }
+      if (settingsSelect(chain).includes('dining_favorite_alerts')) {
+        return { data: null, error: { code: '42703', message: 'column push_settings.dining_favorite_alerts does not exist' } }
+      }
+      return { data: { deadline_reminders: true, lead_minutes: 60 }, error: null }
+    },
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [], error: null }),
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const res = await call('GET', '/api/push/settings')
+    assert.equal(res.status, 200)
+    assert.equal(res.body.diningAlertsAvailable, false)
+    assert.equal(res.body.settings.diningFavoriteAlerts, false)
+
+    const on = await call('PUT', '/api/push/settings', { diningFavoriteAlerts: true })
+    assert.equal(on.status, 503)
+    assert.equal(on.body.error.code, 'dining_alerts_schema_missing')
+    assert.equal(upserts.length, 0)
+
+    const lead = await call('PUT', '/api/push/settings', { leadMinutes: 30 })
+    assert.equal(lead.status, 200)
+    assert.equal(lead.body.diningAlertsAvailable, false)
+    assert.deepEqual(Object.keys(upserts[0]).sort(), ['deadline_reminders', 'lead_minutes', 'updated_at', 'user_id'])
+  })
+  assert.match(String(log.mock.calls[0].arguments[0]), /db\/supabase-dining-favorite-alerts\.sql/)
+})
+
+test('the reminder run also runs the favorite-dish alerts when it has the dining snapshot', async () => {
+  const tables = {
+    push_settings: () => ({ data: [], error: null }),
+  }
+  const snapshots = []
+  await withApp({ tables, getDiningSnapshot: async (options) => (snapshots.push(options), { ok: true, locations: [] }) }, async ({ call }) => {
+    const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
+    assert.equal(res.status, 200)
+    assert.ok(res.body.dining, 'the summary carries the dining run')
+    assert.equal(typeof res.body.dining.sent, 'number')
   })
 })
 

@@ -30,6 +30,7 @@ answer stays on screen.
 | `['transit', 'vehicles']` | `GET /api/transit/vehicles` | 10 s | every 10 s while a Transit screen or the dashboard is open and the tab is visible |
 | `['dining']` | `GET /api/dining` | 5 min | none; the Dining page's Refresh button fetches `?refresh=1` and writes the answer into this entry |
 | `['dining', 'food', id, date]` | `GET /api/dining/foods/:id?date=` (#468) | 10 min | none; fetched when a dish is opened, kept in memory only (see below) |
+| `['dining', 'upcoming']` | `GET /api/dining/upcoming` (#469) | 30 min | none; the Dining page's headliners and favorites coming up, and Home's favorite alert |
 | `['parking']` | `GET /api/parking/garages` | 60 s | every 60 s while the parking page or the map's garage layer is open and the tab is visible |
 | `['clubs', filters]` | `GET /api/clubs?...` | 30 min | none; one entry per set of filters holds every page fetched so far, and "Show more" appends the next |
 | `['news', 'circuit']` | `GET /api/campus-news` | 30 min, or none for an answer with `ok: false` | none; read by the Campus news widget and the Clubs page (issue #470, [campus-news.md](campus-news.md)) |
@@ -61,6 +62,7 @@ rows, and the 30 s default stale time applies.
 | `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |
 | `['me', userId, 'blocks']` | `GET /api/me/blocks` | Settings, Blocked users (issue #192) |
 | `['me', userId, 'purdue-email']` | `GET /api/me/purdue-email/status` | The Purdue email card on Settings and setup (issue #181); no retries |
+| `['me', userId, 'dining-favorites']` | `GET /api/me/dining/favorites` | Home's favorite dish alert (issue #469); no retries. The Dining page reads the same route itself for its stars |
 
 Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
 lands in the cached metadata at once, after cancelling any metadata fetch in

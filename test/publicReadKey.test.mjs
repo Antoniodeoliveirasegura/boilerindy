@@ -58,6 +58,7 @@ const PUBLIC_READS = [
   '/api/push/config',
   '/api/dining',
   '/api/dining/foods/:id',
+  '/api/dining/upcoming',
   '/api/campus-news',
 ]
 

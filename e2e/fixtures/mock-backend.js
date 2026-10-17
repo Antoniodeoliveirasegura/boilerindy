@@ -44,7 +44,9 @@ function defaultOnboarding(overrides = {}) {
 function defaultPush(overrides = {}) {
   return {
     config: { enabled: true, publicKey: 'BNo-real-key-just-for-tests', ...(overrides.config || {}) },
-    settings: { deadlineReminders: true, leadMinutes: 60, ...(overrides.settings || {}) },
+    settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false, ...(overrides.settings || {}) },
+    // False mirrors a server before db/supabase-dining-favorite-alerts.sql (#469).
+    diningAlertsAvailable: overrides.diningAlertsAvailable !== false,
     subscriptions: (overrides.subscriptions || []).map((s, i) => ({
       id: s.id || `push-seed-${i + 1}`,
       endpoint: s.endpoint || `https://push.example/seed/${i + 1}`,
@@ -899,6 +901,10 @@ export const test = base.extend({
         if (seed.unavailable) return json(route, 200, unavailableDining())
         return json(route, 200, seed.snapshot || sampleDining())
       }
+      // What is coming up (#469): empty unless a spec seeds it.
+      if (pathname === '/api/dining/upcoming') {
+        return json(route, 200, state.diningUpcoming || { ok: true, today: '2026-09-09', days: [] })
+      }
       // One dish's details (#468), for the sample's dishes by id.
       const dishMatch = /^\/api\/dining\/foods\/(\d+)$/.exec(pathname)
       if (dishMatch && method === 'GET') {
@@ -1044,6 +1050,7 @@ export const test = base.extend({
         return json(route, 200, {
           enabled: state.push.config.enabled,
           settings: { ...state.push.settings },
+          diningAlertsAvailable: state.push.diningAlertsAvailable,
           subscriptions: state.push.subscriptions.map(({ id, createdAt, userAgent, lastUsedAt }) => ({
             id,
             createdAt,
@@ -1064,7 +1071,13 @@ export const test = base.extend({
           state.push.settings.leadMinutes = lead
         }
         if (b.deadlineReminders !== undefined) state.push.settings.deadlineReminders = Boolean(b.deadlineReminders)
-        return json(route, 200, { settings: { ...state.push.settings } })
+        if (b.diningFavoriteAlerts !== undefined) {
+          if (!state.push.diningAlertsAvailable) {
+            return json(route, 503, { error: { code: 'dining_alerts_schema_missing', message: 'Favorite dish alerts is not set up yet. Please try again later.', status: 503 } })
+          }
+          state.push.settings.diningFavoriteAlerts = Boolean(b.diningFavoriteAlerts)
+        }
+        return json(route, 200, { settings: { ...state.push.settings }, diningAlertsAvailable: state.push.diningAlertsAvailable })
       }
       if (pathname === '/api/push/subscriptions' && method === 'POST') {
         const { subscription, userAgent } = bodyOf()
@@ -1276,6 +1289,9 @@ export const test = base.extend({
       },
       seedDining({ snapshot = null, unavailable = false } = {}) {
         state.dining = { snapshot, unavailable }
+      },
+      seedDiningUpcoming(upcoming) {
+        state.diningUpcoming = upcoming
       },
       seedMarketplace({ listings, photosUnavailable } = {}) {
         if (listings) state.marketplace.listings = listings

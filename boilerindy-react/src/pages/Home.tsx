@@ -44,10 +44,11 @@ import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonHours, dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
-import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
-import { locationMenus, openState, splitStations, todaysMealHeading } from '../lib/dining'
+import { errorMessage, useDining, useDiningUpcoming, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { favoritesComingUp, locationMenus, openState, splitStations, todaysMealHeading } from '../lib/dining'
+import { favoritesOnTodaysMenu, normalizeItemName } from '../lib/diningFavorites'
 import { defaultMeal } from '../../../src/diningMeals.mjs'
-import { useMyCalendar, useMyClasses, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
+import { useMyCalendar, useMyClasses, useMyDiningFavorites, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
 import { taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import PageTitle from '../components/PageTitle'
 
@@ -894,6 +895,28 @@ export default function Home() {
     return mapped.slice(0, 5)
   }, [transitVehicles, transitStops, transitRouteMap, userLocation])
 
+  // A favorite dish on today's or tomorrow's menu (issue #469): the starred
+  // names against today's snapshot, then tomorrow in the look-ahead.
+  const diningFavoritesQuery = useMyDiningFavorites()
+  const upcomingQuery = useDiningUpcoming()
+  const favoriteDishAlert = useMemo(() => {
+    const favorites = new Set((diningFavoritesQuery.data ?? []).map(normalizeItemName).filter(Boolean))
+    if (!favorites.size) return null
+    const say = (names: string[], where: string, when: string) =>
+      names.length === 1
+        ? `${names[0]} is on the menu at ${where} ${when}`
+        : `${names[0]} and ${names.length - 1} more favorite${names.length > 2 ? 's' : ''} are on the menu at ${where} ${when}`
+    const snapshot = diningQuery.data as { ok?: boolean; locations?: Parameters<typeof favoritesOnTodaysMenu>[1] } | undefined
+    const today = favoritesOnTodaysMenu(favorites, snapshot?.ok ? snapshot.locations : [])
+    if (today.length) return say(today.map((f) => f.name), today[0].locations[0] || 'Tower Dining', 'today')
+    const upcoming = upcomingQuery.data
+    if (!upcoming?.today) return null
+    const [y, m, d] = upcoming.today.split('-').map(Number)
+    const tomorrow = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)
+    const soon = favoritesComingUp(favorites, upcoming, upcoming.today, normalizeItemName).filter((e) => e.date === tomorrow)
+    return soon.length ? say(soon.map((e) => e.name), soon[0].location, 'tomorrow') : null
+  }, [diningFavoritesQuery.data, diningQuery.data, upcomingQuery.data])
+
   const smartAlerts = useMemo(() => {
     // Each alert wears the line it belongs to. The sentence stays one text node.
     const alerts: Array<{ icon: string; route: string; text: string }> = []
@@ -945,6 +968,8 @@ export default function Home() {
       }
     }
 
+    if (favoriteDishAlert) alerts.push({ icon: 'star', route: 'r-din', text: favoriteDishAlert })
+
     // No buses running
     if (!transitLoading && transitVehicles.length === 0 && !transitError) {
       alerts.push({
@@ -955,7 +980,7 @@ export default function Home() {
     }
 
     return alerts.slice(0, 4)
-  }, [now, openTasks, scheduleState, diningStatus, transitLoading, transitVehicles, transitError])
+  }, [now, openTasks, scheduleState, diningStatus, favoriteDishAlert, transitLoading, transitVehicles, transitError])
 
   const quickActions = useMemo(
     () =>
