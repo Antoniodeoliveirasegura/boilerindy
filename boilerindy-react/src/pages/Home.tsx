@@ -36,6 +36,7 @@ import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import DashboardWidget from '../components/dashboard/DashboardWidget'
 import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import SponsoredWidget from '../components/dashboard/SponsoredWidget'
+import CampusNewsWidget from '../components/dashboard/CampusNewsWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { mapHrefForRoom } from '../lib/buildingCode'
@@ -43,8 +44,11 @@ import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonHours, dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
-import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
-import { useMyCalendar, useMyClasses, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
+import { errorMessage, useDining, useDiningUpcoming, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { favoritesComingUp, locationMenus, openState, splitStations, todaysMealHeading } from '../lib/dining'
+import { favoritesOnTodaysMenu, normalizeItemName } from '../lib/diningFavorites'
+import { defaultMeal } from '../../../src/diningMeals.mjs'
+import { useMyCalendar, useMyClasses, useMyDiningFavorites, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
 import { taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import PageTitle from '../components/PageTitle'
 
@@ -127,6 +131,23 @@ function isStillRelevantToday(item: any, now: Date) {
   }
   if (end) return end > now
   return start >= now
+}
+
+/**
+ * Events not over yet, for the free-time suggestion, which takes the first;
+ * the feed lists past events too, in no particular order. "Not over" is the
+ * Today's events rule (isStillRelevantToday), so an all-day event with no end
+ * time stays for its whole day. Events from today on come soonest first, and
+ * one still running from an earlier day (a week-long event) only after them:
+ * a social on right now beats tomorrow's event, tonight's beats a week-long one.
+ */
+function upcomingEventsFrom<T extends { startTime?: string | null }>(items: T[], now: Date): T[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startMs = (item: T) => new Date(item.startTime ?? '').getTime()
+  const fromEarlierDay = (item: T) => (startMs(item) < startOfToday ? 1 : 0)
+  return (items || [])
+    .filter((item) => item?.startTime && isStillRelevantToday(item, now))
+    .sort((a, b) => fromEarlierDay(a) - fromEarlierDay(b) || startMs(a) - startMs(b))
 }
 
 function filterTodayRelevantEvents(items: any[], now: Date) {
@@ -425,6 +446,16 @@ function formatSuggestionEventTiming(item: any, now: Date) {
     const t = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     return `Today · ${t}`
   }
+  // Still running from an earlier day (a week-long event): its start date read
+  // like an event in the past. An end at local midnight closes the day before.
+  if (end && start < now && end > now) {
+    const endsAtMidnight = end.getHours() === 0 && end.getMinutes() === 0
+    const lastDay = endsAtMidnight ? new Date(end.getTime() - 1) : end
+    if (isSameLocalDay(lastDay, now)) {
+      return endsAtMidnight ? 'On now · ends today' : `On now · until ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    }
+    return `On now · until ${lastDay.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+  }
   const dayPart = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
   const timePart = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   return `${dayPart} · ${timePart}`
@@ -481,8 +512,11 @@ function buildSuggestions({
     return list.slice(0, 3)
   }
 
-  // Good window - dining open?
-  if (diningStatus?.is_open && freeMinutes >= 25) {
+  // Good window - dining open? A status that is not known (is_open null: a
+  // menu is posted on a day the feed lists no hours for, issue #465) is never
+  // called closed.
+  const diningState = diningStatus ? openState(diningStatus) : null
+  if (diningState === 'open' && freeMinutes >= 25) {
     const hrs = diningStatus.hours && diningStatus.hours !== 'Closed today' ? diningStatus.hours : 'Open now'
     list.push({
       icon: 'dining',
@@ -490,7 +524,14 @@ function buildSuggestions({
       time: hrs,
       variant: 'dining-open',
     })
-  } else if (diningStatus && !diningStatus.is_open) {
+  } else if (diningState === 'unknown' && freeMinutes >= 25) {
+    list.push({
+      icon: 'dining',
+      text: `${diningStatus.name} has a menu posted`,
+      time: 'Hours not listed',
+      variant: 'dining-unknown',
+    })
+  } else if (diningState === 'closed') {
     const hoursLine = diningStatus.hours && diningStatus.hours !== 'Closed' ? diningStatus.hours : null
     list.push({
       icon: 'dining',
@@ -501,7 +542,7 @@ function buildSuggestions({
     })
   }
 
-  // Upcoming event today?
+  // The next event that is not over yet (upcomingEventsFrom).
   const nextEvent = upcomingEvents?.[0]
   if (nextEvent && (nextEvent.title || nextEvent.startTime)) {
     list.push({
@@ -621,7 +662,7 @@ export default function Home() {
   // Dining snapshot from the shared entry the Dining page uses too (#251).
   const diningQuery = useDining()
   const { diningStatus, diningPreview } = useMemo(() => {
-    const none = { diningStatus: null as any, diningPreview: null as { items: string[] } | null }
+    const none = { diningStatus: null as any, diningPreview: null as { items: string[]; heading: string } | null }
     const data = diningQuery.data as any
     if (!data?.ok || !Array.isArray(data.locations)) return none
     const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
@@ -636,8 +677,16 @@ export default function Home() {
       hours: todayHrs || tower.hours,
       weekly_hours: tower.weekly_hours || null,
     }
-    const names = (tower.stations || []).flatMap((s: any) => s.items || []).map((i: any) => i.name).filter(Boolean)
-    return { diningStatus: status as any, diningPreview: names.length > 0 ? { items: names.slice(0, 8) as string[] } : null }
+    // The meal being served now (issue #466), the dishes that change today
+    // first; a snapshot from before per-meal menus previews its merged list.
+    const menus = locationMenus(tower)
+    const meal = defaultMeal(menus.map((m) => m.meal))
+    const { specials, everyday } = splitStations(menus.find((m) => m.meal === meal)?.stations ?? [])
+    const names = [...specials, ...everyday].flatMap((s) => s.items || []).map((i) => i.name).filter(Boolean)
+    return {
+      diningStatus: status as any,
+      diningPreview: names.length > 0 ? { items: names.slice(0, 8), heading: todaysMealHeading(meal) } : null,
+    }
   }, [diningQuery.data])
 
   const [boardPreview, setBoardPreview] = useState<any[]>([])
@@ -778,7 +827,10 @@ export default function Home() {
     nextClass: scheduleState.nextClass,
     currentClass: scheduleState.currentClass,
     diningStatus,
-    upcomingEvents: cleanCalendarItems.filter((i) => ['campus_event', 'event', 'activity'].includes(i.category)),
+    upcomingEvents: upcomingEventsFrom(
+      cleanCalendarItems.filter((i) => ['campus_event', 'event', 'activity'].includes(i.category)),
+      now,
+    ),
     now,
   }), [scheduleState, diningStatus, cleanCalendarItems, now])
 
@@ -843,6 +895,28 @@ export default function Home() {
     return mapped.slice(0, 5)
   }, [transitVehicles, transitStops, transitRouteMap, userLocation])
 
+  // A favorite dish on today's or tomorrow's menu (issue #469): the starred
+  // names against today's snapshot, then tomorrow in the look-ahead.
+  const diningFavoritesQuery = useMyDiningFavorites()
+  const upcomingQuery = useDiningUpcoming()
+  const favoriteDishAlert = useMemo(() => {
+    const favorites = new Set((diningFavoritesQuery.data ?? []).map(normalizeItemName).filter(Boolean))
+    if (!favorites.size) return null
+    const say = (names: string[], where: string, when: string) =>
+      names.length === 1
+        ? `${names[0]} is on the menu at ${where} ${when}`
+        : `${names[0]} and ${names.length - 1} more favorite${names.length > 2 ? 's' : ''} are on the menu at ${where} ${when}`
+    const snapshot = diningQuery.data as { ok?: boolean; locations?: Parameters<typeof favoritesOnTodaysMenu>[1] } | undefined
+    const today = favoritesOnTodaysMenu(favorites, snapshot?.ok ? snapshot.locations : [])
+    if (today.length) return say(today.map((f) => f.name), today[0].locations[0] || 'Tower Dining', 'today')
+    const upcoming = upcomingQuery.data
+    if (!upcoming?.today) return null
+    const [y, m, d] = upcoming.today.split('-').map(Number)
+    const tomorrow = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)
+    const soon = favoritesComingUp(favorites, upcoming, upcoming.today, normalizeItemName).filter((e) => e.date === tomorrow)
+    return soon.length ? say(soon.map((e) => e.name), soon[0].location, 'tomorrow') : null
+  }, [diningFavoritesQuery.data, diningQuery.data, upcomingQuery.data])
+
   const smartAlerts = useMemo(() => {
     // Each alert wears the line it belongs to. The sentence stays one text node.
     const alerts: Array<{ icon: string; route: string; text: string }> = []
@@ -894,6 +968,8 @@ export default function Home() {
       }
     }
 
+    if (favoriteDishAlert) alerts.push({ icon: 'star', route: 'r-din', text: favoriteDishAlert })
+
     // No buses running
     if (!transitLoading && transitVehicles.length === 0 && !transitError) {
       alerts.push({
@@ -904,7 +980,7 @@ export default function Home() {
     }
 
     return alerts.slice(0, 4)
-  }, [now, openTasks, scheduleState, diningStatus, transitLoading, transitVehicles, transitError])
+  }, [now, openTasks, scheduleState, diningStatus, favoriteDishAlert, transitLoading, transitVehicles, transitError])
 
   const quickActions = useMemo(
     () =>
@@ -1658,6 +1734,7 @@ export default function Home() {
         // now. Drawn only when the hours parse; the text above carries them.
         const ranges = diningStatus ? parseHourRanges(diningStatus.hours) : []
         const nowShare = (now.getHours() * 60 + now.getMinutes()) / (24 * 60)
+        const diningState = diningStatus ? openState(diningStatus) : null
         return (
           <div className="card card-pad r-din">
             <div className="card-head">
@@ -1679,9 +1756,15 @@ export default function Home() {
                   <span className="font-display font-extrabold text-[18px] leading-tight tracking-[-0.01em] text-[var(--color-txt-0)] min-w-0">
                     {diningStatus.name}
                   </span>
-                  <span className={`eyebrow bare shrink-0 ${diningStatus.is_open ? 'text-[var(--color-success)]' : ''}`}>
-                    <span className={`status-dot ${diningStatus.is_open ? 'status-open' : 'bg-[var(--color-txt-3)]'}`} />
-                    {diningStatus.is_open ? 'Open' : 'Closed'}
+                  {/* Open, Closed, or Menu posted when the feed lists no
+                      hours for a day it serves (issue #465). */}
+                  <span className={`eyebrow bare shrink-0 ${diningStatus.is_open ? 'text-[var(--color-success)]' : ''}`} data-dining-widget-status>
+                    <span
+                      className={`status-dot ${
+                        diningState === 'open' ? 'status-open' : diningState === 'unknown' ? 'status-unknown' : 'bg-[var(--color-txt-3)]'
+                      }`}
+                    />
+                    {diningState === 'open' ? 'Open' : diningState === 'unknown' ? 'Menu posted' : 'Closed'}
                   </span>
                 </div>
                 <p className="mt-1 text-[14px] text-[var(--color-txt-1)] tnum">{diningStatus.hours}</p>
@@ -1710,7 +1793,7 @@ export default function Home() {
               </div>
             )}
 
-            <div className="eyebrow mb-1">{diningPreview ? "Today's menu" : 'Sample items'}</div>
+            <div className="eyebrow mb-1">{diningPreview ? diningPreview.heading : 'Sample items'}</div>
             {/* Rules sit only between rows: none above the first row, none
                 under the last, so an odd count leaves no short column. */}
             <ul className="grid grid-cols-2 gap-x-5">
@@ -1922,6 +2005,11 @@ export default function Home() {
           </Link>
         </div>
       ),
+    },
+    'campus-news': {
+      title: 'Campus news',
+      // The Circuit's headlines (issue #470); fetches only while shown.
+      render: () => <CampusNewsWidget />,
     },
     'sponsored': {
       title: 'Sponsored',

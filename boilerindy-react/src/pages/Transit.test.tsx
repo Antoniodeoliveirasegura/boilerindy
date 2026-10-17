@@ -114,7 +114,7 @@ function Where() {
 
 function renderAt(entry: string, { preview = false } = {}) {
   return render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={[entry]} useTransitions={false}>
       {preview && <PreviewBar />}
       <Transit />
       <Where />
@@ -226,7 +226,7 @@ describe('Transit when the vehicles read fails', () => {
     feed.vehicles = { data: undefined, isPending: false, isError: true, error, errorUpdatedAt: 1000, errorUpdateCount: 1, dataUpdatedAt: 0, refetch: vi.fn() }
     // A new element each time, so React renders the page again on rerender.
     const tree = () => (
-      <MemoryRouter initialEntries={['/transit']}>
+      <MemoryRouter initialEntries={['/transit']} useTransitions={false}>
         <Transit />
       </MemoryRouter>
     )

@@ -126,8 +126,8 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
       ) {
         return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
       }
-      const { data: seller } = await supabase.from('users').select('display_name, email').eq('id', data.user_id).single()
-      res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.email }) })
+      const { data: seller } = await supabase.from('users').select('display_name, email, purdue_email').eq('id', data.user_id).single()
+      res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.purdue_email || seller?.email }) })
     } catch (e) {
       return respondMarketplaceDbError(res, e)
     }

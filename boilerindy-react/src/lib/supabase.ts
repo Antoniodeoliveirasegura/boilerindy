@@ -24,12 +24,14 @@ export const supabase = createClient(
 
 const redirectTo = () => `${window.location.origin}/auth/callback`
 
-export const signInWithGoogle = async () => {
+// loginHint names the Google account to use, so Google picks it instead of
+// offering every account signed in to the browser (Confirm with Google).
+export const signInWithGoogle = async ({ loginHint }: { loginHint?: string } = {}) => {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: redirectTo(),
-      queryParams: { access_type: 'offline', prompt: 'consent' },
+      queryParams: { access_type: 'offline', prompt: 'consent', ...(loginHint ? { login_hint: loginHint } : {}) },
     },
   })
   if (error) throw error

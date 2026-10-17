@@ -28,7 +28,7 @@ beforeEach(() => {
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[path]} useTransitions={false}>
       <Routes>
         <Route path="/login" element={<div data-testid="page">login</div>} />
         <Route element={<PublicLayout />}>

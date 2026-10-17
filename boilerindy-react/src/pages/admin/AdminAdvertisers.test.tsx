@@ -9,6 +9,8 @@ import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
 //   Escape, though it was marked aria-modal.
 // - Showed a refused create behind the scrim, where it could be neither read
 //   nor dismissed.
+// - Gave focus back a task after a created account closed it, so focus sat on
+//   <body> in between.
 // - Pushed a history entry over /admin/advertisers?lead=..., so Back after
 //   creating the account reopened the dialog with the same email and
 //   temporary password, and Cancel then Back looped.
@@ -45,7 +47,7 @@ const LEAD_URL = '/admin/advertisers?lead=lead-new&email=owner%40beanco.test&com
 
 function renderPage(entries: string[] = ['/admin/advertisers']) {
   return render(
-    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1} useTransitions={false}>
       <Routes>
         <Route path="/admin/leads" element={<p>Access requests</p>} />
         <Route path="/admin/advertisers" element={<AdminAdvertisers />} />
@@ -99,6 +101,19 @@ describe('AdminAdvertisers create dialog', () => {
     fireEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('gives focus back to the opener as a created account closes the dialog', async () => {
+    const { opener, dialog } = await openDialog()
+    let focusAsItClosed: Element | null = null
+    const watch = new MutationObserver(() => {
+      if (!focusAsItClosed && !document.querySelector('[role="dialog"]')) focusAsItClosed = document.activeElement
+    })
+    watch.observe(document.body, { childList: true, subtree: true })
+    fireEvent.submit(within(dialog).getByRole('button', { name: 'Create account' }).closest('form') as HTMLFormElement)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    watch.disconnect()
+    expect(focusAsItClosed).toBe(opener)
+  })
 })
 
 describe('AdminAdvertisers history', () => {
@@ -110,7 +125,10 @@ describe('AdminAdvertisers history', () => {
     fireEvent.submit(within(dialog).getByRole('button', { name: 'Create account' }).closest('form') as HTMLFormElement)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(createAdminAdvertiser).toHaveBeenCalledWith(expect.objectContaining({ leadId: 'lead-new' }))
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\/advertisers$/)
+    // The URL gets its own wait, so the check holds whatever the router's
+    // useTransitions: with transitions on, the cleared prefill commits a render
+    // after the one that removes the dialog.
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\/advertisers$/))
 
     fireEvent.click(screen.getByRole('button', { name: 'History back' }))
     expect(screen.getByTestId('where')).toHaveTextContent('/admin/leads')

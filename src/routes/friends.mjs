@@ -27,7 +27,8 @@ function respondFriendsDbError(res, err) {
  * @param {Function} deps.requireAuth          loads req.currentUser or answers 401
  * @param {Function} deps.getClassItemsForUser the user's class calendar items (from src/calendarReads.mjs, built in server.mjs)
  * @param {Function} deps.boardWriteRateLimit  the community write limiter (profile, connection request)
- * @param {Function} deps.userWriteRateLimit   the shared per-user write limiter (accept or decline)
+ * @param {Function} deps.userWriteRateLimit   the shared per-user write limiter (accept or decline,
+ *   cancel or remove)
  */
 export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUser, boardWriteRateLimit, userWriteRateLimit }) {
   const router = express.Router()
@@ -177,7 +178,39 @@ export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUse
     }
   })
 
-  // My connections: accepted (with contact email) + incoming pending requests.
+  // Cancel a request I sent, or end an accepted connection either way. A
+  // declined request stays: it is what keeps a declined sender from asking again.
+  router.delete('/api/connections/:otherId', userWriteRateLimit, requireIdParam('otherId'), requireAuth, async (req, res) => {
+    const userId = req.currentUser.id
+    const otherId = req.params.otherId
+    try {
+      const { data: mine, error: mineErr } = await supabase
+        .from('connections')
+        .delete()
+        .eq('requester_id', userId)
+        .eq('addressee_id', otherId)
+        .in('status', ['pending', 'accepted'])
+        .select('status')
+      if (mineErr) throw mineErr
+      const { data: theirs, error: theirsErr } = await supabase
+        .from('connections')
+        .delete()
+        .eq('requester_id', otherId)
+        .eq('addressee_id', userId)
+        .eq('status', 'accepted')
+        .select('status')
+      if (theirsErr) throw theirsErr
+      if (!mine?.length && !theirs?.length) {
+        return res.status(404).json({ error: { message: 'No connection or sent request with that user.', status: 404 } })
+      }
+      res.json({ ok: true })
+    } catch (e) {
+      return respondFriendsDbError(res, e)
+    }
+  })
+
+  // My connections: accepted (with contact email), incoming pending requests,
+  // and the requests I sent that are still pending.
   router.get('/api/me/connections', requireAuth, async (req, res) => {
     const userId = req.currentUser.id
     try {
@@ -191,6 +224,7 @@ export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUse
       const blocked = await loadBlockedIds(supabase, userId)
       const accepted = []
       const incoming = []
+      const outgoing = []
       const otherIds = new Set()
       for (const c of conns || []) {
         const other = c.requester_id === userId ? c.addressee_id : c.requester_id
@@ -198,22 +232,24 @@ export function createFriendsRouter({ supabase, requireAuth, getClassItemsForUse
         otherIds.add(other)
         if (c.status === 'accepted') accepted.push({ userId: other })
         else if (c.status === 'pending' && c.addressee_id === userId) incoming.push({ userId: c.requester_id })
+        else if (c.status === 'pending') outgoing.push({ userId: c.addressee_id })
       }
       const { data: users } = otherIds.size
-        ? await supabase.from('users').select('id, display_name, email').in('id', [...otherIds])
+        ? await supabase.from('users').select('id, display_name, email, purdue_email').in('id', [...otherIds])
         : { data: [] }
       const userById = new Map((users || []).map((u) => [u.id, u]))
-      // Accepted connections may see the Purdue email for contact; pending may not.
+      // Accepted connections may see the Purdue email for contact (the login
+      // email when none is linked); pending may not.
       const acctOut = accepted.map((a) => ({
         userId: a.userId,
         displayName: userById.get(a.userId)?.display_name || 'Student',
-        email: userById.get(a.userId)?.email || null,
+        email: userById.get(a.userId)?.purdue_email || userById.get(a.userId)?.email || null,
       }))
-      const inOut = incoming.map((a) => ({
+      const nameOnly = (a) => ({
         userId: a.userId,
         displayName: userById.get(a.userId)?.display_name || 'Student',
-      }))
-      res.json({ accepted: acctOut, incoming: inOut })
+      })
+      res.json({ accepted: acctOut, incoming: incoming.map(nameOnly), outgoing: outgoing.map(nameOnly) })
     } catch (e) {
       return respondFriendsDbError(res, e)
     }

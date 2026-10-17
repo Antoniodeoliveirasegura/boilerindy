@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { QueryClient, dehydrate, hydrate } from '@tanstack/react-query'
 import {
   ApiError,
+  CAMPUS_NEWS_STALE_MS,
   CLUBS_STALE_MS,
   DINING_STALE_MS,
   PARKING_REFRESH_MS,
@@ -9,6 +10,7 @@ import {
   TRANSIT_STATIC_STALE_MS,
   TRANSIT_VEHICLES_POLL_MS,
   TRANSIT_VEHICLES_STALE_MS,
+  campusNewsQuery,
   clubSearchQuery,
   diningQuery,
   errorMessage,
@@ -59,6 +61,16 @@ describe('per-dataset defaults', () => {
     expect(PARKING_STALE_MS).toBe(60_000)
     expect(clubSearchQuery({}).staleTime).toBe(CLUBS_STALE_MS)
     expect(CLUBS_STALE_MS).toBe(30 * 60_000)
+  })
+
+  test('campus news is fresh for half an hour, and an answer without news is stale at once (issue #470)', () => {
+    expect(campusNewsQuery.queryKey).toEqual(['news', 'circuit'])
+    expect(CAMPUS_NEWS_STALE_MS).toBe(30 * 60_000)
+    const staleTime = campusNewsQuery.staleTime as (query: unknown) => number
+    expect(staleTime({ state: { data: { ok: true, posts: [] } } })).toBe(CAMPUS_NEWS_STALE_MS)
+    expect(staleTime({ state: { data: { ok: false, posts: [] } } })).toBe(0)
+    expect(staleTime({ state: { data: undefined } })).toBe(CAMPUS_NEWS_STALE_MS)
+    expect(isPersistedQueryKey(['news', 'circuit'])).toBe(true)
   })
 
   test('the vehicle poll runs every 10 s and pauses while the tab is hidden', () => {
@@ -153,6 +165,13 @@ describe('what reaches localStorage', () => {
     expect(isPersistedQueryKey(['transit', 'vehicles'])).toBe(false)
     expect(isPersistedQueryKey(['transit', 'stops'])).toBe(true)
     expect(shouldDehydrateQuery({ queryKey: ['transit', 'vehicles'], state: { status: 'success' } } as never)).toBe(false)
+  })
+
+  test('a dish\'s details are public but stay in memory (issue #468): they would only pile up in storage', () => {
+    expect(isPublicQueryKey(['dining', 'food', 2577937, '2026-10-14'])).toBe(true)
+    expect(isPersistedQueryKey(['dining', 'food', 2577937, '2026-10-14'])).toBe(false)
+    expect(isPersistedQueryKey(['dining'])).toBe(true)
+    expect(shouldDehydrateQuery({ queryKey: ['dining', 'food', 1, '2026-10-14'], state: { status: 'success' } } as never)).toBe(false)
   })
 
   test('the persister is skipped when storage is missing or throws', () => {

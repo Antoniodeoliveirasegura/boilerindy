@@ -87,6 +87,7 @@ export const userKeys = {
   taskMeta: (userId: string) => ['me', userId, 'tasks', 'meta'] as const,
   blocks: (userId: string) => ['me', userId, 'blocks'] as const,
   purdueEmail: (userId: string) => ['me', userId, 'purdue-email'] as const,
+  diningFavorites: (userId: string) => ['me', userId, 'dining-favorites'] as const,
 }
 
 export function myCalendarQuery<T>(userId: string | null, params: CalendarParams) {
@@ -190,6 +191,24 @@ export function purdueEmailStatusQuery(userId: string | null) {
   })
 }
 
+/**
+ * GET /api/me/dining/favorites, as the normalized names the server stores, for
+ * Home's favorite-dish alert (issue #469). The Dining page keeps its own copy
+ * for the stars. No retries: the alert is a nicety, and the route already
+ * answers an empty list when the table is missing.
+ */
+export function myDiningFavoritesQuery(userId: string | null) {
+  return queryOptions({
+    queryKey: userKeys.diningFavorites(userId ?? ''),
+    queryFn: async ({ signal }) => {
+      const data = (await authRequest('/api/me/dining/favorites', { signal })) as { favorites?: unknown } | null
+      return Array.isArray(data?.favorites) ? data.favorites.filter((f): f is string => typeof f === 'string') : []
+    },
+    enabled: Boolean(userId),
+    retry: false,
+  })
+}
+
 /** Mark every per-user row stale after a write that changes them elsewhere (a feed link, a sync, a source deletion, a block, a Purdue link). */
 export function invalidateUserQueries(queryClient: QueryClient): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['me'] })
@@ -235,6 +254,10 @@ export function useMyBlocks() {
 
 export function usePurdueEmailStatus() {
   return useQuery(purdueEmailStatusQuery(useUserId()))
+}
+
+export function useMyDiningFavorites() {
+  return useQuery(myDiningFavoritesQuery(useUserId()))
 }
 
 /** The task metadata with one toggle applied, the way the server will store it. */

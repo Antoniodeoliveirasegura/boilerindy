@@ -16,6 +16,8 @@
  * recomputed on every read, so "Open now" is never hours stale.
  */
 
+import { sortMeals } from './diningMeals.mjs'
+
 export const DEFAULT_API_BASE = 'https://iupui.api.nutrislice.com'
 export const FALLBACK_TZ = 'America/Indiana/Indianapolis'
 const USER_AGENT =
@@ -36,6 +38,16 @@ export const MAX_CACHE_DATES = 16
 const DATE_WINDOW_PAST_DAYS = 1
 const DATE_WINDOW_FUTURE_DAYS = 14
 const DAY_MS = 24 * 60 * 60 * 1000
+// Weeks cached at once (issue #467), per school, meal and week. The 16-date
+// window touches at most four weeks, times three meals, with room to spare.
+export const MAX_CACHE_WEEKS = 24
+// The feed counts as not updated once the newest `last_updated` across a
+// hall's meals for the week is this old. The timestamp is a bulk one (every
+// published lunch week carries the same value) and breakfast is republished
+// rarely, so it is judged on the newest meal and with a long margin: the
+// published horizon is about six weeks.
+export const STALE_FEED_DAYS = 28
+export const OFFICIAL_MENU_URL = 'https://dineoncampus.com/iuindy/whats-on-the-menu'
 
 // The two halls the iupui district publishes. Nutrislice carries no address or
 // coordinates for them, so the street addresses (for the directions link) are
@@ -66,12 +78,20 @@ const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 
 export const RETAIL_MENU_NOTE = 'Retail dining, no posted menu'
 export const NO_MENU_NOTE = 'Menu not posted yet'
+// A day the feed flags closed but that carries a published menu (issue #465):
+// Tower publishes full weekend menus while its school row says Saturday and
+// Sunday are closed, so the honest answer is "no hours listed", not Closed.
+export const HOURS_NOT_LISTED = 'Hours not listed'
 
 // Schools + menus per Indianapolis date (YYYY-MM-DD -> entry), and the crawl
 // running for a date, so concurrent misses share it. A snapshot for another
 // date no longer evicts today's (issue #208).
 const entries = new Map()
 const inFlight = new Map()
+// Processed menu weeks per "slug|meal|Sunday" (issue #467), and the fetch
+// running for one, so the seven dates of a week share one download per meal.
+const weeks = new Map()
+const weekFetches = new Map()
 
 function apiBase() {
   return (process.env.NUTRISLICE_API_BASE || DEFAULT_API_BASE).replace(/\/$/, '')
@@ -134,6 +154,19 @@ function ymdParts(ymd) {
   return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }
 }
 
+/**
+ * The Sunday that starts the week of a YYYY-MM-DD date. Nutrislice serves
+ * weeks Sunday to Saturday whatever day of them is asked for (checked
+ * 2026-10-17: a request for Sunday 2026-10-18 answered 10-18 to 10-24).
+ */
+export function weekStartYmd(ymd) {
+  const p = ymdParts(ymd)
+  if (!p) return null
+  const date = new Date(Date.UTC(p.year, p.month - 1, p.day))
+  date.setUTCDate(date.getUTCDate() - date.getUTCDay())
+  return date.toISOString().slice(0, 10)
+}
+
 /** Long weekday name for a YYYY-MM-DD calendar date, independent of any zone. */
 export function weekdayForYmd(ymd) {
   const p = ymdParts(ymd)
@@ -178,10 +211,16 @@ function windowLabel(win) {
   return a && b ? `${a} - ${b}` : 'Hours unavailable'
 }
 
-export function extractWeeklyHours(school) {
+/**
+ * The week's hours by weekday name. `menuWeekdays` names the weekdays the
+ * fetched week publishes a menu on: a day flagged closed that has one reads
+ * HOURS_NOT_LISTED rather than Closed (issue #465).
+ */
+export function extractWeeklyHours(school, { menuWeekdays = [] } = {}) {
   const result = {}
   DAY_PREFIXES.forEach((p, i) => {
-    result[DAY_LABELS[i]] = windowLabel(dayWindow(school, p))
+    const win = dayWindow(school, p)
+    result[DAY_LABELS[i]] = !win.enabled && menuWeekdays.includes(DAY_LABELS[i]) ? HOURS_NOT_LISTED : windowLabel(win)
   })
   return result
 }
@@ -191,8 +230,10 @@ export function extractWeeklyHours(school) {
  * (11:00 AM - 2:00 AM is open at 1:00 AM), and yesterday's window spilling
  * into the early hours of today. `closes_at` / `opens_at` are 12-hour clocks
  * for the display line ("Open now, until 9:00 PM" / "Closed, opens 7:00 AM").
+ * A day flagged closed whose weekday is in `menuWeekdays` (it has a published
+ * menu) is `is_open: null`, "not known", with HOURS_NOT_LISTED (issue #465).
  */
-export function deriveStatusFromSchool(school, now = new Date()) {
+export function deriveStatusFromSchool(school, now = new Date(), { menuWeekdays = [] } = {}) {
   const tz = school.timezone || FALLBACK_TZ
   const todayIdx = dayIndexInZone(now, tz)
   const nowM = wallClockMinutesInTimeZone(now, tz)
@@ -207,7 +248,12 @@ export function deriveStatusFromSchool(school, now = new Date()) {
       return { is_open: true, hours, closes_at: formatClock12(yesterday.end), opens_at: null, open24h: false, tz }
     }
   }
-  if (!today.enabled) return { is_open: false, hours: 'Closed today', closes_at: null, opens_at: null, open24h: false, tz }
+  if (!today.enabled) {
+    if (menuWeekdays.includes(DAY_LABELS[todayIdx])) {
+      return { is_open: null, hours: HOURS_NOT_LISTED, closes_at: null, opens_at: null, open24h: false, tz }
+    }
+    return { is_open: false, hours: 'Closed today', closes_at: null, opens_at: null, open24h: false, tz }
+  }
   if (today.open24h) return { is_open: true, hours, closes_at: null, opens_at: null, open24h: true, tz }
 
   const startM = parseTimeToMinutes(today.start)
@@ -241,10 +287,61 @@ function extractIconLabels(food) {
   return [...new Set(out)]
 }
 
+// The menu item's own words, cut for the list (issue #468); the detail read
+// has the whole description.
+export const DESC_CHARS = 140
+
+const finiteOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+/** "1 each", "4 oz": a food's serving size, or null. */
+function servingOf(food) {
+  const info = food?.serving_size_info
+  const text = [info?.serving_size_amount, info?.serving_size_unit].filter((part) => part != null && String(part).trim()).join(' ').trim()
+  return text || null
+}
+
+/** A description cut at a word to DESC_CHARS, with an ellipsis when cut; null when there is none. */
+export function shortDescription(text, max = DESC_CHARS) {
+  const clean = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : ''
+  if (!clean) return null
+  if (clean.length <= max) return clean
+  const cut = clean.slice(0, max)
+  const atWord = cut.lastIndexOf(' ')
+  return `${(atWord > max * 0.6 ? cut.slice(0, atWord) : cut).replace(/[\s,.;:]+$/, '')}…`
+}
+
+/**
+ * One food for the menu lists: name, calories and diet labels, plus the
+ * compact facts the item rows and the detail view open with (issue #468):
+ * id, serving, protein, carbs, fat, sodium, a 220 px thumbnail and a short
+ * description. Missing facts are null.
+ */
 function normalizeFoodEntry(food) {
   if (!food?.name) return null
-  const cal = food.rounded_nutrition_info?.calories
-  return { name: food.name, calories: typeof cal === 'number' ? cal : null, icons: extractIconLabels(food) }
+  const n = food.rounded_nutrition_info || {}
+  return {
+    name: food.name,
+    calories: finiteOrNull(n.calories),
+    icons: extractIconLabels(food),
+    id: food.id ?? null,
+    serving: servingOf(food),
+    protein: finiteOrNull(n.g_protein),
+    carbs: finiteOrNull(n.g_carbs),
+    fat: finiteOrNull(n.g_fat),
+    sodium: finiteOrNull(n.mg_sodium),
+    thumb: typeof food.hoverpic_url === 'string' && food.hoverpic_url ? food.hoverpic_url : null,
+    desc: shortDescription(food.description),
+  }
+}
+
+// The compact fields a per-meal menu item carries, null ones left out to keep
+// /api/dining small (measured in #468: about 8 KB gzip on a full day).
+const COMPACT_FIELDS = ['id', 'serving', 'protein', 'carbs', 'fat', 'sodium', 'thumb', 'desc']
+
+function compactItem({ name, calories, icons, ...rest }) {
+  const item = { name, calories, icons }
+  for (const key of COMPACT_FIELDS) if (rest[key] != null) item[key] = rest[key]
+  return item
 }
 
 // Station/section names to omit entirely - condiments, toppings, garnishes, etc.
@@ -252,6 +349,93 @@ const SKIP_SECTION_RE = /condiment|^toppings?$|^garnish|infused.{0,8}water|sugar
 
 export function shouldSkipSection(name) {
   return SKIP_SECTION_RE.test((name || '').trim())
+}
+
+/**
+ * True when one day's flat menu_items list at least one food outside the
+ * skipped sections, the same foods ingestMenuStations would show. Used to
+ * tell which days of a fetched week carry a published menu (issue #465).
+ */
+export function hasPublishedFood(menuItems) {
+  if (!Array.isArray(menuItems)) return false
+  let skip = false
+  for (const row of menuItems) {
+    if (row?.is_section_title || row?.is_station_header) {
+      skip = shouldSkipSection(row.text)
+      continue
+    }
+    if (!skip && row?.food?.name) return true
+  }
+  return false
+}
+
+/** The weekday names, Sunday first, that any of `dates` (YYYY-MM-DD) fall on. */
+function weekdaysOf(dates) {
+  const names = new Set([...dates].map(weekdayForYmd).filter(Boolean))
+  return DAY_LABELS.filter((d) => names.has(d))
+}
+
+// A station serves "every day" (issue #466) when its foods on a day match the
+// same station's foods on the other days of that week, same meal: a median
+// overlap (Jaccard) of at least EVERYDAY_MIN_OVERLAP over at least
+// EVERYDAY_MIN_OTHER_DAYS other days that have the station. Over the fall 2026
+// semester this marks Salad Bar, Daily Grill, Pizza, Hasta La Pasta, Rice It Up
+// and Grill Breakfast Options every day on all 83 days, and Homestyle,
+// Breakfast Entree Line, Chef Made Soups, Dessert and Innovation on none.
+export const EVERYDAY_MIN_OVERLAP = 0.6
+export const EVERYDAY_MIN_OTHER_DAYS = 2
+
+/** Station name -> Set of food keys for one day's flat menu_items, skipped sections dropped. */
+export function stationFoods(menuItems) {
+  const foods = new Map()
+  if (!Array.isArray(menuItems)) return foods
+  let station = 'Menu'
+  let skip = false
+  for (const row of menuItems) {
+    if (row?.is_section_title || row?.is_station_header) {
+      station = (row.text || '').trim() || 'Menu'
+      skip = shouldSkipSection(station)
+      continue
+    }
+    if (skip || !row?.food?.name) continue
+    if (!foods.has(station)) foods.set(station, new Set())
+    foods.get(station).add(row.food.id != null ? `id:${row.food.id}` : `name:${row.food.name}`)
+  }
+  return foods
+}
+
+function jaccard(a, b) {
+  let shared = 0
+  for (const key of a) if (b.has(key)) shared += 1
+  const union = a.size + b.size - shared
+  return union ? shared / union : 1
+}
+
+function median(values) {
+  const sorted = [...values].sort((x, y) => x - y)
+  const mid = sorted.length >> 1
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/**
+ * The names of the stations on `ymd` that serve the same food on most other
+ * days of `days`, one meal's week as Nutrislice sends it (Sunday to Saturday).
+ * Learnt from the week, never from station names, so a station that starts or
+ * stops rotating moves on its own.
+ */
+export function everydayStations(days, ymd) {
+  const byDate = new Map((days || []).filter((d) => d?.date).map((d) => [d.date, stationFoods(d.menu_items)]))
+  const everyday = new Set()
+  const today = byDate.get(ymd)
+  if (!today) return everyday
+  for (const [station, foods] of today) {
+    const overlaps = []
+    for (const [date, stations] of byDate) {
+      if (date !== ymd && stations.has(station)) overlaps.push(jaccard(foods, stations.get(station)))
+    }
+    if (overlaps.length >= EVERYDAY_MIN_OTHER_DAYS && median(overlaps) >= EVERYDAY_MIN_OVERLAP) everyday.add(station)
+  }
+  return everyday
 }
 
 /**
@@ -314,7 +498,8 @@ export function pickSchools(allSchools) {
 
 // ── Fetch shell ─────────────────────────────────────────────────────────────
 
-async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
+/** GET a Nutrislice JSON path on the configured district: { ok, status, data }. Never throws. */
+export async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
   const url = `${apiBase()}${path.startsWith('/') ? path : `/${path}`}${path.includes('?') ? '&' : '?'}format=json`
   const controller = new AbortController()
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -334,31 +519,190 @@ async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
   }
 }
 
-async function fetchMenusForSchool(school, ymd, fetchImpl) {
-  const parts = ymdParts(ymd)
-  if (!parts) return { stations: [], meals: [], warnings: ['invalid_date'] }
+// One menu row cut to what the menu code reads: a station header, or a food
+// with its id, name, calories and diet icons. A week of these is what the
+// week cache holds, a small fraction of the raw payload (issue #467).
+// The nutrition values a food keeps, under Nutrislice's own keys (issue
+// #468). The vitamin fields come as published, units and all; some rows are
+// implausible, so nothing here ranks foods by them.
+export const NUTRITION_KEYS = [
+  'calories',
+  'g_fat',
+  'g_saturated_fat',
+  'g_trans_fat',
+  'mg_cholesterol',
+  'mg_sodium',
+  'g_carbs',
+  'g_fiber',
+  'g_sugar',
+  'g_added_sugar',
+  'g_protein',
+  'mg_potassium',
+  'mg_calcium',
+  'mg_iron',
+  'iu_vitamin_a',
+  'mg_vitamin_c',
+  'mcg_vitamin_d',
+]
 
-  const { year, month, day } = parts
+/** A food cut to what the menu and the detail read use. */
+function slimFood(food) {
+  const icons = Array.isArray(food.icons?.food_icons)
+    ? food.icons.food_icons.map((ic) => ({ enabled: ic?.enabled, synced_name: ic?.synced_name, name: ic?.name, slug: ic?.slug }))
+    : []
+  const n = food.rounded_nutrition_info || {}
+  const serving = food.serving_size_info
+  return {
+    id: food.id ?? null,
+    name: food.name,
+    description: typeof food.description === 'string' ? food.description : null,
+    image_url: typeof food.image_url === 'string' ? food.image_url : null,
+    hoverpic_url: typeof food.hoverpic_url === 'string' ? food.hoverpic_url : null,
+    ingredients: typeof food.ingredients === 'string' ? food.ingredients : null,
+    serving_size_info: serving ? { serving_size_amount: serving.serving_size_amount ?? null, serving_size_unit: serving.serving_size_unit ?? null } : null,
+    rounded_nutrition_info: Object.fromEntries(NUTRITION_KEYS.map((key) => [key, finiteOrNull(n[key])])),
+    icons: { food_icons: icons },
+  }
+}
+
+/**
+ * A week payload -> { lastUpdated, days: Map(YYYY-MM-DD -> rows), foods:
+ * Map(key -> food) }. Rows are station headers and { food } rows cut to what
+ * the menu code and the detail read use; a food listed on several days or
+ * stations is one shared object, so the week cache holds each once (issues
+ * #467 and #468).
+ */
+export function processWeek(data) {
+  const days = new Map()
+  const foods = new Map()
+  const row = (r) => {
+    if (r?.is_section_title || r?.is_station_header) {
+      return { is_section_title: Boolean(r.is_section_title), is_station_header: Boolean(r.is_station_header), text: r.text || '' }
+    }
+    if (!r?.food?.name) return null
+    const key = r.food.id != null ? `id:${r.food.id}` : `name:${r.food.name}`
+    if (!foods.has(key)) foods.set(key, slimFood(r.food))
+    return { food: foods.get(key) }
+  }
+  for (const d of data?.days || []) {
+    if (d?.date) days.set(d.date, (d.menu_items || []).map(row).filter(Boolean))
+  }
+  return { lastUpdated: typeof data?.last_updated === 'string' ? data.last_updated : null, days, foods }
+}
+
+/** The detail read's view of a food (issue #468): everything the dialog shows. */
+export function foodDetail(food) {
+  const nutrition = {}
+  for (const key of NUTRITION_KEYS) {
+    const value = finiteOrNull(food.rounded_nutrition_info?.[key])
+    if (value != null) nutrition[key] = value
+  }
+  return {
+    id: food.id ?? null,
+    name: food.name,
+    description: typeof food.description === 'string' && food.description.trim() ? food.description.trim() : null,
+    image: food.image_url || null,
+    thumb: food.hoverpic_url || null,
+    serving: servingOf(food),
+    ingredients: typeof food.ingredients === 'string' && food.ingredients.trim() ? food.ingredients.trim() : null,
+    icons: extractIconLabels(food),
+    nutrition,
+  }
+}
+
+// Writing a week moves it to the back of the Map; past MAX_CACHE_WEEKS the
+// front (the week written longest ago) is dropped.
+function storeWeek(key, entry) {
+  weeks.delete(key)
+  weeks.set(key, entry)
+  while (weeks.size > MAX_CACHE_WEEKS) weeks.delete(weeks.keys().next().value)
+}
+
+/**
+ * One meal's week for a school, as { ok, status, week }. With `cache` the
+ * processed week is kept per (slug, meal, week) for the cache TTL, so the
+ * seven dates of a week cost one download per meal, and concurrent misses
+ * share one fetch; `refresh` refetches it. A failure is never kept. Without
+ * `cache` (buildDiningBase called directly, as the tests do) every call fetches.
+ */
+async function loadWeek(slug, meal, ymd, { fetchImpl, cache = false, refresh = false, nowMs = Date.now() } = {}) {
+  const { year, month, day } = ymdParts(ymd)
+  const path = `/menu/api/weeks/school/${encodeURIComponent(slug)}/menu-type/${encodeURIComponent(meal)}/${year}/${month}/${day}/`
+  const fetchWeek = async () => {
+    const res = await fetchNutrisliceJson(path, fetchImpl)
+    return res.ok ? { ok: true, status: res.status, week: processWeek(res.data) } : { ok: false, status: res.status, week: null }
+  }
+  if (!cache) return fetchWeek()
+
+  const key = `${slug}|${meal}|${weekStartYmd(ymd)}`
+  const hit = weeks.get(key)
+  // A cached week that somehow lacks the date (a week that is not Sunday to
+  // Saturday) is refetched rather than trusted.
+  if (!refresh && hit && nowMs < hit.expiresAt && hit.week.days.has(ymd)) return { ok: true, status: 200, week: hit.week }
+  let pending = weekFetches.get(key)
+  if (!pending) {
+    pending = fetchWeek()
+      .then((res) => {
+        if (res.ok) storeWeek(key, { week: res.week, expiresAt: nowMs + cacheMs() })
+        return res
+      })
+      .finally(() => weekFetches.delete(key))
+    weekFetches.set(key, pending)
+  }
+  return pending
+}
+
+/**
+ * Today's menus for one hall: `menus`, one entry per meal in serving order,
+ * each a complete menu whose stations say whether they serve the same food
+ * every day (issue #466); the deprecated flat `stations`, all meals merged and
+ * deduped, kept for older clients; `menuWeekdays`, the weekdays of the
+ * fetched week (each meal's payload covers Sunday to Saturday) on which any
+ * meal publishes food, which the status and the weekly hours read, so a day
+ * the feed flags closed but serves a menu is not shown as Closed (issue
+ * #465); and, for the freshness check (issue #467), `weeksLoaded` and
+ * `lastUpdated`, the newest `last_updated` across the meals.
+ */
+async function fetchMenusForSchool(school, ymd, { fetchImpl, cache, refresh, nowMs } = {}) {
+  if (!ymdParts(ymd)) return { ...emptyMenu(), warnings: ['invalid_date'] }
+
   const slug = school.slug
   const seen = new Map()
   const stationMerge = new Map()
-  const mealsFound = []
+  const menus = []
   const warnings = []
+  const menuDates = new Set()
+  let weeksLoaded = 0
+  let lastUpdated = null
 
   for (const meal of mealSlugsForSchool(school)) {
-    const path = `/menu/api/weeks/school/${encodeURIComponent(slug)}/menu-type/${encodeURIComponent(meal)}/${year}/${month}/${day}/`
-    const res = await fetchNutrisliceJson(path, fetchImpl)
+    const res = await loadWeek(slug, meal, ymd, { fetchImpl, cache, refresh, nowMs })
     if (!res.ok) {
       if (res.status !== 404) warnings.push(`menu_${meal}_${res.status || 'err'}`)
       continue
     }
-    const days = res.data?.days || []
-    const target = days.find((d) => d.date === ymd) || days[0]
-    if (!target?.menu_items?.length) continue
+    weeksLoaded += 1
+    const { days } = res.week
+    if (res.week.lastUpdated && (!lastUpdated || Date.parse(res.week.lastUpdated) > Date.parse(lastUpdated))) lastUpdated = res.week.lastUpdated
+    for (const [date, rows] of days) {
+      if (hasPublishedFood(rows)) menuDates.add(date)
+    }
+    // The requested day or nothing: a date missing from its week has no menu
+    // (it used to fall back to the week's first day, another day's menu).
+    const target = days.get(ymd)
+    if (!target?.length) continue
 
-    const stations = ingestMenuStations(target.menu_items, meal, seen)
-    if (stations.length) mealsFound.push(meal)
-    for (const { name, items } of stations) {
+    // This meal on its own: deduped within the meal only, so each tab is a
+    // whole menu, and every station flagged from the week it came with.
+    const everyday = everydayStations([...days].map(([date, rows]) => ({ date, menu_items: rows })), ymd)
+    const mealStations = ingestMenuStations(target, meal).map(({ name, items }) => ({
+      name,
+      everyday: everyday.has(name),
+      items: items.map(compactItem),
+    }))
+    if (mealStations.length) menus.push({ meal, stations: mealStations })
+
+    for (const { name, items } of ingestMenuStations(target, meal, seen)) {
       if (!stationMerge.has(name)) stationMerge.set(name, [])
       stationMerge.get(name).push(...items)
     }
@@ -367,27 +711,53 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
   const stations = [...stationMerge.entries()]
     .map(([name, items]) => ({ name, items: items.map(({ name, calories, icons, meals }) => ({ name, calories, icons, meals })) }))
     .filter((s) => s.items.length > 0)
+  const order = sortMeals(menus.map((m) => m.meal))
+  menus.sort((a, b) => order.indexOf(a.meal) - order.indexOf(b.meal))
 
-  return { stations, meals: mealsFound, warnings }
+  return { menus, stations, meals: order, warnings, menuWeekdays: weekdaysOf(menuDates), weeksLoaded, lastUpdated }
+}
+
+function emptyMenu() {
+  return { menus: [], stations: [], meals: [], warnings: [], menuWeekdays: [], weeksLoaded: 0, lastUpdated: null }
+}
+
+/**
+ * Whether a hall's menu feed looks abandoned (issue #467), for `now`:
+ * `empty_week` when the fetched weeks have no food on any day of any meal,
+ * `not_updated` when the newest `last_updated` is more than STALE_FEED_DAYS
+ * old. When no week loaded at all, that is an outage, which the snapshot's
+ * warnings and stale flag already report, not a stale feed.
+ */
+export function menuFreshness(menu, now = new Date()) {
+  const lastUpdated = menu?.lastUpdated ?? null
+  if (!menu?.weeksLoaded) return { last_updated: lastUpdated, stale: false, reason: null }
+  if (!menu.menuWeekdays?.length) return { last_updated: lastUpdated, stale: true, reason: 'empty_week' }
+  const updatedMs = Date.parse(lastUpdated)
+  if (Number.isFinite(updatedMs) && now.getTime() - updatedMs > STALE_FEED_DAYS * DAY_MS) {
+    return { last_updated: lastUpdated, stale: true, reason: 'not_updated' }
+  }
+  return { last_updated: lastUpdated, stale: false, reason: null }
 }
 
 /**
  * The expensive half: pick the known halls out of the district's school list
  * and fetch today's menus for the ones that publish any. The result carries
  * the raw school rows so the open/closed status can be recomputed on every
- * read (renderSnapshot), not frozen for the life of the cache.
+ * read (renderSnapshot), not frozen for the life of the cache. `cache` turns
+ * on the week cache (getDiningSnapshot does; a direct call fetches every
+ * week), and `refresh` refetches the weeks it holds.
  */
-export async function buildDiningBase(allSchools, ymd, { fetchImpl } = {}) {
+export async function buildDiningBase(allSchools, ymd, { fetchImpl, cache = false, refresh = false, now = new Date() } = {}) {
   const picked = pickSchools(allSchools)
   const entries = []
   for (const { spec, school } of picked) {
     const kind = locationKind(school)
-    let menu = { stations: [], meals: [], warnings: [] }
+    let menu = emptyMenu()
     if (kind === 'dining-hall') {
       try {
-        menu = await fetchMenusForSchool(school, ymd, fetchImpl)
+        menu = await fetchMenusForSchool(school, ymd, { fetchImpl, cache, refresh, nowMs: now.getTime() })
       } catch (e) {
-        menu = { stations: [], meals: [], warnings: [`menu_exception:${String(e?.message || e)}`] }
+        menu = { ...emptyMenu(), warnings: [`menu_exception:${String(e?.message || e)}`] }
       }
     }
     entries.push({ spec, school, kind, menu })
@@ -403,7 +773,8 @@ export async function buildDiningBase(allSchools, ymd, { fetchImpl } = {}) {
 /** The public snapshot for `now`: base data plus live open/closed per location. */
 export function renderSnapshot(base, now = new Date()) {
   const locations = base.entries.map(({ spec, school, kind, menu }) => {
-    const status = deriveStatusFromSchool(school, now)
+    const menuWeekdays = menu.menuWeekdays || []
+    const status = deriveStatusFromSchool(school, now, { menuWeekdays })
     const menusPublished = kind === 'dining-hall' && menu.meals.length > 0
     const meal = kind === 'retail' ? RETAIL_MENU_NOTE : menusPublished ? `Menus: ${menu.meals.join(', ')}` : NO_MENU_NOTE
     return {
@@ -417,11 +788,17 @@ export function renderSnapshot(base, now = new Date()) {
       closes_at: status.closes_at,
       opens_at: status.opens_at,
       open24h: status.open24h,
-      weekly_hours: extractWeeklyHours(school),
+      weekly_hours: extractWeeklyHours(school, { menuWeekdays }),
       timezone: status.tz,
       meal,
       menusPublished,
+      // One whole menu per meal, stations flagged `everyday` (issue #466).
+      menus: menu.menus || [],
+      // Deprecated: every meal merged into one list. Kept until the clients
+      // that read only this are gone; the page, Home and the assistant read `menus`.
       stations: menu.stations,
+      // Is the menu feed being kept up (issue #467)? Null for a retail hall.
+      menu_source: kind === 'dining-hall' ? menuFreshness(menu, now) : null,
       warnings: menu.warnings.length ? menu.warnings : undefined,
     }
   })
@@ -475,11 +852,13 @@ function snapshotFromEntry(entry, now, ttl, cached) {
 }
 
 /**
- * One upstream crawl for a date: schools, then menus. `checkedAt` records the
- * attempt for the refresh floor. Resolves to the stored entry, with `cached`
- * true when an outage left the date's last good data serving instead.
+ * One upstream crawl for a date: schools, then menus, the menu weeks through
+ * the week cache, which `refresh` (a forced refresh past its floor) bypasses.
+ * `checkedAt` records the attempt for the refresh floor. Resolves to the
+ * stored entry, with `cached` true when an outage left the date's last good
+ * data serving instead.
  */
-async function refreshDiningEntry(ymd, now, ttl, fetchImpl) {
+async function refreshDiningEntry(ymd, now, ttl, fetchImpl, refresh = false) {
   const nowMs = now.getTime()
   const schoolsRes = await fetchNutrisliceJson('/menu/api/schools/', fetchImpl)
   if (!schoolsRes.ok || !Array.isArray(schoolsRes.data)) {
@@ -494,7 +873,7 @@ async function refreshDiningEntry(ymd, now, ttl, fetchImpl) {
     return { entry, cached: false }
   }
 
-  const base = await buildDiningBase(schoolsRes.data, ymd, { fetchImpl })
+  const base = await buildDiningBase(schoolsRes.data, ymd, { fetchImpl, cache: true, refresh, now })
   const entry = storeEntry(ymd, {
     base,
     fetchedAt: now.toISOString(),
@@ -515,7 +894,9 @@ async function refreshDiningEntry(ymd, now, ttl, fetchImpl) {
  * upstream attempt is MIN_REFRESH_INTERVAL_MS old, and the payload then says
  * whether it did (`refreshed`). While Nutrislice is down the last good data
  * keeps serving (`stale: true`) and upstream is retried every
- * FAILURE_RETRY_MS.
+ * FAILURE_RETRY_MS. Under the dates, the menu weeks are cached per school,
+ * meal and week (issue #467), so a new date in a week already fetched costs
+ * only the schools list; a forced refresh refetches its weeks.
  */
 export async function getDiningSnapshot(options = {}) {
   const { forceRefresh = false, date: dateOverride, now = new Date(), fetchImpl } = options
@@ -531,7 +912,7 @@ export async function getDiningSnapshot(options = {}) {
   } else {
     let pending = inFlight.get(wantYmd)
     if (!pending) {
-      pending = refreshDiningEntry(wantYmd, now, ttl, fetchImpl).finally(() => {
+      pending = refreshDiningEntry(wantYmd, now, ttl, fetchImpl, refreshDue).finally(() => {
         inFlight.delete(wantYmd)
       })
       inFlight.set(wantYmd, pending)
@@ -542,7 +923,69 @@ export async function getDiningSnapshot(options = {}) {
   return forceRefresh ? { ...snapshot, refreshed: !snapshot.cached } : snapshot
 }
 
+/**
+ * One dish's details for a date (issue #468): `foodDetail` of the food with
+ * `foodId` on that date's menus, or null when it is not on them. It reads the
+ * week cache, which the date's snapshot fills; after a restart or an eviction
+ * it builds the snapshot first and loads the date's weeks again.
+ */
+export async function findDiningFood(foodId, ymd, { now = new Date(), fetchImpl } = {}) {
+  const snapshot = await getDiningSnapshot({ date: ymd, now, fetchImpl })
+  const entry = entries.get(ymd)
+  if (!snapshot.ok || !entry?.base) return null
+  const key = `id:${foodId}`
+  for (const { school, kind, menu } of entry.base.entries) {
+    if (kind !== 'dining-hall') continue
+    // Only the meals that day's menu has.
+    for (const meal of menu.meals || []) {
+      const res = await loadWeek(school.slug, meal, ymd, { fetchImpl, cache: true, nowMs: now.getTime() })
+      const food = res.ok ? res.week.foods.get(key) : null
+      // On the menu that day, not merely somewhere in the week.
+      if (food && (res.week.days.get(ymd) || []).some((row) => row.food === food)) return foodDetail(food)
+    }
+  }
+  return null
+}
+
+/**
+ * The dishes that change from day to day (issue #469), for every day of the
+ * week of `fromYmd` from that day on: per dining hall and meal, the foods of
+ * the stations not flagged every day, read from the week cache that the
+ * date's snapshot fills. Returns [{ date, location, meal, dishes: [{ name,
+ * image }] }], `image` the 220 px photo or null.
+ */
+export async function weekSpecials(fromYmd, { now = new Date(), fetchImpl } = {}) {
+  const snapshot = await getDiningSnapshot({ date: fromYmd, now, fetchImpl })
+  const entry = entries.get(fromYmd)
+  if (!snapshot.ok || !entry?.base) return []
+  const out = []
+  for (const { spec, school, kind } of entry.base.entries) {
+    if (kind !== 'dining-hall') continue
+    for (const meal of mealSlugsForSchool(school)) {
+      const res = await loadWeek(school.slug, meal, fromYmd, { fetchImpl, cache: true, nowMs: now.getTime() })
+      if (!res.ok) continue
+      const days = [...res.week.days].map(([date, rows]) => ({ date, menu_items: rows }))
+      for (const { date, menu_items } of days) {
+        if (date < fromYmd) continue
+        const everyday = everydayStations(days, date)
+        const dishes = ingestMenuStations(menu_items, meal)
+          .filter((station) => !everyday.has(station.name))
+          .flatMap((station) => station.items.map((item) => ({ name: item.name, image: item.thumb })))
+        if (dishes.length) out.push({ date, location: school.name || spec.label, meal, dishes })
+      }
+    }
+  }
+  return out
+}
+
 export function __resetDiningCacheForTests() {
   entries.clear()
   inFlight.clear()
+  weeks.clear()
+  weekFetches.clear()
+}
+
+/** How many dates and weeks the caches hold, for the bound tests. */
+export function __diningCacheSizesForTests() {
+  return { dates: entries.size, weeks: weeks.size }
 }

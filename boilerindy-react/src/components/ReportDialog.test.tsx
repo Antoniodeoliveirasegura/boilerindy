@@ -208,6 +208,28 @@ describe('ReportDialog', () => {
     reportButton.remove()
   })
 
+  // Focus moves back while the dialog is still on the page, so it never sits
+  // on <body> in between. When it moved back only after the dialog was gone,
+  // a close from the report's answer (not a click) left it on <body> for a
+  // task, and the Marketplace report test failed on CI by looking in that gap.
+  test('gives focus back before the dialog leaves the page', () => {
+    const opener = document.createElement('button')
+    opener.textContent = 'Report'
+    document.body.appendChild(opener)
+    opener.focus()
+
+    const { rerender } = renderDialog(false)
+    rerender(true)
+    let dialogWhenFocusReturned: Element | null = null
+    opener.addEventListener('focus', () => {
+      dialogWhenFocusReturned = document.querySelector('[role="dialog"]')
+    })
+    rerender(false)
+    expect(opener).toHaveFocus()
+    expect(dialogWhenFocusReturned).not.toBeNull()
+    opener.remove()
+  })
+
   test('starts blank every time it opens', () => {
     const { rerender } = renderDialog()
     fireEvent.click(screen.getByLabelText('Something else'))

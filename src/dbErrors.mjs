@@ -133,6 +133,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-sign-in-challenges.sql',
     'Could not check your sign-in code. Please try again.',
   ),
+  // The favorite-dish alerts switch on push_settings (#469).
+  dining_alerts: dbFeature(
+    'dining_alerts',
+    'Favorite dish alerts',
+    'db/supabase-dining-favorite-alerts.sql',
+    'Could not save notification settings.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',

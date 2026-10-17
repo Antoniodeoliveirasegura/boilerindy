@@ -531,7 +531,8 @@ export function createAssistantRouter({
       )
       const openTasks = manualTasks.filter((t) => !t.completed_at)
       const overdue = openTasks.filter((t) => t.due_at && new Date(t.due_at) < now)
-      const openDining = (dining?.locations || []).filter((l) => l.is_open)
+      // Open, or serving a posted menu on a day the feed lists no hours for (issue #465).
+      const openDining = (dining?.locations || []).filter((l) => l.is_open || (l.is_open === null && l.menusPublished))
 
       const facts = []
       if (inSession) facts.push(`${inSession.title} until ${fmtTime(inSession.end_time)}`)

@@ -49,6 +49,26 @@ test.describe('Push notifications settings card', () => {
     await expect(page.getByTestId('push-deadline-toggle')).not.toBeChecked()
   })
 
+  test('turns favorite-dish alerts on, and says when the server is not set up for them (issue #469)', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/settings')
+    const dining = page.getByTestId('push-dining-toggle')
+    await expect(dining).not.toBeChecked()
+    await expect(dining).toBeEnabled()
+    await expect(page.getByTestId('push-dining-note')).toContainText('One notification a day')
+    const put = page.waitForRequest((req) => req.method() === 'PUT' && req.url().includes('/api/push/settings'))
+    await dining.check()
+    expect((await put).postDataJSON()).toEqual({ diningFavoriteAlerts: true })
+    await expect.poll(() => mockApi.state.push.settings.diningFavoriteAlerts).toBe(true)
+    await page.reload()
+    await expect(page.getByTestId('push-dining-toggle')).toBeChecked()
+
+    mockApi.seedPush({ diningAlertsAvailable: false })
+    await page.reload()
+    await expect(page.getByTestId('push-dining-toggle')).toBeDisabled()
+    await expect(page.getByTestId('push-dining-note')).toContainText('Not available yet')
+  })
+
   test('explains when the server has no VAPID keys and offers no device button', async ({ page, mockApi }) => {
     mockApi.login()
     mockApi.seedPush({ config: { enabled: false } })

@@ -73,7 +73,7 @@ function renderHome() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter useTransitions={false}>
         <Home />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -164,6 +164,79 @@ it('gives Heads up and the task rows the same hours', async () => {
   expect(within(tasksDueCard()).getByText('Due in 1h')).toBeInTheDocument()
 })
 
+// The free-time suggestion took the feed's first event, so one that ended two
+// weeks ago still showed as what to do next.
+it('suggests the next event that is not over, never one that already ended', async () => {
+  calendar.items = [
+    { id: 'old', title: 'Banned Books Week', category: 'campus_event', startTime: inHours(-13 * 24), endTime: inHours(-13 * 24 + 2) },
+    { id: 'later', title: 'Career Fair', category: 'campus_event', startTime: inHours(50), endTime: inHours(52) },
+    { id: 'soon', title: 'Club Night', category: 'event', startTime: inHours(30), endTime: inHours(32) },
+  ]
+  renderHome()
+
+  expect(await screen.findByText('Club Night')).toBeInTheDocument()
+  expect(screen.queryByText('Banned Books Week')).toBeNull()
+  expect(screen.queryByText('Career Fair')).toBeNull()
+})
+
+// The Free Time card's suggestion rows, so an event also listed under Today's
+// events counts only where it is suggested.
+async function freeTimeRows() {
+  const card = (await screen.findByRole('heading', { name: 'Free Time' })).closest('.card') as HTMLElement
+  return within(card)
+}
+
+const startOfToday = () => {
+  const midnight = new Date()
+  midnight.setHours(0, 0, 0, 0)
+  return midnight
+}
+const daysFromToday = (days: number) => new Date(startOfToday().getTime() + days * 24 * 3600_000)
+
+// The first version of that fix kept an event with no end time only while its
+// start was ahead, so an all-day event of today vanished from the suggestion at
+// midnight while Today's events still listed it.
+it('keeps an all-day event of today in the suggestion when it has no end time', async () => {
+  calendar.items = [
+    { id: 'fair', title: 'Career Fair', category: 'campus_event', startTime: inHours(50), endTime: inHours(52) },
+    { id: 'homecoming', title: 'Homecoming Day', category: 'campus_event', startTime: startOfToday().toISOString() },
+  ]
+  renderHome()
+
+  const rows = await freeTimeRows()
+  const row = (await rows.findByText('Homecoming Day')).closest('li') as HTMLElement
+  expect(row).toHaveTextContent('Today · All day')
+  expect(rows.queryByText('Career Fair')).toBeNull()
+})
+
+// Sorted by start alone, an event running all week came first every day, under
+// its start date, which read like an event in the past.
+it("suggests tonight's event ahead of one running all week", async () => {
+  calendar.items = [
+    { id: 'week', title: 'Banned Books Week', category: 'campus_event', startTime: daysFromToday(-4).toISOString(), endTime: inHours(48) },
+    { id: 'tonight', title: 'Club Night', category: 'event', startTime: inHours(3), endTime: inHours(5) },
+  ]
+  renderHome()
+
+  const rows = await freeTimeRows()
+  expect(await rows.findByText('Club Night')).toBeInTheDocument()
+  expect(rows.queryByText('Banned Books Week')).toBeNull()
+})
+
+it('shows a week-long event that is the only one left as on now, until its last day', async () => {
+  // Ends at midnight three days on, so its last day is the day before.
+  const end = daysFromToday(3)
+  calendar.items = [
+    { id: 'week', title: 'Banned Books Week', category: 'campus_event', startTime: daysFromToday(-4).toISOString(), endTime: end.toISOString() },
+  ]
+  renderHome()
+
+  const rows = await freeTimeRows()
+  const row = (await rows.findByText('Banned Books Week')).closest('li') as HTMLElement
+  const lastDay = new Date(end.getTime() - 1).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  expect(row).toHaveTextContent(`On now · until ${lastDay}`)
+})
+
 // A feed deadline ends when it starts, and the rows used the event formatter.
 it('shows a deadline as one time, never a zero-length range', async () => {
   const due = new Date()
@@ -227,4 +300,142 @@ it('says why the week ahead could not be generated', async () => {
 
   expect(await screen.findByText('You have hit the hourly assistant limit. Try again in a little while.')).toHaveAttribute('role', 'alert')
   expect(screen.queryByText(/Generating your week summary/)).toBeNull()
+})
+
+// Issue #465: the feed flags Saturday and Sunday closed while Tower serves a
+// full weekend menu. The server now sends is_open: null with "Hours not
+// listed" for such a day, and Home must not call the hall closed.
+function diningSnapshot(tower: Record<string, unknown>) {
+  return {
+    ok: true,
+    date: '2026-10-17',
+    weekday: 'Saturday',
+    locations: [
+      {
+        id: 'tower-dining',
+        slug: 'tower-dining',
+        name: 'Tower Dining',
+        kind: 'dining-hall',
+        weekly_hours: { Saturday: 'Hours not listed', Monday: '7:00 AM - 9:00 PM' },
+        stations: [{ name: 'Daily Grill', items: [{ name: 'Cheeseburger' }] }],
+        ...tower,
+      },
+    ],
+  }
+}
+
+function serveDining(snapshot: unknown) {
+  fetchMock.mockImplementation(async (url: unknown) =>
+    String(url).startsWith('/api/dining')
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : new Response(JSON.stringify({ reply: 'You have CS 30200 at 2:30pm.' }), { status: 200 }),
+  )
+}
+
+function diningCard() {
+  return screen.getByRole('heading', { name: 'Dining Snapshot' }).closest('.card') as HTMLElement
+}
+
+it('never calls Tower closed on a day with a posted menu and no listed hours', async () => {
+  serveDining(diningSnapshot({ is_open: null, hours: 'Hours not listed' }))
+  renderHome()
+
+  const status = await waitFor(() => {
+    const el = diningCard().querySelector('[data-dining-widget-status]')
+    expect(el?.textContent).toBe('Menu posted')
+    return el as HTMLElement
+  })
+  expect(status.querySelector('.status-unknown')).not.toBeNull()
+  expect(within(diningCard()).getByText('Hours not listed')).toBeInTheDocument()
+  expect(within(diningCard()).getByText('Cheeseburger')).toBeInTheDocument()
+  expect(screen.queryByText(/is closed right now/)).toBeNull()
+})
+
+it('still says a hall is closed when the feed says so and there is no menu', async () => {
+  serveDining(diningSnapshot({ is_open: false, hours: 'Closed today', weekly_hours: { Saturday: 'Closed' }, stations: [] }))
+  renderHome()
+
+  expect(await screen.findByText('Tower Dining is closed right now')).toBeInTheDocument()
+  expect(diningCard().querySelector('[data-dining-widget-status]')?.textContent).toBe('Closed')
+})
+
+// Issue #466: the widget previews the meal being served on campus time, the
+// dishes that change today ahead of the every-day ones, and names the meal.
+it('previews the current meal, specials first', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-14T12:30:00-04:00'))
+  try {
+    const grill = { name: 'Daily Grill', everyday: true, items: [{ name: 'Cheeseburger' }] }
+    serveDining(
+      diningSnapshot({
+        is_open: true,
+        hours: '7:00 AM - 9:00 PM',
+        menus: [
+          { meal: 'breakfast', stations: [{ name: 'Breakfast Entree Line', everyday: false, items: [{ name: 'Pancakes' }] }] },
+          { meal: 'lunch', stations: [grill, { name: 'Chef Made Soups', everyday: false, items: [{ name: 'Chicken Miso Soup' }] }] },
+        ],
+      }),
+    )
+    renderHome()
+
+    expect(await within(await waitFor(() => diningCard())).findByText("Today's lunch")).toBeInTheDocument()
+    const items = within(diningCard()).getAllByRole('listitem').map((li) => li.textContent)
+    expect(items).toEqual(['Chicken Miso Soup', 'Cheeseburger'])
+    expect(within(diningCard()).queryByText('Pancakes')).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+// Issue #469: a favorite dish on today's or tomorrow's menu is a smart alert.
+it('says when a favorite dish is on today\'s menu', async () => {
+  const { authRequest } = await import('../lib/authApi')
+  const base = vi.mocked(authRequest).getMockImplementation()!
+  vi.mocked(authRequest).mockImplementation(async (path: string, ...rest: unknown[]) =>
+    path === '/api/me/dining/favorites' ? { favorites: ['cheeseburger', 'jamaican jerk chicken'] } : base(path, ...(rest as [])),
+  )
+  try {
+    const upcoming = {
+      ok: true,
+      today: '2026-10-17',
+      days: [{ date: '2026-10-18', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Jamaican Jerk Chicken', image: null }], specials: [] }] }],
+    }
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const path = String(url)
+      if (path.startsWith('/api/dining/upcoming')) return new Response(JSON.stringify(upcoming))
+      if (path.startsWith('/api/dining')) return new Response(JSON.stringify(diningSnapshot({ is_open: true, hours: '7:00 AM - 9:00 PM' })))
+      return new Response(JSON.stringify({ reply: 'ok' }))
+    })
+    renderHome()
+    // Today's menu wins over tomorrow's look-ahead.
+    expect(await screen.findByText('Cheeseburger is on the menu at Tower Dining today')).toBeInTheDocument()
+    expect(screen.queryByText(/tomorrow$/)).toBeNull()
+  } finally {
+    vi.mocked(authRequest).mockImplementation(base)
+  }
+})
+
+it('says when a favorite dish is back tomorrow', async () => {
+  const { authRequest } = await import('../lib/authApi')
+  const base = vi.mocked(authRequest).getMockImplementation()!
+  vi.mocked(authRequest).mockImplementation(async (path: string, ...rest: unknown[]) =>
+    path === '/api/me/dining/favorites' ? { favorites: ['jamaican jerk chicken'] } : base(path, ...(rest as [])),
+  )
+  try {
+    const upcoming = {
+      ok: true,
+      today: '2026-10-17',
+      days: [{ date: '2026-10-18', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Jamaican Jerk Chicken', image: null }], specials: [] }] }],
+    }
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const path = String(url)
+      if (path.startsWith('/api/dining/upcoming')) return new Response(JSON.stringify(upcoming))
+      if (path.startsWith('/api/dining')) return new Response(JSON.stringify(diningSnapshot({ is_open: true })))
+      return new Response(JSON.stringify({ reply: 'ok' }))
+    })
+    renderHome()
+    expect(await screen.findByText('Jamaican Jerk Chicken is on the menu at Tower Dining tomorrow')).toBeInTheDocument()
+  } finally {
+    vi.mocked(authRequest).mockImplementation(base)
+  }
 })

@@ -13,7 +13,7 @@ import {
   type ClubScope,
   type ClubSearchResult,
 } from '../lib/clubs'
-import { errorMessage, useClubSearch } from '../lib/queries/publicData'
+import { errorMessage, useCampusNews, useClubSearch } from '../lib/queries/publicData'
 import PageTitle from '../components/PageTitle'
 
 // Student organization directory (issue #16). Data is BoilerLink's public
@@ -112,6 +112,10 @@ export default function Clubs() {
   // the student comes back to answers at once, and while new filters load the
   // previous list stays on screen dimmed, as before.
   const search = useClubSearch({ q, category, scope, pageSize: CLUBS_PAGE_SIZE })
+  // The newest student-orgs story from The Circuit (issue #470), today its
+  // club guide: a link out, nothing of the article.
+  const news = useCampusNews()
+  const orgsStory = news.data?.posts?.find((post) => post.tag === 'Student Orgs')
   const pages = useMemo<ClubSearchResult[]>(() => search.data?.pages ?? [], [search.data])
   const result = pages.length > 0 ? pages[pages.length - 1] : null
   const clubs = useMemo<Club[]>(() => pages.flatMap((p) => p.clubs), [pages])
@@ -171,6 +175,14 @@ export default function Clubs() {
           <p className="page-sub">
             Every student organization on BoilerLink, with the Indianapolis groups first.
           </p>
+          {orgsStory && (
+            <p className="mt-2 text-[13px] text-[var(--color-txt-2)]" data-clubs-circuit>
+              From The Circuit, Purdue Indy&apos;s student newspaper:{' '}
+              <a href={orgsStory.url} target="_blank" rel="noopener noreferrer" className="prose-link">
+                {orgsStory.title}
+              </a>
+            </p>
+          )}
         </div>
         <div
           role="group"

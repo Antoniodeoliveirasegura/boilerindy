@@ -33,6 +33,14 @@ test.describe('Club directory', () => {
     await expect(page.getByText('Boiler Robotics Club')).toHaveCount(0)
   })
 
+  test('links The Circuit\'s newest student-orgs story, its club guide (issue #470)', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/clubs')
+    const line = page.locator('[data-clubs-circuit]')
+    await expect(line).toContainText("From The Circuit, Purdue Indy's student newspaper")
+    await expect(line.getByRole('link', { name: 'Fall 2026 Club Guide' })).toHaveAttribute('href', 'https://circuitpress.org/fall-2026-club-guide/')
+  })
+
   test('All Purdue widens the list; category and search narrow it and land in the URL', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/clubs')

@@ -161,7 +161,7 @@ function answer(table, chain) {
 }
 
 async function withApp(options, run) {
-  const { seed = {}, isProduction = false, send = async () => ({ sent: true, id: 'resend-1' }) } = options
+  const { seed = {}, isProduction = false, emailConfigured = true, send = async () => ({ sent: true, id: 'resend-1' }) } = options
   const db = Object.fromEntries(TABLES.map((name) => [name, structuredClone(seed[name] ?? [])]))
   // failures[table](chain) returns an error to answer that query with, or nothing.
   const failures = {}
@@ -222,6 +222,7 @@ async function withApp(options, run) {
       },
       clientAppUrl: 'https://app.example',
       isProduction,
+      isEmailConfigured: () => emailConfigured,
     }),
   )
   app.use(
@@ -580,6 +581,24 @@ test('with email off, the reset link is logged outside production and never in i
     const token = new URL(mail[0].resetUrl).searchParams.get('token')
     assert.deepEqual(lines, ['[advertiser reset] email is not configured; reset link was not delivered'])
     assert.ok(lines.every((line) => !line.includes(token)))
+  })
+})
+
+test('in production with email not configured, forgot-password answers 503 for every address and mints nothing', async () => {
+  await withApp({ seed: { advertisers: [ADVERTISER] }, isProduction: true, emailConfigured: false }, async ({ call, db, mail, supabase }) => {
+    const lines = await captureConsole(async () => {
+      for (const email of [ADVERTISER.email, 'nobody@example.com']) {
+        const res = await call('POST', '/api/advertiser/forgot-password', { body: { email } })
+        assert.equal(res.status, 503)
+        assert.deepEqual(res.body, {
+          error: { message: 'Password reset email is unavailable right now. Please contact support to reset your password.', status: 503 },
+        })
+      }
+    })
+    assert.deepEqual(lines, Array(2).fill('[advertiser reset] email is not configured; no reset link can be sent'))
+    assert.deepEqual(supabase.queriesOf('advertisers'), [], 'no lookup, so the answer cannot depend on the address')
+    assert.deepEqual(db.advertiser_password_resets, [])
+    assert.deepEqual(mail, [])
   })
 })
 

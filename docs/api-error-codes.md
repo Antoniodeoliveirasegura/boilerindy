@@ -40,6 +40,11 @@ Not every route has moved to this envelope yet, so a client should read
 | `purdue_link_unconfigured` | 503 | `POST /api/purdue/link-token` | `SESSION_SECRET` is shorter than 32 characters. | Show linking as unavailable. |
 | `sign_in_codes_schema_missing` | 503 | `POST /api/auth/sign-in`, `POST /api/auth/register-supabase`, `POST /api/auth/sign-in/verify`, `POST /api/auth/sign-in/resend` | `LOGIN_TWO_FACTOR` is on but `sign_in_challenges` is missing: README step 41, `db/supabase-sign-in-challenges.sql`, has not run. A sign-up answering it has already created the account. | Show the message; email + password sign-in waits on the migration, Google sign-in is unaffected. |
 | `purdue_link_unauthorized` | 401 | `POST /api/purdue/link-token` | The session has no valid student id. | Send the student to sign in again. |
+| `dining_bad_food` | 400 | `GET /api/dining/foods/:id` | The id is not a Nutrislice food id (digits only). | A client bug: the ids come from the `/api/dining` snapshot. |
+| `dining_bad_date` | 400 | `GET /api/dining/foods/:id` | `?date=` is not a real date from yesterday to today + 14 on the Indianapolis calendar. | Use the snapshot's `date`. |
+| `dining_food_not_found` | 404 | `GET /api/dining/foods/:id` | The dish is not on any of that date's menus (issue #468). | Show what the snapshot item already has; the menu may have changed since it loaded. |
+| `dining_internal` | 500 | `GET /api/dining/foods/:id`, `GET /api/dining/upcoming` | The lookup failed (logged as `Nutrislice dish error:` or `Nutrislice upcoming error:`). | Show what is already loaded and offer a retry. |
+| `dining_alerts_schema_missing` | 503 | `PUT /api/push/settings` with `diningFavoriteAlerts` | The favorite dish alerts column is missing: README step 42, `db/supabase-dining-favorite-alerts.sql`, has not run (issue #469). `GET /api/push/settings` says so with `diningAlertsAvailable: false`. | Keep the switch disabled; the other settings save as before. |
 
 Every `*_schema_missing` code ends in `_schema_missing`, so a client can match
 the suffix instead of listing features: the mobile app maps `503` plus that
@@ -88,6 +93,14 @@ To give a new feature a code, add an entry to `DB_FEATURES`, call
 `respondDbError(res, err, DB_FEATURES.<key>)` from its routes, and add a row to
 the table above.
 
+`respondRouteError` (issue #206) is the responder for a route with no
+`DB_FEATURES` entry: `404` `Not found.` for a missing row or a malformed id,
+otherwise `500` with the route's own fixed message, never the database text.
+The manual task, grade and dining favorite writes use it (`src/routes/me.mjs`,
+`src/routes/dining.mjs`), and so do `GET /api/me/calendar` and
+`GET /api/me/tasks/meta`. The account and calendar-source routes under
+[Older error shapes](#older-error-shapes) do not use it yet.
+
 ## 503s without a code
 
 These are temporary or configuration states that are not tied to a missing
@@ -110,15 +123,14 @@ must not assume `error` is an object or that its `message` is safe to show.
 
 - `push_not_configured`: the message names `db/supabase-push.sql`, or
   `db/supabase-push-devices.sql` on `/api/me/push-token`.
-- Manual tasks (`/api/me/tasks/calendar/complete`, `/api/me/tasks/manual*`),
-  grades (`/api/me/grades*`) and dining favorites (`/api/me/dining/favorites`)
-  answer `500 { error: { message } }` with the raw database message and no
-  `status` (issue #206). Several account and calendar-source routes also pass
-  the underlying error's message through.
+- Several account and calendar-source routes (`src/routes/auth.mjs`,
+  `src/routes/sources.mjs`) pass the underlying error's message through.
+- `POST /api/me/tasks/calendar/complete` answers an unknown calendar item with
+  `404 { error: { message } }` and no `status`.
 - `POST /api/assistant`, `GET /api/parking/garages` and `GET /api/clubs` answer
   `{ error: "<text>" }`.
 - `GET /api/dining` answers `{ ok: false, error: "dining_bad_date" | "dining_internal", locations: [] }`
-  (see [dining.md](dining.md)).
+  (see [dining.md](dining.md)). Its dish details read uses the envelope (see Codes).
 - The cron routes `POST /api/internal/push/run-reminders` and
   `POST /api/internal/sources/resync` answer `{ ok: false, error: "<text>" }`.
 

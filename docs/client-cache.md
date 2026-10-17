@@ -12,7 +12,7 @@ The server half of the same idea, the Vercel edge cache on `/api`, is in
 - `boilerindy-react/src/lib/queryClient.ts`: the client, its retry policy, the
   localStorage persister and the rule for what may be persisted.
 - `boilerindy-react/src/lib/queries/publicData.ts`: the keys, stale times,
-  polling and hooks for the five public reads, and `fetchJson`, which every
+  polling and hooks for the public reads, and `fetchJson`, which every
   query uses.
 - `boilerindy-react/src/main.tsx`: the provider, above `AuthProvider`, so a
   later sign-out can clear the client.
@@ -29,8 +29,11 @@ answer stays on screen.
 | `['transit', 'stops']` | `GET /api/transit/stops` | 10 min | none |
 | `['transit', 'vehicles']` | `GET /api/transit/vehicles` | 10 s | every 10 s while a Transit screen or the dashboard is open and the tab is visible |
 | `['dining']` | `GET /api/dining` | 5 min | none; the Dining page's Refresh button fetches `?refresh=1` and writes the answer into this entry |
+| `['dining', 'food', id, date]` | `GET /api/dining/foods/:id?date=` (#468) | 10 min | none; fetched when a dish is opened, kept in memory only (see below) |
+| `['dining', 'upcoming']` | `GET /api/dining/upcoming` (#469) | 30 min | none; the Dining page's headliners and favorites coming up, and Home's favorite alert |
 | `['parking']` | `GET /api/parking/garages` | 60 s | every 60 s while the parking page or the map's garage layer is open and the tab is visible |
 | `['clubs', filters]` | `GET /api/clubs?...` | 30 min | none; one entry per set of filters holds every page fetched so far, and "Show more" appends the next |
+| `['news', 'circuit']` | `GET /api/campus-news` | 30 min, or none for an answer with `ok: false` | none; read by the Campus news widget and the Clubs page (issue #470, [campus-news.md](campus-news.md)) |
 
 `refetchIntervalInBackground` is off for the two polls, so a hidden tab stops
 them (and stops spending the `transit-vehicles` budget); TanStack resumes them
@@ -59,6 +62,7 @@ rows, and the 30 s default stale time applies.
 | `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |
 | `['me', userId, 'blocks']` | `GET /api/me/blocks` | Settings, Blocked users (issue #192) |
 | `['me', userId, 'purdue-email']` | `GET /api/me/purdue-email/status` | The Purdue email card on Settings and setup (issue #181); no retries |
+| `['me', userId, 'dining-favorites']` | `GET /api/me/dining/favorites` | Home's favorite dish alert (issue #469); no retries. The Dining page reads the same route itself for its stars |
 
 Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
 lands in the cached metadata at once, after cancelling any metadata fetch in
@@ -106,14 +110,16 @@ paused mutation would never reach that fallback.
 
 ## What is persisted, and why per-user data is not
 
-Only successful queries whose key starts with `transit`, `dining`, `parking` or
-`clubs` are written to localStorage (`shouldDehydrateQuery` in
+Only successful queries whose key starts with `transit`, `dining`, `parking`,
+`clubs` or `news` are written to localStorage (`shouldDehydrateQuery` in
 `queryClient.ts`), under the key `boilerindy-query-cache`. This is public data,
 identical for every student, so a device can hold it without knowing who is
-signed in. One public entry is left out on purpose: `['transit', 'vehicles']`.
-Live positions are stale after 10 s, so persisting them would only paint
+signed in. Two public entries are left out on purpose. `['transit', 'vehicles']`:
+live positions are stale after 10 s, so persisting them would only paint
 yesterday's buses on the map for a moment, and re-serialising the whole cache
-on every 10 s poll is work nobody benefits from. The per-user reads above carry the user id in their keys, are excluded from
+on every 10 s poll is work nobody benefits from. `['dining', 'food', ...]`
+(issue #468): a dish's details are opened a few at a time, and keeping each
+would only pile them up in storage. The per-user reads above carry the user id in their keys, are excluded from
 persistence, and go with the rest of the client on sign-out, the same rule the
 per-user localStorage stores already follow.
 

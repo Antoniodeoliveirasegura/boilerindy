@@ -23,7 +23,7 @@ function Where() {
 
 function renderResetPage() {
   return render(
-    <MemoryRouter initialEntries={['/advertise/reset-password?token=reset-token']}>
+    <MemoryRouter initialEntries={['/advertise/reset-password?token=reset-token']} useTransitions={false}>
       <Routes>
         <Route path="/advertise/reset-password" element={<AdvertiserResetPassword />} />
         <Route path="/advertise" element={<p>Advertiser sign in</p>} />

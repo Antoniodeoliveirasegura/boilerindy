@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
@@ -7,19 +7,40 @@ import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useQueryClient } from '@tanstack/react-query'
-import { ApiError, refreshDining, useDining } from '../lib/queries/publicData'
+import { ApiError, refreshDining, useDining, useDiningUpcoming } from '../lib/queries/publicData'
 import {
+  ALL_MEALS,
+  DIET_FILTERS,
+  DIET_LABEL_NOTE,
+  OFFICIAL_HOURS_URL,
+  OFFICIAL_MENU_URL,
   SHORT_DAY,
   WEEKDAY_ORDER,
   diningDirectionsUrl,
+  comingUpLine,
   emptyMenuState,
+  favoritesComingUp,
+  feedNotice,
+  filterStations,
   headerBlurb,
+  headlinersFor,
+  locationMenus,
+  readDietFilters,
   snapshotWeekday,
+  splitStations,
+  statusDotClass,
   statusLine,
+  weeklyHoursCell,
+  writeDietFilters,
   type DiningLocation,
   type DiningSnapshot,
+  type MenuItem,
   type Station,
 } from '../lib/dining'
+import DishDialog from '../components/DishDialog'
+import CampusCenterVendors from '../components/CampusCenterVendors'
+import { campusCenterVendorsFor } from '../lib/campusCenterVendors'
+import { defaultMeal, mealLabel } from '../../../src/diningMeals.mjs'
 import PageTitle from '../components/PageTitle'
 
 // Campus Dining (issue #119): the live Nutrislice snapshot from /api/dining,
@@ -66,16 +87,22 @@ function StationCard({
   index,
   favorites,
   onToggleFavorite,
+  onOpenItem,
 }: {
   station: Station
   index: number
   favorites: Set<string>
   /** Absent signed out: the stars need an account. */
   onToggleFavorite?: (name: string) => void
+  /** Opens a dish's details (issue #468); `trigger` gets focus back on close. */
+  onOpenItem?: (item: MenuItem, station: string, trigger: HTMLElement) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const overflow = station.items.length > STATION_CAP
   const visible = expanded ? station.items : station.items.slice(0, STATION_CAP)
+  // A station with any photo gives every row a 40 px leading slot, the photo
+  // or the usual square, so the names line up (issue #468).
+  const withThumbs = station.items.some((item) => item.thumb)
 
   return (
     <div className="card card-pad r-din flex flex-col" data-dining-station={station.name}>
@@ -95,8 +122,37 @@ function StationCard({
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="flex items-start gap-2.5 min-w-0">
-                  <span aria-hidden="true" className="mt-[6px] w-2 h-2 shrink-0 rounded-[2px] bg-[var(--route)]" />
-                  <span className="font-display font-semibold text-[14px] leading-snug text-[var(--color-txt-0)]">{item.name}</span>
+                  {withThumbs ? (
+                    <span aria-hidden="true" className="grid place-items-center w-10 h-10 shrink-0 -my-0.5">
+                      {item.thumb ? (
+                        <img
+                          src={item.thumb}
+                          alt=""
+                          width={40}
+                          height={40}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-10 h-10 rounded-[var(--radius-sm)] object-cover bg-[var(--color-stat)]"
+                        />
+                      ) : (
+                        <span className="w-2 h-2 rounded-[2px] bg-[var(--route)]" />
+                      )}
+                    </span>
+                  ) : (
+                    <span aria-hidden="true" className="mt-[6px] w-2 h-2 shrink-0 rounded-[2px] bg-[var(--route)]" />
+                  )}
+                  {onOpenItem ? (
+                    <button
+                      type="button"
+                      onClick={(e) => onOpenItem(item, station.name, e.currentTarget)}
+                      className="text-left font-display font-semibold text-[14px] leading-snug text-[var(--color-txt-0)] hover:underline underline-offset-[3px] decoration-[var(--color-border-3)]"
+                      data-dining-dish={item.name}
+                    >
+                      {item.name}
+                    </button>
+                  ) : (
+                    <span className="font-display font-semibold text-[14px] leading-snug text-[var(--color-txt-0)]">{item.name}</span>
+                  )}
                 </span>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {item.calories != null && (
@@ -121,7 +177,7 @@ function StationCard({
                 </div>
               </div>
               {item.icons && item.icons.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5 pl-[18px]">
+                <div className={`flex flex-wrap gap-1 mt-1.5 ${withThumbs ? 'pl-[50px]' : 'pl-[18px]'}`}>
                   {item.icons.slice(0, 4).map((ic) => (
                     <span key={ic} className="text-[11px] leading-none px-1.5 py-[4px] rounded-[var(--radius-sm)] bg-[var(--color-stat)] text-[var(--color-txt-2)]">
                       {ic}
@@ -146,6 +202,64 @@ function StationCard({
   )
 }
 
+type StationListProps = {
+  stations: Station[]
+  /** Where the icon rotation starts, so the every-day cards do not repeat the specials' icons. */
+  firstIndex?: number
+  favorites: Set<string>
+  onToggleFavorite?: (name: string) => void
+  onOpenItem?: (item: MenuItem, station: string, trigger: HTMLElement) => void
+}
+
+function StationGrid({ stations, firstIndex = 0, favorites, onToggleFavorite, onOpenItem }: StationListProps) {
+  return (
+    <div className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
+      {stations.map((station, i) => (
+        <StationCard
+          key={station.name}
+          station={station}
+          index={firstIndex + i}
+          favorites={favorites}
+          onToggleFavorite={onToggleFavorite}
+          onOpenItem={onOpenItem}
+        />
+      ))}
+    </div>
+  )
+}
+
+// The stations that serve the same food all week (issue #466), collapsed
+// under the day's specials. Open from the start when a meal has nothing else,
+// like a weekend breakfast of grill options only.
+function EverydayStations({ defaultOpen, ...list }: StationListProps & { defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const panelId = useId()
+  const count = list.stations.length
+  return (
+    <section className="mt-5" data-dining-everyday>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-surface)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-bg-2)]"
+      >
+        <Icon name="chevronRight" size={16} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        {/* The count wraps under the title on a phone; the title stays on one line. */}
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <span className="whitespace-nowrap font-display font-bold text-[14.5px] text-[var(--color-txt-0)]">Every day</span>{' '}
+          <span className="text-[12.5px] text-[var(--color-txt-2)]">
+            {count} station{count === 1 ? '' : 's'} with the same food all week
+          </span>
+        </span>
+      </button>
+      <div id={panelId} hidden={!open} className="mt-4">
+        <StationGrid {...list} />
+      </div>
+    </section>
+  )
+}
+
 export default function Dining() {
   // Gate every per-user call on a settled session, not on `user` alone: while
   // a signed-in student's cookie is re-minted on a cold load, a favorites read
@@ -167,6 +281,8 @@ export default function Dining() {
   // answer back into it.
   const queryClient = useQueryClient()
   const diningQuery = useDining()
+  // What is coming up (issue #469): the headliner photos and favorites to come.
+  const upcomingQuery = useDiningUpcoming()
   const [refreshing, setRefreshing] = useState(false)
   // Why the last Refresh click failed, shown until a later fetch (a refetch on
   // focus, the next Refresh) lands newer data than the failure.
@@ -316,10 +432,56 @@ export default function Dining() {
   }
 
   const favoritesToday = useMemo(() => favoritesOnTodaysMenu(favorites, live?.locations || []), [favorites, live])
+  const comingUp = useMemo(
+    () => favoritesComingUp(favorites, upcomingQuery.data, upcomingQuery.data?.today, normalizeItemName),
+    [favorites, upcomingQuery.data],
+  )
 
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
   const withHours = locations.filter((l) => l.weekly_hours)
   const empty = selected ? emptyMenuState(selected) : null
+  // The food court's vendors stand in for its menu (issue #477).
+  const campusVendors = selected?.kind === 'retail' ? campusCenterVendorsFor(selected) : []
+
+  // Meal tabs (issue #466): the meal a student picked for this location, else
+  // the one being served now on campus time (defaultMeal). A snapshot from
+  // before per-meal menus has one ALL_MEALS view and no tabs.
+  const [mealChoice, setMealChoice] = useState<{ locationId: string; meal: string } | null>(null)
+  const menus = selected ? locationMenus(selected) : []
+  const mealOptions = menus.map((m) => m.meal)
+  const activeMeal =
+    selected && mealChoice?.locationId === selected.id && mealOptions.includes(mealChoice.meal) ? mealChoice.meal : defaultMeal(mealOptions)
+  const activeMenu = menus.find((m) => m.meal === activeMeal) ?? menus[0]
+
+  // Diet filters (issue #468), remembered on this device. A dish shows when it
+  // carries every chosen label; stations left empty are hidden.
+  const [dietFilters, setDietFilters] = useState<string[]>(() => readDietFilters())
+  const toggleDietFilter = (label: string) => {
+    const next = dietFilters.includes(label) ? dietFilters.filter((f) => f !== label) : [...dietFilters, label]
+    setDietFilters(next)
+    writeDietFilters(next)
+  }
+  const split = splitStations(activeMenu?.stations ?? [])
+  const specials = filterStations(split.specials, dietFilters)
+  const everyday = filterStations(split.everyday, dietFilters)
+  const filteredOut = Boolean(activeMenu) && specials.length === 0 && everyday.length === 0
+
+  // Today's headline dishes for the meal on screen (issue #469), only for the
+  // snapshot of today. A headliner on the menu opens its details.
+  const headliners = activeMenu && live?.date === upcomingQuery.data?.today ? headlinersFor(upcomingQuery.data, live?.date, activeMenu.meal) : []
+  const menuItemNamed = (name: string): { item: MenuItem; station: string } | null => {
+    const key = normalizeItemName(name)
+    for (const station of activeMenu?.stations ?? []) {
+      const item = station.items.find((it) => normalizeItemName(it.name) === key)
+      if (item) return { item, station: station.name }
+    }
+    return null
+  }
+
+  // The dish whose details are open (issue #468).
+  const [openDish, setOpenDish] = useState<{ item: MenuItem; station: string; trigger: HTMLElement } | null>(null)
+  const openItem = useCallback((item: MenuItem, station: string, trigger: HTMLElement) => setOpenDish({ item, station, trigger }), [])
+  const closeDish = useCallback(() => setOpenDish(null), [])
 
   return (
     <div className="page">
@@ -395,6 +557,33 @@ export default function Dining() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Favorites coming up (issue #469): the next time each starred dish is on. */}
+      {signedIn && comingUp.length > 0 && upcomingQuery.data?.today && (
+        <div className="card card-pad r-din mb-4 animate-fade-in-up" data-dining-coming-up>
+          <div className="card-head mb-2">
+            <span className="route-badge">
+              <Icon name="calendar" size={18} />
+            </span>
+            <span className="card-title">Favorites coming up</span>
+          </div>
+          <div>
+            {comingUp.slice(0, 6).map((entry) => (
+              <div key={entry.name} className="flex items-center justify-between gap-3 py-2 border-t border-[var(--color-border)] first:border-t-0">
+                <span className="font-display font-semibold text-[14px] text-[var(--color-txt-0)]">
+                  {comingUpLine(entry, upcomingQuery.data!.today!)}
+                </span>
+                <span className="text-[12.5px] text-[var(--color-txt-2)] text-right shrink-0">
+                  {mealLabel(entry.meal)}, {entry.location}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[12px] text-[var(--color-txt-3)]">
+            Menus more than a week out are drafts and can still change.
+          </p>
         </div>
       )}
 
@@ -476,7 +665,7 @@ export default function Dining() {
                     {/* On the inverted active pill the dot keeps a surface
                         halo, so it still reads on ink (light) and white (dark). */}
                     <span
-                      className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'} ${
+                      className={`status-dot shrink-0 ${statusDotClass(loc)} ${
                         isSelected ? 'shadow-[0_0_0_2px_var(--color-surface)]' : ''
                       }`}
                     />
@@ -502,7 +691,7 @@ export default function Dining() {
                         {selected.kind === 'retail' && <span className="badge">Food court</span>}
                       </div>
                       <div className="flex items-center gap-2 mt-1.5">
-                        <span className={`status-dot shrink-0 ${selected.is_open ? 'status-open' : 'status-closed'}`} />
+                        <span className={`status-dot shrink-0 ${statusDotClass(selected)}`} />
                         <span className="font-display font-semibold text-[13.5px] text-[var(--color-txt-1)]" data-dining-status>
                           {statusLine(selected)}
                         </span>
@@ -513,17 +702,46 @@ export default function Dining() {
                       </div>
                     </div>
                   </div>
-                  <a
-                    href={diningDirectionsUrl(selected)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-primary w-fit shrink-0 no-underline"
-                  >
-                    <Icon name="mapPin" size={16} />
-                    Get Directions
-                  </a>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <a
+                      href={diningDirectionsUrl(selected)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-primary w-fit shrink-0 no-underline"
+                    >
+                      <Icon name="mapPin" size={16} />
+                      Get Directions
+                    </a>
+                    {/* The official menu, always one tap away: the feed this
+                        page reads is a deactivated site's API (issue #467). */}
+                    {selected.kind !== 'retail' && (
+                      <a
+                        href={OFFICIAL_MENU_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary w-fit shrink-0 no-underline"
+                        data-dining-official-menu
+                      >
+                        Official menu
+                        <Icon name="arrowUpRight" size={15} />
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {feedNotice(selected) && (
+                <div
+                  role="status"
+                  className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"
+                  data-dining-feed-stale
+                >
+                  {feedNotice(selected)}{' '}
+                  <a href={OFFICIAL_MENU_URL} target="_blank" rel="noopener noreferrer" className="prose-link">
+                    Official menu at IU Indy Eats
+                  </a>
+                </div>
+              )}
 
               {signedIn && favoriteError && (
                 <div
@@ -535,8 +753,10 @@ export default function Dining() {
                 </div>
               )}
 
-              {/* Station grid, or the honest reason there is none */}
-              {(selected.stations || []).length === 0 ? (
+              {/* The meal's stations, the food court's vendors, or the honest reason there are none */}
+              {!activeMenu && campusVendors.length > 0 ? (
+                <CampusCenterVendors name={selected.name} vendors={campusVendors} />
+              ) : !activeMenu ? (
                 <div className="empty bg-[var(--color-surface)] p-5" data-dining-empty={empty.kind}>
                   <span className="ico">
                     <Icon name={empty.icon} size={18} />
@@ -545,17 +765,135 @@ export default function Dining() {
                   <p className="max-w-md -mt-1">{empty.body}</p>
                 </div>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
-                  {(selected.stations || []).map((station, i) => (
-                    <StationCard
-                      key={station.name}
-                      station={station}
-                      index={i}
+                <>
+                  {/* One pill per posted meal, defaulting to the one being served. */}
+                  {activeMenu.meal !== ALL_MEALS && (
+                    <div role="group" aria-label="Meal" className="flex flex-wrap gap-2 mb-4" data-dining-meals>
+                      {mealOptions.map((meal) => (
+                        <button
+                          key={meal}
+                          type="button"
+                          onClick={() => setMealChoice({ locationId: selected.id, meal })}
+                          aria-pressed={meal === activeMenu.meal}
+                          data-dining-meal={meal}
+                          className={`pill md:min-h-[36px] px-4 text-[13.5px] ${meal === activeMenu.meal ? 'pill-active' : ''}`}
+                        >
+                          {mealLabel(meal)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Today's headline dishes for this meal, with their photos (issue #469). */}
+                  {headliners.length > 0 && (
+                    <section className="mb-4" aria-label="Today's headliners" data-dining-headliners>
+                      <p className="eyebrow bare mb-2">Today&apos;s headliners</p>
+                      <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
+                        {headliners.map((dish) => {
+                          const onMenu = menuItemNamed(dish.name)
+                          const inner = (
+                            <>
+                              {dish.image ? (
+                                <img
+                                  src={dish.image}
+                                  alt=""
+                                  width={176}
+                                  height={132}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className="block w-full aspect-[4/3] object-cover rounded-[var(--radius-md)] bg-[var(--color-stat)]"
+                                />
+                              ) : (
+                                <span className="grid place-items-center w-full aspect-[4/3] rounded-[var(--radius-md)] bg-[var(--color-stat)] text-[var(--color-txt-3)]">
+                                  <Icon name="dining" size={22} />
+                                </span>
+                              )}
+                              <span className="mt-1.5 block font-display font-semibold text-[13.5px] leading-snug text-[var(--color-txt-0)]">
+                                {dish.name}
+                              </span>
+                            </>
+                          )
+                          return onMenu ? (
+                            <button
+                              key={dish.name}
+                              type="button"
+                              onClick={(e) => openItem(onMenu.item, onMenu.station, e.currentTarget)}
+                              className="w-[176px] shrink-0 self-start text-left"
+                              data-dining-headliner={dish.name}
+                            >
+                              {inner}
+                            </button>
+                          ) : (
+                            <div key={dish.name} className="w-[176px] shrink-0 self-start" data-dining-headliner={dish.name}>
+                              {inner}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  )}
+                  {/* Diet filters, with the allergen caveat always beside them (issue #468). */}
+                  <div className="mb-4" data-dining-diet>
+                    <div role="group" aria-label="Diet labels" className="flex flex-wrap items-center gap-2">
+                      {DIET_FILTERS.map((label) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => toggleDietFilter(label)}
+                          aria-pressed={dietFilters.includes(label)}
+                          data-dining-diet-filter={label}
+                          className={`pill ${dietFilters.includes(label) ? 'pill-active' : ''}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[12px] leading-snug text-[var(--color-txt-2)] max-w-2xl" data-dining-diet-note>
+                      {DIET_LABEL_NOTE}
+                    </p>
+                  </div>
+                  {filteredOut && (
+                    <div className="empty bg-[var(--color-surface)] p-5" data-dining-no-match>
+                      <p className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">
+                        Nothing on this menu is labelled {dietFilters.join(' and ')}.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDietFilters([])
+                          writeDietFilters([])
+                        }}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  )}
+                  {specials.length > 0 && everyday.length > 0 && (
+                    <p className="eyebrow bare mb-3" data-dining-specials-label>
+                      Today&apos;s specials
+                    </p>
+                  )}
+                  {specials.length > 0 && (
+                    <StationGrid
+                      stations={specials}
                       favorites={favorites}
                       onToggleFavorite={signedIn ? toggleFavorite : undefined}
+                      onOpenItem={openItem}
                     />
-                  ))}
-                </div>
+                  )}
+                  {everyday.length > 0 && (
+                    // Keyed by location and meal, so another tab starts collapsed again.
+                    <EverydayStations
+                      key={`${selected.id}:${activeMenu.meal}`}
+                      stations={everyday}
+                      firstIndex={specials.length}
+                      defaultOpen={specials.length === 0}
+                      favorites={favorites}
+                      onToggleFavorite={signedIn ? toggleFavorite : undefined}
+                      onOpenItem={openItem}
+                    />
+                  )}
+                </>
               )}
             </div>
           )}
@@ -577,7 +915,7 @@ export default function Dining() {
                         the separator: wrapped on a 320px phone it started its line
                         with a stray dot (R66). 18px is the dot plus the gap. */}
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mb-3">
-                      <span className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'}`} />
+                      <span className={`status-dot shrink-0 ${statusDotClass(loc)}`} />
                       <span className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{loc.name}</span>
                       <span className="max-sm:basis-full max-sm:pl-[18px] text-[12.5px] text-[var(--color-txt-2)]">
                         <span className="max-sm:hidden">· </span>
@@ -588,9 +926,10 @@ export default function Dining() {
                         day. Phones list the days as rows with the rule on the left. */}
                     <div className="grid grid-cols-1 gap-1 sm:grid-cols-4 sm:gap-x-2 sm:gap-y-3 md:grid-cols-7">
                       {WEEKDAY_ORDER.map((day) => {
-                        const hrs = loc.weekly_hours?.[day] || 'Not posted'
+                        // Closed, or "Not listed" for a day the feed flags
+                        // closed that has a menu (issue #465), in the muted style.
+                        const cell = weeklyHoursCell(loc.weekly_hours?.[day])
                         const isToday = day === weekday
-                        const isClosed = /closed/i.test(hrs)
                         return (
                           <div
                             key={day}
@@ -604,10 +943,10 @@ export default function Dining() {
                             </div>
                             <div
                               className={`font-display text-[13px] md:max-lg:text-[12.5px] leading-snug tnum text-balance ${
-                                isClosed ? 'font-semibold text-[var(--color-txt-3)]' : 'font-bold text-[var(--color-txt-0)]'
+                                cell.muted ? 'font-semibold text-[var(--color-txt-3)]' : 'font-bold text-[var(--color-txt-0)]'
                               }`}
                             >
-                              {isClosed ? 'Closed' : hrs}
+                              {cell.label}
                             </div>
                           </div>
                         )
@@ -615,6 +954,15 @@ export default function Dining() {
                     </div>
                   </div>
                 ))}
+                {/* The feed's hours are unverified: identical placeholder
+                    weekday hours for both halls, and weekends flagged closed
+                    while Tower serves (issue #465). */}
+                <p className="pt-4 text-[12.5px] leading-snug text-[var(--color-txt-2)]" data-dining-hours-note>
+                  These hours come from the campus menu feed and may not be current.{' '}
+                  <a href={OFFICIAL_HOURS_URL} target="_blank" rel="noopener noreferrer" className="prose-link">
+                    Official hours at IU Indy Eats
+                  </a>
+                </p>
               </div>
             ) : (
               <div className="empty row">
@@ -629,6 +977,16 @@ export default function Dining() {
           </div>
         </>
       )}
+
+      <DishDialog
+        item={openDish?.item ?? null}
+        station={openDish?.station}
+        date={live?.date ?? null}
+        isFavorite={openDish ? favorites.has(normalizeItemName(openDish.item.name)) : false}
+        onToggleFavorite={signedIn ? toggleFavorite : undefined}
+        onClose={closeDish}
+        returnFocusTo={openDish?.trigger ?? null}
+      />
     </div>
   )
 }

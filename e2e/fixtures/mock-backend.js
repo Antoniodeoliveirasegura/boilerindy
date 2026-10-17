@@ -44,7 +44,9 @@ function defaultOnboarding(overrides = {}) {
 function defaultPush(overrides = {}) {
   return {
     config: { enabled: true, publicKey: 'BNo-real-key-just-for-tests', ...(overrides.config || {}) },
-    settings: { deadlineReminders: true, leadMinutes: 60, ...(overrides.settings || {}) },
+    settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false, ...(overrides.settings || {}) },
+    // False mirrors a server before db/supabase-dining-favorite-alerts.sql (#469).
+    diningAlertsAvailable: overrides.diningAlertsAvailable !== false,
     subscriptions: (overrides.subscriptions || []).map((s, i) => ({
       id: s.id || `push-seed-${i + 1}`,
       endpoint: s.endpoint || `https://push.example/seed/${i + 1}`,
@@ -316,6 +318,9 @@ function applyMockPricing(listing, body) {
 // Dining (#119): the snapshot renderSnapshot() in src/nutrisliceDining.mjs
 // produces. Tower Dining is a dining hall with two stations; the Campus Center
 // is the retail food court (hours only, no menu), currently before opening.
+// The feed flags both halls closed at weekends, but Tower publishes weekend
+// menus, so its weekend days read "Hours not listed" (issue #465), while the
+// Campus Center, which posts no menu, keeps Closed.
 const WEEKDAY_HOURS = {
   Monday: '7:00 AM - 9:00 PM',
   Tuesday: '7:00 AM - 9:00 PM',
@@ -324,6 +329,43 @@ const WEEKDAY_HOURS = {
   Friday: '7:00 AM - 9:00 PM',
   Saturday: 'Closed',
   Sunday: 'Closed',
+}
+const TOWER_WEEK_HOURS = { ...WEEKDAY_HOURS, Saturday: 'Hours not listed', Sunday: 'Hours not listed' }
+
+const SAMPLE_STATIONS = [
+  {
+    name: 'Daily Grill',
+    items: [
+      { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] },
+      { name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
+    ],
+  },
+  { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
+]
+// The per-meal items carry the compact facts of #468; the merged list does not.
+const SAMPLE_FACTS = {
+  'Silver Star Burger': { id: 1929009, serving: '1 each', protein: 17, carbs: 0, fat: 13, sodium: 53 },
+  'Veggie Burger': { id: 2801765, serving: '1 serving', protein: 12, carbs: 14, fat: 6, sodium: 320 },
+  'Baby Spinach': { id: 1925501, serving: '1 cup', protein: 1, carbs: 1, fat: 0, sodium: 24 },
+}
+const SAMPLE_MEAL_STATIONS = SAMPLE_STATIONS.map((st) => ({
+  ...st,
+  everyday: false,
+  items: st.items.map((item) => ({ ...item, ...SAMPLE_FACTS[item.name] })),
+}))
+// GET /api/dining/foods/:id answers for these.
+export const SAMPLE_DISHES = {
+  1929009: {
+    id: 1929009,
+    name: 'Silver Star Burger',
+    description: null,
+    image: null,
+    thumb: null,
+    serving: '1 each',
+    ingredients: 'Beef Patty',
+    icons: ['Avoiding Gluten', 'Good Source of Protein'],
+    nutrition: { calories: 190, g_fat: 13, g_saturated_fat: 4.9, mg_sodium: 53, g_carbs: 0, g_protein: 17 },
+  },
 }
 
 export function sampleDiningLocation(overrides = {}) {
@@ -338,19 +380,37 @@ export function sampleDiningLocation(overrides = {}) {
     closes_at: '9:00 PM',
     opens_at: null,
     open24h: false,
-    weekly_hours: { ...WEEKDAY_HOURS },
+    weekly_hours: { ...TOWER_WEEK_HOURS },
     timezone: 'America/Indiana/Indianapolis',
     meal: 'Menus: breakfast, lunch, dinner',
     menusPublished: true,
-    stations: [
+    // One menu per meal (issue #466). Each carries the same two stations, as
+    // specials, so a spec sees them whatever meal the clock opens on; the meal
+    // tab specs seed their own menus and fix the clock.
+    menus: ['breakfast', 'lunch', 'dinner'].map((meal) => ({ meal, stations: SAMPLE_MEAL_STATIONS })),
+    stations: SAMPLE_STATIONS,
+    // A feed republished a week before the sample date (issue #467).
+    menu_source: { last_updated: '2026-09-02T04:26:22Z', stale: false, reason: null },
+    ...overrides,
+  }
+}
+
+export function sampleCampusNews(overrides = {}) {
+  return {
+    ok: true,
+    source: 'The Circuit',
+    site: 'https://circuitpress.org/',
+    fetchedAt: '2026-09-09T11:00:00.000Z',
+    posts: [
       {
-        name: 'Daily Grill',
-        items: [
-          { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] },
-          { name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
-        ],
+        title: 'A Look Inside The Academic Success Building',
+        url: 'https://circuitpress.org/a-look-inside-the-academic-success-building/',
+        publishedAt: '2026-09-08T16:24:51.000Z',
+        author: 'Omkar Govil-Nair',
+        tag: 'News',
+        excerpt: 'We toured the construction site of the Academic Success Building.',
       },
-      { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
+      { title: 'Fall 2026 Club Guide', url: 'https://circuitpress.org/fall-2026-club-guide/', publishedAt: '2026-08-30T21:00:58.000Z', author: 'Omkar Govil-Nair', tag: 'Student Orgs', excerpt: 'We asked student orgs to tell us what their clubs are about.' },
     ],
     ...overrides,
   }
@@ -377,12 +437,15 @@ export function sampleDining(overrides = {}) {
         name: 'Campus Center',
         kind: 'retail',
         address: '420 University Blvd, Indianapolis, IN 46202',
+        weekly_hours: { ...WEEKDAY_HOURS },
         is_open: false,
         closes_at: null,
         opens_at: '7:00 AM',
         meal: 'Retail dining, no posted menu',
         menusPublished: false,
+        menus: [],
         stations: [],
+        menu_source: null,
       }),
     ],
     ...overrides,
@@ -829,10 +892,25 @@ export const test = base.extend({
 
       // Dining (#119): the public snapshot, plus the favorites routes (#49) so
       // starring an item persists across a reload the way the DB does.
+      // Campus news (#470): The Circuit's headlines, as src/circuitNews.mjs shapes them.
+      if (pathname === '/api/campus-news') {
+        return json(route, 200, state.campusNews || sampleCampusNews())
+      }
       if (pathname === '/api/dining') {
         const seed = state.dining || {}
         if (seed.unavailable) return json(route, 200, unavailableDining())
         return json(route, 200, seed.snapshot || sampleDining())
+      }
+      // What is coming up (#469): empty unless a spec seeds it.
+      if (pathname === '/api/dining/upcoming') {
+        return json(route, 200, state.diningUpcoming || { ok: true, today: '2026-09-09', days: [] })
+      }
+      // One dish's details (#468), for the sample's dishes by id.
+      const dishMatch = /^\/api\/dining\/foods\/(\d+)$/.exec(pathname)
+      if (dishMatch && method === 'GET') {
+        const dish = SAMPLE_DISHES[dishMatch[1]]
+        if (!dish) return json(route, 404, { error: { message: 'That dish is not on the menu that day.', status: 404, code: 'dining_food_not_found' } })
+        return json(route, 200, { ok: true, date: searchParams.get('date') || '2026-09-09', food: dish })
       }
       if (pathname === '/api/me/dining/favorites') {
         if (method === 'GET') return json(route, 200, { favorites: [...state.diningFavorites] })
@@ -972,6 +1050,7 @@ export const test = base.extend({
         return json(route, 200, {
           enabled: state.push.config.enabled,
           settings: { ...state.push.settings },
+          diningAlertsAvailable: state.push.diningAlertsAvailable,
           subscriptions: state.push.subscriptions.map(({ id, createdAt, userAgent, lastUsedAt }) => ({
             id,
             createdAt,
@@ -992,7 +1071,13 @@ export const test = base.extend({
           state.push.settings.leadMinutes = lead
         }
         if (b.deadlineReminders !== undefined) state.push.settings.deadlineReminders = Boolean(b.deadlineReminders)
-        return json(route, 200, { settings: { ...state.push.settings } })
+        if (b.diningFavoriteAlerts !== undefined) {
+          if (!state.push.diningAlertsAvailable) {
+            return json(route, 503, { error: { code: 'dining_alerts_schema_missing', message: 'Favorite dish alerts is not set up yet. Please try again later.', status: 503 } })
+          }
+          state.push.settings.diningFavoriteAlerts = Boolean(b.diningFavoriteAlerts)
+        }
+        return json(route, 200, { settings: { ...state.push.settings }, diningAlertsAvailable: state.push.diningAlertsAvailable })
       }
       if (pathname === '/api/push/subscriptions' && method === 'POST') {
         const { subscription, userAgent } = bodyOf()
@@ -1204,6 +1289,9 @@ export const test = base.extend({
       },
       seedDining({ snapshot = null, unavailable = false } = {}) {
         state.dining = { snapshot, unavailable }
+      },
+      seedDiningUpcoming(upcoming) {
+        state.diningUpcoming = upcoming
       },
       seedMarketplace({ listings, photosUnavailable } = {}) {
         if (listings) state.marketplace.listings = listings

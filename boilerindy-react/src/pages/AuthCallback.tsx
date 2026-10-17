@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { resolvePostLoginPath } from '../lib/authApi'
+import { normalizeEmail, takeGoogleConfirm } from '../lib/googleConfirm'
 import PageTitle from '../components/PageTitle'
 
 async function waitForSession(attempts = 10, delayMs = 200) {
@@ -17,11 +18,13 @@ async function waitForSession(attempts = 10, delayMs = 200) {
 export default function AuthCallback() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { establishSession } = useAuth()
+  const { establishSession, refreshSession } = useAuth()
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     const handleCallback = async () => {
+      // Read on every return, a failed one too, so it never outlives this one.
+      const googleConfirm = takeGoogleConfirm()
       try {
         const errorParam = searchParams.get('error')
         const errorDescription = searchParams.get('error_description')
@@ -49,6 +52,23 @@ export default function AuthCallback() {
           }
         }
 
+        // Confirm with Google must come back as the account signed in here.
+        // The server refused any other one (supabase-sync); its Supabase
+        // session goes too, or the next page load would sign this browser into
+        // that account. The cookie session, and so this student, stays.
+        if (googleConfirm) {
+          const {
+            data: { session: returned },
+          } = await supabase.auth.getSession()
+          if (returned && normalizeEmail(returned.user.email) !== googleConfirm.email) {
+            sessionStorage.removeItem('postAuthNext')
+            await supabase.auth.signOut({ scope: 'local' })
+            await refreshSession()
+            navigate(`/settings?confirm=wrong-account${googleConfirm.forDelete ? '&for=delete' : ''}`, { replace: true })
+            return
+          }
+        }
+
         const backendSession = await establishSession()
         // Google drops us on a bare /auth/callback, so the destination comes
         // from the ?next stashed before the redirect (if any) plus the freshly
@@ -72,7 +92,7 @@ export default function AuthCallback() {
     }
 
     handleCallback()
-  }, [navigate, establishSession, searchParams])
+  }, [navigate, establishSession, refreshSession, searchParams])
 
   if (failed) {
     return (

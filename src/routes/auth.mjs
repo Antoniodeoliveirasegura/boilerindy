@@ -9,7 +9,7 @@ import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
 import { isSessionStale } from '../sessionFreshness.mjs'
-import { applyPasswordChange, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
+import { applyPasswordChange, applyPasswordSet, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
 import {
   CODE_TTL_MS,
   DEVICE_TRUST_TTL_MS,
@@ -26,6 +26,8 @@ import {
   parseCookies,
   resendStatus,
   tokenNeedsSignInCode,
+  tokenProviderSignInAt,
+  tokenRecoveryAt,
 } from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
@@ -410,7 +412,7 @@ export function createAuthRouter({
     return data
   }
 
-  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut }) {
+  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, providerConfirmed = false }) {
     const user = await getUserById(userId)
     if (!user) throw new Error('User not found.')
 
@@ -429,26 +431,39 @@ export function createAuthRouter({
 
     // Changing the login email is as account-takeover-sensitive as changing the
     // password: require the current password either way, so a stolen session alone
-    // can't silently repoint the account's identity (#124).
-    if ((wantsPasswordChange || wantsEmailChange) && !(currentPassword && currentPassword.trim())) {
-      throw new Error('Please enter your current password to change your email or password.')
+    // can't silently repoint the account's identity (#124). A Google account has
+    // no current password, so a Google sign-in from the last few minutes
+    // (providerConfirmed) stands in for it.
+    const hasCurrentPassword = Boolean(currentPassword && currentPassword.trim())
+    if ((wantsPasswordChange || wantsEmailChange) && !hasCurrentPassword && !providerConfirmed) {
+      const error = new Error('Enter your current password, or confirm with Google, to change your email or password.')
+      error.code = 'reauth-required'
+      throw error
     }
 
-    if (wantsPasswordChange) {
+    const setSupabasePassword = async (authUserId, password) => {
+      const { error } = await supabase.auth.admin.updateUserById(authUserId, { password })
+      if (error) throw new Error(error.message || 'Could not update your password.')
+    }
+
+    // A Google confirmation wins over whatever sits in the current password box
+    // (an autofilled one, say), so the account is never asked for a password it
+    // may not have.
+    const checkPassword = hasCurrentPassword && !providerConfirmed
+    if (wantsPasswordChange && !checkPassword) {
+      await applyPasswordSet({ setSupabasePassword }, user, newPassword)
+    } else if (wantsPasswordChange) {
       await applyPasswordChange(
         {
           verifySupabasePassword,
-          setSupabasePassword: async (authUserId, password) => {
-            const { error } = await supabase.auth.admin.updateUserById(authUserId, { password })
-            if (error) throw new Error(error.message || 'Could not update your password.')
-          },
+          setSupabasePassword,
           migrateLegacyUser: migrateLegacyUserToSupabaseAuth,
         },
         user,
         currentPassword,
         newPassword,
       )
-    } else if (wantsEmailChange) {
+    } else if (wantsEmailChange && checkPassword) {
       // Email-only change: verify the current password without altering it.
       await verifyCurrentPassword({ verifySupabasePassword }, user, currentPassword)
     }
@@ -501,9 +516,41 @@ export function createAuthRouter({
     return data
   }
 
-  async function verifyUserPasswordForDeletion(userRow, password) {
+  // A Google account has no password to type, so a Google sign-in this recent
+  // stands in for it. Only one made on purpose counts: after POST
+  // /api/me/provider-confirm, supabase-sync records a Google sign-in newer than
+  // the session's own as providerConfirmedAt (times from the token's `amr`, which
+  // a refresh never resets). The sign-in that opened the session never counts,
+  // or anyone holding the cookie would get through for its first ten minutes.
+  const PROVIDER_CONFIRM_MS = 10 * 60 * 1000
+  const CLOCK_SKEW_MS = 60 * 1000
+
+  function hasRecentProviderSignIn(session, now = Date.now()) {
+    const at = Number(session?.providerConfirmedAt)
+    return Number.isFinite(at) && at <= now + CLOCK_SKEW_MS && now - at < PROVIDER_CONFIRM_MS
+  }
+
+  // An ask expires like a confirmation does, so an abandoned one cannot turn a
+  // much later, unrelated Google sign-in into a confirmation.
+  function isProviderConfirmPending(session, now = Date.now()) {
+    const askedAt = Number(session?.providerConfirmAskedAt)
+    return Number.isFinite(askedAt) && now - askedAt < PROVIDER_CONFIRM_MS
+  }
+
+  function isAskedProviderConfirmation(session, providerSignInAt, now = Date.now()) {
+    const askedAt = Number(session?.providerConfirmAskedAt)
+    return isProviderConfirmPending(session, now)
+      && providerSignInAt > (Number(session.providerSignInAt) || 0)
+      && providerSignInAt >= askedAt - CLOCK_SKEW_MS
+      && providerSignInAt <= askedAt + PROVIDER_CONFIRM_MS
+  }
+
+  async function verifyUserPasswordForDeletion(userRow, password, session) {
+    if (hasRecentProviderSignIn(session)) return
     if (!password) {
-      throw new Error('Please enter your password to confirm deletion.')
+      const error = new Error('Enter your password, or confirm with Google, to delete your account.')
+      error.code = 'reauth-required'
+      throw error
     }
     const authUser = await verifySupabasePassword(userRow.email, password)
     if (authUser) return
@@ -511,11 +558,11 @@ export function createAuthRouter({
     throw new Error('Password is incorrect.')
   }
 
-  async function deleteUserAccount(userRow, { password, confirmation }) {
+  async function deleteUserAccount(userRow, { password, confirmation, session }) {
     if (confirmation !== 'DELETE') {
       throw new Error('Type DELETE in the confirmation box to permanently delete your account.')
     }
-    await verifyUserPasswordForDeletion(userRow, password)
+    await verifyUserPasswordForDeletion(userRow, password, session)
 
     const userId = userRow.id
 
@@ -982,6 +1029,47 @@ export function createAuthRouter({
     })
   })
 
+  // /reset-password sets the new password in Supabase Auth from the browser, so
+  // the server never saw the change: it stamps password_changed_at here, which
+  // ends every older session and trusted device (#132) as a Settings change
+  // does. Only a token whose reset link was opened in the last hour may ask,
+  // so a stolen session alone cannot sign the owner out everywhere.
+  const RECOVERY_WINDOW_MS = 60 * 60 * 1000
+  router.post('/api/auth/password-reset-complete', sessionSyncIpRateLimit, async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || ''
+      const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+      if (!accessToken) {
+        return res.status(401).json({ error: { message: 'Missing access token.', status: 401 } })
+      }
+      const { data: tokenData, error: tokenError } = await supabase.auth.getUser(accessToken)
+      if (tokenError || !tokenData?.user) {
+        return res.status(401).json({ error: { message: 'Invalid or expired access token.', status: 401 } })
+      }
+      const recoveryAt = tokenRecoveryAt(accessToken)
+      if (!recoveryAt || Date.now() - recoveryAt > RECOVERY_WINDOW_MS) {
+        return res.status(403).json({ error: { message: 'Open the reset link from your email again.', status: 403 } })
+      }
+      const stamp = new Date().toISOString()
+      const { error: stampError } = await supabase
+        .from('users')
+        .update({ password_changed_at: stamp })
+        .eq('id', tokenData.user.id)
+      if (stampError) {
+        console.warn('[password-reset-complete] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
+      }
+      // This browser keeps its session: it is the one that just reset.
+      if (req.session?.userId === tokenData.user.id) {
+        req.session.authAt = stamp
+        await save(req)
+      }
+      res.json({ ok: true })
+    } catch (error) {
+      logRouteError('[password-reset-complete] failed', error)
+      res.status(500).json({ error: { message: 'Could not finish the password reset.', status: 500 } })
+    }
+  })
+
   router.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit, async (req, res) => {
     try {
       const authHeader = req.headers.authorization || ''
@@ -1026,6 +1114,20 @@ export function createAuthRouter({
       const syncAvatarUrl = avatarResult.value
 
       let user = await getUserByEmail(normalizedEmail)
+
+      // While Settings waits on a Confirm with Google, a sign-in as anyone else
+      // is refused. Picking another account at Google used to switch this
+      // browser to it, or create it, in place of the confirmation; AuthCallback
+      // then drops that account's Supabase session from the browser.
+      if (req.session?.userId && user?.id !== req.session.userId && isProviderConfirmPending(req.session)) {
+        return res.status(409).json({
+          error: {
+            message: 'That Google account is not the one signed in here, so nothing was confirmed.',
+            status: 409,
+            code: 'provider-confirm-mismatch',
+          },
+        })
+      }
 
       // Anyone holding the password can mint a password-only Supabase token
       // directly, so with the gate on such a token may only refresh the session
@@ -1093,7 +1195,18 @@ export function createAuthRouter({
       // The same user re-syncing (token refresh, app relaunch) already holds a
       // valid cookie session: answer from it instead of regenerating and saving a
       // new one on every call (#217). The profile update above still ran.
+      // A Google re-sign-in on the same session (Confirm with Google in
+      // Settings) is the one change saved on the reuse path.
+      const providerSignInAt = tokenProviderSignInAt(accessToken)
       if (req.session?.userId === user.id) {
+        if (providerSignInAt && providerSignInAt !== req.session.providerSignInAt) {
+          if (isAskedProviderConfirmation(req.session, providerSignInAt)) {
+            req.session.providerConfirmedAt = providerSignInAt
+          }
+          delete req.session.providerConfirmAskedAt
+          req.session.providerSignInAt = providerSignInAt
+          await save(req)
+        }
         const session = await buildSessionPayload(user, req)
         return res.json({ session, reused: true })
       }
@@ -1104,6 +1217,7 @@ export function createAuthRouter({
         }
         req.session.userId = user.id
         req.session.authAt = new Date().toISOString()
+        if (providerSignInAt) req.session.providerSignInAt = providerSignInAt
         req.session.save(async () => {
           const session = await buildSessionPayload(user, req)
           res.json({ session })
@@ -1285,6 +1399,19 @@ export function createAuthRouter({
     res.json({ user: payload.user })
   })
 
+  // Settings calls this right before sending a Google account to Google to
+  // confirm an email change, a new password or a delete. Only a Google sign-in
+  // made after it stands in for a password (isAskedProviderConfirmation).
+  router.post('/api/me/provider-confirm', signInRateLimit, requireAuth, async (req, res) => {
+    req.session.providerConfirmAskedAt = Date.now()
+    try {
+      await save(req)
+    } catch {
+      return res.status(500).json({ error: { message: 'Could not start the confirmation. Please try again.', status: 500 } })
+    }
+    res.json({ ok: true })
+  })
+
   router.patch('/api/me/profile', signInRateLimit, requireAuth, async (req, res) => {
     // A missing or blank name keeps the stored one. Settings resends the stored
     // name on every save, so an unchanged name from before the cap is cut rather
@@ -1300,6 +1427,7 @@ export function createAuthRouter({
         currentPassword: req.body.currentPassword,
         newPassword: req.body.newPassword,
         analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
+        providerConfirmed: hasRecentProviderSignIn(req.session),
       })
       // The user just changed their own password: refresh this session's
       // establishment time so it survives its own change (#132).
@@ -1309,7 +1437,13 @@ export function createAuthRouter({
       const payload = await buildSessionPayload(user, req)
       res.json({ user: payload.user })
     } catch (error) {
-      res.status(400).json({ error: { message: error.message || 'Could not update profile.', status: 400 } })
+      res.status(400).json({
+        error: {
+          message: error.message || 'Could not update profile.',
+          status: 400,
+          ...(error.code === 'reauth-required' ? { code: error.code } : {}),
+        },
+      })
     }
   })
 
@@ -1318,13 +1452,20 @@ export function createAuthRouter({
       await deleteUserAccount(req.currentUser, {
         password: req.body?.password,
         confirmation: req.body?.confirmation,
+        session: req.session,
       })
       req.session.destroy(() => {
         res.clearCookie(SESSION_COOKIE_NAME)
         res.json({ ok: true })
       })
     } catch (error) {
-      res.status(400).json({ error: { message: error.message || 'Could not delete account.', status: 400 } })
+      res.status(400).json({
+        error: {
+          message: error.message || 'Could not delete account.',
+          status: 400,
+          ...(error.code === 'reauth-required' ? { code: error.code } : {}),
+        },
+      })
     }
   })
 

@@ -1,0 +1,514 @@
+{
+  "id": 294540,
+  "last_updated": "2026-10-10T04:26:22.481211Z",
+  "start_date": "2026-10-12",
+  "menu_type_id": 13262,
+  "bold_all_entrees_enabled": false,
+  "days": [
+    {
+      "date": "2026-10-11",
+      "menu_items": []
+    },
+    {
+      "date": "2026-10-12",
+      "menu_items": []
+    },
+    {
+      "date": "2026-10-13",
+      "menu_items": [
+        {
+          "id": 429370103,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429370105,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3001083,
+            "name": "Chili Lime Chicken",
+            "description": "",
+            "image_url": "https://client-food-images.nutrislice.com/images/Z7/Z7nt8NR3bJfcGujJRqo6oS/1784370660_3382888__4047_chicken1.png.1024x0_q85.png",
+            "hoverpic_url": "https://client-food-images.nutrislice.com/images/Z7/Z7nt8NR3bJfcGujJRqo6oS/1784370660_3382888__4047_chicken1.png.220x0_q85.png",
+            "ingredients": "Chicken Thigh^, Lime, Canola Oil, Chipotle Peppers^, Dijon Mustard^, Cilantro, Cumin, Oregano, Kosher Salt^, Black Pepper",
+            "serving_size_info": {
+              "serving_size_amount": "4",
+              "serving_size_unit": "oz"
+            },
+            "rounded_nutrition_info": {
+              "calories": 196.0,
+              "g_fat": 11.0,
+              "g_saturated_fat": 2.1,
+              "g_trans_fat": null,
+              "mg_cholesterol": 108.0,
+              "g_carbs": 0.0,
+              "g_added_sugar": null,
+              "g_sugar": 0.0,
+              "mg_potassium": 249.0,
+              "mg_sodium": 384.0,
+              "g_fiber": 0.0,
+              "g_protein": 23.0,
+              "mg_iron": 1.0,
+              "mg_calcium": 2.7,
+              "mg_vitamin_c": null,
+              "iu_vitamin_a": null,
+              "re_vitamin_a": null,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 0.0,
+              "mcg_vitamin_d": null
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 434764929,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3134185,
+            "name": "Black Beans",
+            "description": "",
+            "image_url": null,
+            "hoverpic_url": null,
+            "ingredients": "Low Sodium Black Turtle Beans^, Tomatoes, Yellow Onions, Lime, Chipotle Sauce^, Cilantro, Kosher Salt^, Jalapeno, Garlic",
+            "serving_size_info": {
+              "serving_size_amount": "0.5",
+              "serving_size_unit": "cups"
+            },
+            "rounded_nutrition_info": {
+              "calories": 90.0,
+              "g_fat": 0.3,
+              "g_saturated_fat": 0.1,
+              "g_trans_fat": null,
+              "mg_cholesterol": 0.0,
+              "g_carbs": 17.0,
+              "g_added_sugar": null,
+              "g_sugar": 1.0,
+              "mg_potassium": 359.0,
+              "mg_sodium": 205.0,
+              "g_fiber": 7.0,
+              "g_protein": 6.0,
+              "mg_iron": 1.8,
+              "mg_calcium": 36.6,
+              "mg_vitamin_c": 7.4,
+              "iu_vitamin_a": null,
+              "re_vitamin_a": null,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 0.0,
+              "mcg_vitamin_d": null
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370121,
+          "position": 9,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429370123,
+          "position": 10,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "description": "",
+            "image_url": null,
+            "hoverpic_url": null,
+            "ingredients": "Beef Patty",
+            "serving_size_info": {
+              "serving_size_amount": "1",
+              "serving_size_unit": "each"
+            },
+            "rounded_nutrition_info": {
+              "calories": 190.0,
+              "g_fat": 13.0,
+              "g_saturated_fat": 4.9,
+              "g_trans_fat": 0.7,
+              "mg_cholesterol": 60.0,
+              "g_carbs": 0.0,
+              "g_added_sugar": 0.0,
+              "g_sugar": 0.0,
+              "mg_potassium": 197.0,
+              "mg_sodium": 53.0,
+              "g_fiber": 0.0,
+              "g_protein": 17.0,
+              "mg_iron": 1.6,
+              "mg_calcium": 20.4,
+              "mg_vitamin_c": 0.0,
+              "iu_vitamin_a": 6.1,
+              "re_vitamin_a": null,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 1.4,
+              "mcg_vitamin_d": 0.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370125,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "description": "",
+            "image_url": null,
+            "hoverpic_url": null,
+            "ingredients": "Black Bean Burger^",
+            "serving_size_info": {
+              "serving_size_amount": "1",
+              "serving_size_unit": "serving"
+            },
+            "rounded_nutrition_info": {
+              "calories": 160.0,
+              "g_fat": 6.0,
+              "g_saturated_fat": 1.0,
+              "g_trans_fat": 0.0,
+              "mg_cholesterol": 0.0,
+              "g_carbs": 18.0,
+              "g_added_sugar": 1.0,
+              "g_sugar": 2.0,
+              "mg_potassium": 350.0,
+              "mg_sodium": 440.0,
+              "g_fiber": 5.0,
+              "g_protein": 13.0,
+              "mg_iron": 2.1,
+              "mg_calcium": 80.0,
+              "mg_vitamin_c": 0.0,
+              "iu_vitamin_a": 0.0,
+              "re_vitamin_a": 0.0,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 0.0,
+              "mcg_vitamin_d": 0.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-14",
+      "menu_items": [
+        {
+          "id": 429369597,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429369598,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2577937,
+            "name": "Honey Garlic Fried Chicken",
+            "description": "Classic fried chicken with a franks hot honey garlic glaze",
+            "image_url": "https://client-food-images.nutrislice.com/images/59/59AYsM7vakeyGbBwiX8jEr/1755410912_7713149__IMG_4627.jpg.1024x0_q85.jpg",
+            "hoverpic_url": "https://client-food-images.nutrislice.com/images/59/59AYsM7vakeyGbBwiX8jEr/1755410912_7713149__IMG_4627.jpg.220x0_q85.jpg",
+            "ingredients": "Breaded Honey Chicken^, Honey Garlic Sauce^",
+            "serving_size_info": {
+              "serving_size_amount": "6",
+              "serving_size_unit": "oz"
+            },
+            "rounded_nutrition_info": {
+              "calories": 326.0,
+              "g_fat": 12.0,
+              "g_saturated_fat": 4.1,
+              "g_trans_fat": 0.0,
+              "mg_cholesterol": 91.0,
+              "g_carbs": 32.0,
+              "g_added_sugar": 14.0,
+              "g_sugar": 14.0,
+              "mg_potassium": 318.0,
+              "mg_sodium": 1110.0,
+              "g_fiber": 2.0,
+              "g_protein": 23.0,
+              "mg_iron": 1.2,
+              "mg_calcium": 11.2,
+              "mg_vitamin_c": null,
+              "iu_vitamin_a": null,
+              "re_vitamin_a": null,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 6.2,
+              "mcg_vitamin_d": 0.2
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369599,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2570411,
+            "name": "Fried Cauliflower",
+            "description": "Lightly breaded with seasoned flour and fried crispy.",
+            "image_url": "https://client-food-images.nutrislice.com/images/TL/TLraYLZhyhQfwa8fzpzWYG/1755098828_0806735__cauliflower205.jpg.1024x0_q85.jpg",
+            "hoverpic_url": "https://client-food-images.nutrislice.com/images/TL/TLraYLZhyhQfwa8fzpzWYG/1755098828_0806735__cauliflower205.jpg.220x0_q85.jpg",
+            "ingredients": "Cauliflower, All Purpose Flour^, Water, Baking Powder^, Ground Paprika^, Black Pepper",
+            "serving_size_info": {
+              "serving_size_amount": "0.5",
+              "serving_size_unit": "cups"
+            },
+            "rounded_nutrition_info": {
+              "calories": 103.0,
+              "g_fat": 3.5,
+              "g_saturated_fat": 0.3,
+              "g_trans_fat": null,
+              "mg_cholesterol": 0.0,
+              "g_carbs": 16.0,
+              "g_added_sugar": null,
+              "g_sugar": 1.0,
+              "mg_potassium": 148.0,
+              "mg_sodium": 108.0,
+              "g_fiber": 1.0,
+              "g_protein": 3.0,
+              "mg_iron": 1.1,
+              "mg_calcium": 65.5,
+              "mg_vitamin_c": 20.0,
+              "iu_vitamin_a": null,
+              "re_vitamin_a": null,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": null,
+              "mcg_vitamin_d": null
+            },
+            "icons": {
+              "food_icons": []
+            }
+          }
+        },
+        {
+          "id": 429369603,
+          "position": 6,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429369604,
+          "position": 7,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "description": "",
+            "image_url": null,
+            "hoverpic_url": null,
+            "ingredients": "Beef Patty",
+            "serving_size_info": {
+              "serving_size_amount": "1",
+              "serving_size_unit": "each"
+            },
+            "rounded_nutrition_info": {
+              "calories": 190.0,
+              "g_fat": 13.0,
+              "g_saturated_fat": 4.9,
+              "g_trans_fat": 0.7,
+              "mg_cholesterol": 60.0,
+              "g_carbs": 0.0,
+              "g_added_sugar": 0.0,
+              "g_sugar": 0.0,
+              "mg_potassium": 197.0,
+              "mg_sodium": 53.0,
+              "g_fiber": 0.0,
+              "g_protein": 17.0,
+              "mg_iron": 1.6,
+              "mg_calcium": 20.4,
+              "mg_vitamin_c": 0.0,
+              "iu_vitamin_a": 6.1,
+              "re_vitamin_a": null,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 1.4,
+              "mcg_vitamin_d": 0.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369605,
+          "position": 8,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "description": "",
+            "image_url": null,
+            "hoverpic_url": null,
+            "ingredients": "Black Bean Burger^",
+            "serving_size_info": {
+              "serving_size_amount": "1",
+              "serving_size_unit": "serving"
+            },
+            "rounded_nutrition_info": {
+              "calories": 160.0,
+              "g_fat": 6.0,
+              "g_saturated_fat": 1.0,
+              "g_trans_fat": 0.0,
+              "mg_cholesterol": 0.0,
+              "g_carbs": 18.0,
+              "g_added_sugar": 1.0,
+              "g_sugar": 2.0,
+              "mg_potassium": 350.0,
+              "mg_sodium": 440.0,
+              "g_fiber": 5.0,
+              "g_protein": 13.0,
+              "mg_iron": 2.1,
+              "mg_calcium": 80.0,
+              "mg_vitamin_c": 0.0,
+              "iu_vitamin_a": 0.0,
+              "re_vitamin_a": 0.0,
+              "mcg_vitamin_a": null,
+              "mg_vitamin_d": 0.0,
+              "mcg_vitamin_d": 0.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-15",
+      "menu_items": []
+    },
+    {
+      "date": "2026-10-16",
+      "menu_items": []
+    },
+    {
+      "date": "2026-10-17",
+      "menu_items": []
+    }
+  ]
+}

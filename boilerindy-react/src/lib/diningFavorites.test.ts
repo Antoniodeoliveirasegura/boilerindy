@@ -53,3 +53,25 @@ describe('favoritesOnTodaysMenu', () => {
     expect(result).toEqual([{ name: 'Soup', locations: ['Earhart'] }])
   })
 })
+
+// Issue #466: the snapshot now carries one menu per meal. A favorite served at
+// lunch and at dinner is one entry, and the merged list is ignored when the
+// per-meal menus are there.
+describe('favoritesOnTodaysMenu with per-meal menus', () => {
+  test('reads every meal, once per favorite, and prefers menus over the merged list', () => {
+    const locations = [
+      {
+        name: 'Tower Dining',
+        menus: [
+          { meal: 'lunch', stations: [{ name: 'Daily Grill', items: [{ name: 'Chicken Tenders' }] }] },
+          { meal: 'dinner', stations: [{ name: 'Daily Grill', items: [{ name: 'Chicken Tenders' }] }, { name: 'Homestyle', items: [{ name: 'Beef Stroganoff' }] }] },
+        ],
+        stations: [{ name: 'Merged', items: [{ name: 'Only In The Old List' }] }],
+      },
+    ]
+    expect(favoritesOnTodaysMenu(['chicken tenders', 'beef stroganoff', 'only in the old list'], locations)).toEqual([
+      { name: 'Chicken Tenders', locations: ['Tower Dining'] },
+      { name: 'Beef Stroganoff', locations: ['Tower Dining'] },
+    ])
+  })
+})

@@ -1,0 +1,82 @@
+[
+  {
+    "date": "2026-10-12",
+    "menu_items": [
+      "Pasta Primavera",
+      "Mushrooms, Tomatoes and Spinach",
+      "Crispy Fried Catfish",
+      "Asparagus and Roasted Red Peppers"
+    ],
+    "images": [
+      "https://client-food-images.nutrislice.com/images/DS/DS92STXwGcnSx6FodQtsVD/1742336994_2511067__433_DOCPastaPrimavera.png.1024x0_q85.png",
+      null,
+      "https://client-food-images.nutrislice.com/images/Ah/AhaENrfp7MrtBnsnwhmCXa/1791518793_301246__Fried20Fish20Catfish201.jpg.1024x0_q85.jpg",
+      null
+    ],
+    "holiday_text": null
+  },
+  {
+    "date": "2026-10-13",
+    "menu_items": [
+      "Chili Lime Chicken",
+      "Black Beans",
+      "Mexican Rice",
+      "Tortilla Chips"
+    ],
+    "images": [
+      "https://client-food-images.nutrislice.com/images/Z7/Z7nt8NR3bJfcGujJRqo6oS/1784370660_3382888__4047_chicken1.png.1024x0_q85.png",
+      null,
+      "https://client-food-images.nutrislice.com/images/E9/E9YQazmVM5oi295rjUwS6h/1783163191_3515868__3288_MexicanRice.png.1024x0_q85.png",
+      null
+    ],
+    "holiday_text": null
+  },
+  {
+    "date": "2026-10-14",
+    "menu_items": [
+      "Honey Garlic Fried Chicken",
+      "Fried Cauliflower",
+      "Herb Roasted Potato Wedges",
+      "Roasted Tomatoes"
+    ],
+    "images": [
+      "https://client-food-images.nutrislice.com/images/59/59AYsM7vakeyGbBwiX8jEr/1755410912_7713149__IMG_4627.jpg.1024x0_q85.jpg",
+      "https://client-food-images.nutrislice.com/images/TL/TLraYLZhyhQfwa8fzpzWYG/1755098828_0806735__cauliflower205.jpg.1024x0_q85.jpg",
+      "https://client-food-images.nutrislice.com/images/TL/TLFkCuhMVHZpGUJBBHvDmT/1691980354_8151515__25554_herbroastedpotatowedges.jpg.1024x0_q85.jpg",
+      null
+    ],
+    "holiday_text": null
+  },
+  {
+    "date": "2026-10-15",
+    "menu_items": [
+      "Coconut Beef Curry w/ Fish Sauce",
+      "Cumin Basmati Rice",
+      "Honey and Harissa Spiced Carrots",
+      "Garlic Naan"
+    ],
+    "images": [
+      "https://client-food-images.nutrislice.com/images/PQ/PQVDrwddRKjSnSmLyfhZRo/1784370657_7855434__3287_Panang.jpg.1024x0_q85.jpg",
+      "https://client-food-images.nutrislice.com/images/D5/D5wrNW5cTDonfUzF2qfeMJ/1783163191_0652204__cumin20rice.jpg.1024x0_q85.jpg",
+      null,
+      null
+    ],
+    "holiday_text": null
+  },
+  {
+    "date": "2026-10-16",
+    "menu_items": [
+      "Spaghetti with Marinara Sauce",
+      "Italian Meatballs",
+      "Orecchiette Pasta Bake",
+      "Roasted Vegetable Blend"
+    ],
+    "images": [
+      "https://client-food-images.nutrislice.com/images/aS/aSgD3ozyPhCGg2UhiSXuqT/1705791857_4622498__939_Spagwspagsauce.jpg.1024x0_q85.jpg",
+      null,
+      "https://client-food-images.nutrislice.com/images/Dx/DxPty2KVYsePgDRQeB65ko/1723379013_2278094__3288_BakedPasta.png.1024x0_q85.png",
+      null
+    ],
+    "holiday_text": null
+  }
+]

@@ -23,9 +23,17 @@ async function serve(app, run) {
   }
 }
 
-async function withPublicApp({ snapshot = async () => ({ ok: true, locations: [{ name: 'Tower Dining' }] }) } = {}, run) {
+async function withPublicApp(
+  {
+    snapshot = async () => ({ ok: true, locations: [{ name: 'Tower Dining' }] }),
+    food = async () => null,
+    upcoming = async () => ({ ok: true, today: '2026-10-14', days: [] }),
+  } = {},
+  run,
+) {
   const limiterHits = []
   const snapshotCalls = []
+  const foodCalls = []
   const limiter = (name) => (req, _res, next) => {
     limiterHits.push(`${name} ${req.method} ${req.path}`)
     next()
@@ -39,9 +47,14 @@ async function withPublicApp({ snapshot = async () => ({ ok: true, locations: [{
         snapshotCalls.push(options)
         return snapshot(options)
       },
+      findDiningFood: async (id, date) => {
+        foodCalls.push([id, date])
+        return food(id, date)
+      },
+      getDiningUpcoming: () => upcoming(),
     }),
   )
-  await serve(app, (base) => run({ base, limiterHits, snapshotCalls }))
+  await serve(app, (base) => run({ base, limiterHits, snapshotCalls, foodCalls }))
 }
 
 async function withApp({ user = STUDENT, table = () => ({ data: [], error: null }) } = {}, run) {
@@ -130,6 +143,92 @@ test('a snapshot that throws answers dining_internal', async () => {
     const res = await fetch(`${base}/api/dining`)
     assert.equal(res.status, 500)
     assert.deepEqual(await res.json(), { ok: false, error: 'dining_internal', locations: [] })
+  })
+})
+
+// ── GET /api/dining/foods/:id (issue #468) ──────────────────────────────────
+
+const CHICKEN = { id: 2577937, name: 'Honey Garlic Fried Chicken', serving: '6 oz', nutrition: { calories: 326 }, icons: [] }
+
+test('a dish on the menu is served through both public-read limiters and cached at the edge', async () => {
+  const today = new Date().toISOString().slice(0, 10)
+  await withPublicApp({ food: async () => CHICKEN }, async ({ base, limiterHits, foodCalls }) => {
+    const res = await fetch(`${base}/api/dining/foods/2577937?date=${today}`)
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { ok: true, date: today, food: CHICKEN })
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=600, s-maxage=3600')
+    assert.equal(res.headers.get('set-cookie'), null)
+    assert.deepEqual(foodCalls, [[2577937, today]])
+    assert.deepEqual(limiterHits, ['public-read-ip GET /api/dining/foods/2577937', 'public-read GET /api/dining/foods/2577937'])
+  })
+})
+
+test('without a date the dish is looked up for today on the Indianapolis calendar', async () => {
+  await withPublicApp({ food: async () => CHICKEN }, async ({ base, foodCalls }) => {
+    const res = await fetch(`${base}/api/dining/foods/2577937`)
+    assert.equal(res.status, 200)
+    assert.match(foodCalls[0][1], /^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+test('a bad id or date is a 400, a dish not on the menu a 404, a failure a 500, all in the envelope and never cached', async () => {
+  await withPublicApp({ food: async () => null }, async ({ base, foodCalls }) => {
+    for (const bad of ['abc', '12.5', '-3', '1234567890123']) {
+      const res = await fetch(`${base}/api/dining/foods/${bad}`)
+      assert.equal(res.status, 400, bad)
+      assert.deepEqual(await res.json(), { error: { message: 'That is not a menu item.', status: 400, code: 'dining_bad_food' } })
+    }
+    for (const bad of ['bogus', '2020-01-01']) {
+      const res = await fetch(`${base}/api/dining/foods/2577937?date=${bad}`)
+      assert.equal(res.status, 400, bad)
+      assert.equal((await res.json()).error.code, 'dining_bad_date')
+    }
+    assert.equal(foodCalls.length, 0, 'a rejected request never reaches the lookup')
+
+    const missing = await fetch(`${base}/api/dining/foods/1`)
+    assert.equal(missing.status, 404)
+    assert.equal(missing.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await missing.json(), { error: { message: 'That dish is not on the menu that day.', status: 404, code: 'dining_food_not_found' } })
+  })
+  const food = async () => {
+    throw new Error('Nutrislice down')
+  }
+  await withPublicApp({ food }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/foods/2577937`)
+    assert.equal(res.status, 500)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.equal((await res.json()).error.code, 'dining_internal')
+  })
+})
+
+// ── GET /api/dining/upcoming (issue #469) ───────────────────────────────────
+
+test('what is coming up is served through both public-read limiters and cached at the edge for half an hour', async () => {
+  const days = [{ date: '2026-10-15', tentative: false, holiday: null, meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [{ name: 'Chili Lime Chicken', image: null }], specials: [] }] }]
+  await withPublicApp({ upcoming: async () => ({ ok: true, today: '2026-10-14', days }) }, async ({ base, limiterHits }) => {
+    const res = await fetch(`${base}/api/dining/upcoming`)
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { ok: true, today: '2026-10-14', days })
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=600, s-maxage=1800')
+    assert.equal(res.headers.get('set-cookie'), null)
+    assert.deepEqual(limiterHits, ['public-read-ip GET /api/dining/upcoming', 'public-read GET /api/dining/upcoming'])
+  })
+})
+
+test('an unavailable look-ahead is never cached, and a failure answers the envelope', async () => {
+  await withPublicApp({ upcoming: async () => ({ ok: false, error: 'dining_upcoming_unavailable', today: '2026-10-14', days: [] }) }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/upcoming`)
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+  })
+  const upcoming = async () => {
+    throw new Error('Nutrislice down')
+  }
+  await withPublicApp({ upcoming }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/upcoming`)
+    assert.equal(res.status, 500)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.equal((await res.json()).error.code, 'dining_internal')
   })
 })
 

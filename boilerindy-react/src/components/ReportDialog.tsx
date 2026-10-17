@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icons'
 import StatusBanner from './StatusBanner'
@@ -68,7 +68,11 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
 
   // Focus the first reason on open, and hand focus back to the opener (the
   // Report button) on close instead of dropping it to <body> (issue #221).
-  useEffect(() => {
+  // A layout effect, so focus moves back in the commit that closes the dialog,
+  // before its nodes leave the page. As a passive effect the hand-back ran a
+  // task after the dialog was gone whenever the close was the report's answer
+  // rather than a click, and focus sat on <body> until then.
+  useLayoutEffect(() => {
     const previous = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     tabStops(panelRef.current)[0]?.focus()
     return () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
+import { useConfirm } from '../hooks/useConfirm'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
@@ -33,6 +34,7 @@ function errorText(e: unknown, fallback: string): string {
 
 export default function StudyGroups() {
   const { report, blockAuthor, moderationUi } = useReportAndBlock()
+  const { confirm, confirmDialog } = useConfirm()
   const [optIn, setOptIn] = useState(false)
   const [courses, setCourses] = useState<StudyCourse[]>([])
   const [loadingCourses, setLoadingCourses] = useState(true)
@@ -173,6 +175,32 @@ export default function StudyGroups() {
       })
   }
 
+  // Leaving does not take a group down, so its creator deletes it here.
+  async function deleteGroup(group: StudyGroup, context: 'course' | 'mine') {
+    if (busyGroupIds.includes(group.id)) return
+    if (
+      !(await confirm({
+        title: 'Delete this group?',
+        message: 'This removes the group for everyone in it.',
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      }))
+    ) {
+      return
+    }
+    setBusyGroupIds((ids) => [...ids, group.id])
+    setGroupError(null)
+    try {
+      await authRequest(`/api/study-groups/${group.id}`, { method: 'DELETE' })
+    } catch (err) {
+      setGroupError({ id: group.id, context, message: writeFailureMessage(err, 'Could not delete the group. Please try again.') })
+    } finally {
+      setBusyGroupIds((ids) => ids.filter((id) => id !== group.id))
+      if (selectedCourse) selectCourse(selectedCourse)
+      loadMyGroups()
+    }
+  }
+
   // A blocked creator's groups leave both lists, so both are read again.
   async function handleBlockCreator(group: StudyGroup) {
     if (!(await blockAuthor('study_group', group.id))) return
@@ -236,32 +264,34 @@ export default function StudyGroups() {
             {groupError.message}
           </StatusBanner>
         )}
-        {(context === 'mine' && group.courseCode) || !group.isMine ? (
-          <div className="mod-actions">
-            {context === 'mine' && group.courseCode && (
+        <div className="mod-actions">
+          {context === 'mine' && group.courseCode && (
+            <button
+              type="button"
+              onClick={() => selectCourse(group.courseCode || '')}
+              className="link-btn py-1"
+            >
+              See all {group.courseCode} groups
+            </button>
+          )}
+          {group.isMine ? (
+            <button type="button" onClick={() => void deleteGroup(group, context)} disabled={busy}>
+              <Icon name="trash" size={13} /> Delete group
+            </button>
+          ) : (
+            <>
               <button
                 type="button"
-                onClick={() => selectCourse(group.courseCode || '')}
-                className="link-btn py-1"
+                onClick={(e) => report({ targetType: 'study_group', targetId: group.id, targetLabel: 'this group' }, e.currentTarget)}
               >
-                See all {group.courseCode} groups
+                <Icon name="flag" size={13} /> Report
               </button>
-            )}
-            {!group.isMine && (
-              <>
-                <button
-                  type="button"
-                  onClick={(e) => report({ targetType: 'study_group', targetId: group.id, targetLabel: 'this group' }, e.currentTarget)}
-                >
-                  <Icon name="flag" size={13} /> Report
-                </button>
-                <button type="button" onClick={() => void handleBlockCreator(group)}>
-                  Block author
-                </button>
-              </>
-            )}
-          </div>
-        ) : null}
+              <button type="button" onClick={() => void handleBlockCreator(group)}>
+                Block author
+              </button>
+            </>
+          )}
+        </div>
       </li>
     )
   }
@@ -271,6 +301,7 @@ export default function StudyGroups() {
       <div className="page-measure">
         <PageTitle>Study Groups</PageTitle>
         {moderationUi}
+        {confirmDialog}
         <header className="page-head">
           <div>
             <h1 className="page-title">Study Groups</h1>

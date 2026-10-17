@@ -1,0 +1,2446 @@
+{
+  "id": 294540,
+  "last_updated": "2026-10-10T04:26:22.481211Z",
+  "start_date": "2026-10-12",
+  "menu_type_id": 13262,
+  "bold_all_entrees_enabled": false,
+  "days": [
+    {
+      "date": "2026-10-11",
+      "menu_items": [
+        {
+          "id": 429369997,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429369998,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369999,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370000,
+          "position": 3,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370009,
+          "position": 12,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 429370010,
+          "position": 13,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553279,
+          "position": 88,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433553280,
+          "position": 89,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929176,
+            "name": "Italian Wedding Soup",
+            "rounded_nutrition_info": {
+              "calories": 100.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553281,
+          "position": 90,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929405,
+            "name": "Tomato Basil Soup",
+            "rounded_nutrition_info": {
+              "calories": 25.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Climate Friendly",
+                  "name": "Climate Friendly",
+                  "slug": "climate-friendly"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433042652,
+          "position": 92,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433042654,
+          "position": 93,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553283,
+          "position": 94,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553284,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2955599,
+            "name": "Carnival Cookie",
+            "rounded_nutrition_info": {
+              "calories": 170.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-12",
+      "menu_items": [
+        {
+          "id": 429369753,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429369754,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2115890,
+            "name": "Pasta Primavera",
+            "rounded_nutrition_info": {
+              "calories": 292.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369755,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2577903,
+            "name": "Mushrooms, Tomatoes and Spinach",
+            "rounded_nutrition_info": {
+              "calories": 53.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369759,
+          "position": 6,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429369760,
+          "position": 7,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369761,
+          "position": 8,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369762,
+          "position": 9,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369771,
+          "position": 18,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 429369772,
+          "position": 19,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553087,
+          "position": 94,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433553088,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929135,
+            "name": "Buffalo Chicken Soup",
+            "rounded_nutrition_info": {
+              "calories": 238.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553089,
+          "position": 96,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2574779,
+            "name": "Roasted Corn and Potato Chowder",
+            "rounded_nutrition_info": {
+              "calories": 112.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433042995,
+          "position": 98,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433042996,
+          "position": 99,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553091,
+          "position": 100,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553092,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027913,
+            "name": "Dessert Pizza",
+            "rounded_nutrition_info": {
+              "calories": 119.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-13",
+      "menu_items": [
+        {
+          "id": 429370103,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429370105,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3001083,
+            "name": "Chili Lime Chicken",
+            "rounded_nutrition_info": {
+              "calories": 196.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 434764929,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3134185,
+            "name": "Black Beans",
+            "rounded_nutrition_info": {
+              "calories": 90.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370121,
+          "position": 9,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429370123,
+          "position": 10,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370125,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370127,
+          "position": 12,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429370144,
+          "position": 21,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 429370146,
+          "position": 22,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433875744,
+          "position": 97,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433875745,
+          "position": 98,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929082,
+            "name": "Beef Chili",
+            "rounded_nutrition_info": {
+              "calories": 206.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433875746,
+          "position": 99,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2070281,
+            "name": "Vegan Potato Soup",
+            "rounded_nutrition_info": {
+              "calories": 96.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Climate Friendly",
+                  "name": "Climate Friendly",
+                  "slug": "climate-friendly"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433137174,
+          "position": 101,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433137175,
+          "position": 102,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433875748,
+          "position": 103,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433875749,
+          "position": 104,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926027,
+            "name": "Rice Krispie Treat",
+            "rounded_nutrition_info": {
+              "calories": 186.0
+            },
+            "icons": {
+              "food_icons": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-14",
+      "menu_items": [
+        {
+          "id": 429369597,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429369598,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2577937,
+            "name": "Honey Garlic Fried Chicken",
+            "rounded_nutrition_info": {
+              "calories": 326.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369599,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2570411,
+            "name": "Fried Cauliflower",
+            "rounded_nutrition_info": {
+              "calories": 103.0
+            },
+            "icons": {
+              "food_icons": []
+            }
+          }
+        },
+        {
+          "id": 429369603,
+          "position": 6,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429369604,
+          "position": 7,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369605,
+          "position": 8,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369606,
+          "position": 9,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369615,
+          "position": 18,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 429369616,
+          "position": 19,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553095,
+          "position": 94,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433553096,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2572577,
+            "name": "Chicken Miso Soup",
+            "rounded_nutrition_info": {
+              "calories": 52.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553097,
+          "position": 96,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926001,
+            "name": "Broccoli Cheddar Soup",
+            "rounded_nutrition_info": {
+              "calories": 305.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433224570,
+          "position": 98,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433224571,
+          "position": 99,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433224572,
+          "position": 100,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433224573,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027914,
+            "name": "Banana Pudding",
+            "rounded_nutrition_info": {
+              "calories": 301.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-15",
+      "menu_items": [
+        {
+          "id": 429369833,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 434911576,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3135455,
+            "name": "Beef Bhuna Curry",
+            "rounded_nutrition_info": {
+              "calories": 359.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369835,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2987174,
+            "name": "Cumin Basmati Rice",
+            "rounded_nutrition_info": {
+              "calories": 198.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369840,
+          "position": 8,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429369841,
+          "position": 9,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369842,
+          "position": 10,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369843,
+          "position": 11,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369852,
+          "position": 20,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 429369853,
+          "position": 21,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433554186,
+          "position": 96,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433554187,
+          "position": 97,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929185,
+            "name": "Green Split Pea and Ham Soup",
+            "rounded_nutrition_info": {
+              "calories": 120.0
+            },
+            "icons": {
+              "food_icons": []
+            }
+          }
+        },
+        {
+          "id": 433554189,
+          "position": 98,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926001,
+            "name": "Broccoli Cheddar Soup",
+            "rounded_nutrition_info": {
+              "calories": 305.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433297506,
+          "position": 100,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433297507,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433297508,
+          "position": 102,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433297509,
+          "position": 103,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2408064,
+            "name": "Cheesecake",
+            "rounded_nutrition_info": {
+              "calories": 712.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "menu_items": [
+        {
+          "id": 429369917,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Homestyle",
+          "food": null
+        },
+        {
+          "id": 429369918,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2080698,
+            "name": "Spaghetti with Marinara Sauce",
+            "rounded_nutrition_info": {
+              "calories": 112.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369919,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2722428,
+            "name": "Italian Meatballs",
+            "rounded_nutrition_info": {
+              "calories": 239.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369923,
+          "position": 6,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 429369924,
+          "position": 7,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369925,
+          "position": 8,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369926,
+          "position": 9,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 429369935,
+          "position": 18,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 429369936,
+          "position": 19,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553393,
+          "position": 94,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433553394,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926050,
+            "name": "Classic Chicken Noodle Soup",
+            "rounded_nutrition_info": {
+              "calories": 83.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553395,
+          "position": 96,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2070271,
+            "name": "Cream of Mushroom",
+            "rounded_nutrition_info": {
+              "calories": 72.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553397,
+          "position": 98,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433553398,
+          "position": 99,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553399,
+          "position": 100,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553400,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027915,
+            "name": "Caramel Apple Granny Bar",
+            "rounded_nutrition_info": {
+              "calories": 290.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "menu_items": [
+        {
+          "id": 430120324,
+          "position": 0,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Daily Grill",
+          "food": null
+        },
+        {
+          "id": 430120325,
+          "position": 1,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929009,
+            "name": "Silver Star Burger",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 430120326,
+          "position": 2,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2801765,
+            "name": "Veggie Burger",
+            "rounded_nutrition_info": {
+              "calories": 160.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 430120327,
+          "position": 3,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929016,
+            "name": "Hamburger Bun",
+            "rounded_nutrition_info": {
+              "calories": 190.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 430120336,
+          "position": 12,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Grill Condiments",
+          "food": null
+        },
+        {
+          "id": 430120337,
+          "position": 13,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929030,
+            "name": "Lettuce Leaf",
+            "rounded_nutrition_info": {
+              "calories": 1.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Avoiding Gluten",
+                  "name": "Avoiding Gluten Program",
+                  "slug": "avoiding-gluten-program"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553209,
+          "position": 88,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Chef Made Soups",
+          "food": null
+        },
+        {
+          "id": 433553210,
+          "position": 89,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1929131,
+            "name": "New England Clam Chowder with Bacon",
+            "rounded_nutrition_info": {
+              "calories": 169.0
+            },
+            "icons": {
+              "food_icons": []
+            }
+          }
+        },
+        {
+          "id": 433553211,
+          "position": 90,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2070276,
+            "name": "Three Bean Vegetable Minestrone",
+            "rounded_nutrition_info": {
+              "calories": 63.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Climate Friendly",
+                  "name": "Climate Friendly",
+                  "slug": "climate-friendly"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegan",
+                  "name": "Vegan",
+                  "slug": "vegan"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553213,
+          "position": 92,
+          "is_section_title": true,
+          "is_station_header": true,
+          "text": "Dessert",
+          "food": null
+        },
+        {
+          "id": 433553214,
+          "position": 93,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027905,
+            "name": "Chocolate Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553215,
+          "position": 94,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027907,
+            "name": "Vanilla Soft Serve Ice Cream",
+            "rounded_nutrition_info": {
+              "calories": 360.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553216,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027916,
+            "name": "Lemon Bar",
+            "rounded_nutrition_info": {
+              "calories": 218.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

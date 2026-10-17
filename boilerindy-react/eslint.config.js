@@ -60,4 +60,22 @@ export default defineConfig([
       ...reactAdvisoryRules,
     },
   },
+  // Every router runs without transitions, the tests' MemoryRouters included,
+  // as App.tsx's BrowserRouter has since #454. With React Router 7's default a
+  // navigation after an await commits in a transition render one Scheduler
+  // task later; a test router left on it races in a way the app never does
+  // (the #461 flakes).
+  {
+    files: ['**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'JSXOpeningElement[name.name=/^(Browser|Hash|Memory)Router$/]:not(:has(> JSXAttribute[name.name="useTransitions"][value.expression.value=false]))',
+          message: 'Pass useTransitions={false}, as App.tsx does, so navigations commit with the state updates around them.',
+        },
+      ],
+    },
+  },
 ])
