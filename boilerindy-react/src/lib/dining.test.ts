@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import {
   ALL_MEALS,
+  comingUpLine,
+  favoritesComingUp,
+  headlinersFor,
   DIET_FILTERS,
   DIET_FILTERS_KEY,
   DIET_LABEL_NOTE,
@@ -223,5 +226,44 @@ describe('nutritionRows and macroLine', () => {
     expect(macroLine({ protein: 17, carbs: 0, fat: 13, sodium: 53 })).toBe('Protein 17 g · Carbs 0 g · Fat 13 g · Sodium 53 mg')
     expect(macroLine({ protein: 4.25 })).toBe('Protein 4.3 g')
     expect(macroLine({})).toBe('')
+  })
+})
+
+// Issue #469: what is coming up, from GET /api/dining/upcoming.
+describe('what is coming up', () => {
+  const norm = (name: string) => name.trim().toLowerCase()
+  const upcoming = {
+    ok: true,
+    today: '2026-10-14',
+    days: [
+      { date: '2026-10-14', tentative: false, holiday: null, meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [{ name: 'Honey Garlic Fried Chicken', image: 'https://x.test/a.jpg' }], specials: ['Banana Pudding'] }] },
+      { date: '2026-10-15', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Jamaican Jerk Chicken', image: null }], specials: [] }] },
+      { date: '2026-10-20', tentative: false, holiday: null, meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [], specials: ['Chicken Miso Soup'] }] },
+      { date: '2026-11-19', tentative: true, holiday: null, meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [{ name: 'Butter Chicken', image: null }, { name: 'Jamaican Jerk Chicken', image: null }], specials: [] }] },
+    ],
+  }
+
+  test('headlinersFor reads one day and meal', () => {
+    expect(headlinersFor(upcoming, '2026-10-14', 'lunch')).toEqual([{ name: 'Honey Garlic Fried Chicken', image: 'https://x.test/a.jpg' }])
+    expect(headlinersFor(upcoming, '2026-10-14', 'dinner')).toEqual([])
+    expect(headlinersFor(upcoming, '2026-10-18', 'lunch')).toEqual([])
+    expect(headlinersFor(null, '2026-10-14', 'lunch')).toEqual([])
+  })
+
+  test('favoritesComingUp finds each favorite\'s next day after today, soonest first, headliner or special', () => {
+    const favorites = ['jamaican jerk chicken', 'butter chicken', 'chicken miso soup', 'honey garlic fried chicken']
+    expect(favoritesComingUp(favorites, upcoming, '2026-10-14', norm)).toEqual([
+      { name: 'Jamaican Jerk Chicken', date: '2026-10-15', meal: 'dinner', location: 'Tower Dining', tentative: false },
+      { name: 'Chicken Miso Soup', date: '2026-10-20', meal: 'lunch', location: 'Tower Dining', tentative: false },
+      { name: 'Butter Chicken', date: '2026-11-19', meal: 'lunch', location: 'Tower Dining', tentative: true },
+    ])
+    expect(favoritesComingUp([], upcoming, '2026-10-14', norm)).toEqual([])
+    expect(favoritesComingUp(favorites, null, '2026-10-14', norm)).toEqual([])
+  })
+
+  test('comingUpLine: tomorrow, a weekday within a week, a date beyond it marked tentative', () => {
+    expect(comingUpLine({ name: 'Jamaican Jerk Chicken', date: '2026-10-15', tentative: false }, '2026-10-14')).toBe('Jamaican Jerk Chicken is back tomorrow')
+    expect(comingUpLine({ name: 'Chicken Miso Soup', date: '2026-10-20', tentative: false }, '2026-10-14')).toBe('Chicken Miso Soup is back Tuesday')
+    expect(comingUpLine({ name: 'Butter Chicken', date: '2026-11-19', tentative: true }, '2026-10-14')).toBe('Butter Chicken: Thu, Nov 19 (tentative)')
   })
 })

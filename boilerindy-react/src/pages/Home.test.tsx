@@ -386,3 +386,56 @@ it('previews the current meal, specials first', async () => {
     vi.useRealTimers()
   }
 })
+
+// Issue #469: a favorite dish on today's or tomorrow's menu is a smart alert.
+it('says when a favorite dish is on today\'s menu', async () => {
+  const { authRequest } = await import('../lib/authApi')
+  const base = vi.mocked(authRequest).getMockImplementation()!
+  vi.mocked(authRequest).mockImplementation(async (path: string, ...rest: unknown[]) =>
+    path === '/api/me/dining/favorites' ? { favorites: ['cheeseburger', 'jamaican jerk chicken'] } : base(path, ...(rest as [])),
+  )
+  try {
+    const upcoming = {
+      ok: true,
+      today: '2026-10-17',
+      days: [{ date: '2026-10-18', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Jamaican Jerk Chicken', image: null }], specials: [] }] }],
+    }
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const path = String(url)
+      if (path.startsWith('/api/dining/upcoming')) return new Response(JSON.stringify(upcoming))
+      if (path.startsWith('/api/dining')) return new Response(JSON.stringify(diningSnapshot({ is_open: true, hours: '7:00 AM - 9:00 PM' })))
+      return new Response(JSON.stringify({ reply: 'ok' }))
+    })
+    renderHome()
+    // Today's menu wins over tomorrow's look-ahead.
+    expect(await screen.findByText('Cheeseburger is on the menu at Tower Dining today')).toBeInTheDocument()
+    expect(screen.queryByText(/tomorrow$/)).toBeNull()
+  } finally {
+    vi.mocked(authRequest).mockImplementation(base)
+  }
+})
+
+it('says when a favorite dish is back tomorrow', async () => {
+  const { authRequest } = await import('../lib/authApi')
+  const base = vi.mocked(authRequest).getMockImplementation()!
+  vi.mocked(authRequest).mockImplementation(async (path: string, ...rest: unknown[]) =>
+    path === '/api/me/dining/favorites' ? { favorites: ['jamaican jerk chicken'] } : base(path, ...(rest as [])),
+  )
+  try {
+    const upcoming = {
+      ok: true,
+      today: '2026-10-17',
+      days: [{ date: '2026-10-18', tentative: false, holiday: null, meals: [{ meal: 'dinner', location: 'Tower Dining', headliners: [{ name: 'Jamaican Jerk Chicken', image: null }], specials: [] }] }],
+    }
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const path = String(url)
+      if (path.startsWith('/api/dining/upcoming')) return new Response(JSON.stringify(upcoming))
+      if (path.startsWith('/api/dining')) return new Response(JSON.stringify(diningSnapshot({ is_open: true })))
+      return new Response(JSON.stringify({ reply: 'ok' }))
+    })
+    renderHome()
+    expect(await screen.findByText('Jamaican Jerk Chicken is on the menu at Tower Dining tomorrow')).toBeInTheDocument()
+  } finally {
+    vi.mocked(authRequest).mockImplementation(base)
+  }
+})

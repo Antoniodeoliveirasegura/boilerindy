@@ -50,14 +50,17 @@ export function normalizeLeadMinutes(value) {
 }
 
 export function defaultPushSettings() {
-  return { deadlineReminders: true, leadMinutes: DEFAULT_LEAD_MINUTES }
+  return { deadlineReminders: true, leadMinutes: DEFAULT_LEAD_MINUTES, diningFavoriteAlerts: false }
 }
 
+// diningFavoriteAlerts (issue #469) is off unless the row says true, which also
+// covers a row read before db/supabase-dining-favorite-alerts.sql ran.
 export function settingsFromRow(row) {
   if (!row) return defaultPushSettings()
   return {
     deadlineReminders: row.deadline_reminders !== false,
     leadMinutes: normalizeLeadMinutes(row.lead_minutes) ?? DEFAULT_LEAD_MINUTES,
+    diningFavoriteAlerts: row.dining_favorite_alerts === true,
   }
 }
 
@@ -75,6 +78,10 @@ export function parseSettingsPatch(body) {
       return { ok: false, error: `leadMinutes must be a whole number between ${LEAD_MINUTES_MIN} and ${LEAD_MINUTES_MAX}` }
     }
     patch.lead_minutes = lead
+  }
+  if ('diningFavoriteAlerts' in input) {
+    if (typeof input.diningFavoriteAlerts !== 'boolean') return { ok: false, error: 'diningFavoriteAlerts must be true or false' }
+    patch.dining_favorite_alerts = input.diningFavoriteAlerts
   }
   if (Object.keys(patch).length === 0) return { ok: false, error: 'Nothing to update' }
   return { ok: true, patch }

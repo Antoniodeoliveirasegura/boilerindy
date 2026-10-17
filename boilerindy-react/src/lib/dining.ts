@@ -307,3 +307,67 @@ export function macroLine(item: Pick<MenuItem, 'protein' | 'carbs' | 'fat' | 'so
   if (item.sodium != null) parts.push(`Sodium ${formatAmount(item.sodium, 'mg')}`)
   return parts.join(' · ')
 }
+
+// ── What is coming up (issue #469) ─────────────────────────────────────────
+
+export type Headliner = { name: string; image: string | null }
+export type UpcomingMeal = { meal: string; location: string; headliners: Headliner[]; specials: string[] }
+export type UpcomingDay = { date: string; tentative: boolean; holiday: string | null; meals: UpcomingMeal[] }
+/** GET /api/dining/upcoming. */
+export type DiningUpcoming = { ok?: boolean; today?: string; days?: UpcomingDay[] }
+
+/** The headline dishes for `date` and `meal`, from the digest; [] on weekends and days it does not cover. */
+export function headlinersFor(upcoming: DiningUpcoming | null | undefined, date: string | null | undefined, meal: string | null | undefined): Headliner[] {
+  const day = upcoming?.days?.find((d) => d.date === date)
+  return day?.meals.filter((m) => m.meal === meal).flatMap((m) => m.headliners) ?? []
+}
+
+export type FavoriteComingUp = { name: string; date: string; meal: string; location: string; tentative: boolean }
+
+/**
+ * For each favorite (normalized names), its next appearance after `today` in
+ * the look-ahead, headliners and specials alike, soonest first. Today's
+ * favorites have their own card, so they are not repeated here.
+ */
+export function favoritesComingUp(
+  favorites: Iterable<string>,
+  upcoming: DiningUpcoming | null | undefined,
+  today: string | null | undefined,
+  normalize: (name: string) => string,
+): FavoriteComingUp[] {
+  const wanted = new Set(favorites)
+  if (!wanted.size || !upcoming?.days?.length || !today) return []
+  const found = new Map<string, FavoriteComingUp>()
+  for (const day of upcoming.days) {
+    if (day.date <= today) continue
+    for (const meal of day.meals) {
+      for (const name of [...meal.headliners.map((h) => h.name), ...meal.specials]) {
+        const key = normalize(name)
+        if (!wanted.has(key) || found.has(key)) continue
+        found.set(key, { name, date: day.date, meal: meal.meal, location: meal.location, tentative: day.tentative })
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function ymdUtc(ymd: string): number {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return Date.UTC(y, m - 1, d)
+}
+
+/**
+ * "Jamaican Jerk Chicken is back tomorrow" / "... is back Thursday" within a
+ * week, "Butter Chicken: Thu, Nov 19 (tentative)" beyond it, where the menu
+ * is still a draft.
+ */
+export function comingUpLine(entry: Pick<FavoriteComingUp, 'name' | 'date' | 'tentative'>, today: string): string {
+  const days = Math.round((ymdUtc(entry.date) - ymdUtc(today)) / DAY_MS)
+  const date = new Date(ymdUtc(entry.date))
+  if (days === 1) return `${entry.name} is back tomorrow`
+  if (days > 1 && days <= 7 && !entry.tentative) return `${entry.name} is back ${date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}`
+  const label = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return `${entry.name}: ${label}${entry.tentative ? ' (tentative)' : ''}`
+}

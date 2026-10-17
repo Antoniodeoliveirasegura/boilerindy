@@ -24,7 +24,11 @@ async function serve(app, run) {
 }
 
 async function withPublicApp(
-  { snapshot = async () => ({ ok: true, locations: [{ name: 'Tower Dining' }] }), food = async () => null } = {},
+  {
+    snapshot = async () => ({ ok: true, locations: [{ name: 'Tower Dining' }] }),
+    food = async () => null,
+    upcoming = async () => ({ ok: true, today: '2026-10-14', days: [] }),
+  } = {},
   run,
 ) {
   const limiterHits = []
@@ -47,6 +51,7 @@ async function withPublicApp(
         foodCalls.push([id, date])
         return food(id, date)
       },
+      getDiningUpcoming: () => upcoming(),
     }),
   )
   await serve(app, (base) => run({ base, limiterHits, snapshotCalls, foodCalls }))
@@ -190,6 +195,37 @@ test('a bad id or date is a 400, a dish not on the menu a 404, a failure a 500, 
   }
   await withPublicApp({ food }, async ({ base }) => {
     const res = await fetch(`${base}/api/dining/foods/2577937`)
+    assert.equal(res.status, 500)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.equal((await res.json()).error.code, 'dining_internal')
+  })
+})
+
+// ── GET /api/dining/upcoming (issue #469) ───────────────────────────────────
+
+test('what is coming up is served through both public-read limiters and cached at the edge for half an hour', async () => {
+  const days = [{ date: '2026-10-15', tentative: false, holiday: null, meals: [{ meal: 'lunch', location: 'Tower Dining', headliners: [{ name: 'Chili Lime Chicken', image: null }], specials: [] }] }]
+  await withPublicApp({ upcoming: async () => ({ ok: true, today: '2026-10-14', days }) }, async ({ base, limiterHits }) => {
+    const res = await fetch(`${base}/api/dining/upcoming`)
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { ok: true, today: '2026-10-14', days })
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=600, s-maxage=1800')
+    assert.equal(res.headers.get('set-cookie'), null)
+    assert.deepEqual(limiterHits, ['public-read-ip GET /api/dining/upcoming', 'public-read GET /api/dining/upcoming'])
+  })
+})
+
+test('an unavailable look-ahead is never cached, and a failure answers the envelope', async () => {
+  await withPublicApp({ upcoming: async () => ({ ok: false, error: 'dining_upcoming_unavailable', today: '2026-10-14', days: [] }) }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/upcoming`)
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+  })
+  const upcoming = async () => {
+    throw new Error('Nutrislice down')
+  }
+  await withPublicApp({ upcoming }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/upcoming`)
     assert.equal(res.status, 500)
     assert.equal(res.headers.get('cache-control'), 'no-store')
     assert.equal((await res.json()).error.code, 'dining_internal')

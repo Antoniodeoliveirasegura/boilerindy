@@ -1,5 +1,7 @@
 import express from 'express'
 import { runCronTick } from '../cronTick.mjs'
+import { DB_FEATURES, respondSchemaMissing } from '../dbErrors.mjs'
+import { isMissingColumnError, runDiningFavoriteAlerts } from '../diningFavoriteAlerts.mjs'
 import { parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
 import {
   buildTestPayload,
@@ -122,24 +124,28 @@ export function createPushRouter({
   PUSH_CRON_SECRET,
   pushCronSecretMatches,
   warnCronTransient,
+  getDiningSnapshot,
   sendExpo = sendExpoPush,
 }) {
   const router = express.Router()
 
+  // The favorite-dish switch (issue #469) is a column that
+  // db/supabase-dining-favorite-alerts.sql adds. Until it runs the settings
+  // still load without it, and `diningAlertsAvailable` says so.
   async function loadPushSettingsRow(userId) {
-    const { data, error } = await supabase
-      .from('push_settings')
-      .select('deadline_reminders, lead_minutes')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const query = (columns) => supabase.from('push_settings').select(columns).eq('user_id', userId).maybeSingle()
+    const full = await query('deadline_reminders, lead_minutes, dining_favorite_alerts')
+    if (!full.error) return { row: full.data, diningAlertsAvailable: true }
+    if (!isMissingColumnError(full.error)) throw full.error
+    const { data, error } = await query('deadline_reminders, lead_minutes')
     if (error) throw error
-    return data
+    return { row: data, diningAlertsAvailable: false }
   }
 
   router.get('/api/push/settings', requireAuth, async (req, res) => {
     const userId = req.currentUser.id
     try {
-      const [settingsRow, subsRes, devicesRes] = await Promise.all([
+      const [{ row: settingsRow, diningAlertsAvailable }, subsRes, devicesRes] = await Promise.all([
         loadPushSettingsRow(userId),
         supabase
           .from('push_subscriptions')
@@ -160,6 +166,7 @@ export function createPushRouter({
       res.json({
         enabled: Boolean(vapidKeys),
         settings: settingsFromRow(settingsRow),
+        diningAlertsAvailable,
         subscriptions: (subsRes.data || []).map(summarizePushSubscription),
         devices: devicesRes.error ? [] : (devicesRes.data || []).map(summarizePushDevice),
       })
@@ -175,7 +182,11 @@ export function createPushRouter({
     const parsed = parseSettingsPatch(req.body)
     if (!parsed.ok) return res.status(400).json({ error: { message: parsed.error, status: 400 } })
     try {
-      const current = settingsFromRow(await loadPushSettingsRow(userId))
+      const { row: currentRow, diningAlertsAvailable } = await loadPushSettingsRow(userId)
+      if ('dining_favorite_alerts' in parsed.patch && !diningAlertsAvailable) {
+        return respondSchemaMissing(res, DB_FEATURES.dining_alerts, { code: '42703', message: 'push_settings.dining_favorite_alerts does not exist' })
+      }
+      const current = settingsFromRow(currentRow)
       const row = {
         user_id: userId,
         deadline_reminders:
@@ -183,9 +194,13 @@ export function createPushRouter({
         lead_minutes: 'lead_minutes' in parsed.patch ? parsed.patch.lead_minutes : current.leadMinutes,
         updated_at: new Date().toISOString(),
       }
+      if (diningAlertsAvailable) {
+        row.dining_favorite_alerts =
+          'dining_favorite_alerts' in parsed.patch ? parsed.patch.dining_favorite_alerts : current.diningFavoriteAlerts
+      }
       const { error } = await supabase.from('push_settings').upsert(row, { onConflict: 'user_id' })
       if (error) throw error
-      res.json({ settings: settingsFromRow(row) })
+      res.json({ settings: settingsFromRow(row), diningAlertsAvailable })
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res)
       console.error('PUT /api/push/settings:', error?.message || error)
@@ -415,10 +430,20 @@ export function createPushRouter({
     if (!pushCronSecretMatches(req.get('authorization'))) {
       return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
     }
-    const outcome = await runCronTick('run-reminders', () => runDeadlineReminders({ client: supabase, keys: vapidKeys }))
+    // The favorite-dish alerts (issue #469) ride the same tick; re-running a
+    // tick is safe for them too, since each student is claimed once a day.
+    const outcome = await runCronTick('run-reminders', async () => {
+      const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys })
+      if (getDiningSnapshot) {
+        summary.dining = await runDiningFavoriteAlerts({ client: supabase, keys: vapidKeys, getSnapshot: getDiningSnapshot })
+      }
+      return summary
+    })
     if (outcome.ok) {
       const summary = outcome.summary
-      if (summary.sent || summary.failed) console.log(`[push] reminders: ${JSON.stringify(summary)}`)
+      if (summary.sent || summary.failed || summary.dining?.sent || summary.dining?.failed) {
+        console.log(`[push] reminders: ${JSON.stringify(summary)}`)
+      }
       return res.json(summary)
     }
     if (outcome.transient) {

@@ -38,9 +38,14 @@ test('normalizeLeadMinutes and parseSettingsPatch validate the settings surface'
   assert.equal(parseSettingsPatch({}).ok, false)
   assert.equal(parseSettingsPatch(null).ok, false)
 
-  assert.deepEqual(settingsFromRow(null), { deadlineReminders: true, leadMinutes: DEFAULT_LEAD_MINUTES })
-  assert.deepEqual(settingsFromRow({ deadline_reminders: false, lead_minutes: 15 }), { deadlineReminders: false, leadMinutes: 15 })
-  assert.deepEqual(settingsFromRow({ deadline_reminders: true, lead_minutes: 99999 }), { deadlineReminders: true, leadMinutes: DEFAULT_LEAD_MINUTES })
+  assert.deepEqual(settingsFromRow(null), { deadlineReminders: true, leadMinutes: DEFAULT_LEAD_MINUTES, diningFavoriteAlerts: false })
+  assert.deepEqual(settingsFromRow({ deadline_reminders: false, lead_minutes: 15 }), { deadlineReminders: false, leadMinutes: 15, diningFavoriteAlerts: false })
+  assert.deepEqual(settingsFromRow({ deadline_reminders: true, lead_minutes: 99999 }), { deadlineReminders: true, leadMinutes: DEFAULT_LEAD_MINUTES, diningFavoriteAlerts: false })
+
+  // The favorite-dish alerts switch (issue #469): off unless the row says true.
+  assert.equal(settingsFromRow({ deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: true }).diningFavoriteAlerts, true)
+  assert.deepEqual(parseSettingsPatch({ diningFavoriteAlerts: true }), { ok: true, patch: { dining_favorite_alerts: true } })
+  assert.equal(parseSettingsPatch({ diningFavoriteAlerts: 'on' }).ok, false)
 })
 
 test('date-only items are due at 23:59 campus time, with and without daylight saving', () => {

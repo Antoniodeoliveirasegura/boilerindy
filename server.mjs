@@ -37,6 +37,7 @@ import { createClubDirectoryCache } from './src/boilerlinkClubs.mjs'
 import { loadVapidKeys } from './src/webPush.mjs'
 import { describeFailure } from './src/cronTick.mjs'
 import { findDiningFood, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
+import { getDiningUpcoming } from './src/diningHeadliners.mjs'
 import { createGroqClient } from './src/groqClient.mjs'
 import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
@@ -529,7 +530,7 @@ try {
 // declared further down would not be initialized yet when these lines run.
 app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
-app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood }))
+app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
 
 // Everything below runs behind the cookie session.
 app.use(
@@ -773,7 +774,7 @@ async function getCached(key, ttlMs, producer) {
 // read near the top of this file, and warnCronTransient sits with the Sentry
 // warnings below; the sources router is handed them too.
 // ============================================================
-app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient }))
+app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot }))
 
 // A feed that timed out, dropped the connection or answered a gateway status
 // is the feed host's outage, not a bug here, and the source row already shows

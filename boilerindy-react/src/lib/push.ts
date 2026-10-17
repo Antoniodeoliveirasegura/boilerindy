@@ -8,7 +8,8 @@ import { authRequest } from './authApi'
 
 export type PushConfig = { enabled: boolean; publicKey: string | null }
 
-export type PushSettings = { deadlineReminders: boolean; leadMinutes: number }
+/** diningFavoriteAlerts: the once-a-day favorite dishes push (issue #469), off by default. */
+export type PushSettings = { deadlineReminders: boolean; leadMinutes: number; diningFavoriteAlerts: boolean }
 
 export type PushSubscriptionSummary = {
   id: string
@@ -20,6 +21,8 @@ export type PushSubscriptionSummary = {
 export type PushSettingsResponse = {
   enabled: boolean
   settings: PushSettings
+  /** False until db/supabase-dining-favorite-alerts.sql runs on the server (issue #469). */
+  diningAlertsAvailable: boolean
   subscriptions: PushSubscriptionSummary[]
 }
 
@@ -28,7 +31,7 @@ export type PushSettingsState = PushSettingsResponse & { notConfiguredMessage: s
 
 export type PushTestResult = { sent: number; failed: number; removed: number }
 
-export const DEFAULT_PUSH_SETTINGS: PushSettings = { deadlineReminders: true, leadMinutes: 60 }
+export const DEFAULT_PUSH_SETTINGS: PushSettings = { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false }
 
 /** The server accepts any whole number of minutes in this range. */
 export const MIN_LEAD_MINUTES = 5
@@ -184,6 +187,7 @@ function normalizeSettings(raw: unknown): PushSettings {
       Number.isInteger(lead) && lead >= MIN_LEAD_MINUTES && lead <= MAX_LEAD_MINUTES
         ? lead
         : DEFAULT_PUSH_SETTINGS.leadMinutes,
+    diningFavoriteAlerts: source.diningFavoriteAlerts === true,
   }
 }
 
@@ -218,6 +222,7 @@ export async function fetchPushSettings(): Promise<PushSettingsState> {
     return {
       enabled: data?.enabled === true,
       settings: normalizeSettings(data?.settings),
+      diningAlertsAvailable: data?.diningAlertsAvailable === true,
       subscriptions: normalizeSubscriptions(data?.subscriptions),
       notConfiguredMessage: null,
     }
@@ -227,6 +232,7 @@ export async function fetchPushSettings(): Promise<PushSettingsState> {
       return {
         enabled: false,
         settings: { ...DEFAULT_PUSH_SETTINGS },
+        diningAlertsAvailable: false,
         subscriptions: [],
         notConfiguredMessage: apiError.message || 'Push notifications are not configured on this server yet.',
       }
