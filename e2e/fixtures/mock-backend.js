@@ -596,6 +596,10 @@ export const test = base.extend({
       classes: [],
       classesMeta: { selectedTermKey: null, selectedTermLabel: '', totalInTerm: 0 },
       calendarItems: [],
+      // Shared campus events (#30): what the server adds to GET /api/me/calendar
+      // with ?shared=1 while CAMPUS_EVENTS_FEED is on, in the client shape of
+      // src/campusEventsFeed.mjs (shared: true, sourceLabel, sourceUrl).
+      sharedEvents: [],
       categories: [],
       manualTasks: [],
       completions: [],
@@ -754,7 +758,10 @@ export const test = base.extend({
       }
 
       if (pathname === '/api/me/calendar') {
-        return json(route, 200, { items: state.calendarItems })
+        // As listCalendarItems: the shared rows join only a read that asks.
+        if (searchParams.get('shared') !== '1') return json(route, 200, { items: state.calendarItems })
+        const merged = [...state.calendarItems, ...state.sharedEvents]
+        return json(route, 200, { items: merged.sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime)) })
       }
 
       // The assistant panel pulls its greeting and suggestion chips from here on
@@ -1267,6 +1274,9 @@ export const test = base.extend({
       },
       seedCalendarItems(items) {
         state.calendarItems = items
+      },
+      seedSharedEvents(items) {
+        state.sharedEvents = items
       },
       seedGrades(items) {
         state.grades = items.map((g, i) => ({

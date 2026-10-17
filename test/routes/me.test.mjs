@@ -156,15 +156,47 @@ test('GET /api/me/calendar hands listCalendarItems the filters, ascending, from 
     assert.equal(name, 'listCalendarItems')
     assert.equal(userId, STUDENT.id)
     const { from, ...rest } = options
-    assert.deepEqual(rest, { category: null, categories: null, limit: 100, order: 'asc', throwOnError: true })
+    assert.deepEqual(rest, { category: null, categories: null, limit: 100, order: 'asc', throwOnError: true, sharedCategories: null })
     assertAboutDaysAgo(from, 14)
 
     await call('GET', '/api/me/calendar?category=exam&categories=exam,,quiz&limit=5&from=2026-09-01T00:00:00.000Z')
     assert.deepEqual(readerCalls[1].args, [
       STUDENT.id,
-      { category: 'exam', categories: ['exam', 'quiz'], limit: 5, order: 'asc', from: '2026-09-01T00:00:00.000Z', throwOnError: true },
+      {
+        category: 'exam',
+        categories: ['exam', 'quiz'],
+        limit: 5,
+        order: 'asc',
+        from: '2026-09-01T00:00:00.000Z',
+        throwOnError: true,
+        sharedCategories: null,
+      },
     ])
     assert.equal(supabase.queries.length, 0, 'the injected reader does the querying')
+  })
+})
+
+// Issue #30: only a read that asks gets the shared campus events, so the
+// unfiltered reads behind Assignments and the native app's task list never
+// list a row they would offer to mark done. The reader adds them only while
+// the feed is on (test/calendarReads.test.mjs).
+test('GET /api/me/calendar asks for the shared campus events only with ?shared=1, under the categories the read names', async () => {
+  await withApp({}, async ({ call, readerCalls }) => {
+    const shared = async (query) => {
+      const answer = await call('GET', `/api/me/calendar?${query}`)
+      assert.equal(answer.status, 200)
+      return readerCalls.at(-1).args[1].sharedCategories
+    }
+    // The Events and Free Food window.
+    assert.deepEqual(await shared('categories=campus_event,event,deadline&limit=500&shared=1'), ['campus_event', 'deadline'])
+    assert.deepEqual(await shared('shared=true'), ['campus_event', 'deadline'])
+    assert.deepEqual(await shared('category=deadline&shared=1'), ['deadline'])
+    assert.deepEqual(await shared('category=exam&shared=1'), [])
+    // Assignments' read and Home's, and anything else that does not ask.
+    assert.equal(await shared('limit=500&from=2026-10-03T04:00:00.000Z'), null)
+    assert.equal(await shared('categories=campus_event,event,deadline,assignment&limit=200'), null)
+    assert.equal(await shared('shared=0'), null)
+    assert.equal(await shared('shared=yes'), null)
   })
 })
 
@@ -183,19 +215,23 @@ test('GET /api/me/calendar answers 500 without the database text when the read f
   assert.equal(logged.mock.callCount(), 1)
 })
 
-test('GET /api/me/events reads category event, 20 by default, from 14 days back unless ?from= is given', async () => {
+test('GET /api/me/events reads category event plus every shared campus event, 20 by default, from 14 days back unless ?from= is given', async () => {
   const items = [{ id: 'e1', title: 'Involvement fair', freeFood: true }]
+  const sharedCategories = ['campus_event', 'deadline']
   await withApp({ readers: { listCalendarItems: () => items } }, async ({ call, readerCalls }) => {
     const plain = await call('GET', '/api/me/events')
     assert.equal(plain.status, 200)
     assert.deepEqual(plain.body, { items })
     const { from, ...rest } = readerCalls[0].args[1]
     assert.equal(readerCalls[0].args[0], STUDENT.id)
-    assert.deepEqual(rest, { category: 'event', limit: 20, order: 'asc' })
+    assert.deepEqual(rest, { category: 'event', limit: 20, order: 'asc', sharedCategories })
     assertAboutDaysAgo(from, 14)
 
     await call('GET', '/api/me/events?limit=3&from=2026-10-01T00:00:00.000Z')
-    assert.deepEqual(readerCalls[1].args, [STUDENT.id, { category: 'event', limit: 3, order: 'asc', from: '2026-10-01T00:00:00.000Z' }])
+    assert.deepEqual(readerCalls[1].args, [
+      STUDENT.id,
+      { category: 'event', limit: 3, order: 'asc', from: '2026-10-01T00:00:00.000Z', sharedCategories },
+    ])
   })
 })
 

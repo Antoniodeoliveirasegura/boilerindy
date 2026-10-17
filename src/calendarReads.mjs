@@ -7,9 +7,12 @@
 // them for their own answers, so they live here rather than in one router.
 // server.mjs builds them once with createCalendarReads(supabase) and hands the
 // same three functions to all four, as it does communityCounters. Moved out of
-// server.mjs with the functions unchanged.
+// server.mjs with the functions unchanged. listCalendarItems can also merge in
+// the shared campus events (issue #30, src/campusEventsFeed.mjs) when server.mjs
+// turns the feed on and a read asks for them.
 
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './academicTerms.mjs'
+import { listSharedCalendarItems } from './campusEventsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './pagedSelect.mjs'
 import { normalizeScheduleOverrides } from './scheduleOverrides.mjs'
@@ -28,11 +31,17 @@ function orderClassItemsForDisplay(items) {
 /**
  * The three readers over one Supabase client:
  *
- * - listCalendarItems(userId, { category, categories, limit, order, from, throwOnError }):
+ * - listCalendarItems(userId, { category, categories, limit, order, from, throwOnError, sharedCategories }):
  *   the user's calendar_items in start_time order with an id tiebreak, paged
  *   past PostgREST's max-rows by selectUpTo, in the client's camelCase shape
  *   with allDay and freeFood; [] when the read fails, or the database error
- *   thrown when throwOnError is set.
+ *   thrown when throwOnError is set. With the shared events feed on and
+ *   sharedCategories naming 'campus_event' or 'deadline', the upcoming shared
+ *   campus events of those categories (listSharedCalendarItems, marked
+ *   `shared: true`) join them in start order, the student's own row first on a
+ *   tie, and `limit` counts both. Those rows never fail the read: without them
+ *   (a missing campus_events table, a failed read) it answers the student's
+ *   rows alone.
  * - getClassItemsForUser(userId, { limit, term, mode }): the class meetings
  *   of one term ('auto' picks it, 'all' keeps every term, or a key such as
  *   '2026-fall'), read from classScanFrom(term) on. Mode 'display' keeps the
@@ -43,12 +52,17 @@ function orderClassItemsForDisplay(items) {
  *   { series: {}, manual: [] } when there is no row or the read fails.
  *
  * @param {object} supabase the Supabase client
+ * @param {{ sharedEventsFeed?: boolean }} [options] sharedEventsFeed: CAMPUS_EVENTS_FEED, off by default
  * @returns {{ listCalendarItems: Function, getClassItemsForUser: Function, readScheduleOverrides: Function }}
  */
-export function createCalendarReads(supabase) {
-  async function listCalendarItems(userId, { category, categories, limit = 100, order = 'asc', from = null, throwOnError = false } = {}) {
+export function createCalendarReads(supabase, { sharedEventsFeed = false } = {}) {
+  async function listCalendarItems(
+    userId,
+    { category, categories, limit = 100, order = 'asc', from = null, throwOnError = false, sharedCategories = null } = {},
+  ) {
     const ascending = order === 'asc'
     const rowLimit = Number(limit) || 100
+    const withShared = sharedEventsFeed && Array.isArray(sharedCategories) && sharedCategories.length > 0
 
     const buildQuery = () => {
       let query = supabase
@@ -73,7 +87,10 @@ export function createCalendarReads(supabase) {
     // asks for, so selectUpTo pages a larger read with .range() up to
     // DEFAULT_MAX_ROWS (issue #198). The id tiebreak keeps rows that share a
     // start_time from repeating or vanishing across page boundaries.
-    const { data, error } = await selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit)
+    const [{ data, error }, shared] = await Promise.all([
+      selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit),
+      withShared ? listSharedCalendarItems(supabase, { categories: sharedCategories, from }) : [],
+    ])
 
     // The readers that only add context (the assistant, study groups, friends)
     // carry on without the calendar. GET /api/me/calendar throws instead: an
@@ -83,7 +100,7 @@ export function createCalendarReads(supabase) {
       if (throwOnError) throw error
       return []
     }
-    return data.map(row => ({
+    const own = data.map(row => ({
       id: row.id,
       sourceId: row.source_id,
       title: row.title,
@@ -101,6 +118,15 @@ export function createCalendarReads(supabase) {
       // only meaningful for event categories but harmless elsewhere.
       freeFood: hasFreeFood(row.title, row.description),
     }))
+    if (!shared.length) return own
+    // Both lists are in start order. A stable sort on the start alone keeps
+    // the database's id order among the student's rows and puts them ahead of
+    // a shared row with the same start; the first rowLimit of the merge are
+    // right even when the student's read stopped at rowLimit.
+    const sign = ascending ? 1 : -1
+    return [...own, ...(ascending ? shared : [...shared].reverse())]
+      .sort((a, b) => sign * (Date.parse(a.startTime) - Date.parse(b.startTime)))
+      .slice(0, rowLimit)
   }
 
   async function getClassItemsForUser(userId, { limit = 20, term = 'auto', mode = 'display' } = {}) {

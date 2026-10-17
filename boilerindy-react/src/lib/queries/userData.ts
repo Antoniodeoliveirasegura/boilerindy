@@ -11,10 +11,15 @@ import { authRequest } from '../authApi'
 // AuthContext clears the client on sign-out). The fetcher is authRequest, so a
 // 401 still sends the browser to sign in. docs/client-cache.md has the map.
 
-export type CalendarParams = { categories?: string; limit?: number; from?: string }
+/**
+ * `shared` asks for the shared campus events too (issue #30), which the server
+ * adds while its feed is on. Only the Events and Free Food window asks, so they
+ * never reach Assignments or Home, where a row can be marked done.
+ */
+export type CalendarParams = { categories?: string; limit?: number; from?: string; shared?: boolean }
 
 /** The window the Events and Free Food pages both read: one entry for the two of them. */
-export const CAMPUS_EVENTS_CALENDAR: CalendarParams = { categories: 'campus_event,event,deadline', limit: 500 }
+export const CAMPUS_EVENTS_CALENDAR: CalendarParams = { categories: 'campus_event,event,deadline', limit: 500, shared: true }
 export type ClassesParams = { limit?: number; mode?: string }
 
 export type Completion = { calendar_item_id?: string; completed_at?: string }
@@ -54,7 +59,7 @@ export function startOfLocalDayIso(daysAgo = 0, now: Date = new Date()): string 
 }
 
 function normalizeCalendarParams(params: CalendarParams) {
-  return { categories: params.categories ?? '', limit: params.limit ?? 0, from: params.from ?? '' }
+  return { categories: params.categories ?? '', limit: params.limit ?? 0, from: params.from ?? '', shared: params.shared ?? false }
 }
 
 function normalizeClassesParams(params: ClassesParams) {
@@ -66,6 +71,7 @@ export function calendarUrl(params: CalendarParams): string {
   if (params.categories) search.set('categories', params.categories)
   if (params.limit) search.set('limit', String(params.limit))
   if (params.from) search.set('from', params.from)
+  if (params.shared) search.set('shared', '1')
   const query = search.toString()
   return `/api/me/calendar${query ? `?${query}` : ''}`
 }

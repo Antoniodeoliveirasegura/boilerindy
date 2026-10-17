@@ -6,14 +6,17 @@ import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
+import { hasEnded, isOngoing, listedTime, listingLink, runsFromEarlierDay, untilLabel, type CampusEventFields } from '../lib/campusEvents'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
 
-type EventItem = {
+// Rows from the student's own calendar, and the shared campus events (issue
+// #30) the server adds while its feed is on, marked `shared` with their
+// source (lib/campusEvents).
+type EventItem = CampusEventFields & {
   id: string
   category?: string
   title?: string
-  startTime: string
   location?: string
   description?: string
   freeFood?: boolean
@@ -101,8 +104,23 @@ function getRelativeTime(dateString: string) {
   return `In ${Math.ceil(diffDays / 7)} weeks`
 }
 
-function isPast(dateString: string) {
-  return new Date(dateString) < new Date()
+// The clock line of a row: its start time, or until when it runs for a row
+// still on from an earlier day (lib/campusEvents).
+function timeLine(item: EventItem) {
+  if (!runsFromEarlierDay(item)) return formatTime(item.startTime)
+  const until = untilLabel(item)
+  return until.charAt(0).toUpperCase() + until.slice(1)
+}
+
+// The details card's relative time: a row on right now says until when.
+function relativeLine(item: EventItem) {
+  return isOngoing(item) ? `On now · ${untilLabel(item)}` : getRelativeTime(item.startTime)
+}
+
+// Where the listed events come from: the shared rows are the campus calendars'.
+function sourcesLine(items: EventItem[], hasNoSources: boolean) {
+  if (!items.some((item) => item.shared)) return 'from your calendar'
+  return hasNoSources ? 'from campus calendars' : 'from your calendar and campus calendars'
 }
 
 function isToday(dateString: string) {
@@ -222,21 +240,22 @@ export default function Events() {
       filtered = filtered.filter(item => selectedCategories.includes(categoryOf(item)))
     }
 
+    // A row stays listed until it is over, so an exhibit open for weeks shows.
     if (!showPast) {
-      filtered = filtered.filter(item => !isPast(item.startTime))
+      filtered = filtered.filter(item => !hasEnded(item))
     }
 
     if (freeFoodOnly) {
       filtered = filtered.filter(item => item.freeFood)
     }
 
-    return filtered.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    return filtered.sort((a, b) => new Date(listedTime(a)).getTime() - new Date(listedTime(b)).getTime())
   }, [items, selectedCategories, showPast, freeFoodOnly])
 
   const groupedItems = useMemo(() => {
     const groups: Record<string, EventItem[]> = {}
     for (const item of filteredItems) {
-      const dateKey = formatDate(item.startTime)
+      const dateKey = formatDate(listedTime(item))
       if (!groups[dateKey]) groups[dateKey] = []
       groups[dateKey].push(item)
     }
@@ -265,6 +284,7 @@ export default function Events() {
   }
 
   const hasNoSources = onboarding?.linkedSourceCount === 0
+  const selectedListing = selectedItem ? listingLink(selectedItem) : null
 
   return (
     <div className="page">
@@ -273,7 +293,9 @@ export default function Events() {
         <div>
           <h1 className="page-title">Campus Events</h1>
           <p className="page-sub tnum">
-            {loadFailed ? 'Upcoming events from your calendar' : `${filteredItems.length} upcoming events from your calendar`}
+            {loadFailed
+              ? 'Upcoming events from your calendar'
+              : `${filteredItems.length} upcoming events ${sourcesLine(items, hasNoSources)}`}
           </p>
         </div>
         {/* Filter toggles as one row of plates, the same height as the
@@ -448,11 +470,13 @@ export default function Events() {
                 <ol className="dep">
                   {dateItems.map(item => {
                     const isSelected = selectedItem?.id === item.id
-                    const past = isPast(item.startTime)
-                    const block = dateBlock(item.startTime)
+                    const past = hasEnded(item)
+                    const listedAt = listedTime(item)
+                    const block = dateBlock(listedAt)
+                    const listing = listingLink(item)
 
                     return (
-                      <li key={item.id} className={isToday(item.startTime) ? 'urgent' : undefined}>
+                      <li key={item.id} className={isToday(listedAt) ? 'urgent' : undefined}>
                         <button
                           onClick={() => selectEvent(item)}
                           className={`-mx-3 w-[calc(100%+24px)] px-3 rounded-[var(--radius-md)] transition-colors ${
@@ -485,9 +509,14 @@ export default function Events() {
                               <span className={`badge badge-route ${isSelected ? 'bg-[var(--color-surface)]' : ''}`}>
                                 {categoryLabel(categoryOf(item))}
                               </span>
+                              {item.shared && (
+                                <span className="badge" title={listing ? `Listed on ${listing.host}` : undefined}>
+                                  {item.sourceLabel || 'Campus calendar'}
+                                </span>
+                              )}
                               <span className="inline-flex items-center gap-1">
                                 <Icon name="clock" size={12} />
-                                {formatTime(item.startTime)}
+                                {timeLine(item)}
                               </span>
                               {item.location && (
                                 <span className="inline-flex items-center gap-1 min-w-0 max-w-full truncate">
@@ -517,8 +546,11 @@ export default function Events() {
             {selectedItem ? (
               <div className="card card-pad r-evt min-w-0 overflow-hidden">
                 <div className="flex items-center justify-between gap-3 mb-3">
-                  <span className="badge badge-route">
-                    {categoryLabel(categoryOf(selectedItem))}
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="badge badge-route">
+                      {categoryLabel(categoryOf(selectedItem))}
+                    </span>
+                    {selectedItem.shared && <span className="badge">{selectedItem.sourceLabel || 'Campus calendar'}</span>}
                   </span>
                   <button
                     type="button"
@@ -540,8 +572,8 @@ export default function Events() {
                       <Icon name="calendar" size={15} />
                     </span>
                     <div>
-                      <div className="text-[var(--color-txt-0)] font-display font-bold">{formatDate(selectedItem.startTime)}</div>
-                      <div className="text-[var(--color-txt-2)] text-[12.5px] tnum">{formatTime(selectedItem.startTime)}</div>
+                      <div className="text-[var(--color-txt-0)] font-display font-bold">{formatDate(listedTime(selectedItem))}</div>
+                      <div className="text-[var(--color-txt-2)] text-[12.5px] tnum">{timeLine(selectedItem)}</div>
                     </div>
                   </div>
                   
@@ -573,10 +605,27 @@ export default function Events() {
                     <span className="ico">
                       <Icon name="clock" size={15} />
                     </span>
-                    <div className={`tnum ${isPast(selectedItem.startTime) ? 'text-[var(--color-txt-3)]' : 'text-[var(--color-txt-1)]'}`}>
-                      {getRelativeTime(selectedItem.startTime)}
+                    <div className={`tnum ${hasEnded(selectedItem) ? 'text-[var(--color-txt-3)]' : 'text-[var(--color-txt-1)]'}`}>
+                      {relativeLine(selectedItem)}
                     </div>
                   </div>
+
+                  {/* A shared campus event links out to its listing (issue #30). */}
+                  {selectedListing && (
+                    <div className="flex items-center gap-3 text-[14px] min-w-0">
+                      <span className="ico">
+                        <Icon name="external" size={15} />
+                      </span>
+                      <a
+                        href={selectedListing.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--color-accent)] hover:underline min-w-0 break-words [overflow-wrap:anywhere]"
+                      >
+                        View on {selectedListing.host}
+                      </a>
+                    </div>
+                  )}
                 </div>
                 
                 {selectedItem.description && (
