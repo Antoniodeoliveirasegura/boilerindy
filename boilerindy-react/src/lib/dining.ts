@@ -30,7 +30,30 @@ export type DiningLocation = {
   menus?: MealMenu[]
   /** Deprecated: every meal merged into one list; still read when `menus` is missing. */
   stations?: Station[]
+  /** Whether the menu feed is being kept up (issue #467); null for a retail hall. */
+  menu_source?: MenuSource | null
   warnings?: unknown
+}
+
+export type MenuSource = { last_updated?: string | null; stale?: boolean; reason?: 'empty_week' | 'not_updated' | null }
+
+// The official menu, on Dine On Campus ("IU Indy Eats"). The Nutrislice site
+// this page reads is deactivated, though its API still answers (issue #467).
+export const OFFICIAL_MENU_URL = 'https://dineoncampus.com/iuindy/whats-on-the-menu'
+
+/** What to tell a student when the hall's menu feed looks abandoned, or null when it does not. */
+export function feedNotice(loc: Pick<DiningLocation, 'menu_source'>): string | null {
+  const source = loc.menu_source
+  if (!source?.stale) return null
+  if (source.reason === 'empty_week') return 'No menu is posted for this week. The campus menu feed may have moved, so check the official menu.'
+  const updated = source.last_updated ? new Date(source.last_updated) : null
+  const since =
+    updated && !Number.isNaN(updated.getTime())
+      ? updated.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Indiana/Indianapolis' })
+      : null
+  return since
+    ? `The campus menu feed has not been updated since ${since}, so this menu may be out of date.`
+    : 'The campus menu feed has not been updated in weeks, so this menu may be out of date.'
 }
 
 export type DiningSnapshot = {

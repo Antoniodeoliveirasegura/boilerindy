@@ -169,6 +169,30 @@ test.describe('Campus dining', () => {
     await expect(everyday.getByRole('button', { name: /Every day/ })).toHaveAttribute('aria-expanded', 'false')
   })
 
+  test('the official menu is one tap away, and a stale feed says so (issue #467)', async ({ page, mockApi }) => {
+    mockApi.login()
+    mockApi.seedDining({
+      snapshot: sampleDining({
+        locations: [
+          sampleDiningLocation({ menu_source: { last_updated: '2026-09-12T06:49:29Z', stale: true, reason: 'not_updated' } }),
+          sampleDining().locations[1],
+        ],
+      }),
+    })
+    await page.goto('/dining')
+
+    await expect(page.locator('[data-dining-official-menu]')).toHaveAttribute('href', 'https://dineoncampus.com/iuindy/whats-on-the-menu')
+    const notice = page.locator('[data-dining-feed-stale]')
+    await expect(notice).toContainText('has not been updated since Sep 12')
+    await expect(notice.getByRole('link', { name: 'Official menu at IU Indy Eats' })).toHaveAttribute('target', '_blank')
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toBeVisible()
+
+    // The food court has no menu to link and no feed to judge.
+    await page.locator('[data-dining-location="campus-center"]').click()
+    await expect(page.locator('[data-dining-official-menu]')).toHaveCount(0)
+    await expect(page.locator('[data-dining-feed-stale]')).toHaveCount(0)
+  })
+
   test('starring an item lists it under favorites and survives a reload', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/dining')

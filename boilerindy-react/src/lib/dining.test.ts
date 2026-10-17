@@ -4,6 +4,7 @@ import {
   HOURS_NOT_LISTED,
   diningDirectionsUrl,
   emptyMenuState,
+  feedNotice,
   headerBlurb,
   locationMenus,
   openState,
@@ -123,5 +124,24 @@ describe('todaysMealHeading', () => {
     expect(todaysMealHeading('breakfast')).toBe("Today's breakfast")
     expect(todaysMealHeading(ALL_MEALS)).toBe("Today's menu")
     expect(todaysMealHeading(null)).toBe("Today's menu")
+  })
+})
+
+// Issue #467: the Nutrislice site is deactivated and only its API answers, so
+// the page says when the feed looks abandoned.
+describe('feedNotice', () => {
+  test('explains an empty week and a feed not updated for weeks, and says nothing otherwise', () => {
+    expect(feedNotice({ menu_source: { stale: true, reason: 'empty_week', last_updated: '2026-10-10T04:26:22Z' } })).toBe(
+      'No menu is posted for this week. The campus menu feed may have moved, so check the official menu.',
+    )
+    expect(feedNotice({ menu_source: { stale: true, reason: 'not_updated', last_updated: '2026-10-10T04:26:22Z' } })).toBe(
+      'The campus menu feed has not been updated since Oct 10, so this menu may be out of date.',
+    )
+    expect(feedNotice({ menu_source: { stale: true, reason: 'not_updated', last_updated: null } })).toBe(
+      'The campus menu feed has not been updated in weeks, so this menu may be out of date.',
+    )
+    expect(feedNotice({ menu_source: { stale: false, reason: null, last_updated: '2026-10-10T04:26:22Z' } })).toBeNull()
+    expect(feedNotice({ menu_source: null })).toBeNull()
+    expect(feedNotice({})).toBeNull()
   })
 })
