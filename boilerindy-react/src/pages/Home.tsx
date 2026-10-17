@@ -36,6 +36,7 @@ import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import DashboardWidget from '../components/dashboard/DashboardWidget'
 import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import SponsoredWidget from '../components/dashboard/SponsoredWidget'
+import CampusNewsWidget from '../components/dashboard/CampusNewsWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { mapHrefForRoom } from '../lib/buildingCode'
@@ -1952,6 +1953,11 @@ export default function Home() {
           </Link>
         </div>
       ),
+    },
+    'campus-news': {
+      title: 'Campus news',
+      // The Circuit's headlines (issue #470); fetches only while shown.
+      render: () => <CampusNewsWidget />,
     },
     'sponsored': {
       title: 'Sponsored',

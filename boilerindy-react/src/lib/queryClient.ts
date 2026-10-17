@@ -11,7 +11,7 @@ import { removeOldestQuery, type Persister } from '@tanstack/react-query-persist
 // is cleared on sign-out. docs/client-cache.md has the full map.
 
 /** Key roots whose queries may be persisted: public, identical for everyone. */
-export const PUBLIC_QUERY_ROOTS = ['transit', 'dining', 'parking', 'clubs'] as const
+export const PUBLIC_QUERY_ROOTS = ['transit', 'dining', 'parking', 'clubs', 'news'] as const
 
 export const QUERY_CACHE_KEY = 'boilerindy-query-cache'
 

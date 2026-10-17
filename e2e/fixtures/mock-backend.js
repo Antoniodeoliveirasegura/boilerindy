@@ -356,6 +356,27 @@ export function sampleDiningLocation(overrides = {}) {
   }
 }
 
+export function sampleCampusNews(overrides = {}) {
+  return {
+    ok: true,
+    source: 'The Circuit',
+    site: 'https://circuitpress.org/',
+    fetchedAt: '2026-09-09T11:00:00.000Z',
+    posts: [
+      {
+        title: 'A Look Inside The Academic Success Building',
+        url: 'https://circuitpress.org/a-look-inside-the-academic-success-building/',
+        publishedAt: '2026-09-08T16:24:51.000Z',
+        author: 'Omkar Govil-Nair',
+        tag: 'News',
+        excerpt: 'We toured the construction site of the Academic Success Building.',
+      },
+      { title: 'Fall 2026 Club Guide', url: 'https://circuitpress.org/fall-2026-club-guide/', publishedAt: '2026-08-30T21:00:58.000Z', author: 'Omkar Govil-Nair', tag: 'Student Orgs', excerpt: 'We asked student orgs to tell us what their clubs are about.' },
+    ],
+    ...overrides,
+  }
+}
+
 export function sampleDining(overrides = {}) {
   return {
     ok: true,
@@ -829,6 +850,10 @@ export const test = base.extend({
 
       // Dining (#119): the public snapshot, plus the favorites routes (#49) so
       // starring an item persists across a reload the way the DB does.
+      // Campus news (#470): The Circuit's headlines, as src/circuitNews.mjs shapes them.
+      if (pathname === '/api/campus-news') {
+        return json(route, 200, state.campusNews || sampleCampusNews())
+      }
       if (pathname === '/api/dining') {
         const seed = state.dining || {}
         if (seed.unavailable) return json(route, 200, unavailableDining())

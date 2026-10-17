@@ -24,6 +24,7 @@ export const WIDGET_IDS = [
   'live-shuttles',
   'dining',
   'board',
+  'campus-news',
   'calendar-feed',
   'sponsored',
 ]
@@ -42,6 +43,8 @@ export const DEFAULT_LAYOUT = [
   { id: 'live-shuttles', size: 'half', visible: true },
   { id: 'dining', size: 'half', visible: true },
   { id: 'board', size: 'half', visible: true },
+  // The Circuit's headlines (issue #470). Existing layouts get it appended hidden.
+  { id: 'campus-news', size: 'half', visible: true },
   { id: 'sponsored', size: 'half', visible: true },
   { id: 'calendar-feed', size: 'half', visible: false },
 ]

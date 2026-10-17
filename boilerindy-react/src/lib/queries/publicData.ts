@@ -1,10 +1,11 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery, useQuery, type QueryClient } from '@tanstack/react-query'
 import { QUERY_CACHE_MAX_AGE_MS } from '../queryClient'
 import { buildClubsQuery, CLUBS_PAGE_SIZE, type ClubSearchParams, type ClubSearchResult } from '../clubs'
+import type { CampusNews } from '../campusNews'
 import type { DiningSnapshot } from '../dining'
 import type { ParkingSnapshot } from '../parking'
 
-// The five public reads through the query cache (issue #251). Keys, stale
+// The public reads through the query cache (issue #251). Keys, stale
 // times and polling live here so Home, Transit, Dining, Parking, the map's
 // garage layer and Clubs share one entry per dataset; docs/client-cache.md
 // explains the numbers. Every fetch goes through fetchJson so a 429 carries
@@ -115,6 +116,20 @@ export const diningQuery = queryOptions({
   gcTime: PUBLIC_GC_TIME_MS,
 })
 
+// The Circuit's headlines (issue #470). The server refreshes the feed at most
+// once an hour, so half an hour here is fresh enough. An answer without news
+// (the feed was down) is stale at once, so the next visit asks again instead
+// of keeping an empty widget for half an hour. Persisted like the other
+// public reads.
+export const CAMPUS_NEWS_STALE_MS = 30 * 60_000
+
+export const campusNewsQuery = queryOptions({
+  queryKey: ['news', 'circuit'] as const,
+  queryFn: ({ signal }) => fetchJson<CampusNews>('/api/campus-news', { signal }),
+  staleTime: (query) => (query.state.data?.ok === false ? 0 : CAMPUS_NEWS_STALE_MS),
+  gcTime: PUBLIC_GC_TIME_MS,
+})
+
 export const parkingQuery = queryOptions({
   queryKey: ['parking'] as const,
   queryFn: ({ signal }) => fetchJson<ParkingSnapshot>('/api/parking/garages', { signal }),
@@ -166,6 +181,7 @@ export const useTransitRoutes = () => useQuery(transitRoutesQuery)
 export const useTransitStops = () => useQuery(transitStopsQuery)
 export const useTransitVehicles = () => useQuery(transitVehiclesQuery)
 export const useDining = () => useQuery(diningQuery)
+export const useCampusNews = () => useQuery(campusNewsQuery)
 export const useParking = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...parkingQuery, enabled })
 export const useClubSearch = (params: Omit<ClubSearchParams, 'page'>) => useInfiniteQuery(clubSearchQuery(params))
 
