@@ -129,6 +129,23 @@ function isStillRelevantToday(item: any, now: Date) {
   return start >= now
 }
 
+/**
+ * Events not over yet, for the free-time suggestion, which takes the first;
+ * the feed lists past events too, in no particular order. "Not over" is the
+ * Today's events rule (isStillRelevantToday), so an all-day event with no end
+ * time stays for its whole day. Events from today on come soonest first, and
+ * one still running from an earlier day (a week-long event) only after them:
+ * a social on right now beats tomorrow's event, tonight's beats a week-long one.
+ */
+function upcomingEventsFrom<T extends { startTime?: string | null }>(items: T[], now: Date): T[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startMs = (item: T) => new Date(item.startTime ?? '').getTime()
+  const fromEarlierDay = (item: T) => (startMs(item) < startOfToday ? 1 : 0)
+  return (items || [])
+    .filter((item) => item?.startTime && isStillRelevantToday(item, now))
+    .sort((a, b) => fromEarlierDay(a) - fromEarlierDay(b) || startMs(a) - startMs(b))
+}
+
 function filterTodayRelevantEvents(items: any[], now: Date) {
   return (items || [])
     .filter(
@@ -425,6 +442,16 @@ function formatSuggestionEventTiming(item: any, now: Date) {
     const t = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     return `Today · ${t}`
   }
+  // Still running from an earlier day (a week-long event): its start date read
+  // like an event in the past. An end at local midnight closes the day before.
+  if (end && start < now && end > now) {
+    const endsAtMidnight = end.getHours() === 0 && end.getMinutes() === 0
+    const lastDay = endsAtMidnight ? new Date(end.getTime() - 1) : end
+    if (isSameLocalDay(lastDay, now)) {
+      return endsAtMidnight ? 'On now · ends today' : `On now · until ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    }
+    return `On now · until ${lastDay.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+  }
   const dayPart = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
   const timePart = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   return `${dayPart} · ${timePart}`
@@ -501,7 +528,7 @@ function buildSuggestions({
     })
   }
 
-  // Upcoming event today?
+  // The next event that is not over yet (upcomingEventsFrom).
   const nextEvent = upcomingEvents?.[0]
   if (nextEvent && (nextEvent.title || nextEvent.startTime)) {
     list.push({
@@ -778,7 +805,10 @@ export default function Home() {
     nextClass: scheduleState.nextClass,
     currentClass: scheduleState.currentClass,
     diningStatus,
-    upcomingEvents: cleanCalendarItems.filter((i) => ['campus_event', 'event', 'activity'].includes(i.category)),
+    upcomingEvents: upcomingEventsFrom(
+      cleanCalendarItems.filter((i) => ['campus_event', 'event', 'activity'].includes(i.category)),
+      now,
+    ),
     now,
   }), [scheduleState, diningStatus, cleanCalendarItems, now])
 

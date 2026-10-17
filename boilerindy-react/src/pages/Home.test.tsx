@@ -164,6 +164,79 @@ it('gives Heads up and the task rows the same hours', async () => {
   expect(within(tasksDueCard()).getByText('Due in 1h')).toBeInTheDocument()
 })
 
+// The free-time suggestion took the feed's first event, so one that ended two
+// weeks ago still showed as what to do next.
+it('suggests the next event that is not over, never one that already ended', async () => {
+  calendar.items = [
+    { id: 'old', title: 'Banned Books Week', category: 'campus_event', startTime: inHours(-13 * 24), endTime: inHours(-13 * 24 + 2) },
+    { id: 'later', title: 'Career Fair', category: 'campus_event', startTime: inHours(50), endTime: inHours(52) },
+    { id: 'soon', title: 'Club Night', category: 'event', startTime: inHours(30), endTime: inHours(32) },
+  ]
+  renderHome()
+
+  expect(await screen.findByText('Club Night')).toBeInTheDocument()
+  expect(screen.queryByText('Banned Books Week')).toBeNull()
+  expect(screen.queryByText('Career Fair')).toBeNull()
+})
+
+// The Free Time card's suggestion rows, so an event also listed under Today's
+// events counts only where it is suggested.
+async function freeTimeRows() {
+  const card = (await screen.findByRole('heading', { name: 'Free Time' })).closest('.card') as HTMLElement
+  return within(card)
+}
+
+const startOfToday = () => {
+  const midnight = new Date()
+  midnight.setHours(0, 0, 0, 0)
+  return midnight
+}
+const daysFromToday = (days: number) => new Date(startOfToday().getTime() + days * 24 * 3600_000)
+
+// The first version of that fix kept an event with no end time only while its
+// start was ahead, so an all-day event of today vanished from the suggestion at
+// midnight while Today's events still listed it.
+it('keeps an all-day event of today in the suggestion when it has no end time', async () => {
+  calendar.items = [
+    { id: 'fair', title: 'Career Fair', category: 'campus_event', startTime: inHours(50), endTime: inHours(52) },
+    { id: 'homecoming', title: 'Homecoming Day', category: 'campus_event', startTime: startOfToday().toISOString() },
+  ]
+  renderHome()
+
+  const rows = await freeTimeRows()
+  const row = (await rows.findByText('Homecoming Day')).closest('li') as HTMLElement
+  expect(row).toHaveTextContent('Today · All day')
+  expect(rows.queryByText('Career Fair')).toBeNull()
+})
+
+// Sorted by start alone, an event running all week came first every day, under
+// its start date, which read like an event in the past.
+it("suggests tonight's event ahead of one running all week", async () => {
+  calendar.items = [
+    { id: 'week', title: 'Banned Books Week', category: 'campus_event', startTime: daysFromToday(-4).toISOString(), endTime: inHours(48) },
+    { id: 'tonight', title: 'Club Night', category: 'event', startTime: inHours(3), endTime: inHours(5) },
+  ]
+  renderHome()
+
+  const rows = await freeTimeRows()
+  expect(await rows.findByText('Club Night')).toBeInTheDocument()
+  expect(rows.queryByText('Banned Books Week')).toBeNull()
+})
+
+it('shows a week-long event that is the only one left as on now, until its last day', async () => {
+  // Ends at midnight three days on, so its last day is the day before.
+  const end = daysFromToday(3)
+  calendar.items = [
+    { id: 'week', title: 'Banned Books Week', category: 'campus_event', startTime: daysFromToday(-4).toISOString(), endTime: end.toISOString() },
+  ]
+  renderHome()
+
+  const rows = await freeTimeRows()
+  const row = (await rows.findByText('Banned Books Week')).closest('li') as HTMLElement
+  const lastDay = new Date(end.getTime() - 1).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  expect(row).toHaveTextContent(`On now · until ${lastDay}`)
+})
+
 // A feed deadline ends when it starts, and the rows used the event formatter.
 it('shows a deadline as one time, never a zero-length range', async () => {
   const due = new Date()
