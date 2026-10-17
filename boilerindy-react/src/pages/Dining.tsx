@@ -38,6 +38,8 @@ import {
   type Station,
 } from '../lib/dining'
 import DishDialog from '../components/DishDialog'
+import CampusCenterVendors from '../components/CampusCenterVendors'
+import { campusCenterVendorsFor } from '../lib/campusCenterVendors'
 import { defaultMeal, mealLabel } from '../../../src/diningMeals.mjs'
 import PageTitle from '../components/PageTitle'
 
@@ -438,6 +440,8 @@ export default function Dining() {
   const selected = locations.find((l) => l.id === selectedId) || locations[0]
   const withHours = locations.filter((l) => l.weekly_hours)
   const empty = selected ? emptyMenuState(selected) : null
+  // The food court's vendors stand in for its menu (issue #477).
+  const campusVendors = selected?.kind === 'retail' ? campusCenterVendorsFor(selected) : []
 
   // Meal tabs (issue #466): the meal a student picked for this location, else
   // the one being served now on campus time (defaultMeal). A snapshot from
@@ -749,8 +753,10 @@ export default function Dining() {
                 </div>
               )}
 
-              {/* The meal's stations, or the honest reason there are none */}
-              {!activeMenu ? (
+              {/* The meal's stations, the food court's vendors, or the honest reason there are none */}
+              {!activeMenu && campusVendors.length > 0 ? (
+                <CampusCenterVendors name={selected.name} vendors={campusVendors} />
+              ) : !activeMenu ? (
                 <div className="empty bg-[var(--color-surface)] p-5" data-dining-empty={empty.kind}>
                   <span className="ico">
                     <Icon name={empty.icon} size={18} />
