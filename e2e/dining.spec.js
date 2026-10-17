@@ -84,6 +84,10 @@ test.describe('Campus dining', () => {
     await expect(empty).toContainText('Campus Center vendors serve from their own counters')
     await expect(page.getByText('No menu posted')).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Get Directions' })).toHaveAttribute('href', /420%20University%20Blvd/)
+    // Its vendors stand in for a menu, floor by floor, with their hours one tap away (issue #477).
+    await expect(empty.locator('[data-dining-vendor]')).toHaveCount(10)
+    await expect(empty.locator('[data-dining-vendor-floor="Level 2"]')).toContainText('The Daily Bagel')
+    await expect(empty.getByRole('link', { name: 'Hours for each vendor' })).toHaveAttribute('href', 'https://dineoncampus.com/iuindy/hours-of-operation')
   })
 
   test('a dining hall with nothing posted today says so, and keeps its real hours', async ({ page, mockApi }) => {

@@ -58,7 +58,9 @@ location whose `active_menu_types` is an explicit empty list is `kind:
 "retail"`: no menu is fetched for it and the page presents it as a food court
 with hours, not as a hall whose menu is missing. A dining hall with nothing
 posted for the day is still `kind: "dining-hall"` and says "No menu posted for
-today". Question 3 (coffee shops, markets not on Nutrislice) is left to #28.
+today". Question 3 (coffee shops, markets not on Nutrislice): the Campus
+Center's own vendors are listed on the page (issue #477, below); places
+outside the building are left to #28.
 
 ## Pipeline
 
@@ -259,6 +261,30 @@ after today ("Jamaican Jerk Chicken is back tomorrow", "... is back Thursday",
 favorite is on today's menu or tomorrow's. The once-a-day push for favorites
 is opt-in and lives with the other notifications (see
 [push-notifications.md](push-notifications.md#favorite-dish-alerts-issue-469)).
+
+## Campus Center vendors (issue #477)
+
+The Campus Center posts no menu, so the page lists its food court vendors in
+place of one: ten vendors in one card per floor (Level 1 Citizens Commons,
+Level 1, Level 2), each with a few words on what it serves, a "Hours for each
+vendor" button to Dine On Campus (`OFFICIAL_HOURS_URL`), and a line naming the
+source and the day it was checked. Tower Dining, and a dining hall with no
+menu posted, are unchanged.
+
+- The list is static, in `boilerindy-react/src/lib/campusCenterVendors.ts`,
+  rendered by `components/CampusCenterVendors.tsx` when the selected location
+  is retail and its slug is `campus-center`. No request and no API change; the
+  native app can copy the list if it wants it.
+- Source: the Campus Center's Restaurants & Services page,
+  `https://studentaffairs.indianapolis.iu.edu/campus-center/restaurants-services/index.html`,
+  checked 2026-10-17. The descriptions are our own words; names are text
+  only, no logos.
+- That page links Dine On Campus at `https://dineoncampus.com/iui`, a slug the
+  site left for `iuindy` in July 2025 (Wayback Machine), so the page links
+  `https://dineoncampus.com/iuindy/hours-of-operation` instead.
+- To refresh it, each semester or when a vendor changes: compare the source
+  page with `CAMPUS_CENTER_VENDORS`, edit the list, and move
+  `CAMPUS_CENTER_VENDORS_CHECKED` to the day you checked.
 
 ## The snapshot
 

@@ -556,3 +556,37 @@ describe('headliners and favorites coming up', () => {
     expect(screen.queryByText('Favorites coming up')).toBeNull()
   })
 })
+
+// Issue #477: the Campus Center posts no menu, so its food court vendors stand
+// in for one, with Dine On Campus linked for their hours.
+describe('the Campus Center vendors', () => {
+  const tower = snapshot.locations[0]
+  const campusCenter = {
+    ...tower,
+    id: 'campus-center',
+    slug: 'campus-center',
+    name: 'Campus Center',
+    kind: 'retail',
+    meal: 'Retail dining, no posted menu',
+    menusPublished: false,
+    menus: [],
+    stations: [],
+    menu_source: null,
+  }
+
+  it('lists the food court vendors by floor and links their hours, while Tower keeps its menu', async () => {
+    vi.mocked(globalThis.fetch).mockImplementation(async () => new Response(JSON.stringify({ ...snapshot, locations: [tower, campusCenter] })))
+    renderDining()
+    expect(await screen.findByText('Veggie Burger')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Campus Center vendors' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Center' }))
+    const vendors = screen.getByRole('region', { name: 'Campus Center vendors' })
+    expect(within(vendors).getByRole('heading', { name: 'Level 1, Citizens Commons' })).toBeInTheDocument()
+    expect(within(vendors).getByText('Chick-fil-A')).toBeInTheDocument()
+    expect(within(vendors).getByText('The Daily Bagel')).toBeInTheDocument()
+    expect(within(vendors).getByRole('link', { name: 'Hours for each vendor' })).toHaveAttribute('href', 'https://dineoncampus.com/iuindy/hours-of-operation')
+    expect(screen.queryByText('No menu posted for today')).toBeNull()
+    expect(screen.queryByText('Veggie Burger')).toBeNull()
+  })
+})
