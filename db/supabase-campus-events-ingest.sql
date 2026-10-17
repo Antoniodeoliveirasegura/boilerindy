@@ -1,0 +1,38 @@
+-- Shared campus events ingest (issue #30). Creates no tables.
+--
+-- Schedules a call to POST /api/internal/campus-events/ingest every 6 hours.
+-- Each call reads Purdue's events calendar (Localist, "Purdue in
+-- Indianapolis") and IU's events calendar (LiveWhale, "IU Indianapolis"), plus
+-- the BoilerLink and TheSpot event searches when CAMPUS_EVENTS_ENGAGE is on,
+-- and upserts the Indianapolis events into campus_events
+-- (db/supabase-campus-events.sql, which has to run first). Same bearer token
+-- as the reminder runner and the source re-sync: PUSH_CRON_SECRET on Render.
+-- With the secret unset the route does not exist and nothing runs.
+--
+-- Before scheduling it, run a dry run by hand and read what it would write;
+-- it writes nothing and works before the table exists:
+--
+--   curl -sS -X POST -H "Authorization: Bearer $PUSH_CRON_SECRET" \
+--     'https://boilerindy-api.onrender.com/api/internal/campus-events/ingest?dryRun=1'
+--
+-- Requires the pg_cron and pg_net extensions from db/supabase-keep-warm.sql.
+-- Replace <PUSH_CRON_SECRET> with the value set on Render, then run:
+--
+--   select cron.schedule(
+--     'boilerindy-campus-events-ingest',
+--     '41 */6 * * *',
+--     $$
+--     select net.http_post(
+--       url := 'https://boilerindy-api.onrender.com/api/internal/campus-events/ingest',
+--       headers := '{"Authorization": "Bearer <PUSH_CRON_SECRET>", "Content-Type": "application/json"}'::jsonb,
+--       body := '{}'::jsonb,
+--       timeout_milliseconds := 180000
+--     );
+--     $$
+--   );
+--
+-- Check it: select jobid, schedule, active from cron.job where jobname = 'boilerindy-campus-events-ingest';
+-- Recent runs: select status, return_message, start_time from cron.job_run_details
+--   where jobid = (select jobid from cron.job where jobname = 'boilerindy-campus-events-ingest')
+--   order by start_time desc limit 10;
+-- Remove with: select cron.unschedule('boilerindy-campus-events-ingest');
