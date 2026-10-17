@@ -1,0 +1,177 @@
+// campusEventsFeed.mjs
+//
+// The read side of the shared campus events (issue #30, rollout step 4 in
+// docs/shared-campus-events.md): which campus_events rows a student's calendar
+// read lists, and in what shape. The ingest (src/campusEventsIngest.mjs) fills
+// the table every 6 hours from Purdue's and IU's public events calendars;
+// listCalendarItems (src/calendarReads.mjs) merges what this module reads with
+// the student's own calendar_items rows. Behind CAMPUS_EVENTS_FEED, off by
+// default: server.mjs builds the calendar reads with the switch, and with it
+// off nothing here runs. docs/campus-events-feed.md is the operator's view.
+
+import { DB_FEATURES, isSchemaMissingError, logRouteError, logSchemaMissingOnce } from './dbErrors.mjs'
+import { selectUpTo } from './pagedSelect.mjs'
+import { httpUrlOrNull } from './sharedEvents.mjs'
+
+/** The calendar categories a shared row is listed under: Purdue's official dates are deadlines, the rest campus events. */
+export const SHARED_CALENDAR_CATEGORIES = Object.freeze(['campus_event', 'deadline'])
+
+// venue_kind values a student here cannot get to on foot: a West Lafayette
+// listing (Purdue's group carries Mackey Arena) or one in another city (an
+// Indianapolis club's away game).
+export const HIDDEN_VENUE_KINDS = Object.freeze(['elsewhere', 'west_lafayette'])
+
+// The ingest stamps last_seen_at on every row it writes, every 6 hours, and
+// sweeps a source only after a complete fetch of it. A row no run has written
+// for 26 hours (four missed runs and two hours' grace) belongs to a source that
+// has been failing for a day, or to a listing nothing sweeps any more, so it is
+// treated as gone: it may have been cancelled or moved since.
+export const STALE_AFTER_MS = 26 * 60 * 60 * 1000
+
+// A cap on one read, well past today's volumes (299 rows with Engage off,
+// about 1,300 with it on); selectUpTo pages it past PostgREST's max-rows.
+export const SHARED_EVENTS_MAX_ROWS = 3000
+
+// Where a row comes from, in the words the page shows. IU Indianapolis's own
+// listings say so: whether they are open to Purdue students is the owner's
+// call on #30, so they read as IU events until it is made.
+export const SOURCE_LABELS = Object.freeze({
+  purdue_events: 'Purdue event',
+  iu_events: 'IU event',
+  boilerlink: 'BoilerLink',
+  thespot: 'TheSpot (IU)',
+})
+
+const COLUMNS =
+  'id, title, description, starts_at, ends_at, location, all_day, source_key, source_url, category, free_food, venue_kind, open_to_all, series_key, last_seen_at'
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** The calendar category a campus_events category is listed under. */
+export function sharedCalendarCategory(category) {
+  return category === 'deadline' ? 'deadline' : 'campus_event'
+}
+
+/**
+ * The shared categories a calendar read with this filter asks for, with the
+ * precedence listCalendarItems gives its own filter: `category` wins over
+ * `categories`, and a read with neither asks for both.
+ * @param {{ category?: string | null, categories?: string[] | null }} [filter]
+ * @returns {string[]}
+ */
+export function sharedCategoriesFor({ category = null, categories = null } = {}) {
+  const asked = category ? [category] : categories?.length ? categories : null
+  return SHARED_CALENDAR_CATEGORIES.filter((key) => !asked || asked.includes(key))
+}
+
+// When a row stops being worth listing: its end; an all-day row with no end
+// runs to the end of its day (the ingest's endOf); any other row, its start.
+function endMs(row) {
+  if (row.ends_at) return Date.parse(row.ends_at)
+  const start = Date.parse(row.starts_at)
+  return row.all_day ? start + DAY_MS : start
+}
+
+function byStartThenId(a, b) {
+  return Date.parse(a.starts_at) - Date.parse(b.starts_at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+}
+
+/**
+ * One campus_events row in the client shape of listCalendarItems, marked
+ * `shared: true`, plus where it came from: `sourceKey`, the label the page
+ * shows (SOURCE_LABELS) and the listing to link out to, http(s) only. The id is
+ * prefixed so it can never be taken for one of the student's calendar_items,
+ * the only rows a task can be marked done on.
+ */
+export function toSharedCalendarItem(row) {
+  return {
+    id: `campus:${row.id}`,
+    sourceId: null,
+    title: row.title,
+    description: row.description ?? null,
+    startTime: row.starts_at,
+    endTime: row.ends_at ?? null,
+    location: row.location ?? null,
+    category: sharedCalendarCategory(row.category),
+    externalUid: null,
+    sourceType: 'campus',
+    allDay: Boolean(row.all_day),
+    freeFood: Boolean(row.free_food),
+    shared: true,
+    sourceKey: row.source_key,
+    sourceLabel: SOURCE_LABELS[row.source_key] || 'Campus calendar',
+    sourceUrl: httpUrlOrNull(row.source_url),
+  }
+}
+
+/**
+ * The shared rows a calendar read lists, as calendar items, soonest first:
+ *
+ *   - written by the ingest within STALE_AFTER_MS of `now`;
+ *   - not over by `since` (now, or a later `from`), so a row still running,
+ *     such as a gallery exhibit open for weeks, is listed;
+ *   - not at a venue in HIDDEN_VENUE_KINDS, and not a members-only session
+ *     (open_to_all false: a practice, a rehearsal, an officer meeting);
+ *   - under one of `categories`, as sharedCalendarCategory maps them;
+ *   - one per series_key, its next occurrence, so a weekly class shows once.
+ *
+ * Pure: listSharedCalendarItems reads the rows and passes the clock.
+ * @param {object[]} rows campus_events rows
+ * @param {{ now?: Date, since?: Date, categories?: readonly string[] }} [options]
+ */
+export function planSharedCalendarItems(rows, { now = new Date(), since = now, categories = SHARED_CALENDAR_CATEGORIES } = {}) {
+  const freshFrom = now.getTime() - STALE_AFTER_MS
+  const notOverBy = Math.max(now.getTime(), since.getTime())
+  const listed = (rows || []).filter(
+    (row) =>
+      Date.parse(row.last_seen_at) >= freshFrom &&
+      endMs(row) >= notOverBy &&
+      !HIDDEN_VENUE_KINDS.includes(row.venue_kind) &&
+      row.open_to_all !== false &&
+      categories.includes(sharedCalendarCategory(row.category)),
+  )
+  const bySeries = new Map()
+  for (const row of listed.sort(byStartThenId)) {
+    const key = row.series_key || `row:${row.id}`
+    if (!bySeries.has(key)) bySeries.set(key, row)
+  }
+  return [...bySeries.values()].map(toSharedCalendarItem)
+}
+
+/**
+ * Read the shared rows for one calendar read and plan them
+ * (planSharedCalendarItems). The query narrows by the same rules, so the read
+ * stays small: fresh rows, no hidden venue, no members-only session, and an
+ * end from now on or a start within the last day (an all-day row with no end).
+ *
+ * Never throws. Shared rows add to a student's own calendar, so a failed read
+ * answers [] and the calendar shows the student's rows alone. A missing table
+ * (README step 43 not run yet) is logged once with the file to run, any other
+ * failure on every read.
+ *
+ * @param {object} supabase the Supabase client
+ * @param {{ categories?: readonly string[], from?: string | null, now?: Date }} [options]
+ *   from: the read's own lower bound; a later one than now also drops the shared rows over by then
+ * @returns {Promise<object[]>}
+ */
+export async function listSharedCalendarItems(supabase, { categories = SHARED_CALENDAR_CATEGORIES, from = null, now = new Date() } = {}) {
+  if (!categories.length) return []
+  const buildQuery = () =>
+    supabase
+      .from('campus_events')
+      .select(COLUMNS)
+      .gte('last_seen_at', new Date(now.getTime() - STALE_AFTER_MS).toISOString())
+      .or(`ends_at.gte.${now.toISOString()},starts_at.gte.${new Date(now.getTime() - DAY_MS).toISOString()}`)
+      .not('venue_kind', 'in', `(${HIDDEN_VENUE_KINDS.join(',')})`)
+      .not('open_to_all', 'is', false)
+      .order('starts_at', { ascending: true })
+      .order('id', { ascending: true })
+  const { data, error } = await selectUpTo(buildQuery, SHARED_EVENTS_MAX_ROWS)
+  if (error) {
+    if (isSchemaMissingError(error)) logSchemaMissingOnce(DB_FEATURES.campus_events, error)
+    else logRouteError('campus_events read', error)
+    return []
+  }
+  const fromMs = from ? Date.parse(from) : NaN
+  const since = fromMs > now.getTime() ? new Date(fromMs) : now
+  return planSharedCalendarItems(data, { now, since, categories })
+}

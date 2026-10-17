@@ -13,7 +13,17 @@ vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 
 const HOUR = 60 * 60 * 1000
 
-type Item = { id: string; title: string; category?: string; startTime: string; location?: string }
+type Item = {
+  id: string
+  title: string
+  category?: string
+  startTime: string
+  endTime?: string | null
+  location?: string
+  shared?: boolean
+  sourceLabel?: string
+  sourceUrl?: string | null
+}
 let calendar: { items: Item[] } | Error
 
 function event(id: string, title: string, fromNowMs: number): Item {
@@ -155,6 +165,106 @@ describe('the relative time on the details card', () => {
     // Sunday the 18th is four calendar days after Wednesday the 14th.
     fireEvent.click(screen.getByRole('button', { name: /Hackathon kickoff/ }))
     expect(within(detailCard('Hackathon kickoff')).getByText('In 4 days')).toBeInTheDocument()
+  })
+})
+
+// Issue #30: the shared campus events the server adds to this window while its
+// feed is on.
+describe('shared campus events', () => {
+  function shared(id: string, title: string, fromNowMs: number, extra: Partial<Item> = {}): Item {
+    return {
+      ...event(id, title, fromNowMs),
+      id: `campus:${id}`,
+      shared: true,
+      sourceLabel: 'IU event',
+      sourceUrl: `https://events.iu.edu/event/${id}`,
+      ...extra,
+    }
+  }
+
+  afterEach(() => {
+    auth.onboarding = { linkedSourceCount: 1 }
+  })
+
+  it('asks for them, labels each with its source and links out to the listing from the details', async () => {
+    calendar = {
+      items: [
+        event('ev-1', 'Career fair prep workshop', 2 * HOUR),
+        shared('yoga', 'Yoga in the Natatorium', 3 * HOUR),
+        shared('thanksgiving', 'Thanksgiving Vacation', 40 * HOUR, {
+          category: 'deadline',
+          sourceLabel: 'Purdue event',
+          sourceUrl: 'https://events.purdue.edu/event/thanksgiving',
+        }),
+      ],
+    }
+    renderPage()
+
+    const yoga = await screen.findByRole('button', { name: /Yoga in the Natatorium/ })
+    expect(vi.mocked(authRequest).mock.calls.map(([path]) => String(path))).toContain(
+      '/api/me/calendar?categories=campus_event%2Cevent%2Cdeadline&limit=500&shared=1',
+    )
+    expect(screen.getByText('3 upcoming events from your calendar and campus calendars')).toBeInTheDocument()
+    expect(within(yoga).getByText('IU event')).toHaveAttribute('title', 'Listed on events.iu.edu')
+    expect(within(screen.getByRole('button', { name: /Thanksgiving Vacation/ })).getByText('Purdue event')).toBeInTheDocument()
+    expect(within(screen.getByRole('button', { name: /Career fair prep workshop/ })).queryByText(/ event$/)).not.toBeInTheDocument()
+
+    fireEvent.click(yoga)
+    const link = within(detailCard('Yoga in the Natatorium')).getByRole('link', { name: 'View on events.iu.edu' })
+    expect(link).toHaveAttribute('href', 'https://events.iu.edu/event/yoga')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(within(detailCard('Yoga in the Natatorium')).getByText('IU event')).toBeInTheDocument()
+
+    // The student's own events have no source and no link.
+    fireEvent.click(screen.getByRole('button', { name: /Career fair prep workshop/ }))
+    expect(within(detailCard('Career fair prep workshop')).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('fills the page for a student with no linked calendar, from the campus calendars', async () => {
+    auth.onboarding = { linkedSourceCount: 0 }
+    calendar = { items: [shared('chili', 'United Way Chili Cook-off', 5 * HOUR)] }
+    renderPage()
+
+    expect(await screen.findByRole('button', { name: /United Way Chili Cook-off/ })).toBeInTheDocument()
+    expect(screen.getByText('1 upcoming events from campus calendars')).toBeInTheDocument()
+    expect(screen.queryByText('No events found')).not.toBeInTheDocument()
+    // Linking Brightspace still adds the student's own events.
+    expect(screen.getByRole('link', { name: /Connect Brightspace/ })).toBeInTheDocument()
+  })
+
+  it('keeps an exhibit open since an earlier day listed under Today until it closes, and drops what has ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 14, 15, 0)) // Wednesday 3:00 PM, local time
+    const closes = new Date(2026, 9, 31, 17, 0)
+    calendar = {
+      items: [
+        shared('herron', 'Herron gallery exhibit', 0, { startTime: new Date(2026, 9, 1, 10, 0).toISOString(), endTime: closes.toISOString() }),
+        shared('lunch', 'Lunch and learn', 0, {
+          startTime: new Date(2026, 9, 14, 11, 0).toISOString(),
+          endTime: new Date(2026, 9, 14, 13, 0).toISOString(),
+        }),
+        event('ev-tonight', 'Trivia night', 4 * HOUR),
+      ],
+    }
+    renderPage()
+
+    const exhibit = await screen.findByRole('button', { name: /Herron gallery exhibit/ })
+    const until = closes.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    expect(within(exhibit).getByText(`Until ${until}`)).toBeInTheDocument()
+    const today = screen.getByText('Today', { selector: '.eyebrow' }).parentElement as HTMLElement
+    expect(within(today).getAllByRole('button').map((row) => row.textContent)).toEqual([
+      expect.stringContaining('Herron gallery exhibit'),
+      expect.stringContaining('Trivia night'),
+    ])
+    expect(screen.queryByRole('button', { name: /Lunch and learn/ })).not.toBeInTheDocument()
+    expect(screen.getByText('2 upcoming events from your calendar and campus calendars')).toBeInTheDocument()
+
+    fireEvent.click(exhibit)
+    expect(within(detailCard('Herron gallery exhibit')).getByText(`On now · until ${until}`)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show past events' }))
+    expect(await screen.findByRole('button', { name: /Lunch and learn/ })).toBeInTheDocument()
   })
 })
 

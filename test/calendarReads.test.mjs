@@ -168,6 +168,108 @@ test('listCalendarItems: with throwOnError a failed read throws the database err
   await assert.rejects(listCalendarItems(USER, { limit: 2500, throwOnError: true }), (thrown) => thrown === error)
 })
 
+// Issue #30: the shared campus events (src/campusEventsFeed.mjs, which has the
+// rules), merged in when server.mjs turns the feed on and a read asks for them.
+// The rows are relative to the real clock, since the read takes its own.
+const HOUR_MS = 60 * 60 * 1000
+const fromNow = (ms) => new Date(Date.now() + ms).toISOString()
+
+function campusRow(id, startsInMs, overrides = {}) {
+  return {
+    id,
+    title: `Campus ${id}`,
+    description: null,
+    starts_at: fromNow(startsInMs),
+    ends_at: fromNow(startsInMs + HOUR_MS),
+    location: 'Campus Center',
+    all_day: false,
+    source_key: 'iu_events',
+    source_url: `https://events.iu.edu/event/${id}`,
+    category: 'social',
+    free_food: false,
+    venue_kind: 'indy_campus',
+    open_to_all: true,
+    series_key: `iu_events:${id}`,
+    last_seen_at: fromNow(-HOUR_MS),
+    ...overrides,
+  }
+}
+
+test('listCalendarItems: no shared campus events unless the feed is on and the read names a shared category', async () => {
+  const rows = [calendarRow({ category: 'campus_event' })]
+  // No campus_events handler: a query against it would throw in the fake.
+  const supabase = fakeSupabase({ calendar_items: () => ({ data: rows, error: null }) })
+
+  const off = createCalendarReads(supabase)
+  assert.equal((await off.listCalendarItems(USER, { sharedCategories: ['campus_event', 'deadline'] })).length, 1)
+  const on = createCalendarReads(supabase, { sharedEventsFeed: true })
+  assert.equal((await on.listCalendarItems(USER)).length, 1)
+  assert.equal((await on.listCalendarItems(USER, { sharedCategories: [] })).length, 1)
+  // getClassItemsForUser never asks.
+  await on.getClassItemsForUser(USER, { term: 'all' })
+
+  assert.deepEqual(supabase.queries.map((q) => q.table), ['calendar_items', 'calendar_items', 'calendar_items', 'calendar_items'])
+})
+
+test('listCalendarItems: with the feed on, shared rows join in start order, the student\'s own first on a tie, and limit counts both', async () => {
+  const own = [
+    calendarRow({ id: 'own-1', category: 'campus_event', start_time: fromNow(HOUR_MS), end_time: null }),
+    calendarRow({ id: 'own-2', category: 'event', start_time: fromNow(3 * HOUR_MS), end_time: null }),
+  ]
+  const shared = [
+    campusRow('s1', 2 * HOUR_MS),
+    // Starts with own-2, to the millisecond.
+    campusRow('s2', 3 * HOUR_MS, { category: 'deadline', starts_at: own[1].start_time }),
+    campusRow('s3', 5 * HOUR_MS),
+  ]
+  // Each table answers in the order its query asks for.
+  const supabase = fakeSupabase({
+    calendar_items: (chain) => ({ data: hasCall(chain, 'order', 'start_time', { ascending: false }) ? [...own].reverse() : own, error: null }),
+    campus_events: () => ({ data: shared, error: null }),
+  })
+  const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
+
+  const items = await listCalendarItems(USER, { categories: ['campus_event', 'event', 'deadline'], limit: 4, sharedCategories: ['campus_event', 'deadline'] })
+  assert.deepEqual(items.map((item) => item.id), ['own-1', 'campus:s1', 'own-2', 'campus:s2'])
+  assert.deepEqual(items.map((item) => item.category), ['campus_event', 'campus_event', 'event', 'deadline'])
+  // The student's rows keep their shape; the shared ones say so and where they came from.
+  assert.ok(!('shared' in items[0]))
+  assert.deepEqual(
+    { shared: items[1].shared, sourceLabel: items[1].sourceLabel, sourceUrl: items[1].sourceUrl },
+    { shared: true, sourceLabel: 'IU event', sourceUrl: 'https://events.iu.edu/event/s1' },
+  )
+
+  // Only the asked categories join, and a descending read merges descending.
+  const deadlines = await listCalendarItems(USER, { sharedCategories: ['deadline'] })
+  assert.deepEqual(deadlines.map((item) => item.id), ['own-1', 'own-2', 'campus:s2'])
+  const newestFirst = await listCalendarItems(USER, { order: 'desc', sharedCategories: ['campus_event', 'deadline'] })
+  assert.deepEqual(newestFirst.map((item) => item.id), ['campus:s3', 'own-2', 'campus:s2', 'campus:s1', 'own-1'])
+})
+
+test('listCalendarItems: a missing campus_events table leaves the student\'s rows, even for a read that throws on error', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const rows = [calendarRow({ category: 'campus_event' })]
+  const supabase = fakeSupabase({
+    calendar_items: () => ({ data: rows, error: null }),
+    campus_events: () => ({ data: null, error: { code: '42P01', message: 'relation "public.campus_events" does not exist (calendar test)' } }),
+  })
+  const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
+  const items = await listCalendarItems(USER, { throwOnError: true, sharedCategories: ['campus_event', 'deadline'] })
+  assert.deepEqual(items.map((item) => item.id), ['c1'])
+  assert.equal(supabase.queriesOf('campus_events').length, 1)
+})
+
+test('listCalendarItems: the student\'s own read failing still throws with throwOnError, shared rows or not', async () => {
+  const error = { code: '57014', message: 'canceling statement due to statement timeout' }
+  const supabase = fakeSupabase({
+    calendar_items: () => ({ data: null, error }),
+    campus_events: () => ({ data: [campusRow('s1', HOUR_MS)], error: null }),
+  })
+  const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
+  await assert.rejects(listCalendarItems(USER, { throwOnError: true, sharedCategories: ['campus_event'] }), (thrown) => thrown === error)
+  assert.deepEqual(await listCalendarItems(USER, { sharedCategories: ['campus_event'] }), [])
+})
+
 // Class meetings, built in local time the way getAcademicTerm reads them back,
 // so the term pick is the same in any time zone. "Now" is pinned to the
 // afternoon of 2026-10-04, in the fall 2026 term.

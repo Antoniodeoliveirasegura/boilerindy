@@ -56,7 +56,7 @@ rows, and the 30 s default stale time applies.
 
 | Key | Route | Read by |
 |---|---|---|
-| `['me', userId, 'calendar', { categories, limit, from }]` | `GET /api/me/calendar?...` | Home (its own window), Assignments (`from` rounded to local midnight 14 days back, so the key is stable within a day), Events and Free Food (one shared window) |
+| `['me', userId, 'calendar', { categories, limit, from, shared }]` | `GET /api/me/calendar?...` | Home (its own window), Assignments (`from` rounded to local midnight 14 days back, so the key is stable within a day), Events and Free Food (one shared window, the only one with `shared`, which adds the shared campus events while the server's feed is on: [campus-events-feed.md](campus-events-feed.md)) |
 | `['me', userId, 'classes', { limit, mode }]` | `GET /api/me/classes?...` | Home (display mode), Schedule (chronological) |
 | `['me', userId, 'calendar-categories']` | `GET /api/me/calendar/categories` | Assignments |
 | `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |

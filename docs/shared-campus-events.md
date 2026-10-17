@@ -1,10 +1,10 @@
 # Shared campus events (design)
 
-Status: rollout steps 1 to 3 are built. The sources are chosen (below), the
+Status: rollout steps 1 to 4 are built. The sources are chosen (below), the
 table is `db/supabase-campus-events.sql`, and the ingest, with its dry run, is
 `POST /api/internal/campus-events/ingest` ([campus-events-ingest.md](campus-events-ingest.md)).
-Nothing reads the table yet: the read path (step 4) is a later change behind a
-flag.
+The read path (step 4) lists the table on `/events` and `/free-food` behind
+`CAMPUS_EVENTS_FEED`, off by default ([campus-events-feed.md](campus-events-feed.md)).
 
 ## The problem
 
@@ -105,8 +105,8 @@ publishing schedule of its own to follow.
 - Ids: the LiveWhale event id. A multi-day event (an exhibit) repeats its id
   once per day, and those rows merge into one row spanning the days listed.
 - Owner decision still open: whether IU Indianapolis's own events are open to
-  Purdue students. The rows carry `source_key = 'iu_events'`, so the read path
-  can label or hide them.
+  Purdue students. The rows carry `source_key = 'iu_events'`, and the read path
+  labels them "IU event" until it is made.
 
 ### Anthology Engage event search on BoilerLink and TheSpot: off by default
 
@@ -227,6 +227,18 @@ Shared rows need a marker in the response (`shared: true`, or
 `source_type: 'campus'`) so clients can style them, and so "mark done" is not
 offered on an event the user does not own.
 
+As built ([campus-events-feed.md](campus-events-feed.md)): `listCalendarItems`
+merges the shared rows only into a read that asks for them, `GET
+/api/me/calendar?shared=1` (the Events and Free Food window) and `GET
+/api/me/events`, and only while `CAMPUS_EVENTS_FEED` is on. The unfiltered
+reads behind Assignments and the native app's task list never ask, so a shared
+row cannot reach a list that offers "mark done". The rows carry both markers,
+`shared: true` and `sourceType: 'campus'`, plus a source label and the
+listing's link. A missing table, or any failed read of it, leaves the
+student's own rows alone. West Lafayette and other-city rows and members-only
+sessions are left out, a series is listed once as its next occurrence, and a
+row the ingest has not written for 26 hours counts as gone.
+
 Interaction with the existing regex: once shared events exist, the
 `campus_event` branch in `src/scheduleSync.mjs:42` is redundant at best and a
 competing source at worst. Decide explicitly whether to keep classifying private
@@ -241,7 +253,9 @@ but it changes what existing users see and should be its own change.
 3. Write the ingest as a scheduled job with a dry-run mode that reports what it
    would upsert. Run it read-only first and inspect the dedupe results. Built;
    the dry run and the cron are the owner's steps (README step 44).
-4. Union into the read path behind a flag.
+4. Union into the read path behind a flag. Built, behind `CAMPUS_EVENTS_FEED`;
+   turning it on is the owner's step, after steps 2 and 3 have run
+   ([campus-events-feed.md](campus-events-feed.md)).
 5. Decide the fate of the `campus_event` regex.
 
 Steps 1 through 3 are independently reviewable and ship nothing user visible, so

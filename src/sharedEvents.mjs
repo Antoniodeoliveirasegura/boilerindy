@@ -279,7 +279,8 @@ function isoOrNull(value) {
   return Number.isNaN(time) ? null : new Date(time).toISOString()
 }
 
-function httpUrlOrNull(value) {
+/** The URL when it is http(s), else null; the read path (src/campusEventsFeed.mjs) checks links with it too. */
+export function httpUrlOrNull(value) {
   try {
     const url = new URL(String(value ?? ''))
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
