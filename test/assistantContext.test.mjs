@@ -124,6 +124,23 @@ test('the saved Nutrislice district renders menus at lunch and one line per hall
   assert.ok(late.length < lunch.length / 5)
 })
 
+test('on a Saturday with a posted menu Tower is not CLOSED: it has a menu and no listed hours, and its menu is listed (issue #465)', async () => {
+  const schools = load('nutrislice-schools.json')
+  const weekendLunch = load('nutrislice-tower-lunch-weekend.json')
+  const fetchImpl = async (url) => {
+    if (url.includes('/tower-dining/menu-type/lunch/')) return { ok: true, status: 200, json: async () => weekendLunch }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  const base = await buildDiningBase(schools, '2026-10-17', { fetchImpl })
+  const saturdayNoon = new Date('2026-10-17T12:30:00-04:00')
+  const ctx = buildDiningContext(renderSnapshot(base, saturdayNoon), { now: saturdayNoon })
+  assert.match(ctx, /^=== DINING TODAY \(2026-10-17\) ===\nTower Dining: MENU POSTED, HOURS NOT LISTED \(lunch menu\)$/m)
+  assert.match(ctx, /^ {2}Daily Grill: /m)
+  assert.doesNotMatch(ctx, /Tower Dining: CLOSED/)
+  // The Campus Center has no menu, so the feed's closed flag stands.
+  assert.match(ctx, /^Campus Center: CLOSED$/m)
+})
+
 test('a hall that posts dinner before lunch lists the meal being served, or the one the question names', async () => {
   // Nutrislice lists Tower's menu types as dinner, breakfast, lunch, so dinner
   // is fetched first and a station shared by both meals starts with dinner

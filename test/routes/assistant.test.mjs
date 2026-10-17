@@ -392,6 +392,19 @@ test('the briefing turns the same context into a headline and up to five chips, 
   })
 })
 
+test('the dining chip counts a hall serving a posted menu on a day with no listed hours, not a closed one (issue #465)', async () => {
+  const weekend = (location) => ({ ok: true, date: '2026-10-17', timezone: TZ, locations: [location] })
+  const tower = { name: 'Tower Dining', stations: [{ name: 'Daily Grill', items: [{ name: 'Cheeseburger', meals: ['lunch'] }] }] }
+  await withApp({ dining: weekend({ ...tower, is_open: null, hours: 'Hours not listed', menusPublished: true }) }, async ({ call }) => {
+    const answer = await call('GET', '/api/assistant/briefing')
+    assert.ok(answer.body.chips.includes("What's good at dining right now?"))
+  })
+  await withApp({ dining: weekend({ ...tower, is_open: false, hours: 'Closed today', menusPublished: true }) }, async ({ call }) => {
+    const answer = await call('GET', '/api/assistant/briefing')
+    assert.ok(!answer.body.chips.includes("What's good at dining right now?"))
+  })
+})
+
 test('a briefing that cannot be built answers empty instead of blocking the panel', async (t) => {
   const log = t.mock.method(console, 'error', () => {})
   await withApp({ overrides: null }, async ({ call }) => {

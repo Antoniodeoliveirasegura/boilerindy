@@ -316,6 +316,9 @@ function applyMockPricing(listing, body) {
 // Dining (#119): the snapshot renderSnapshot() in src/nutrisliceDining.mjs
 // produces. Tower Dining is a dining hall with two stations; the Campus Center
 // is the retail food court (hours only, no menu), currently before opening.
+// The feed flags both halls closed at weekends, but Tower publishes weekend
+// menus, so its weekend days read "Hours not listed" (issue #465), while the
+// Campus Center, which posts no menu, keeps Closed.
 const WEEKDAY_HOURS = {
   Monday: '7:00 AM - 9:00 PM',
   Tuesday: '7:00 AM - 9:00 PM',
@@ -325,6 +328,7 @@ const WEEKDAY_HOURS = {
   Saturday: 'Closed',
   Sunday: 'Closed',
 }
+const TOWER_WEEK_HOURS = { ...WEEKDAY_HOURS, Saturday: 'Hours not listed', Sunday: 'Hours not listed' }
 
 export function sampleDiningLocation(overrides = {}) {
   return {
@@ -338,7 +342,7 @@ export function sampleDiningLocation(overrides = {}) {
     closes_at: '9:00 PM',
     opens_at: null,
     open24h: false,
-    weekly_hours: { ...WEEKDAY_HOURS },
+    weekly_hours: { ...TOWER_WEEK_HOURS },
     timezone: 'America/Indiana/Indianapolis',
     meal: 'Menus: breakfast, lunch, dinner',
     menusPublished: true,
@@ -377,6 +381,7 @@ export function sampleDining(overrides = {}) {
         name: 'Campus Center',
         kind: 'retail',
         address: '420 University Blvd, Indianapolis, IN 46202',
+        weekly_hours: { ...WEEKDAY_HOURS },
         is_open: false,
         closes_at: null,
         opens_at: '7:00 AM',

@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs'
 
 import {
   FAILURE_RETRY_MS,
+  HOURS_NOT_LISTED,
   LOCATION_FILTERS,
   MAX_CACHE_DATES,
   MIN_REFRESH_INTERVAL_MS,
@@ -21,6 +22,7 @@ import {
   extractWeeklyHours,
   formatClock12,
   getDiningSnapshot,
+  hasPublishedFood,
   ingestMenuStations,
   locationKind,
   mealSlugsForSchool,
@@ -39,8 +41,14 @@ const CC_LUNCH = load('nutrislice-campus-center-lunch.json')
 const tower = SCHOOLS.find((s) => s.slug === 'tower-dining')
 const campusCenter = SCHOOLS.find((s) => s.slug === 'campus-center')
 const LUNCH_ROWS = TOWER_LUNCH.days.find((d) => d.date === '2026-09-09').menu_items
+// Tower's real lunch week of Sunday 2026-10-11 to Saturday 2026-10-17, trimmed
+// to a few stations and foods a day: a menu on all seven days, weekends
+// included, while the school rows flag Saturday and Sunday closed (issue #465).
+const WEEKEND_LUNCH = load('nutrislice-tower-lunch-weekend.json')
+const ALL_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-// Indianapolis is UTC-4 in September; 2026-09-09 is a Wednesday.
+// Indianapolis is UTC-4 in September and October; 2026-09-09 is a Wednesday
+// and 2026-10-17 a Saturday.
 const at = (hhmm, ymd = '2026-09-09') => new Date(`${ymd}T${hhmm}:00-04:00`)
 
 function stubFetch(handler) {
@@ -121,7 +129,7 @@ test('formatClock12 renders Nutrislice HH:MM:SS clocks', () => {
 
 // ── Hours ───────────────────────────────────────────────────────────────────
 
-test('extractWeeklyHours reads the real Tower row: weekdays 7 to 9, weekends closed', () => {
+test('extractWeeklyHours reads the real Tower row: weekdays 7 to 9, weekends flagged closed', () => {
   assert.deepEqual(extractWeeklyHours(tower), {
     Sunday: 'Closed',
     Monday: '7:00 AM - 9:00 PM',
@@ -131,6 +139,25 @@ test('extractWeeklyHours reads the real Tower row: weekdays 7 to 9, weekends clo
     Friday: '7:00 AM - 9:00 PM',
     Saturday: 'Closed',
   })
+})
+
+test('extractWeeklyHours: a day flagged closed that has a published menu reads "Hours not listed" (issue #465)', () => {
+  assert.equal(HOURS_NOT_LISTED, 'Hours not listed')
+  assert.deepEqual(extractWeeklyHours(tower, { menuWeekdays: ALL_WEEK }), {
+    Sunday: 'Hours not listed',
+    Monday: '7:00 AM - 9:00 PM',
+    Tuesday: '7:00 AM - 9:00 PM',
+    Wednesday: '7:00 AM - 9:00 PM',
+    Thursday: '7:00 AM - 9:00 PM',
+    Friday: '7:00 AM - 9:00 PM',
+    Saturday: 'Hours not listed',
+  })
+  // Only the weekdays with a menu change: a closed Sunday with no menu stays Closed.
+  const saturdayOnly = extractWeeklyHours(tower, { menuWeekdays: ['Saturday'] })
+  assert.equal(saturdayOnly.Saturday, 'Hours not listed')
+  assert.equal(saturdayOnly.Sunday, 'Closed')
+  // A menu never overrides hours the feed does list.
+  assert.equal(extractWeeklyHours(tower, { menuWeekdays: ['Monday'] }).Monday, '7:00 AM - 9:00 PM')
 })
 
 test('deriveStatusFromSchool: open during the window, closed before and after, closed on weekends', () => {
@@ -153,6 +180,32 @@ test('deriveStatusFromSchool: open during the window, closed before and after, c
   const saturday = deriveStatusFromSchool(tower, at('12:00', '2026-09-12'))
   assert.equal(saturday.is_open, false)
   assert.equal(saturday.hours, 'Closed today')
+})
+
+test('deriveStatusFromSchool: a day flagged closed with a published menu is "not known", not Closed (issue #465)', () => {
+  // Saturday 2026-10-17, 12:30 PM: the live feed flags Saturday closed above a 96-item menu.
+  const saturday = deriveStatusFromSchool(tower, at('12:30', '2026-10-17'), { menuWeekdays: ALL_WEEK })
+  assert.deepEqual(saturday, {
+    is_open: null,
+    hours: 'Hours not listed',
+    closes_at: null,
+    opens_at: null,
+    open24h: false,
+    tz: 'America/Indiana/Indianapolis',
+  })
+  // Sunday the same, at any hour: no hours are invented.
+  assert.equal(deriveStatusFromSchool(tower, at('06:00', '2026-10-18'), { menuWeekdays: ALL_WEEK }).is_open, null)
+  // Without a menu that weekday is still Closed today.
+  const noMenu = deriveStatusFromSchool(tower, at('12:30', '2026-10-17'), { menuWeekdays: ['Monday', 'Tuesday'] })
+  assert.equal(noMenu.is_open, false)
+  assert.equal(noMenu.hours, 'Closed today')
+  // A weekday with listed hours keeps the normal rule, menu or not.
+  const friday = deriveStatusFromSchool(tower, at('21:30', '2026-10-16'), { menuWeekdays: ALL_WEEK })
+  assert.equal(friday.is_open, false)
+  assert.equal(friday.hours, '7:00 AM - 9:00 PM')
+  // Yesterday's window past midnight still wins in the early hours.
+  const lateFriday = { fri_enabled: true, fri_start: '11:00:00', fri_end: '02:00:00' }
+  assert.equal(deriveStatusFromSchool(lateFriday, at('01:00', '2026-10-17'), { menuWeekdays: ALL_WEEK }).is_open, true)
 })
 
 test('deriveStatusFromSchool handles 24-hour days, windows past midnight, and missing times', () => {
@@ -229,6 +282,21 @@ test('ingestMenuStations keeps stations in order, skips condiments and dedupes r
   assert.deepEqual(ingestMenuStations(null, 'lunch'), [])
 })
 
+test('hasPublishedFood counts the foods ingestMenuStations would show, not condiment-only days', () => {
+  assert.equal(hasPublishedFood(LUNCH_ROWS), true)
+  for (const day of WEEKEND_LUNCH.days) assert.equal(hasPublishedFood(day.menu_items), true, day.date)
+  assert.equal(hasPublishedFood(TOWER_LUNCH.days.find((d) => d.date === '2026-09-08').menu_items), false)
+  const condimentsOnly = WEEKEND_LUNCH.days[6].menu_items.filter((row, i, rows) => {
+    const header = rows.slice(0, i + 1).filter((r) => r.is_section_title || r.is_station_header).pop()
+    return header?.text === 'Grill Condiments'
+  })
+  assert.equal(condimentsOnly[0].text, 'Grill Condiments')
+  assert.ok(condimentsOnly.some((row) => row.food))
+  assert.equal(hasPublishedFood(condimentsOnly), false)
+  assert.equal(hasPublishedFood([]), false)
+  assert.equal(hasPublishedFood(null), false)
+})
+
 test('pickSchools resolves the two known halls in LOCATION_FILTERS order and reports what is missing', () => {
   const picked = pickSchools(SCHOOLS)
   assert.deepEqual(picked.map((p) => p.school.slug), ['tower-dining', 'campus-center'])
@@ -273,6 +341,57 @@ test('buildDiningBase fetches menus for the dining hall only, and renderSnapshot
   assert.equal(cc.meal, RETAIL_MENU_NOTE)
   assert.deepEqual(cc.stations, [])
   assert.equal(cc.is_open, true)
+})
+
+test('on a Saturday with a published menu, Tower reads "Hours not listed", never Closed (issue #465)', async () => {
+  const { fetchImpl } = stubFetch((url) => {
+    if (url.includes('/tower-dining/menu-type/lunch/')) return WEEKEND_LUNCH
+    return 404
+  })
+  const base = await buildDiningBase(SCHOOLS, '2026-10-17', { fetchImpl })
+  const snap = renderSnapshot(base, at('12:30', '2026-10-17'))
+  assert.equal(snap.weekday, 'Saturday')
+  const [t, cc] = snap.locations
+  assert.equal(t.is_open, null)
+  assert.equal(t.hours, HOURS_NOT_LISTED)
+  assert.equal(t.opens_at, null)
+  assert.equal(t.closes_at, null)
+  assert.equal(t.menusPublished, true)
+  assert.deepEqual(t.stations.map((s) => s.name), ['Daily Grill', 'Chef Made Soups', 'Dessert'])
+  assert.deepEqual(t.weekly_hours, {
+    Sunday: 'Hours not listed',
+    Monday: '7:00 AM - 9:00 PM',
+    Tuesday: '7:00 AM - 9:00 PM',
+    Wednesday: '7:00 AM - 9:00 PM',
+    Thursday: '7:00 AM - 9:00 PM',
+    Friday: '7:00 AM - 9:00 PM',
+    Saturday: 'Hours not listed',
+  })
+  assert.ok(!JSON.stringify(t).includes('Closed'))
+  // The Campus Center publishes no menu, so the feed's flags stand for it.
+  assert.equal(cc.is_open, false)
+  assert.equal(cc.hours, 'Closed today')
+  assert.equal(cc.weekly_hours.Saturday, 'Closed')
+
+  // The same week on a weekday: the normal hours rule.
+  const wednesday = renderSnapshot(base, at('12:30', '2026-10-14')).locations[0]
+  assert.equal(wednesday.is_open, true)
+  assert.equal(wednesday.closes_at, '9:00 PM')
+})
+
+test('a weekend day with no published menu still reads Closed today', async () => {
+  // The same week with Saturday's and Sunday's menus withdrawn.
+  const weekdaysOnly = {
+    ...WEEKEND_LUNCH,
+    days: WEEKEND_LUNCH.days.map((d) => (d.date === '2026-10-11' || d.date === '2026-10-17' ? { ...d, menu_items: [] } : d)),
+  }
+  const { fetchImpl } = stubFetch((url) => (url.includes('/tower-dining/menu-type/lunch/') ? weekdaysOnly : 404))
+  const base = await buildDiningBase(SCHOOLS, '2026-10-16', { fetchImpl })
+  const [t] = renderSnapshot(base, at('12:30', '2026-10-17')).locations
+  assert.equal(t.is_open, false)
+  assert.equal(t.hours, 'Closed today')
+  assert.equal(t.weekly_hours.Saturday, 'Closed')
+  assert.equal(t.weekly_hours.Sunday, 'Closed')
 })
 
 test('a dining hall with no menu today says so, and a failing meal becomes a warning', async () => {

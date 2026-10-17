@@ -301,3 +301,60 @@ it('says why the week ahead could not be generated', async () => {
   expect(await screen.findByText('You have hit the hourly assistant limit. Try again in a little while.')).toHaveAttribute('role', 'alert')
   expect(screen.queryByText(/Generating your week summary/)).toBeNull()
 })
+
+// Issue #465: the feed flags Saturday and Sunday closed while Tower serves a
+// full weekend menu. The server now sends is_open: null with "Hours not
+// listed" for such a day, and Home must not call the hall closed.
+function diningSnapshot(tower: Record<string, unknown>) {
+  return {
+    ok: true,
+    date: '2026-10-17',
+    weekday: 'Saturday',
+    locations: [
+      {
+        id: 'tower-dining',
+        slug: 'tower-dining',
+        name: 'Tower Dining',
+        kind: 'dining-hall',
+        weekly_hours: { Saturday: 'Hours not listed', Monday: '7:00 AM - 9:00 PM' },
+        stations: [{ name: 'Daily Grill', items: [{ name: 'Cheeseburger' }] }],
+        ...tower,
+      },
+    ],
+  }
+}
+
+function serveDining(snapshot: unknown) {
+  fetchMock.mockImplementation(async (url: unknown) =>
+    String(url).startsWith('/api/dining')
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : new Response(JSON.stringify({ reply: 'You have CS 30200 at 2:30pm.' }), { status: 200 }),
+  )
+}
+
+function diningCard() {
+  return screen.getByRole('heading', { name: 'Dining Snapshot' }).closest('.card') as HTMLElement
+}
+
+it('never calls Tower closed on a day with a posted menu and no listed hours', async () => {
+  serveDining(diningSnapshot({ is_open: null, hours: 'Hours not listed' }))
+  renderHome()
+
+  const status = await waitFor(() => {
+    const el = diningCard().querySelector('[data-dining-widget-status]')
+    expect(el?.textContent).toBe('Menu posted')
+    return el as HTMLElement
+  })
+  expect(status.querySelector('.status-unknown')).not.toBeNull()
+  expect(within(diningCard()).getByText('Hours not listed')).toBeInTheDocument()
+  expect(within(diningCard()).getByText('Cheeseburger')).toBeInTheDocument()
+  expect(screen.queryByText(/is closed right now/)).toBeNull()
+})
+
+it('still says a hall is closed when the feed says so and there is no menu', async () => {
+  serveDining(diningSnapshot({ is_open: false, hours: 'Closed today', weekly_hours: { Saturday: 'Closed' }, stations: [] }))
+  renderHome()
+
+  expect(await screen.findByText('Tower Dining is closed right now')).toBeInTheDocument()
+  expect(diningCard().querySelector('[data-dining-widget-status]')?.textContent).toBe('Closed')
+})

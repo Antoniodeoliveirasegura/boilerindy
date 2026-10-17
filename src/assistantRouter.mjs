@@ -72,16 +72,29 @@ export function formatClassesToday(classItems, now = new Date(), timeZone = 'Ame
   return `You have ${today.length} class${today.length === 1 ? '' : 'es'} today:\n${lines.join('\n')}`
 }
 
-/** @returns {string|null} */
+/**
+ * The offline "is dining open" answer. A location with `is_open: null` (the
+ * feed flags the day closed but a menu is posted, issue #465) is neither open
+ * nor closed, so it gets its own sentence instead of a wrong "nothing is open".
+ * @returns {string|null}
+ */
 export function formatDiningOpen(diningData) {
   const locations = diningData?.locations
   if (!Array.isArray(locations) || locations.length === 0) return null
   const open = locations.filter((l) => l.is_open)
-  if (!open.length) {
+  const unlisted = locations.filter((l) => l.is_open === null)
+  const parts = []
+  if (open.length) {
+    const lines = open.map((l) => `• ${l.name}${l.hours ? ` - ${l.hours}` : ''}`)
+    parts.push(`Open dining locations right now:\n${lines.join('\n')}`)
+  }
+  for (const l of unlisted) {
+    parts.push(`${l.name} has a menu posted today, but its hours are not listed. Check the Dining page for the menu.`)
+  }
+  if (!parts.length) {
     return 'No dining locations are open right now. Check the Dining page for today’s hours.'
   }
-  const lines = open.map((l) => `• ${l.name}${l.hours ? ` - ${l.hours}` : ''}`)
-  return `Open dining locations right now:\n${lines.join('\n')}`
+  return parts.join('\n\n')
 }
 
 /** @returns {string|null} */

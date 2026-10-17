@@ -44,6 +44,7 @@ import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonHours, dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { openState } from '../lib/dining'
 import { useMyCalendar, useMyClasses, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
 import { taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import PageTitle from '../components/PageTitle'
@@ -508,8 +509,11 @@ function buildSuggestions({
     return list.slice(0, 3)
   }
 
-  // Good window - dining open?
-  if (diningStatus?.is_open && freeMinutes >= 25) {
+  // Good window - dining open? A status that is not known (is_open null: a
+  // menu is posted on a day the feed lists no hours for, issue #465) is never
+  // called closed.
+  const diningState = diningStatus ? openState(diningStatus) : null
+  if (diningState === 'open' && freeMinutes >= 25) {
     const hrs = diningStatus.hours && diningStatus.hours !== 'Closed today' ? diningStatus.hours : 'Open now'
     list.push({
       icon: 'dining',
@@ -517,7 +521,14 @@ function buildSuggestions({
       time: hrs,
       variant: 'dining-open',
     })
-  } else if (diningStatus && !diningStatus.is_open) {
+  } else if (diningState === 'unknown' && freeMinutes >= 25) {
+    list.push({
+      icon: 'dining',
+      text: `${diningStatus.name} has a menu posted`,
+      time: 'Hours not listed',
+      variant: 'dining-unknown',
+    })
+  } else if (diningState === 'closed') {
     const hoursLine = diningStatus.hours && diningStatus.hours !== 'Closed' ? diningStatus.hours : null
     list.push({
       icon: 'dining',
@@ -1688,6 +1699,7 @@ export default function Home() {
         // now. Drawn only when the hours parse; the text above carries them.
         const ranges = diningStatus ? parseHourRanges(diningStatus.hours) : []
         const nowShare = (now.getHours() * 60 + now.getMinutes()) / (24 * 60)
+        const diningState = diningStatus ? openState(diningStatus) : null
         return (
           <div className="card card-pad r-din">
             <div className="card-head">
@@ -1709,9 +1721,15 @@ export default function Home() {
                   <span className="font-display font-extrabold text-[18px] leading-tight tracking-[-0.01em] text-[var(--color-txt-0)] min-w-0">
                     {diningStatus.name}
                   </span>
-                  <span className={`eyebrow bare shrink-0 ${diningStatus.is_open ? 'text-[var(--color-success)]' : ''}`}>
-                    <span className={`status-dot ${diningStatus.is_open ? 'status-open' : 'bg-[var(--color-txt-3)]'}`} />
-                    {diningStatus.is_open ? 'Open' : 'Closed'}
+                  {/* Open, Closed, or Menu posted when the feed lists no
+                      hours for a day it serves (issue #465). */}
+                  <span className={`eyebrow bare shrink-0 ${diningStatus.is_open ? 'text-[var(--color-success)]' : ''}`} data-dining-widget-status>
+                    <span
+                      className={`status-dot ${
+                        diningState === 'open' ? 'status-open' : diningState === 'unknown' ? 'status-unknown' : 'bg-[var(--color-txt-3)]'
+                      }`}
+                    />
+                    {diningState === 'open' ? 'Open' : diningState === 'unknown' ? 'Menu posted' : 'Closed'}
                   </span>
                 </div>
                 <p className="mt-1 text-[14px] text-[var(--color-txt-1)] tnum">{diningStatus.hours}</p>

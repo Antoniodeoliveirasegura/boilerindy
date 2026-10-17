@@ -9,13 +9,16 @@ import { writeFailureMessage } from '../lib/writeFailure'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiError, refreshDining, useDining } from '../lib/queries/publicData'
 import {
+  OFFICIAL_HOURS_URL,
   SHORT_DAY,
   WEEKDAY_ORDER,
   diningDirectionsUrl,
   emptyMenuState,
   headerBlurb,
   snapshotWeekday,
+  statusDotClass,
   statusLine,
+  weeklyHoursCell,
   type DiningLocation,
   type DiningSnapshot,
   type Station,
@@ -476,7 +479,7 @@ export default function Dining() {
                     {/* On the inverted active pill the dot keeps a surface
                         halo, so it still reads on ink (light) and white (dark). */}
                     <span
-                      className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'} ${
+                      className={`status-dot shrink-0 ${statusDotClass(loc)} ${
                         isSelected ? 'shadow-[0_0_0_2px_var(--color-surface)]' : ''
                       }`}
                     />
@@ -502,7 +505,7 @@ export default function Dining() {
                         {selected.kind === 'retail' && <span className="badge">Food court</span>}
                       </div>
                       <div className="flex items-center gap-2 mt-1.5">
-                        <span className={`status-dot shrink-0 ${selected.is_open ? 'status-open' : 'status-closed'}`} />
+                        <span className={`status-dot shrink-0 ${statusDotClass(selected)}`} />
                         <span className="font-display font-semibold text-[13.5px] text-[var(--color-txt-1)]" data-dining-status>
                           {statusLine(selected)}
                         </span>
@@ -577,7 +580,7 @@ export default function Dining() {
                         the separator: wrapped on a 320px phone it started its line
                         with a stray dot (R66). 18px is the dot plus the gap. */}
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mb-3">
-                      <span className={`status-dot shrink-0 ${loc.is_open ? 'status-open' : 'status-closed'}`} />
+                      <span className={`status-dot shrink-0 ${statusDotClass(loc)}`} />
                       <span className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">{loc.name}</span>
                       <span className="max-sm:basis-full max-sm:pl-[18px] text-[12.5px] text-[var(--color-txt-2)]">
                         <span className="max-sm:hidden">· </span>
@@ -588,9 +591,10 @@ export default function Dining() {
                         day. Phones list the days as rows with the rule on the left. */}
                     <div className="grid grid-cols-1 gap-1 sm:grid-cols-4 sm:gap-x-2 sm:gap-y-3 md:grid-cols-7">
                       {WEEKDAY_ORDER.map((day) => {
-                        const hrs = loc.weekly_hours?.[day] || 'Not posted'
+                        // Closed, or "Not listed" for a day the feed flags
+                        // closed that has a menu (issue #465), in the muted style.
+                        const cell = weeklyHoursCell(loc.weekly_hours?.[day])
                         const isToday = day === weekday
-                        const isClosed = /closed/i.test(hrs)
                         return (
                           <div
                             key={day}
@@ -604,10 +608,10 @@ export default function Dining() {
                             </div>
                             <div
                               className={`font-display text-[13px] md:max-lg:text-[12.5px] leading-snug tnum text-balance ${
-                                isClosed ? 'font-semibold text-[var(--color-txt-3)]' : 'font-bold text-[var(--color-txt-0)]'
+                                cell.muted ? 'font-semibold text-[var(--color-txt-3)]' : 'font-bold text-[var(--color-txt-0)]'
                               }`}
                             >
-                              {isClosed ? 'Closed' : hrs}
+                              {cell.label}
                             </div>
                           </div>
                         )
@@ -615,6 +619,15 @@ export default function Dining() {
                     </div>
                   </div>
                 ))}
+                {/* The feed's hours are unverified: identical placeholder
+                    weekday hours for both halls, and weekends flagged closed
+                    while Tower serves (issue #465). */}
+                <p className="pt-4 text-[12.5px] leading-snug text-[var(--color-txt-2)]" data-dining-hours-note>
+                  These hours come from the campus menu feed and may not be current.{' '}
+                  <a href={OFFICIAL_HOURS_URL} target="_blank" rel="noopener noreferrer" className="prose-link">
+                    Official hours at IU Indy Eats
+                  </a>
+                </p>
               </div>
             ) : (
               <div className="empty row">

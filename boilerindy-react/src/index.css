@@ -1036,6 +1036,8 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   }
   .status-open { background: var(--color-success); }
   .status-closed { background: var(--color-error); }
+  /* Neither open nor closed: the feed lists no hours for a day it serves (issue #465). */
+  .status-unknown { background: var(--color-txt-3); }
   .live-dot {
     width: 8px;
     height: 8px;
@@ -2064,6 +2066,8 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     opacity: 0.3;
     animation: pulse-ring 2.4s ease-out infinite;
   }
+  /* An unknown status is not live, so it does not pulse. */
+  .status-dot.status-unknown::after { content: none; }
   .skeleton { animation: pulse 1.6s ease-in-out infinite; }
 }
 

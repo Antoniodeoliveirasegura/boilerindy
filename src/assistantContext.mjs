@@ -49,23 +49,32 @@ function pickMeal(stations, wanted) {
  * Today's dining for the prompt, from a getDiningSnapshot() payload. Open
  * locations list their stations for the current meal (see mealsForPrompt; at
  * most DINING_ITEMS_PER_STATION items each, diet tags kept, calories dropped);
- * closed ones get a single line. `question` is the student's latest message.
- * Returns '' when there is no usable snapshot.
+ * closed ones get a single line. A location whose status is not known
+ * (`is_open: null`: a day the feed flags closed but serves a menu, issue #465)
+ * is said to have a menu posted and no listed hours, and lists its menu like
+ * an open one. `question` is the student's latest message. Returns '' when
+ * there is no usable snapshot.
  */
 export function buildDiningContext(dining, { now = new Date(), question = '' } = {}) {
   if (!dining?.ok || !dining.locations?.length) return ''
   const wanted = mealsForPrompt(now, question, dining.timezone || FALLBACK_TZ)
   const lines = [`=== DINING TODAY (${dining.date}) ===`]
   for (const loc of dining.locations) {
-    if (loc.is_open !== true) {
+    const unknown = loc.is_open === null
+    if (loc.is_open !== true && !unknown) {
       lines.push(`${loc.name}: CLOSED${loc.opens_at ? ` - opens ${loc.opens_at}` : ''}`)
       continue
     }
     const stations = loc.stations || []
     const meal = stations.length ? pickMeal(stations, wanted) : null
-    // "until 9:00 PM" says all an open location needs; 24-hour days keep their label.
-    const hrs = loc.closes_at ? ` until ${loc.closes_at}` : loc.hours && !/^Closed/.test(loc.hours) ? ` - ${loc.hours}` : ''
-    lines.push(`${loc.name}: OPEN${hrs}${meal ? ` (${meal} menu)` : ''}`)
+    const mealNote = meal ? ` (${meal} menu)` : ''
+    if (unknown) {
+      lines.push(`${loc.name}: MENU POSTED, HOURS NOT LISTED${mealNote}`)
+    } else {
+      // "until 9:00 PM" says all an open location needs; 24-hour days keep their label.
+      const hrs = loc.closes_at ? ` until ${loc.closes_at}` : loc.hours && !/^Closed/.test(loc.hours) ? ` - ${loc.hours}` : ''
+      lines.push(`${loc.name}: OPEN${hrs}${mealNote}`)
+    }
     if (stations.length) {
       for (const station of stations) {
         const items = (station.items || [])
