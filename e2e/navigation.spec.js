@@ -150,6 +150,9 @@ test.describe('Menus close when the student navigates', () => {
 
   // The drawer covers the menu button, and its first link (Home) used to sit
   // right under it, so a second tap to close the drawer opened Home instead.
+  // The tap waits for the drawer to finish sliding in: mid-slide, that spot is
+  // the dimmed page at first (which closes the drawer whatever sits under the
+  // button), then the drawer's empty top row, and Close menu only near the end.
   test('a second tap where the phone menu button is closes the drawer', async ({ page, mockApi }) => {
     mockApi.login()
     await page.setViewportSize({ width: 390, height: 844 })
@@ -158,6 +161,9 @@ test.describe('Menus close when the student navigates', () => {
     const box = await toggle.boundingBox()
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await page
+      .getByRole('dialog', { name: 'Menu' })
+      .evaluate((drawer) => Promise.all(drawer.getAnimations().map((slide) => slide.finished)))
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
     await expect(page).toHaveURL(/\/settings$/)
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
