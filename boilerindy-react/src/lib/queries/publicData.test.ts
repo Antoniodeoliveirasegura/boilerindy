@@ -167,6 +167,13 @@ describe('what reaches localStorage', () => {
     expect(shouldDehydrateQuery({ queryKey: ['transit', 'vehicles'], state: { status: 'success' } } as never)).toBe(false)
   })
 
+  test('a dish\'s details are public but stay in memory (issue #468): they would only pile up in storage', () => {
+    expect(isPublicQueryKey(['dining', 'food', 2577937, '2026-10-14'])).toBe(true)
+    expect(isPersistedQueryKey(['dining', 'food', 2577937, '2026-10-14'])).toBe(false)
+    expect(isPersistedQueryKey(['dining'])).toBe(true)
+    expect(shouldDehydrateQuery({ queryKey: ['dining', 'food', 1, '2026-10-14'], state: { status: 'success' } } as never)).toBe(false)
+  })
+
   test('the persister is skipped when storage is missing or throws', () => {
     expect(createQueryPersister(null)).toBeNull()
     const broken = {

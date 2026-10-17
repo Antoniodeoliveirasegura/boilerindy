@@ -340,6 +340,31 @@ const SAMPLE_STATIONS = [
   },
   { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
 ]
+// The per-meal items carry the compact facts of #468; the merged list does not.
+const SAMPLE_FACTS = {
+  'Silver Star Burger': { id: 1929009, serving: '1 each', protein: 17, carbs: 0, fat: 13, sodium: 53 },
+  'Veggie Burger': { id: 2801765, serving: '1 serving', protein: 12, carbs: 14, fat: 6, sodium: 320 },
+  'Baby Spinach': { id: 1925501, serving: '1 cup', protein: 1, carbs: 1, fat: 0, sodium: 24 },
+}
+const SAMPLE_MEAL_STATIONS = SAMPLE_STATIONS.map((st) => ({
+  ...st,
+  everyday: false,
+  items: st.items.map((item) => ({ ...item, ...SAMPLE_FACTS[item.name] })),
+}))
+// GET /api/dining/foods/:id answers for these.
+export const SAMPLE_DISHES = {
+  1929009: {
+    id: 1929009,
+    name: 'Silver Star Burger',
+    description: null,
+    image: null,
+    thumb: null,
+    serving: '1 each',
+    ingredients: 'Beef Patty',
+    icons: ['Avoiding Gluten', 'Good Source of Protein'],
+    nutrition: { calories: 190, g_fat: 13, g_saturated_fat: 4.9, mg_sodium: 53, g_carbs: 0, g_protein: 17 },
+  },
+}
 
 export function sampleDiningLocation(overrides = {}) {
   return {
@@ -360,7 +385,7 @@ export function sampleDiningLocation(overrides = {}) {
     // One menu per meal (issue #466). Each carries the same two stations, as
     // specials, so a spec sees them whatever meal the clock opens on; the meal
     // tab specs seed their own menus and fix the clock.
-    menus: ['breakfast', 'lunch', 'dinner'].map((meal) => ({ meal, stations: SAMPLE_STATIONS.map((st) => ({ ...st, everyday: false })) })),
+    menus: ['breakfast', 'lunch', 'dinner'].map((meal) => ({ meal, stations: SAMPLE_MEAL_STATIONS })),
     stations: SAMPLE_STATIONS,
     // A feed republished a week before the sample date (issue #467).
     menu_source: { last_updated: '2026-09-02T04:26:22Z', stale: false, reason: null },
@@ -873,6 +898,13 @@ export const test = base.extend({
         const seed = state.dining || {}
         if (seed.unavailable) return json(route, 200, unavailableDining())
         return json(route, 200, seed.snapshot || sampleDining())
+      }
+      // One dish's details (#468), for the sample's dishes by id.
+      const dishMatch = /^\/api\/dining\/foods\/(\d+)$/.exec(pathname)
+      if (dishMatch && method === 'GET') {
+        const dish = SAMPLE_DISHES[dishMatch[1]]
+        if (!dish) return json(route, 404, { error: { message: 'That dish is not on the menu that day.', status: 404, code: 'dining_food_not_found' } })
+        return json(route, 200, { ok: true, date: searchParams.get('date') || '2026-09-09', food: dish })
       }
       if (pathname === '/api/me/dining/favorites') {
         if (method === 'GET') return json(route, 200, { favorites: [...state.diningFavorites] })

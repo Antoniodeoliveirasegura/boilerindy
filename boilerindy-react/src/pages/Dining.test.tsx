@@ -97,8 +97,9 @@ function renderDining() {
   }
 }
 
+// The star, not the dish's own button, which opens its details (issue #468).
 async function star() {
-  return screen.findByRole('button', { name: /Veggie Burger/ })
+  return screen.findByRole('button', { name: /Veggie Burger (to|from) favorites/ })
 }
 
 it.each([
@@ -389,5 +390,88 @@ describe('the official menu and a stale feed', () => {
     )
     // The menu it has still shows.
     expect(screen.getByText('Veggie Burger')).toBeInTheDocument()
+  })
+})
+
+// Issue #468: diet filters from the feed's labels, with the allergen caveat
+// always beside them, and a dish that opens its details.
+describe('diet filters and dish details', () => {
+  const tower = snapshot.locations[0]
+  const lunch = {
+    ...snapshot,
+    locations: [
+      {
+        ...tower,
+        menus: [
+          {
+            meal: 'lunch',
+            stations: [
+              {
+                name: 'Daily Grill',
+                everyday: false,
+                items: [
+                  { id: 11, name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
+                  { id: 12, name: 'Black Bean Burger', calories: 210, icons: ['Vegan', 'Vegetarian'], protein: 9, thumb: 'https://images.example.test/bean.220x0.jpg' },
+                  { id: 13, name: 'Cheeseburger', calories: 300, icons: [] },
+                ],
+              },
+              { name: 'Chef Made Soups', everyday: false, items: [{ id: 21, name: 'Chicken Miso Soup', calories: 90, icons: [] }] },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  const detail = {
+    ok: true,
+    date: '2026-09-09',
+    food: { id: 12, name: 'Black Bean Burger', description: null, image: null, thumb: null, serving: '1 each', ingredients: 'Black Bean Patty^', icons: ['Vegan'], nutrition: { calories: 210, g_protein: 9 } },
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) =>
+      String(input).startsWith('/api/dining/foods/') ? new Response(JSON.stringify(detail)) : new Response(JSON.stringify(lunch)),
+    )
+  })
+
+  it('filters the meal by a label, says labels are not allergen information, and remembers the choice', async () => {
+    renderDining()
+    await screen.findByText('Cheeseburger')
+    expect(screen.getByText(/They are not allergen information: the feed lists no allergens/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vegetarian' }))
+    expect(screen.getByRole('button', { name: 'Vegetarian' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Veggie Burger')).toBeInTheDocument()
+    expect(screen.getByText('Black Bean Burger')).toBeInTheDocument()
+    expect(screen.queryByText('Cheeseburger')).toBeNull()
+    // The soup station has nothing left and is hidden.
+    expect(screen.queryByText('Chef Made Soups')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('boilerindy-dining-diet-filters-v1') || '[]')).toEqual(['Vegetarian'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Avoiding Gluten' }))
+    expect(screen.getByText('Nothing on this menu is labelled Vegetarian and Avoiding Gluten.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('Cheeseburger')).toBeInTheDocument()
+    expect(localStorage.getItem('boilerindy-dining-diet-filters-v1')).toBe('[]')
+  })
+
+  it('applies the filters saved on this device', async () => {
+    localStorage.setItem('boilerindy-dining-diet-filters-v1', '["Vegan"]')
+    renderDining()
+    expect(await screen.findByText('Black Bean Burger')).toBeInTheDocument()
+    expect(screen.queryByText('Veggie Burger')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Vegan' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('a dish opens its details, loaded for the snapshot\'s date', async () => {
+    renderDining()
+    fireEvent.click(await screen.findByRole('button', { name: 'Black Bean Burger' }))
+    const dialog = screen.getByRole('dialog', { name: 'Black Bean Burger' })
+    expect(await within(dialog).findByText('Black Bean Patty^')).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/dining/foods/12?date=2026-09-09', expect.anything())
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Black Bean Burger' })).toHaveFocus()
   })
 })

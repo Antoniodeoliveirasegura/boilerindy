@@ -40,6 +40,10 @@ Not every route has moved to this envelope yet, so a client should read
 | `purdue_link_unconfigured` | 503 | `POST /api/purdue/link-token` | `SESSION_SECRET` is shorter than 32 characters. | Show linking as unavailable. |
 | `sign_in_codes_schema_missing` | 503 | `POST /api/auth/sign-in`, `POST /api/auth/register-supabase`, `POST /api/auth/sign-in/verify`, `POST /api/auth/sign-in/resend` | `LOGIN_TWO_FACTOR` is on but `sign_in_challenges` is missing: README step 41, `db/supabase-sign-in-challenges.sql`, has not run. A sign-up answering it has already created the account. | Show the message; email + password sign-in waits on the migration, Google sign-in is unaffected. |
 | `purdue_link_unauthorized` | 401 | `POST /api/purdue/link-token` | The session has no valid student id. | Send the student to sign in again. |
+| `dining_bad_food` | 400 | `GET /api/dining/foods/:id` | The id is not a Nutrislice food id (digits only). | A client bug: the ids come from the `/api/dining` snapshot. |
+| `dining_bad_date` | 400 | `GET /api/dining/foods/:id` | `?date=` is not a real date from yesterday to today + 14 on the Indianapolis calendar. | Use the snapshot's `date`. |
+| `dining_food_not_found` | 404 | `GET /api/dining/foods/:id` | The dish is not on any of that date's menus (issue #468). | Show what the snapshot item already has; the menu may have changed since it loaded. |
+| `dining_internal` | 500 | `GET /api/dining/foods/:id` | The lookup failed (logged as `Nutrislice dish error:`). | Show the snapshot item's facts and offer a retry. |
 
 Every `*_schema_missing` code ends in `_schema_missing`, so a client can match
 the suffix instead of listing features: the mobile app maps `503` plus that
@@ -125,7 +129,7 @@ must not assume `error` is an object or that its `message` is safe to show.
 - `POST /api/assistant`, `GET /api/parking/garages` and `GET /api/clubs` answer
   `{ error: "<text>" }`.
 - `GET /api/dining` answers `{ ok: false, error: "dining_bad_date" | "dining_internal", locations: [] }`
-  (see [dining.md](dining.md)).
+  (see [dining.md](dining.md)). Its dish details read uses the envelope (see Codes).
 - The cron routes `POST /api/internal/push/run-reminders` and
   `POST /api/internal/sources/resync` answer `{ ok: false, error: "<text>" }`.
 

@@ -1,19 +1,27 @@
 import { describe, expect, test } from 'vitest'
 import {
   ALL_MEALS,
+  DIET_FILTERS,
+  DIET_FILTERS_KEY,
+  DIET_LABEL_NOTE,
   HOURS_NOT_LISTED,
   diningDirectionsUrl,
   emptyMenuState,
   feedNotice,
+  filterStations,
   headerBlurb,
   locationMenus,
+  macroLine,
+  nutritionRows,
   openState,
+  readDietFilters,
   snapshotWeekday,
   splitStations,
   statusDotClass,
   statusLine,
   todaysMealHeading,
   weeklyHoursCell,
+  writeDietFilters,
 } from './dining'
 
 // Issue #119 - the Dining page formats the server snapshot with these helpers;
@@ -143,5 +151,77 @@ describe('feedNotice', () => {
     expect(feedNotice({ menu_source: { stale: false, reason: null, last_updated: '2026-10-10T04:26:22Z' } })).toBeNull()
     expect(feedNotice({ menu_source: null })).toBeNull()
     expect(feedNotice({})).toBeNull()
+  })
+})
+
+// Issue #468: diet filters from the feed's own labels, never an allergen filter.
+describe('diet filters', () => {
+  const grill = {
+    name: 'Daily Grill',
+    items: [
+      { name: 'Veggie Burger', icons: ['Vegetarian'] },
+      { name: 'Black Bean Burger', icons: ['Vegan', 'Vegetarian', 'Avoiding Gluten'] },
+      { name: 'Cheeseburger', icons: [] },
+    ],
+  }
+  const soups = { name: 'Chef Made Soups', items: [{ name: 'Chicken Miso Soup', icons: ['Good Source of Protein'] }] }
+
+  test('the labels are the feed\'s diet labels, and the note says they are not allergen information', () => {
+    expect([...DIET_FILTERS]).toEqual(['Vegetarian', 'Vegan', 'Avoiding Gluten'])
+    expect(DIET_LABEL_NOTE).toContain('not allergen information')
+    expect(DIET_LABEL_NOTE).toContain('ask dining staff about allergies')
+  })
+
+  test('filterStations keeps the dishes with every chosen label and drops stations left empty', () => {
+    expect(filterStations([grill, soups], [])).toEqual([grill, soups])
+    expect(filterStations([grill, soups], ['Vegetarian'])).toEqual([{ ...grill, items: grill.items.slice(0, 2) }])
+    expect(filterStations([grill, soups], ['Vegan', 'Avoiding Gluten'])).toEqual([{ ...grill, items: [grill.items[1]] }])
+    expect(filterStations([soups], ['Vegan'])).toEqual([])
+  })
+
+  test('the choice is saved per device, read back defensively', () => {
+    const store = new Map<string, string>()
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }
+    writeDietFilters(['Vegan', 'Peanut Free', 'Vegetarian'], storage)
+    expect(store.get(DIET_FILTERS_KEY)).toBe('["Vegetarian","Vegan"]')
+    expect(readDietFilters(storage)).toEqual(['Vegetarian', 'Vegan'])
+    store.set(DIET_FILTERS_KEY, '{oops')
+    expect(readDietFilters(storage)).toEqual([])
+    store.set(DIET_FILTERS_KEY, '"Vegan"')
+    expect(readDietFilters(storage)).toEqual([])
+    const broken = {
+      getItem: () => {
+        throw new Error('SecurityError')
+      },
+      setItem: () => {
+        throw new Error('QuotaExceededError')
+      },
+    }
+    expect(readDietFilters(broken)).toEqual([])
+    expect(() => writeDietFilters(['Vegan'], broken)).not.toThrow()
+    expect(readDietFilters(null)).toEqual([])
+  })
+})
+
+describe('nutritionRows and macroLine', () => {
+  test('the main facts in label order, then vitamins and minerals, only what the feed has', () => {
+    const rows = nutritionRows({ calories: 326, g_protein: 21, g_fat: 14.25, mg_sodium: 610, mg_iron: 1.6, mcg_vitamin_d: 0 })
+    expect(rows.main).toEqual([
+      { key: 'calories', label: 'Calories', value: '326' },
+      { key: 'g_fat', label: 'Total fat', value: '14.3 g' },
+      { key: 'mg_sodium', label: 'Sodium', value: '610 mg' },
+      { key: 'g_protein', label: 'Protein', value: '21 g' },
+    ])
+    expect(rows.minor).toEqual([
+      { key: 'mg_iron', label: 'Iron', value: '1.6 mg' },
+      { key: 'mcg_vitamin_d', label: 'Vitamin D', value: '0 mcg' },
+    ])
+    expect(nutritionRows(null)).toEqual({ main: [], minor: [] })
+  })
+
+  test('macroLine reads the compact facts a menu item carries', () => {
+    expect(macroLine({ protein: 17, carbs: 0, fat: 13, sodium: 53 })).toBe('Protein 17 g · Carbs 0 g · Fat 13 g · Sodium 53 mg')
+    expect(macroLine({ protein: 4.25 })).toBe('Protein 4.3 g')
+    expect(macroLine({})).toBe('')
   })
 })
