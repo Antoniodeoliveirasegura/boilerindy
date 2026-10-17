@@ -130,18 +130,20 @@ function isStillRelevantToday(item: any, now: Date) {
 }
 
 /**
- * Events not over yet, soonest first: one still running (a week-long event,
- * say) counts, one that ended does not. The free-time suggestion takes the
- * first, and the feed lists past events too, in no particular order.
+ * Events not over yet, for the free-time suggestion, which takes the first;
+ * the feed lists past events too, in no particular order. "Not over" is the
+ * Today's events rule (isStillRelevantToday), so an all-day event with no end
+ * time stays for its whole day. Events from today on come soonest first, and
+ * one still running from an earlier day (a week-long event) only after them:
+ * a social on right now beats tomorrow's event, tonight's beats a week-long one.
  */
-function upcomingEventsFrom(items: any[], now: Date) {
+function upcomingEventsFrom<T extends { startTime?: string | null }>(items: T[], now: Date): T[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startMs = (item: T) => new Date(item.startTime ?? '').getTime()
+  const fromEarlierDay = (item: T) => (startMs(item) < startOfToday ? 1 : 0)
   return (items || [])
-    .filter((item) => {
-      if (!item?.startTime) return false
-      const end = item.endTime ? new Date(item.endTime) : null
-      return end ? end > now : new Date(item.startTime) >= now
-    })
-    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .filter((item) => item?.startTime && isStillRelevantToday(item, now))
+    .sort((a, b) => fromEarlierDay(a) - fromEarlierDay(b) || startMs(a) - startMs(b))
 }
 
 function filterTodayRelevantEvents(items: any[], now: Date) {
@@ -439,6 +441,16 @@ function formatSuggestionEventTiming(item: any, now: Date) {
   if (isSameLocalDay(item.startTime, now)) {
     const t = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     return `Today · ${t}`
+  }
+  // Still running from an earlier day (a week-long event): its start date read
+  // like an event in the past. An end at local midnight closes the day before.
+  if (end && start < now && end > now) {
+    const endsAtMidnight = end.getHours() === 0 && end.getMinutes() === 0
+    const lastDay = endsAtMidnight ? new Date(end.getTime() - 1) : end
+    if (isSameLocalDay(lastDay, now)) {
+      return endsAtMidnight ? 'On now · ends today' : `On now · until ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    }
+    return `On now · until ${lastDay.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
   }
   const dayPart = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
   const timePart = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
