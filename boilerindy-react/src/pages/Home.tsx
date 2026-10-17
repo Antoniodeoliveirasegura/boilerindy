@@ -45,7 +45,8 @@ import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonHours, dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import { errorMessage, useDining, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
-import { openState } from '../lib/dining'
+import { locationMenus, openState, splitStations, todaysMealHeading } from '../lib/dining'
+import { defaultMeal } from '../../../src/diningMeals.mjs'
 import { useMyCalendar, useMyClasses, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
 import { taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import PageTitle from '../components/PageTitle'
@@ -660,7 +661,7 @@ export default function Home() {
   // Dining snapshot from the shared entry the Dining page uses too (#251).
   const diningQuery = useDining()
   const { diningStatus, diningPreview } = useMemo(() => {
-    const none = { diningStatus: null as any, diningPreview: null as { items: string[] } | null }
+    const none = { diningStatus: null as any, diningPreview: null as { items: string[]; heading: string } | null }
     const data = diningQuery.data as any
     if (!data?.ok || !Array.isArray(data.locations)) return none
     const tower = data.locations.find((l: any) => l.slug === 'tower-dining') || data.locations[0]
@@ -675,8 +676,16 @@ export default function Home() {
       hours: todayHrs || tower.hours,
       weekly_hours: tower.weekly_hours || null,
     }
-    const names = (tower.stations || []).flatMap((s: any) => s.items || []).map((i: any) => i.name).filter(Boolean)
-    return { diningStatus: status as any, diningPreview: names.length > 0 ? { items: names.slice(0, 8) as string[] } : null }
+    // The meal being served now (issue #466), the dishes that change today
+    // first; a snapshot from before per-meal menus previews its merged list.
+    const menus = locationMenus(tower)
+    const meal = defaultMeal(menus.map((m) => m.meal))
+    const { specials, everyday } = splitStations(menus.find((m) => m.meal === meal)?.stations ?? [])
+    const names = [...specials, ...everyday].flatMap((s) => s.items || []).map((i) => i.name).filter(Boolean)
+    return {
+      diningStatus: status as any,
+      diningPreview: names.length > 0 ? { items: names.slice(0, 8), heading: todaysMealHeading(meal) } : null,
+    }
   }, [diningQuery.data])
 
   const [boardPreview, setBoardPreview] = useState<any[]>([])
@@ -1759,7 +1768,7 @@ export default function Home() {
               </div>
             )}
 
-            <div className="eyebrow mb-1">{diningPreview ? "Today's menu" : 'Sample items'}</div>
+            <div className="eyebrow mb-1">{diningPreview ? diningPreview.heading : 'Sample items'}</div>
             {/* Rules sit only between rows: none above the first row, none
                 under the last, so an odd count leaves no short column. */}
             <ul className="grid grid-cols-2 gap-x-5">

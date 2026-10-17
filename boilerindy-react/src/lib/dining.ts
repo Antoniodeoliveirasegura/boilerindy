@@ -2,7 +2,14 @@
 // shapes mirror renderSnapshot() in src/nutrisliceDining.mjs on the server.
 
 export type MenuItem = { name: string; calories?: number | null; icons?: string[] }
-export type Station = { name: string; items: MenuItem[] }
+/** `everyday`: the station serves the same food all week (issue #466); absent means it changes. */
+export type Station = { name: string; everyday?: boolean; items: MenuItem[] }
+/** One meal's whole menu (issue #466). */
+export type MealMenu = { meal: string; stations: Station[] }
+
+// The single view for a snapshot from before per-meal menus, which only has
+// every meal merged into `stations`.
+export const ALL_MEALS = 'all'
 
 export type DiningLocation = {
   id: string
@@ -19,6 +26,9 @@ export type DiningLocation = {
   weekly_hours?: Record<string, string> | null
   meal?: string
   menusPublished?: boolean
+  /** One whole menu per meal, in serving order (issue #466). */
+  menus?: MealMenu[]
+  /** Deprecated: every meal merged into one list; still read when `menus` is missing. */
   stations?: Station[]
   warnings?: unknown
 }
@@ -82,6 +92,26 @@ export function weeklyHoursCell(hours: string | null | undefined): { label: stri
   if (hours === HOURS_NOT_LISTED) return { label: 'Not listed', muted: true }
   if (/closed/i.test(hours)) return { label: 'Closed', muted: true }
   return { label: hours, muted: false }
+}
+
+/**
+ * A location's meals: its per-meal menus, or, for a snapshot persisted from
+ * before them, one ALL_MEALS view of the merged stations. Empty when nothing
+ * is posted.
+ */
+export function locationMenus(loc: Pick<DiningLocation, 'menus' | 'stations'>): MealMenu[] {
+  if (loc.menus && loc.menus.length) return loc.menus
+  return loc.stations && loc.stations.length ? [{ meal: ALL_MEALS, stations: loc.stations }] : []
+}
+
+/** A meal's stations split into the ones that change day to day and the every-day ones, each in feed order. */
+export function splitStations(stations: Station[]): { specials: Station[]; everyday: Station[] } {
+  return { specials: stations.filter((s) => !s.everyday), everyday: stations.filter((s) => s.everyday) }
+}
+
+/** "Today's lunch" for a meal slug, "Today's menu" for anything else. */
+export function todaysMealHeading(meal: string | null | undefined): string {
+  return meal && ['breakfast', 'brunch', 'lunch', 'dinner'].includes(meal) ? `Today's ${meal}` : "Today's menu"
 }
 
 export type EmptyMenuState = { kind: 'retail' | 'no-menu'; icon: string; title: string; body: string }

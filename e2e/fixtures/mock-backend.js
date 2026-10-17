@@ -330,6 +330,17 @@ const WEEKDAY_HOURS = {
 }
 const TOWER_WEEK_HOURS = { ...WEEKDAY_HOURS, Saturday: 'Hours not listed', Sunday: 'Hours not listed' }
 
+const SAMPLE_STATIONS = [
+  {
+    name: 'Daily Grill',
+    items: [
+      { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] },
+      { name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
+    ],
+  },
+  { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
+]
+
 export function sampleDiningLocation(overrides = {}) {
   return {
     id: 'tower-dining',
@@ -346,16 +357,11 @@ export function sampleDiningLocation(overrides = {}) {
     timezone: 'America/Indiana/Indianapolis',
     meal: 'Menus: breakfast, lunch, dinner',
     menusPublished: true,
-    stations: [
-      {
-        name: 'Daily Grill',
-        items: [
-          { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] },
-          { name: 'Veggie Burger', calories: 160, icons: ['Vegetarian'] },
-        ],
-      },
-      { name: 'Salad Bar', items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] },
-    ],
+    // One menu per meal (issue #466). Each carries the same two stations, as
+    // specials, so a spec sees them whatever meal the clock opens on; the meal
+    // tab specs seed their own menus and fix the clock.
+    menus: ['breakfast', 'lunch', 'dinner'].map((meal) => ({ meal, stations: SAMPLE_STATIONS.map((st) => ({ ...st, everyday: false })) })),
+    stations: SAMPLE_STATIONS,
     ...overrides,
   }
 }
@@ -408,6 +414,7 @@ export function sampleDining(overrides = {}) {
         opens_at: '7:00 AM',
         meal: 'Retail dining, no posted menu',
         menusPublished: false,
+        menus: [],
         stations: [],
       }),
     ],

@@ -90,7 +90,7 @@ test.describe('Campus dining', () => {
     mockApi.login()
     mockApi.seedDining({
       snapshot: sampleDining({
-        locations: [sampleDiningLocation({ stations: [], menusPublished: false, meal: 'Menu not posted yet' })],
+        locations: [sampleDiningLocation({ menus: [], stations: [], menusPublished: false, meal: 'Menu not posted yet' })],
       }),
     })
     await page.goto('/dining')
@@ -121,6 +121,52 @@ test.describe('Campus dining', () => {
     await expect(page.locator('[data-dining-stale]')).toContainText('last menu we fetched (2026-09-09)')
     await expect(page.locator('[data-dining-station="Daily Grill"]')).toBeVisible()
     await expect(page.getByText('· cached')).toHaveCount(0)
+  })
+
+  test('meal tabs open on the meal being served, with every-day stations collapsed (issue #466)', async ({ page, mockApi }) => {
+    // 12:30 PM on campus: lunch.
+    await page.clock.setFixedTime(new Date('2026-10-14T12:30:00-04:00'))
+    mockApi.login()
+    const grill = { name: 'Daily Grill', everyday: true, items: [{ name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten'] }] }
+    const salad = { name: 'Salad Bar', everyday: true, items: [{ name: 'Baby Spinach', calories: 7, icons: ['Vegan'] }] }
+    mockApi.seedDining({
+      snapshot: sampleDining({
+        date: '2026-10-14',
+        weekday: 'Wednesday',
+        locations: [
+          sampleDiningLocation({
+            menus: [
+              { meal: 'breakfast', stations: [{ name: 'Breakfast Entree Line', everyday: false, items: [{ name: 'Blueberry Pancakes', calories: 290, icons: ['Vegetarian'] }] }] },
+              { meal: 'lunch', stations: [grill, { name: 'Chef Made Soups', everyday: false, items: [{ name: 'Chicken Miso Soup', calories: 90, icons: [] }] }, salad] },
+              { meal: 'dinner', stations: [{ name: 'Homestyle', everyday: false, items: [{ name: 'Beef Stroganoff', calories: 450, icons: [] }] }, grill, salad] },
+            ],
+          }),
+        ],
+      }),
+    })
+    await page.goto('/dining')
+
+    const meals = page.locator('[data-dining-meals]')
+    await expect(meals.getByRole('button')).toHaveText(['Breakfast', 'Lunch', 'Dinner'])
+    await expect(meals.getByRole('button', { name: 'Lunch' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('[data-dining-station="Chef Made Soups"]')).toBeVisible()
+    await expect(page.getByText("Today's specials")).toBeVisible()
+    // The every-day stations wait behind one toggle.
+    const everyday = page.locator('[data-dining-everyday]')
+    const toggle = everyday.getByRole('button', { name: /Every day/ })
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle).toContainText('2 stations with the same food all week')
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toBeHidden()
+    await toggle.click()
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toBeVisible()
+    await expect(page.locator('[data-dining-station="Salad Bar"]')).toBeVisible()
+
+    // Dinner has its own specials, and its every-day group starts collapsed.
+    await meals.getByRole('button', { name: 'Dinner' }).click()
+    await expect(meals.getByRole('button', { name: 'Dinner' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('[data-dining-station="Homestyle"]')).toContainText('Beef Stroganoff')
+    await expect(page.locator('[data-dining-station="Chef Made Soups"]')).toHaveCount(0)
+    await expect(everyday.getByRole('button', { name: /Every day/ })).toHaveAttribute('aria-expanded', 'false')
   })
 
   test('starring an item lists it under favorites and survives a reload', async ({ page, mockApi }) => {

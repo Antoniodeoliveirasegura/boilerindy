@@ -285,6 +285,30 @@
               ]
             }
           }
+        },
+        {
+          "id": 433553284,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2955599,
+            "name": "Carnival Cookie",
+            "rounded_nutrition_info": {
+              "calories": 170.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -633,6 +657,30 @@
                   "name": "Protein",
                   "slug": "protein"
                 },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553092,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027913,
+            "name": "Dessert Pizza",
+            "rounded_nutrition_info": {
+              "calories": 119.0
+            },
+            "icons": {
+              "food_icons": [
                 {
                   "enabled": true,
                   "synced_name": "Vegetarian",
@@ -1005,6 +1053,23 @@
               ]
             }
           }
+        },
+        {
+          "id": 433875749,
+          "position": 104,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 1926027,
+            "name": "Rice Krispie Treat",
+            "rounded_nutrition_info": {
+              "calories": 186.0
+            },
+            "icons": {
+              "food_icons": []
+            }
+          }
         }
       ]
     },
@@ -1322,6 +1387,30 @@
                   "name": "Protein",
                   "slug": "protein"
                 },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433224573,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027914,
+            "name": "Banana Pudding",
+            "rounded_nutrition_info": {
+              "calories": 301.0
+            },
+            "icons": {
+              "food_icons": [
                 {
                   "enabled": true,
                   "synced_name": "Vegetarian",
@@ -1669,6 +1758,36 @@
               ]
             }
           }
+        },
+        {
+          "id": 433297509,
+          "position": 103,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 2408064,
+            "name": "Cheesecake",
+            "rounded_nutrition_info": {
+              "calories": 712.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Good Source of Protein",
+                  "name": "Protein",
+                  "slug": "protein"
+                },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -1996,6 +2115,30 @@
               ]
             }
           }
+        },
+        {
+          "id": 433553400,
+          "position": 101,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027915,
+            "name": "Caramel Apple Granny Bar",
+            "rounded_nutrition_info": {
+              "calories": 290.0
+            },
+            "icons": {
+              "food_icons": [
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -2263,6 +2406,30 @@
                   "name": "Protein",
                   "slug": "protein"
                 },
+                {
+                  "enabled": true,
+                  "synced_name": "Vegetarian",
+                  "name": "Vegetarian",
+                  "slug": "vegetarian"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": 433553216,
+          "position": 95,
+          "is_section_title": false,
+          "is_station_header": false,
+          "text": "",
+          "food": {
+            "id": 3027916,
+            "name": "Lemon Bar",
+            "rounded_nutrition_info": {
+              "calories": 218.0
+            },
+            "icons": {
+              "food_icons": [
                 {
                   "enabled": true,
                   "synced_name": "Vegetarian",

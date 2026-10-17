@@ -18,7 +18,10 @@ import {
   __resetDiningCacheForTests,
   buildDiningBase,
   clampDiningDate,
+  EVERYDAY_MIN_OTHER_DAYS,
+  EVERYDAY_MIN_OVERLAP,
   deriveStatusFromSchool,
+  everydayStations,
   extractWeeklyHours,
   formatClock12,
   getDiningSnapshot,
@@ -29,6 +32,7 @@ import {
   pickSchools,
   renderSnapshot,
   shouldSkipSection,
+  stationFoods,
   todayYmdInZone,
   weekdayForYmd,
   weekdayInZone,
@@ -45,6 +49,9 @@ const LUNCH_ROWS = TOWER_LUNCH.days.find((d) => d.date === '2026-09-09').menu_it
 // to a few stations and foods a day: a menu on all seven days, weekends
 // included, while the school rows flag Saturday and Sunday closed (issue #465).
 const WEEKEND_LUNCH = load('nutrislice-tower-lunch-weekend.json')
+// Breakfast for the same week: Breakfast Entree Line on weekdays (it rotates)
+// and Grill Breakfast Options every day (it does not).
+const WEEKEND_BREAKFAST = load('nutrislice-tower-breakfast-weekend.json')
 const ALL_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 // Indianapolis is UTC-4 in September and October; 2026-09-09 is a Wednesday
@@ -297,6 +304,61 @@ test('hasPublishedFood counts the foods ingestMenuStations would show, not condi
   assert.equal(hasPublishedFood(null), false)
 })
 
+test('stationFoods keys each station\'s foods by id and leaves out condiment sections', () => {
+  const saturday = stationFoods(WEEKEND_LUNCH.days.find((d) => d.date === '2026-10-17').menu_items)
+  assert.deepEqual([...saturday.keys()], ['Daily Grill', 'Chef Made Soups', 'Dessert'])
+  assert.equal(saturday.get('Daily Grill').size, 3)
+  assert.ok([...saturday.get('Daily Grill')].every((key) => /^id:\d+$/.test(key)))
+  assert.equal(stationFoods(null).size, 0)
+})
+
+test('everydayStations: the real week tells the stations that repeat from the ones that rotate (issue #466)', () => {
+  assert.equal(EVERYDAY_MIN_OVERLAP, 0.6)
+  assert.equal(EVERYDAY_MIN_OTHER_DAYS, 2)
+  // Lunch: the grill serves the same food all week; soups, desserts and the
+  // weekday Homestyle line change daily.
+  assert.deepEqual([...everydayStations(WEEKEND_LUNCH.days, '2026-10-14')], ['Daily Grill'])
+  assert.deepEqual([...everydayStations(WEEKEND_LUNCH.days, '2026-10-17')], ['Daily Grill'])
+  // Breakfast: the grill options repeat, the entree line rotates.
+  assert.deepEqual([...everydayStations(WEEKEND_BREAKFAST.days, '2026-10-14')], ['Grill Breakfast Options'])
+  assert.deepEqual([...everydayStations(WEEKEND_BREAKFAST.days, '2026-10-17')], ['Grill Breakfast Options'])
+  // A date outside the week has no stations to judge.
+  assert.equal(everydayStations(WEEKEND_LUNCH.days, '2026-10-18').size, 0)
+  assert.equal(everydayStations(null, '2026-10-14').size, 0)
+})
+
+test('everydayStations: the median overlap and the two-day minimum decide', () => {
+  const header = (text) => ({ is_section_title: true, is_station_header: true, text, food: null })
+  const food = (id) => ({ is_section_title: false, is_station_header: false, text: '', food: { id, name: `Food ${id}` } })
+  const day = (date, stations) => ({
+    date,
+    menu_items: Object.entries(stations).flatMap(([name, ids]) => [header(name), ...ids.map(food)]),
+  })
+  const week = [
+    // Grill: identical on every day. Special: new food daily. Edge: three of five
+    // shared with each other day (overlap 0.6, every day). Short: one other day only.
+    day('2026-10-12', { Grill: [1, 2], Special: [10], Edge: [20, 21, 22, 23, 24], Short: [40], Condiments: [50] }),
+    day('2026-10-13', { Grill: [1, 2], Special: [11], Edge: [20, 21, 22, 23, 24], Short: [40] }),
+    day('2026-10-14', { Grill: [1, 2], Special: [12], Edge: [20, 21, 22, 25, 26] }),
+    day('2026-10-15', { Grill: [1, 2], Special: [13], Edge: [20, 21, 22, 27, 28] }),
+  ]
+  // Edge on 10-15 against 10-12, 10-13, 10-14: 3 shared of 7 distinct each, median 3/7, under 0.6.
+  assert.deepEqual([...everydayStations(week, '2026-10-15')].sort(), ['Grill'])
+  // Edge on 10-12: 1.0 (10-13), 3/7 (10-14), 3/7 (10-15): median 3/7, still rotating.
+  assert.deepEqual([...everydayStations(week, '2026-10-12')].sort(), ['Grill'])
+  // Exactly 0.6 counts: four shared of five distinct with each other day.
+  const sixty = [
+    day('2026-10-12', { Edge: [1, 2, 3, 4] }),
+    day('2026-10-13', { Edge: [1, 2, 3, 5] }),
+    day('2026-10-14', { Edge: [1, 2, 3, 6] }),
+  ]
+  assert.equal(3 / 5, 0.6)
+  assert.deepEqual([...everydayStations(sixty, '2026-10-12')], ['Edge'])
+  // A station on only one other day is not judged every day, and condiments never appear.
+  assert.ok(!everydayStations(week, '2026-10-12').has('Short'))
+  assert.ok(!everydayStations(week, '2026-10-12').has('Condiments'))
+})
+
 test('pickSchools resolves the two known halls in LOCATION_FILTERS order and reports what is missing', () => {
   const picked = pickSchools(SCHOOLS)
   assert.deepEqual(picked.map((p) => p.school.slug), ['tower-dining', 'campus-center'])
@@ -334,13 +396,72 @@ test('buildDiningBase fetches menus for the dining hall only, and renderSnapshot
   assert.deepEqual(t.stations[1].items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'], meals: ['lunch'] })
   assert.equal(t.weekly_hours.Wednesday, '7:00 AM - 9:00 PM')
   assert.equal(t.warnings, undefined)
+  // Per-meal menus (issue #466). One day of food in this fixture's week, so
+  // there is nothing to compare with and no station counts as every day.
+  assert.deepEqual(t.menus.map((m) => m.meal), ['lunch'])
+  assert.equal(t.menus[0].stations.length, 7)
+  assert.ok(t.menus[0].stations.every((s) => s.everyday === false))
+  assert.deepEqual(t.menus[0].stations[1].items[0], { name: 'Silver Star Burger', calories: 190, icons: ['Avoiding Gluten', 'Good Source of Protein'] })
   assert.equal(cc.slug, 'campus-center')
   assert.equal(cc.kind, 'retail')
   assert.equal(cc.address, '420 University Blvd, Indianapolis, IN 46202')
   assert.equal(cc.menusPublished, false)
   assert.equal(cc.meal, RETAIL_MENU_NOTE)
   assert.deepEqual(cc.stations, [])
+  assert.deepEqual(cc.menus, [])
   assert.equal(cc.is_open, true)
+})
+
+test('each meal is its own menu, in serving order, with every-day stations learnt from the week (issue #466)', async () => {
+  // Dinner for the same week: lunch's rows with one dessert swapped for a
+  // dinner-only one. Nutrislice lists the menu types dinner, breakfast, lunch;
+  // the snapshot serves them in order.
+  const weekendDinner = structuredClone(WEEKEND_LUNCH)
+  for (const day of weekendDinner.days) {
+    for (const row of day.menu_items) {
+      if (row.food && row.food.name === 'Banana Pudding') row.food = { ...row.food, id: 999001, name: 'Dinner Only Cake' }
+    }
+  }
+  const { fetchImpl, calls } = stubFetch((url) => {
+    if (url.includes('/menu-type/breakfast/')) return WEEKEND_BREAKFAST
+    if (url.includes('/menu-type/lunch/')) return WEEKEND_LUNCH
+    if (url.includes('/menu-type/dinner/')) return weekendDinner
+    return 404
+  })
+  const base = await buildDiningBase(SCHOOLS, '2026-10-14', { fetchImpl })
+  assert.ok(calls[0].includes('/menu-type/dinner/'), 'dinner is still fetched first')
+  const [t] = renderSnapshot(base, at('12:30', '2026-10-14')).locations
+
+  assert.equal(t.meal, 'Menus: breakfast, lunch, dinner')
+  assert.deepEqual(t.menus.map((m) => m.meal), ['breakfast', 'lunch', 'dinner'])
+  const flags = (meal) => Object.fromEntries(t.menus.find((m) => m.meal === meal).stations.map((s) => [s.name, s.everyday]))
+  assert.deepEqual(flags('breakfast'), { 'Breakfast Entree Line': false, 'Grill Breakfast Options': true })
+  assert.deepEqual(flags('lunch'), { Homestyle: false, 'Daily Grill': true, 'Chef Made Soups': false, Dessert: false })
+
+  // Deduped within a meal only: a lunch food that dinner serves too is in both.
+  const names = (meal) => t.menus.find((m) => m.meal === meal).stations.flatMap((s) => s.items.map((i) => i.name))
+  const grillLunch = t.menus.find((m) => m.meal === 'lunch').stations.find((s) => s.name === 'Daily Grill').items.map((i) => i.name)
+  assert.ok(grillLunch.length > 0)
+  for (const name of grillLunch) assert.ok(names('dinner').includes(name), name)
+  // Per-meal items carry no `meals`; the deprecated flat list still does, merged.
+  assert.ok(t.menus.every((m) => m.stations.every((s) => s.items.every((i) => !('meals' in i)))))
+  const flatGrill = t.stations.find((s) => s.name === 'Daily Grill').items[0]
+  assert.deepEqual(flatGrill.meals.sort(), ['dinner', 'lunch'])
+  assert.ok(names('dinner').includes('Dinner Only Cake'))
+  assert.ok(!names('lunch').includes('Dinner Only Cake'))
+})
+
+test('a weekend breakfast with only every-day stations has no specials (issue #466)', async () => {
+  const { fetchImpl } = stubFetch((url) => (url.includes('/menu-type/breakfast/') ? WEEKEND_BREAKFAST : 404))
+  const base = await buildDiningBase(SCHOOLS, '2026-10-17', { fetchImpl })
+  const [t] = renderSnapshot(base, at('09:00', '2026-10-17')).locations
+  assert.deepEqual(t.menus, [
+    {
+      meal: 'breakfast',
+      stations: [{ name: 'Grill Breakfast Options', everyday: true, items: t.menus[0].stations[0].items }],
+    },
+  ])
+  assert.equal(t.menus[0].stations[0].items.length, 2)
 })
 
 test('on a Saturday with a published menu, Tower reads "Hours not listed", never Closed (issue #465)', async () => {

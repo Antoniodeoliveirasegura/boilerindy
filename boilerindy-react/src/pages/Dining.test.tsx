@@ -277,3 +277,79 @@ describe('a day the feed flags closed but that has a menu', () => {
     expect(screen.getByText('Veggie Burger')).toBeInTheDocument()
   })
 })
+
+// Issue #466: one tab per meal, opening on the meal being served on campus
+// time, with the day's specials first and the every-day stations collapsed.
+describe('meal tabs', () => {
+  const tower = snapshot.locations[0]
+  const grill = { name: 'Daily Grill', everyday: true, items: [{ name: 'Cheeseburger', calories: 300, icons: [] }] }
+  const withMenus = (menus: unknown[]) => ({ ...snapshot, date: '2026-10-14', weekday: 'Wednesday', locations: [{ ...tower, menus }] })
+  const week = withMenus([
+    { meal: 'breakfast', stations: [{ name: 'Breakfast Entree Line', everyday: false, items: [{ name: 'Pancakes', calories: 200, icons: [] }] }] },
+    { meal: 'lunch', stations: [grill, { name: 'Chef Made Soups', everyday: false, items: [{ name: 'Chicken Miso Soup', calories: 90, icons: [] }] }] },
+    { meal: 'dinner', stations: [grill, { name: 'Homestyle', everyday: false, items: [{ name: 'Beef Stroganoff', calories: 450, icons: [] }] }] },
+  ])
+  const serve = (body: unknown) => vi.mocked(globalThis.fetch).mockImplementation(async () => new Response(JSON.stringify(body)))
+  const campusTime = (iso: string) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(iso))
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('opens on the meal being served, specials first, every-day stations collapsed', async () => {
+    campusTime('2026-10-14T12:30:00-04:00')
+    serve(week)
+    renderDining()
+
+    expect(await screen.findByRole('button', { name: 'Lunch' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Breakfast' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('Chicken Miso Soup')).toBeVisible()
+    expect(screen.getByText("Today's specials")).toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: /^Every day/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText('Cheeseburger')).not.toBeVisible()
+    fireEvent.click(toggle)
+    expect(screen.getByText('Cheeseburger')).toBeVisible()
+
+    // Another meal: its own specials, and the every-day group collapsed again.
+    fireEvent.click(screen.getByRole('button', { name: 'Dinner' }))
+    expect(screen.getByRole('button', { name: 'Dinner' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Beef Stroganoff')).toBeVisible()
+    expect(screen.queryByText('Chicken Miso Soup')).toBeNull()
+    expect(screen.getByRole('button', { name: /^Every day/ })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('opens on breakfast in the morning and dinner in the evening, by the campus clock', async () => {
+    campusTime('2026-10-14T08:00:00-04:00')
+    serve(week)
+    const { unmount } = renderDining()
+    expect(await screen.findByRole('button', { name: 'Breakfast' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Pancakes')).toBeVisible()
+    unmount()
+
+    // 9 AM in Seoul is 8 PM on campus.
+    campusTime('2026-10-15T09:00:00+09:00')
+    renderDining()
+    expect(await screen.findByRole('button', { name: 'Dinner' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows every-day stations open when a meal has nothing else, like a weekend breakfast', async () => {
+    campusTime('2026-10-17T09:00:00-04:00')
+    serve(withMenus([{ meal: 'breakfast', stations: [{ name: 'Grill Breakfast Options', everyday: true, items: [{ name: 'Scrambled Eggs', calories: 150, icons: [] }] }] }]))
+    renderDining()
+    expect(await screen.findByRole('button', { name: /^Every day/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Scrambled Eggs')).toBeVisible()
+    expect(screen.queryByText("Today's specials")).toBeNull()
+  })
+
+  it('a snapshot from before per-meal menus shows its merged list with no tabs', async () => {
+    serve(snapshot)
+    renderDining()
+    expect(await screen.findByText('Veggie Burger')).toBeVisible()
+    expect(screen.queryByRole('group', { name: 'Meal' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Every day/ })).toBeNull()
+  })
+})

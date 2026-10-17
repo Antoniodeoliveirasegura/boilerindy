@@ -358,3 +358,31 @@ it('still says a hall is closed when the feed says so and there is no menu', asy
   expect(await screen.findByText('Tower Dining is closed right now')).toBeInTheDocument()
   expect(diningCard().querySelector('[data-dining-widget-status]')?.textContent).toBe('Closed')
 })
+
+// Issue #466: the widget previews the meal being served on campus time, the
+// dishes that change today ahead of the every-day ones, and names the meal.
+it('previews the current meal, specials first', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-14T12:30:00-04:00'))
+  try {
+    const grill = { name: 'Daily Grill', everyday: true, items: [{ name: 'Cheeseburger' }] }
+    serveDining(
+      diningSnapshot({
+        is_open: true,
+        hours: '7:00 AM - 9:00 PM',
+        menus: [
+          { meal: 'breakfast', stations: [{ name: 'Breakfast Entree Line', everyday: false, items: [{ name: 'Pancakes' }] }] },
+          { meal: 'lunch', stations: [grill, { name: 'Chef Made Soups', everyday: false, items: [{ name: 'Chicken Miso Soup' }] }] },
+        ],
+      }),
+    )
+    renderHome()
+
+    expect(await within(await waitFor(() => diningCard())).findByText("Today's lunch")).toBeInTheDocument()
+    const items = within(diningCard()).getAllByRole('listitem').map((li) => li.textContent)
+    expect(items).toEqual(['Chicken Miso Soup', 'Cheeseburger'])
+    expect(within(diningCard()).queryByText('Pancakes')).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
+})
