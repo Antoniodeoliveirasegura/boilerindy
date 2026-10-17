@@ -229,3 +229,51 @@ describe('the AI pick', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't reach the assistant right now. Try again in a moment.")
   })
 })
+
+// Issue #465: on a weekend the feed flags Tower closed while it serves a full
+// menu. The server sends is_open: null and "Hours not listed"; the page says a
+// menu is posted, prints "Not listed" for those days, and links the official hours.
+describe('a day the feed flags closed but that has a menu', () => {
+  const saturday = {
+    ...snapshot,
+    date: '2026-10-17',
+    weekday: 'Saturday',
+    locations: [
+      {
+        ...snapshot.locations[0],
+        is_open: null,
+        hours: 'Hours not listed',
+        closes_at: null,
+        opens_at: null,
+        weekly_hours: {
+          Monday: '7:00 AM - 9:00 PM',
+          Tuesday: '7:00 AM - 9:00 PM',
+          Wednesday: '7:00 AM - 9:00 PM',
+          Thursday: '7:00 AM - 9:00 PM',
+          Friday: '7:00 AM - 9:00 PM',
+          Saturday: 'Hours not listed',
+          Sunday: 'Hours not listed',
+        },
+      },
+    ],
+  }
+
+  it('says a menu is posted and the hours are not listed, never Closed', async () => {
+    vi.mocked(globalThis.fetch).mockImplementation(async () => new Response(JSON.stringify(saturday)))
+    const { container } = renderDining()
+
+    // The header and the weekly hours card both carry the status line.
+    expect(await screen.findAllByText('Menu posted · hours not listed')).toHaveLength(2)
+    expect(container.querySelector('[data-dining-status]')).toHaveTextContent('Menu posted · hours not listed')
+    expect(screen.getByText('Today: Hours not listed · Menus: breakfast, lunch, dinner')).toBeInTheDocument()
+    expect(screen.queryByText(/Closed/)).toBeNull()
+    expect(screen.getAllByText('Not listed')).toHaveLength(2)
+    expect(container.querySelector('.status-closed')).toBeNull()
+    expect(container.querySelectorAll('.status-unknown').length).toBeGreaterThan(0)
+    expect(screen.getByRole('link', { name: 'Official hours at IU Indy Eats' })).toHaveAttribute(
+      'href',
+      'https://dineoncampus.com/iuindy/hours-of-operation',
+    )
+    expect(screen.getByText('Veggie Burger')).toBeInTheDocument()
+  })
+})

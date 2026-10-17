@@ -28,13 +28,47 @@ test.describe('Campus dining', () => {
       'https://www.google.com/maps/dir/?api=1&destination=University%20Tower%2C%20911%20W%20North%20St%2C%20Indianapolis%2C%20IN%2046202',
     )
 
-    // Weekly hours: both halls, the campus weekday highlighted, weekends closed.
+    // Weekly hours: both halls, the campus weekday highlighted. Tower serves
+    // weekend menus the feed lists no hours for (issue #465); the Campus
+    // Center posts no menu, so its weekend days stay Closed.
     await expect(page.locator('[data-dining-hours-for]')).toHaveCount(2)
     const todayCells = page.locator('[data-hours-today]')
     await expect(todayCells).toHaveCount(2)
     await expect(todayCells.first()).toContainText('Wed')
-    await expect(page.locator('[data-dining-hours-for="tower-dining"]')).toContainText('Closed')
+    await expect(page.locator('[data-dining-hours-for="tower-dining"]')).toContainText('Not listed')
+    await expect(page.locator('[data-dining-hours-for="tower-dining"]')).not.toContainText('Closed')
+    await expect(page.locator('[data-dining-hours-for="campus-center"]')).toContainText('Closed')
+    await expect(page.locator('[data-dining-hours-note]').getByRole('link', { name: 'Official hours at IU Indy Eats' })).toHaveAttribute(
+      'href',
+      'https://dineoncampus.com/iuindy/hours-of-operation',
+    )
     await expect(page.getByText('7:00 - 10:30 AM')).toHaveCount(0)
+  })
+
+  test('on a Saturday with a posted menu Tower is not called closed (issue #465)', async ({ page, mockApi }) => {
+    mockApi.login()
+    const tower = sampleDiningLocation({ is_open: null, hours: 'Hours not listed', closes_at: null, opens_at: null })
+    const campusCenter = sampleDining().locations[1]
+    mockApi.seedDining({
+      snapshot: sampleDining({
+        date: '2026-10-17',
+        weekday: 'Saturday',
+        locations: [tower, { ...campusCenter, is_open: false, hours: 'Closed today', opens_at: null }],
+      }),
+    })
+    await page.goto('/dining')
+
+    await expect(page.getByText('Menu for Saturday, 2026-10-17')).toBeVisible()
+    await expect(page.locator('[data-dining-status]')).toHaveText('Menu posted · hours not listed')
+    await expect(page.locator('[data-dining-blurb]')).toContainText('Today: Hours not listed · Menus: breakfast, lunch, dinner')
+    await expect(page.locator('[data-dining-location="tower-dining"] .status-unknown')).toHaveCount(1)
+    await expect(page.locator('[data-dining-station="Daily Grill"]')).toContainText('Silver Star Burger')
+    const towerHours = page.locator('[data-dining-hours-for="tower-dining"]')
+    await expect(towerHours).toContainText('Menu posted · hours not listed')
+    await expect(towerHours.locator('[data-hours-today]')).toContainText('Not listed')
+    await expect(towerHours).not.toContainText('Closed')
+    // The Campus Center has no menu, so the feed's Closed stands for it.
+    await expect(page.locator('[data-dining-hours-for="campus-center"]')).toContainText('Closed today')
   })
 
   test('the Campus Center is a food court, not a hall with a missing menu', async ({ page, mockApi }) => {

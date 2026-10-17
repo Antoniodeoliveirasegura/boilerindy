@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'vitest'
-import { diningDirectionsUrl, emptyMenuState, headerBlurb, snapshotWeekday, statusLine } from './dining'
+import {
+  HOURS_NOT_LISTED,
+  diningDirectionsUrl,
+  emptyMenuState,
+  headerBlurb,
+  openState,
+  snapshotWeekday,
+  statusDotClass,
+  statusLine,
+  weeklyHoursCell,
+} from './dining'
 
 // Issue #119 - the Dining page formats the server snapshot with these helpers;
 // keep them honest about closed halls, retail halls and missing data.
@@ -12,6 +22,28 @@ describe('statusLine', () => {
     expect(statusLine({ is_open: false, hours: '7:00 AM - 9:00 PM', opens_at: '7:00 AM' })).toBe('Closed · opens 7:00 AM')
     expect(statusLine({ is_open: false, hours: '7:00 AM - 9:00 PM', opens_at: null })).toBe('Closed')
     expect(statusLine({ is_open: false, hours: 'Closed today' })).toBe('Closed today')
+  })
+
+  // Issue #465: a day the feed flags closed but that has a published menu.
+  test('a status that is not known is never called open or closed', () => {
+    expect(statusLine({ is_open: null, hours: HOURS_NOT_LISTED, opens_at: null, closes_at: null })).toBe('Menu posted · hours not listed')
+    expect(openState({ is_open: null })).toBe('unknown')
+    expect(openState({ is_open: true })).toBe('open')
+    expect(openState({ is_open: false })).toBe('closed')
+    // An older snapshot never sent null; a missing flag keeps reading as closed.
+    expect(openState({})).toBe('closed')
+    expect(statusDotClass({ is_open: null })).toBe('status-unknown')
+    expect(statusDotClass({ is_open: true })).toBe('status-open')
+    expect(statusDotClass({ is_open: false })).toBe('status-closed')
+  })
+})
+
+describe('weeklyHoursCell', () => {
+  test('prints listed hours as they are and mutes closed and unlisted days', () => {
+    expect(weeklyHoursCell('7:00 AM - 9:00 PM')).toEqual({ label: '7:00 AM - 9:00 PM', muted: false })
+    expect(weeklyHoursCell('Closed')).toEqual({ label: 'Closed', muted: true })
+    expect(weeklyHoursCell(HOURS_NOT_LISTED)).toEqual({ label: 'Not listed', muted: true })
+    expect(weeklyHoursCell(undefined)).toEqual({ label: 'Not posted', muted: false })
   })
 })
 
@@ -54,5 +86,7 @@ describe('headerBlurb', () => {
     expect(headerBlurb(loc, 'Wednesday')).toBe('Today: 7:00 AM - 9:00 PM · Menus: lunch')
     expect(headerBlurb(loc, 'Saturday')).toBe('Today: Closed · Menus: lunch')
     expect(headerBlurb({ hours: undefined, weekly_hours: null, meal: '' }, 'Monday')).toBe('Today: Hours not posted')
+    const weekend = { hours: HOURS_NOT_LISTED, weekly_hours: { Saturday: HOURS_NOT_LISTED }, meal: 'Menus: breakfast, lunch, dinner' }
+    expect(headerBlurb(weekend, 'Saturday')).toBe('Today: Hours not listed · Menus: breakfast, lunch, dinner')
   })
 })

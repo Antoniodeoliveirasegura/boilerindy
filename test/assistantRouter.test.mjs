@@ -66,6 +66,22 @@ test('formatDiningOpen lists open halls and handles closed/empty', () => {
   assert.equal(formatDiningOpen(null), null)
 })
 
+test('formatDiningOpen: a hall with a posted menu and no listed hours is not called closed (issue #465)', () => {
+  const saturday = {
+    locations: [
+      { name: 'Tower Dining', is_open: null, hours: 'Hours not listed' },
+      { name: 'Campus Center', is_open: false, hours: 'Closed today' },
+    ],
+  }
+  const reply = formatDiningOpen(saturday)
+  assert.equal(reply, 'Tower Dining has a menu posted today, but its hours are not listed. Check the Dining page for the menu.')
+  assert.doesNotMatch(reply, /No dining locations are open/)
+  assert.doesNotMatch(reply, /Campus Center/)
+  // Next to an open hall, both are said.
+  const mixed = formatDiningOpen({ locations: [{ name: 'Library Cafe', is_open: true, hours: 'Open 24 hours' }, saturday.locations[0]] })
+  assert.match(mixed, /^Open dining locations right now:\n• Library Cafe - Open 24 hours\n\nTower Dining has a menu posted today/)
+})
+
 test('formatAssignments lists upcoming deadlines or says none', () => {
   const now = new Date('2026-06-16T09:00:00-04:00')
   const reply = formatAssignments([{ title: 'Essay', startTime: '2026-06-17T23:59:00-04:00' }], now, TZ)

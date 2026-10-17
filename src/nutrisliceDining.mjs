@@ -66,6 +66,10 @@ const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 
 export const RETAIL_MENU_NOTE = 'Retail dining, no posted menu'
 export const NO_MENU_NOTE = 'Menu not posted yet'
+// A day the feed flags closed but that carries a published menu (issue #465):
+// Tower publishes full weekend menus while its school row says Saturday and
+// Sunday are closed, so the honest answer is "no hours listed", not Closed.
+export const HOURS_NOT_LISTED = 'Hours not listed'
 
 // Schools + menus per Indianapolis date (YYYY-MM-DD -> entry), and the crawl
 // running for a date, so concurrent misses share it. A snapshot for another
@@ -178,10 +182,16 @@ function windowLabel(win) {
   return a && b ? `${a} - ${b}` : 'Hours unavailable'
 }
 
-export function extractWeeklyHours(school) {
+/**
+ * The week's hours by weekday name. `menuWeekdays` names the weekdays the
+ * fetched week publishes a menu on: a day flagged closed that has one reads
+ * HOURS_NOT_LISTED rather than Closed (issue #465).
+ */
+export function extractWeeklyHours(school, { menuWeekdays = [] } = {}) {
   const result = {}
   DAY_PREFIXES.forEach((p, i) => {
-    result[DAY_LABELS[i]] = windowLabel(dayWindow(school, p))
+    const win = dayWindow(school, p)
+    result[DAY_LABELS[i]] = !win.enabled && menuWeekdays.includes(DAY_LABELS[i]) ? HOURS_NOT_LISTED : windowLabel(win)
   })
   return result
 }
@@ -191,8 +201,10 @@ export function extractWeeklyHours(school) {
  * (11:00 AM - 2:00 AM is open at 1:00 AM), and yesterday's window spilling
  * into the early hours of today. `closes_at` / `opens_at` are 12-hour clocks
  * for the display line ("Open now, until 9:00 PM" / "Closed, opens 7:00 AM").
+ * A day flagged closed whose weekday is in `menuWeekdays` (it has a published
+ * menu) is `is_open: null`, "not known", with HOURS_NOT_LISTED (issue #465).
  */
-export function deriveStatusFromSchool(school, now = new Date()) {
+export function deriveStatusFromSchool(school, now = new Date(), { menuWeekdays = [] } = {}) {
   const tz = school.timezone || FALLBACK_TZ
   const todayIdx = dayIndexInZone(now, tz)
   const nowM = wallClockMinutesInTimeZone(now, tz)
@@ -207,7 +219,12 @@ export function deriveStatusFromSchool(school, now = new Date()) {
       return { is_open: true, hours, closes_at: formatClock12(yesterday.end), opens_at: null, open24h: false, tz }
     }
   }
-  if (!today.enabled) return { is_open: false, hours: 'Closed today', closes_at: null, opens_at: null, open24h: false, tz }
+  if (!today.enabled) {
+    if (menuWeekdays.includes(DAY_LABELS[todayIdx])) {
+      return { is_open: null, hours: HOURS_NOT_LISTED, closes_at: null, opens_at: null, open24h: false, tz }
+    }
+    return { is_open: false, hours: 'Closed today', closes_at: null, opens_at: null, open24h: false, tz }
+  }
   if (today.open24h) return { is_open: true, hours, closes_at: null, opens_at: null, open24h: true, tz }
 
   const startM = parseTimeToMinutes(today.start)
@@ -252,6 +269,30 @@ const SKIP_SECTION_RE = /condiment|^toppings?$|^garnish|infused.{0,8}water|sugar
 
 export function shouldSkipSection(name) {
   return SKIP_SECTION_RE.test((name || '').trim())
+}
+
+/**
+ * True when one day's flat menu_items list at least one food outside the
+ * skipped sections, the same foods ingestMenuStations would show. Used to
+ * tell which days of a fetched week carry a published menu (issue #465).
+ */
+export function hasPublishedFood(menuItems) {
+  if (!Array.isArray(menuItems)) return false
+  let skip = false
+  for (const row of menuItems) {
+    if (row?.is_section_title || row?.is_station_header) {
+      skip = shouldSkipSection(row.text)
+      continue
+    }
+    if (!skip && row?.food?.name) return true
+  }
+  return false
+}
+
+/** The weekday names, Sunday first, that any of `dates` (YYYY-MM-DD) fall on. */
+function weekdaysOf(dates) {
+  const names = new Set([...dates].map(weekdayForYmd).filter(Boolean))
+  return DAY_LABELS.filter((d) => names.has(d))
 }
 
 /**
@@ -334,9 +375,15 @@ async function fetchNutrisliceJson(path, fetchImpl = globalThis.fetch) {
   }
 }
 
+/**
+ * Today's stations for one hall, plus `menuWeekdays`: the weekdays of the
+ * fetched week (each meal's payload covers Sunday to Saturday) on which any
+ * meal publishes food. The status and the weekly hours read it, so a day the
+ * feed flags closed but serves a menu is not shown as Closed (issue #465).
+ */
 async function fetchMenusForSchool(school, ymd, fetchImpl) {
   const parts = ymdParts(ymd)
-  if (!parts) return { stations: [], meals: [], warnings: ['invalid_date'] }
+  if (!parts) return { stations: [], meals: [], warnings: ['invalid_date'], menuWeekdays: [] }
 
   const { year, month, day } = parts
   const slug = school.slug
@@ -344,6 +391,7 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
   const stationMerge = new Map()
   const mealsFound = []
   const warnings = []
+  const menuDates = new Set()
 
   for (const meal of mealSlugsForSchool(school)) {
     const path = `/menu/api/weeks/school/${encodeURIComponent(slug)}/menu-type/${encodeURIComponent(meal)}/${year}/${month}/${day}/`
@@ -353,6 +401,9 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
       continue
     }
     const days = res.data?.days || []
+    for (const d of days) {
+      if (d?.date && hasPublishedFood(d.menu_items)) menuDates.add(d.date)
+    }
     const target = days.find((d) => d.date === ymd) || days[0]
     if (!target?.menu_items?.length) continue
 
@@ -368,7 +419,7 @@ async function fetchMenusForSchool(school, ymd, fetchImpl) {
     .map(([name, items]) => ({ name, items: items.map(({ name, calories, icons, meals }) => ({ name, calories, icons, meals })) }))
     .filter((s) => s.items.length > 0)
 
-  return { stations, meals: mealsFound, warnings }
+  return { stations, meals: mealsFound, warnings, menuWeekdays: weekdaysOf(menuDates) }
 }
 
 /**
@@ -382,12 +433,12 @@ export async function buildDiningBase(allSchools, ymd, { fetchImpl } = {}) {
   const entries = []
   for (const { spec, school } of picked) {
     const kind = locationKind(school)
-    let menu = { stations: [], meals: [], warnings: [] }
+    let menu = { stations: [], meals: [], warnings: [], menuWeekdays: [] }
     if (kind === 'dining-hall') {
       try {
         menu = await fetchMenusForSchool(school, ymd, fetchImpl)
       } catch (e) {
-        menu = { stations: [], meals: [], warnings: [`menu_exception:${String(e?.message || e)}`] }
+        menu = { stations: [], meals: [], warnings: [`menu_exception:${String(e?.message || e)}`], menuWeekdays: [] }
       }
     }
     entries.push({ spec, school, kind, menu })
@@ -403,7 +454,8 @@ export async function buildDiningBase(allSchools, ymd, { fetchImpl } = {}) {
 /** The public snapshot for `now`: base data plus live open/closed per location. */
 export function renderSnapshot(base, now = new Date()) {
   const locations = base.entries.map(({ spec, school, kind, menu }) => {
-    const status = deriveStatusFromSchool(school, now)
+    const menuWeekdays = menu.menuWeekdays || []
+    const status = deriveStatusFromSchool(school, now, { menuWeekdays })
     const menusPublished = kind === 'dining-hall' && menu.meals.length > 0
     const meal = kind === 'retail' ? RETAIL_MENU_NOTE : menusPublished ? `Menus: ${menu.meals.join(', ')}` : NO_MENU_NOTE
     return {
@@ -417,7 +469,7 @@ export function renderSnapshot(base, now = new Date()) {
       closes_at: status.closes_at,
       opens_at: status.opens_at,
       open24h: status.open24h,
-      weekly_hours: extractWeeklyHours(school),
+      weekly_hours: extractWeeklyHours(school, { menuWeekdays }),
       timezone: status.tz,
       meal,
       menusPublished,

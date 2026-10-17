@@ -10,7 +10,8 @@ export type DiningLocation = {
   name: string
   kind?: 'dining-hall' | 'retail'
   address?: string | null
-  is_open?: boolean
+  /** null: not known, a day the feed flags closed that has a published menu (issue #465). */
+  is_open?: boolean | null
   hours?: string
   closes_at?: string | null
   opens_at?: string | null
@@ -43,14 +44,44 @@ export const SHORT_DAY: Record<string, string> = {
   Sunday: 'Sun',
 }
 
-/** "Open now, until 9:00 PM" / "Open 24 hours" / "Closed, opens 7:00 AM" / "Closed today". */
+// The server's value for a day the feed flags closed but that has a published
+// menu (HOURS_NOT_LISTED in src/nutrisliceDining.mjs, issue #465). The weekend
+// flags in the feed are wrong for Tower, and its weekday hours look like
+// placeholders, so the page links the official hours page.
+export const HOURS_NOT_LISTED = 'Hours not listed'
+export const OFFICIAL_HOURS_URL = 'https://dineoncampus.com/iuindy/hours-of-operation'
+
+export type OpenState = 'open' | 'closed' | 'unknown'
+
+/** Open, closed, or not known (`is_open: null`), which must never read as either. */
+export function openState(loc: Pick<DiningLocation, 'is_open'>): OpenState {
+  if (loc.is_open === true) return 'open'
+  return loc.is_open === null ? 'unknown' : 'closed'
+}
+
+/** The status-dot class: green open, red closed, neutral when not known. */
+export function statusDotClass(loc: Pick<DiningLocation, 'is_open'>): string {
+  const state = openState(loc)
+  return state === 'open' ? 'status-open' : state === 'unknown' ? 'status-unknown' : 'status-closed'
+}
+
+/** "Open now, until 9:00 PM" / "Open 24 hours" / "Closed, opens 7:00 AM" / "Closed today" / "Menu posted, hours not listed". */
 export function statusLine(loc: Pick<DiningLocation, 'is_open' | 'hours' | 'closes_at' | 'opens_at' | 'open24h'>): string {
   if (loc.is_open) {
     if (loc.open24h) return 'Open 24 hours'
     return loc.closes_at ? `Open now · until ${loc.closes_at}` : 'Open now'
   }
+  if (loc.is_open === null) return 'Menu posted · hours not listed'
   if (loc.hours === 'Closed today') return 'Closed today'
   return loc.opens_at ? `Closed · opens ${loc.opens_at}` : 'Closed'
+}
+
+/** One day of the weekly grid: what to print and whether it is the muted style. */
+export function weeklyHoursCell(hours: string | null | undefined): { label: string; muted: boolean } {
+  if (!hours) return { label: 'Not posted', muted: false }
+  if (hours === HOURS_NOT_LISTED) return { label: 'Not listed', muted: true }
+  if (/closed/i.test(hours)) return { label: 'Closed', muted: true }
+  return { label: hours, muted: false }
 }
 
 export type EmptyMenuState = { kind: 'retail' | 'no-menu'; icon: string; title: string; body: string }
