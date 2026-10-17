@@ -2,9 +2,9 @@
 
 Issue #30. The cron route that reads Purdue's and IU's public events calendars
 into the shared `campus_events` table every 6 hours, with a dry run that writes
-nothing. Nothing reads the table yet: `/events` and `/free-food` still show only
-each student's own calendar, and the union into `listCalendarItems` is the next
-change, behind a flag. The sources, and why they were chosen, are in
+nothing. `/events` and `/free-food` list the table behind `CAMPUS_EVENTS_FEED`,
+off by default: [campus-events-feed.md](campus-events-feed.md) is that read
+path. The sources, and why they were chosen, are in
 [shared-campus-events.md](shared-campus-events.md).
 
 ## How a run works
@@ -138,6 +138,9 @@ without `rows`, plus `upserted` and, per swept source, `swept`.
    Turning it off later leaves the Engage rows in place, since a source that is
    not fetched is not swept: delete them with
    `delete from campus_events where source_key in ('boilerlink', 'thespot');`.
+   (The read path stops listing them 26 hours after their last run anyway.)
+5. Then turn on the read path, `CAMPUS_EVENTS_FEED`:
+   [campus-events-feed.md](campus-events-feed.md#turning-it-on-owner).
 
 ## Answers
 
@@ -185,8 +188,8 @@ tags it); and pin a versioned model id once the thresholds are tuned.
   with each run and its end is the window's. Localist's `distinct=true` gives
   the same "next occurrence" view of a recurring event.
 - Whether IU Indianapolis's own events are open to Purdue students is an owner
-  decision; the rows carry `source_key = 'iu_events'` so the read path can label
-  or hide them.
+  decision; the rows carry `source_key = 'iu_events'`, and the read path labels
+  them "IU event" until it is made.
 - Each source is ingested in full every run. At today's volumes that is 5 page
   requests with Engage off and about 24 with it on.
 

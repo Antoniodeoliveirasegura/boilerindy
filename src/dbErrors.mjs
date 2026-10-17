@@ -219,7 +219,14 @@ function errorFields(err) {
 const loggedSchemaMissing = new Set()
 const LOGGED_SCHEMA_MISSING_MAX = 200
 
-function logSchemaMissingOnce(config, err) {
+/**
+ * Log the SQL file to run, once per feature, file and database error. Exported
+ * for a read that carries on without the missing table instead of answering
+ * 503 (the shared campus events in src/campusEventsFeed.mjs).
+ * @param {DbFeature} config
+ * @param {unknown} err
+ */
+export function logSchemaMissingOnce(config, err) {
   const files = [].concat(config.sqlFile).join(' and ')
   const { code, message } = errorFields(err)
   const key = `${config.feature}|${files}|${code ?? ''}|${message ?? ''}`

@@ -5,6 +5,7 @@ import { createElement, type ReactNode } from 'react'
 import { authRequest } from '../authApi'
 import { isPersistedQueryKey, shouldDehydrateQuery } from '../queryClient'
 import {
+  CAMPUS_EVENTS_CALENDAR,
   applyToggleToMeta,
   calendarUrl,
   classesUrl,
@@ -46,8 +47,15 @@ afterEach(() => {
 
 describe('keys and urls', () => {
   test('every key starts with the user id and carries the normalized parameters', () => {
-    expect(userKeys.calendar('u1', { categories: 'event', limit: 500 })).toEqual(['me', 'u1', 'calendar', { categories: 'event', limit: 500, from: '' }])
+    expect(userKeys.calendar('u1', { categories: 'event', limit: 500 })).toEqual([
+      'me',
+      'u1',
+      'calendar',
+      { categories: 'event', limit: 500, from: '', shared: false },
+    ])
     expect(userKeys.calendar('u1', { limit: 500 })).toEqual(userKeys.calendar('u1', { limit: 500, categories: undefined }))
+    expect(userKeys.calendar('u1', { limit: 500 })).toEqual(userKeys.calendar('u1', { limit: 500, shared: false }))
+    expect(userKeys.calendar('u1', { limit: 500 })).not.toEqual(userKeys.calendar('u1', { limit: 500, shared: true }))
     expect(userKeys.calendar('u1', { limit: 500 })).not.toEqual(userKeys.calendar('u2', { limit: 500 }))
     expect(userKeys.classes('u1', { limit: 200, mode: 'display' })).toEqual(['me', 'u1', 'classes', { limit: 200, mode: 'display' }])
     expect(userKeys.calendarCategories('u1')).toEqual(['me', 'u1', 'calendar-categories'])
@@ -61,6 +69,14 @@ describe('keys and urls', () => {
     expect(calendarUrl({ limit: 500, from: '2026-09-10T04:00:00.000Z' })).toBe('/api/me/calendar?limit=500&from=2026-09-10T04%3A00%3A00.000Z')
     expect(calendarUrl({})).toBe('/api/me/calendar')
     expect(classesUrl({ limit: 200, mode: 'display' })).toBe('/api/me/classes?limit=200&mode=display')
+  })
+
+  // Issue #30: the Events and Free Food window asks for the shared campus
+  // events; Assignments and Home never do, so no shared row reaches a list
+  // that offers "mark done".
+  test('only the Events and Free Food window asks for the shared campus events', () => {
+    expect(calendarUrl(CAMPUS_EVENTS_CALENDAR)).toBe('/api/me/calendar?categories=campus_event%2Cevent%2Cdeadline&limit=500&shared=1')
+    expect(calendarUrl({ limit: 500, shared: false })).toBe('/api/me/calendar?limit=500')
   })
 
   test('the calendar window lower bound is rounded to local midnight so the key is stable within a day', () => {
