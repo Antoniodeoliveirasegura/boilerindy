@@ -158,6 +158,12 @@ and looks up the `advertisers` row; returns 401 otherwise.
 - Student side: a `sponsored` entry in the `widgetRegistry` in `pages/Home.jsx`
   that fetches `/api/spotlight/active?placement=home-widget`, renders a labeled
   "Sponsored" card, fires an impression on mount and a tap on click.
+- Side rails (`components/spotlight/SideSpotlightRail.tsx`, placement
+  `side-rail`, xl screens and up): AppLayout renders them on every signed-in
+  page except `/events` and `/free-food` (`lib/adFreeRoutes.ts`), the pages
+  that list the shared campus events. Ticketmaster's API terms bar deriving
+  revenue from the use of its API, so the pages its listings can reach carry no
+  ads.
 
 ---
 
