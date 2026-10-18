@@ -14,6 +14,7 @@ export type CampusEventFields = {
   endTime?: string | null
   allDay?: boolean
   shared?: boolean
+  sourceKey?: string
   sourceLabel?: string
   sourceUrl?: string | null
 }
@@ -79,4 +80,54 @@ export function untilLabel(item: Timed, now: Date = new Date()): string {
     return endsAtMidnight ? 'ends today' : `until ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
   }
   return `until ${lastDay.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+}
+
+// ── Where a row came from: the source pills ─────────────────────────────────
+
+/** A row's school on the source pills of Events and Free Food; `mine` is the student's own calendar. */
+export type EventSource = 'purdue' | 'iu' | 'mine'
+export type SourceFilter = 'all' | EventSource
+export type EventSourceCount = { id: EventSource; label: string; count: number }
+
+// The shared rows' sourceKey (SOURCES in src/sharedEvents.mjs) by school:
+// Purdue's calendar and BoilerLink are Purdue's, IU's calendar and TheSpot IU's.
+const SCHOOL_BY_SOURCE_KEY: Record<string, EventSource> = {
+  purdue_events: 'purdue',
+  boilerlink: 'purdue',
+  iu_events: 'iu',
+  thespot: 'iu',
+}
+const EVENT_SOURCE_ORDER: EventSource[] = ['purdue', 'iu', 'mine']
+export const EVENT_SOURCE_LABEL: Record<EventSource, string> = { purdue: 'Purdue', iu: 'IU', mine: 'My calendar' }
+
+type Sourced = Pick<CampusEventFields, 'shared' | 'sourceKey'>
+
+/** The row's school; null for a shared row from a source not listed above, which only "All sources" shows. */
+export function eventSourceOf(item: Sourced): EventSource | null {
+  if (!item.shared) return 'mine'
+  return SCHOOL_BY_SOURCE_KEY[item.sourceKey ?? ''] ?? null
+}
+
+/** A pill per source the rows come from, in a fixed order; none while no row is shared. */
+export function eventSourceCounts(items: Sourced[]): EventSourceCount[] {
+  if (!items.some((item) => item.shared)) return []
+  const counts = new Map<EventSource, number>()
+  for (const item of items) {
+    const source = eventSourceOf(item)
+    if (source) counts.set(source, (counts.get(source) ?? 0) + 1)
+  }
+  return EVENT_SOURCE_ORDER.filter((id) => counts.has(id)).map((id) => ({ id, label: EVENT_SOURCE_LABEL[id], count: counts.get(id) ?? 0 }))
+}
+
+/**
+ * The filter in force. The pills show only for two sources or more, so a pick
+ * whose source has no rows left, or a single source, reads as all: the page
+ * never strands on an empty list with no pill to undo it.
+ */
+export function activeSourceFilter(filter: SourceFilter, counts: EventSourceCount[]): SourceFilter {
+  return filter !== 'all' && counts.length > 1 && counts.some((source) => source.id === filter) ? filter : 'all'
+}
+
+export function matchesSourceFilter(item: Sourced, filter: SourceFilter): boolean {
+  return filter === 'all' || eventSourceOf(item) === filter
 }

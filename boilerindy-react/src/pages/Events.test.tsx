@@ -21,6 +21,7 @@ type Item = {
   endTime?: string | null
   location?: string
   shared?: boolean
+  sourceKey?: string
   sourceLabel?: string
   sourceUrl?: string | null
 }
@@ -176,6 +177,7 @@ describe('shared campus events', () => {
       ...event(id, title, fromNowMs),
       id: `campus:${id}`,
       shared: true,
+      sourceKey: 'iu_events',
       sourceLabel: 'IU event',
       sourceUrl: `https://events.iu.edu/event/${id}`,
       ...extra,
@@ -193,6 +195,7 @@ describe('shared campus events', () => {
         shared('yoga', 'Yoga in the Natatorium', 3 * HOUR),
         shared('thanksgiving', 'Thanksgiving Vacation', 40 * HOUR, {
           category: 'deadline',
+          sourceKey: 'purdue_events',
           sourceLabel: 'Purdue event',
           sourceUrl: 'https://events.purdue.edu/event/thanksgiving',
         }),
@@ -219,6 +222,50 @@ describe('shared campus events', () => {
     // The student's own events have no source and no link.
     fireEvent.click(screen.getByRole('button', { name: /Career fair prep workshop/ }))
     expect(within(detailCard('Career fair prep workshop')).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it("filters by source: Purdue's calendars, IU's or the student's own, with a count on each pill", async () => {
+    calendar = {
+      items: [
+        event('ev-1', 'Career fair prep workshop', 2 * HOUR),
+        shared('yoga', 'Yoga in the Natatorium', 3 * HOUR),
+        shared('chili', 'United Way Chili Cook-off', 4 * HOUR),
+        shared('fuel', 'Boiler Fuel Up', 5 * HOUR, {
+          sourceKey: 'purdue_events',
+          sourceLabel: 'Purdue event',
+          sourceUrl: 'https://events.purdue.edu/event/fuel',
+        }),
+      ],
+    }
+    renderPage()
+    await screen.findByRole('button', { name: /Yoga in the Natatorium/ })
+    const pills = screen.getByRole('group', { name: 'Event source' })
+    expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual([
+      'All sources', 'Purdue (1)', 'IU (2)', 'My calendar (1)',
+    ])
+    expect(within(pills).getByRole('button', { name: 'All sources' })).toHaveAttribute('aria-pressed', 'true')
+    const listed = () =>
+      ['Career fair prep workshop', 'Yoga in the Natatorium', 'United Way Chili Cook-off', 'Boiler Fuel Up'].filter((title) =>
+        screen.queryByRole('button', { name: new RegExp(title) }),
+      )
+
+    fireEvent.click(within(pills).getByRole('button', { name: 'IU (2)' }))
+    expect(within(pills).getByRole('button', { name: 'IU (2)' })).toHaveAttribute('aria-pressed', 'true')
+    expect(listed()).toEqual(['Yoga in the Natatorium', 'United Way Chili Cook-off'])
+    expect(screen.getByText('2 upcoming events from your calendar and campus calendars')).toBeInTheDocument()
+
+    fireEvent.click(within(pills).getByRole('button', { name: 'Purdue (1)' }))
+    expect(listed()).toEqual(['Boiler Fuel Up'])
+    fireEvent.click(within(pills).getByRole('button', { name: 'My calendar (1)' }))
+    expect(listed()).toEqual(['Career fair prep workshop'])
+    fireEvent.click(within(pills).getByRole('button', { name: 'All sources' }))
+    expect(listed()).toHaveLength(4)
+  })
+
+  it('shows no source pills while every row comes from one place', async () => {
+    renderPage()
+    await screen.findByRole('button', { name: /Career fair prep workshop/ })
+    expect(screen.queryByRole('group', { name: 'Event source' })).not.toBeInTheDocument()
   })
 
   it('fills the page for a student with no linked calendar, from the campus calendars', async () => {

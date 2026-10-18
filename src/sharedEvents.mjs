@@ -11,7 +11,8 @@
 //     no id, plus series_key and content_hash;
 //   - the Indianapolis filter: the organizer (Engage, through
 //     isIndianapolisOrganization), a campus place named in the title or the
-//     location, or coordinates within 2.5 km of campus;
+//     location, or coordinates within 2.5 km of campus; LiveWhale groups that
+//     are not for Purdue students (LIVEWHALE_EXCLUDED_GROUPS) drop as `group`;
 //   - the signals each row carries: free_food (the source's own tag first, then
 //     the keyword matcher in src/freeFood.mjs), category, venue_kind and
 //     open_to_all, all from rules;
@@ -196,6 +197,10 @@ const LIVEWHALE_TYPE_CATEGORY = [
   ['functions, festivals, and celebrations', 'social'],
 ]
 const LIVEWHALE_FITNESS_TAG_RE = /^(?:fitness|fitness classes|group fitness classes)$/i
+// LiveWhale groups whose listings are not for Purdue students, compared after
+// foldText. The medical school's calendar is room bookings, exam sittings,
+// grand rounds and research seminars: 50 of the 320 IU listings on 2026-10-18.
+export const LIVEWHALE_EXCLUDED_GROUPS = Object.freeze(['iu school of medicine calendar'])
 const ENGAGE_THEME_CATEGORY = new Map([
   ['social', 'social'],
   ['athletics', 'sports_fitness'],
@@ -315,7 +320,7 @@ function buildEvent(source, listing) {
   else if (westLafayette) venueKind = 'west_lafayette'
   else if (otherCity || point) venueKind = 'elsewhere'
 
-  const indianapolis = indianapolisDecision({
+  const decision = indianapolisDecision({
     org: listing.org === true,
     place,
     near,
@@ -323,6 +328,9 @@ function buildEvent(source, listing) {
     hasCoordinates: point != null,
     scope: Boolean(source.indianapolisScope),
   })
+  // An excluded group drops a listing the place rules would keep; one they
+  // drop already keeps its own reason (far, away).
+  const indianapolis = decision.keep && listing.exclude ? { keep: false, by: listing.exclude } : decision
 
   const externalUid = String(listing.externalUid ?? '').trim() || null
   const row = {
@@ -400,6 +408,7 @@ export function normalizeLiveWhaleEvent(raw, source = sourceByKey('iu_events')) 
   const audience = toArray(raw.event_types_audience).map(clean).filter(Boolean)
   const cost = htmlToText(raw.cost)
   const location = clean(raw.location || raw.location_title)
+  const excluded = LIVEWHALE_EXCLUDED_GROUPS.includes(foldText(clean(raw.group_title)))
   const freeFood =
     tags.some((tag) => /^free food$/i.test(tag)) ||
     hasFreeFood(cost) ||
@@ -422,6 +431,7 @@ export function normalizeLiveWhaleEvent(raw, source = sourceByKey('iu_events')) 
     freeFood,
     openToAll: openToAll(title, audience, LIVEWHALE_OPEN_AUDIENCE_RE),
     seriesGroup: `group:${raw.gid ?? ''}`,
+    exclude: excluded ? 'group' : null,
   })
 }
 

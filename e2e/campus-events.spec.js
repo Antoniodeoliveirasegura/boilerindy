@@ -58,6 +58,14 @@ test.describe('Shared campus events', () => {
     await expect(leap.getByText('Purdue event')).toBeVisible()
     await expect(page.getByRole('button', { name: /United Way Chili Cook-off/ }).getByText('IU event')).toBeVisible()
 
+    // The source pills: IU's events alone, then every source again.
+    const sources = page.getByRole('group', { name: 'Event source' })
+    await sources.getByRole('button', { name: 'IU (1)' }).click()
+    await expect(leap).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /United Way Chili Cook-off/ })).toBeVisible()
+    await sources.getByRole('button', { name: 'All sources' }).click()
+    await expect(leap).toBeVisible()
+
     await leap.click()
     const listing = page.getByRole('link', { name: 'View on events.purdue.edu' })
     await expect(listing).toHaveAttribute('href', 'https://events.purdue.edu/event/leap-retreat')
@@ -67,6 +75,8 @@ test.describe('Shared campus events', () => {
     await expect(page.getByRole('heading', { name: 'Free Food' })).toBeVisible()
     await expect(page.getByText('United Way Chili Cook-off')).toBeVisible()
     await expect(page.getByText('LEAP Retreat')).toHaveCount(0)
+    // One source has free food, so there is nothing to filter by.
+    await expect(page.getByRole('group', { name: 'Event source' })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'View on events.iu.edu' })).toHaveAttribute(
       'href',
       'https://events.iu.edu/event/chili-cook-off',

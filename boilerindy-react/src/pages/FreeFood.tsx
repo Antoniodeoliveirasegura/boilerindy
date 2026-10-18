@@ -1,11 +1,23 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import Icon from '../components/Icons'
-import { hasEnded, listedTime, listingLink, runsFromEarlierDay, untilLabel, type CampusEventFields } from '../lib/campusEvents'
+import {
+  activeSourceFilter,
+  eventSourceCounts,
+  hasEnded,
+  listedTime,
+  listingLink,
+  matchesSourceFilter,
+  runsFromEarlierDay,
+  untilLabel,
+  type CampusEventFields,
+  type SourceFilter,
+} from '../lib/campusEvents'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
+import EventSourceFilter from '../components/EventSourceFilter'
 
 // Dedicated Free Food feed (issue #46): campus events flagged by the server's
 // keyword matcher (item.freeFood). Reuses the same /api/me/calendar source as
@@ -74,12 +86,20 @@ export default function FreeFood() {
   const loadFailed = calendarQuery.isError && !calendarQuery.data
 
   // Listed until each event is over, as on Events.
-  const freeFoodItems = useMemo(
+  const allFreeFood = useMemo(
     () =>
       items
         .filter((item) => item.freeFood && !hasEnded(item))
         .sort((a, b) => new Date(listedTime(a)).getTime() - new Date(listedTime(b)).getTime()),
     [items],
+  )
+  // The source pills count the free-food list, not the whole calendar.
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const sourceCounts = useMemo(() => eventSourceCounts(allFreeFood), [allFreeFood])
+  const source = activeSourceFilter(sourceFilter, sourceCounts)
+  const freeFoodItems = useMemo(
+    () => (source === 'all' ? allFreeFood : allFreeFood.filter((item) => matchesSourceFilter(item, source))),
+    [allFreeFood, source],
   )
 
   const grouped = useMemo(() => {
@@ -132,6 +152,8 @@ export default function FreeFood() {
           </div>
         </section>
       )}
+
+      <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} />
 
       {loading ? (
         <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading free-food events…</div>

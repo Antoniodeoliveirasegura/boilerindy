@@ -81,6 +81,15 @@ reason:
 Far-away coordinates never outvote an organizer: Engage coordinates are often
 wrong (TheSpot puts University Hall in Texas).
 
+One more drop applies after those rules, to a LiveWhale listing they would
+keep: `group`, when its `group_title` is one of `LIVEWHALE_EXCLUDED_GROUPS` in
+`src/sharedEvents.mjs` (compared folded). Today that is the IU School of
+Medicine Calendar, whose listings are room bookings, exam sittings, grand
+rounds and research seminars: 50 of the 320 IU listings on 2026-10-18, none of
+them for Purdue students. A listing the place rules already drop keeps its own
+reason (`away`, `far`). Rows a run no longer plans are swept, so the first run
+after the change removes the medical school's stored rows.
+
 ## The dry run
 
 `?dryRun=1` (or `true`), or a JSON body `{ "dryRun": true }`, runs the fetch

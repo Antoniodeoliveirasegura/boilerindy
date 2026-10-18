@@ -22,6 +22,7 @@ import {
   CAMPUS,
   CATEGORIES,
   NEAR_CAMPUS_KM,
+  LIVEWHALE_EXCLUDED_GROUPS,
   SOURCES,
   VENUE_KINDS,
   collapseCrossSource,
@@ -216,6 +217,20 @@ test('LiveWhale free food comes from its tag; Terre Haute and Fort Wayne drop; o
   assert.equal(normalizeLiveWhaleEvent({ ...liveWhale(2434217)[0], is_canceled: 1 }, IU), null)
 })
 
+test("the medical school's LiveWhale calendar drops as `group`; a listing the place rules drop keeps its own reason", () => {
+  assert.deepEqual([...LIVEWHALE_EXCLUDED_GROUPS], ['iu school of medicine calendar'])
+  const journalClub = normalizeLiveWhaleEvent(liveWhale(2138351)[0], IU) // ICMH Journal Club, VanNuys
+  assert.deepEqual(journalClub.indianapolis, { keep: false, by: 'group' })
+  assert.equal(journalClub.row.venue_kind, 'indy_campus')
+  // Golf in Terre Haute, also the medical school's: still `away`.
+  assert.deepEqual(normalizeLiveWhaleEvent(liveWhale(2433047)[0], IU).indianapolis, { keep: false, by: 'away' })
+  // The group name is matched folded, entities decoded; any other group stays.
+  const yoga = liveWhale(2394594)[0]
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: ' IU  SCHOOL of Medicine Calendar ' }, IU).indianapolis, { keep: false, by: 'group' })
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: 'IU School of Medicine &amp; Friends' }, IU).indianapolis, { keep: true, by: 'place' })
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: undefined }, IU).indianapolis, { keep: true, by: 'place' })
+})
+
 // ── Anthology Engage (BoilerLink, TheSpot) ──────────────────────────────────
 
 test('BoilerLink events are kept by an Indianapolis organizer, a campus place or 2.5 km, and dropped otherwise', () => {
@@ -349,17 +364,18 @@ test('planCampusEvents over every fixture: per-source counts, one collapse, vali
   )
   assert.deepEqual(plan.sources, [
     { key: 'purdue_events', listings: 12, skipped: 0, keptBy: { place: 6, scope: 3 }, droppedBy: { far: 2, away: 1 }, merged: 0, rows: 9 },
-    { key: 'iu_events', listings: 14, skipped: 0, keptBy: { place: 12 }, droppedBy: { away: 2 }, merged: 2, rows: 10 },
+    { key: 'iu_events', listings: 14, skipped: 0, keptBy: { place: 11 }, droppedBy: { away: 2, group: 1 }, merged: 2, rows: 9 },
     { key: 'boilerlink', listings: 12, skipped: 0, keptBy: { place: 5, org: 3, near: 1 }, droppedBy: { far: 1, away: 2 }, merged: 0, rows: 9 },
     { key: 'thespot', listings: 6, skipped: 0, keptBy: { place: 5, near: 1 }, droppedBy: {}, merged: 0, rows: 6 },
   ])
   assert.equal(plan.collapsed.length, 1)
-  assert.equal(plan.rows.length, 9 + 10 + 9 + 6 - 1)
+  assert.equal(plan.rows.length, 9 + 9 + 9 + 6 - 1)
   assert.equal(plan.totals.rows, plan.rows.length)
   assert.equal(plan.totals.freeFood, 5)
-  assert.deepEqual(plan.totals.venueKinds, { indy_campus: 26, elsewhere: 2, online: 3, unknown: 2 })
-  assert.equal(plan.dropped.length, 8)
-  assert.ok(plan.dropped.every((d) => ['far', 'away', 'unplaced'].includes(d.why)))
+  assert.deepEqual(plan.totals.venueKinds, { indy_campus: 25, elsewhere: 2, online: 3, unknown: 2 })
+  assert.equal(plan.dropped.length, 9)
+  assert.ok(plan.dropped.every((d) => ['far', 'away', 'unplaced', 'group'].includes(d.why)))
+  assert.deepEqual(plan.dropped.filter((d) => d.why === 'group').map((d) => d.title), ['ICMH Journal Club'])
 
   const keys = plan.rows.map((row) => row.dedupe_key)
   assert.equal(new Set(keys).size, keys.length)

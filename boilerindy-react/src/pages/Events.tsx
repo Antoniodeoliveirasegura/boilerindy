@@ -6,9 +6,22 @@ import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { localIsoDate } from '../lib/localDate'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
-import { hasEnded, isOngoing, listedTime, listingLink, runsFromEarlierDay, untilLabel, type CampusEventFields } from '../lib/campusEvents'
+import {
+  activeSourceFilter,
+  eventSourceCounts,
+  hasEnded,
+  isOngoing,
+  listedTime,
+  listingLink,
+  matchesSourceFilter,
+  runsFromEarlierDay,
+  untilLabel,
+  type CampusEventFields,
+  type SourceFilter,
+} from '../lib/campusEvents'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
+import EventSourceFilter from '../components/EventSourceFilter'
 
 // Rows from the student's own calendar, and the shared campus events (issue
 // #30) the server adds while its feed is on, marked `shared` with their
@@ -174,6 +187,7 @@ export default function Events() {
   const loadFailed = calendarQuery.isError && !calendarQuery.data
   const [showPast, setShowPast] = useState(false)
   const [freeFoodOnly, setFreeFoodOnly] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [selectedItem, setSelectedItem] = useState<EventItem | null>(null)
   const detailRef = useRef<HTMLDivElement>(null)
 
@@ -233,11 +247,20 @@ export default function Events() {
     if (!wide) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start' }))
   }
 
+  // Purdue's calendars, IU's or the student's own, counted like the category
+  // pills over every row.
+  const sourceCounts = useMemo(() => eventSourceCounts(items), [items])
+  const source = activeSourceFilter(sourceFilter, sourceCounts)
+
   const filteredItems = useMemo(() => {
     let filtered = items
-    
+
     if (selectedCategories.length > 0) {
       filtered = filtered.filter(item => selectedCategories.includes(categoryOf(item)))
+    }
+
+    if (source !== 'all') {
+      filtered = filtered.filter(item => matchesSourceFilter(item, source))
     }
 
     // A row stays listed until it is over, so an exhibit open for weeks shows.
@@ -250,7 +273,7 @@ export default function Events() {
     }
 
     return filtered.sort((a, b) => new Date(listedTime(a)).getTime() - new Date(listedTime(b)).getTime())
-  }, [items, selectedCategories, showPast, freeFoodOnly])
+  }, [items, selectedCategories, source, showPast, freeFoodOnly])
 
   const groupedItems = useMemo(() => {
     const groups: Record<string, EventItem[]> = {}
@@ -351,6 +374,8 @@ export default function Events() {
           </div>
         </section>
       )}
+
+      <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} />
 
       {categoryCounts.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-5">

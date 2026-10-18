@@ -166,12 +166,12 @@ test('a dry run fetches the two calendars, leaves Engage alone and touches no da
   assert.equal(summary.startedAt, RUN_AT)
   assert.deepEqual(summary.sources.map(({ key, enabled, ok, complete, rows }) => ({ key, enabled, ok, complete, rows })), [
     { key: 'purdue_events', enabled: true, ok: true, complete: true, rows: 9 },
-    { key: 'iu_events', enabled: true, ok: true, complete: true, rows: 10 },
+    { key: 'iu_events', enabled: true, ok: true, complete: true, rows: 9 },
     { key: 'boilerlink', enabled: false, ok: undefined, complete: undefined, rows: undefined },
     { key: 'thespot', enabled: false, ok: undefined, complete: undefined, rows: undefined },
   ])
-  assert.equal(summary.rows.length, 19)
-  assert.equal(summary.totals.rows, 19)
+  assert.equal(summary.rows.length, 18)
+  assert.equal(summary.totals.rows, 18)
   assert.ok(summary.rows.every((row) => !('last_seen_at' in row)))
   assert.equal(summary.upserted, undefined)
   assert.ok(summary.dropped.some((d) => d.title === '93rd Annual Purdue Christmas Show' && d.why === 'far'))
@@ -184,9 +184,9 @@ test('a run upserts every row on dedupe_key with this run as last_seen_at, then 
   const [upsert] = supabase.queriesOf('campus_events').filter((q) => operation(q.chain) === 'upsert')
   assert.ok(hasCall(upsert.chain, 'upsert', upsertedRows(supabase), { onConflict: 'dedupe_key' }))
   const rows = upsertedRows(supabase)
-  assert.equal(rows.length, 19)
+  assert.equal(rows.length, 18)
   assert.ok(rows.every((row) => row.last_seen_at === RUN_AT && !('classifier' in row)))
-  assert.equal(summary.upserted, 19)
+  assert.equal(summary.upserted, 18)
   assert.equal(summary.rows, undefined)
 
   const swept = sweeps(supabase)
@@ -209,7 +209,7 @@ test('with Engage on, BoilerLink and TheSpot join, the club directory names Indi
   assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, true])
   assert.deepEqual(summary.sources[2].keptBy, { place: 5, org: 3, near: 1 })
   assert.deepEqual(summary.collapsed, [{ kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours' }])
-  assert.equal(summary.rows.length, 33)
+  assert.equal(summary.rows.length, 32)
 })
 
 test('a source that fails is reported and not swept; the rest of the run goes on', async () => {
@@ -241,7 +241,7 @@ test('a failed sweep is logged and left to the next run', async () => {
   const log = { ...quiet, error: (...args) => errors.push(args.join(' ')) }
   const summary = await runCampusEventsIngest({ client: supabase, fetchImpl, now: NOW, sleep: noSleep, log })
   assert.equal(summary.ok, true)
-  assert.equal(summary.upserted, 19)
+  assert.equal(summary.upserted, 18)
   assert.match(summary.sources[0].sweepError, /campus_events sweep: Gateway Timeout \(HTTP 504\)/)
   assert.equal(errors.length, 2)
 })
@@ -252,7 +252,7 @@ test('an upsert that fails transiently is retried once; a second failure, or a m
   const flaky = database({ upsert: () => (++attempts === 1 ? { data: null, error: { message: 'Gateway Timeout' }, status: 504 } : { error: null }) })
   const summary = await runCampusEventsIngest({ client: flaky, fetchImpl, now: NOW, sleep: noSleep, log: quiet })
   assert.equal(attempts, 2)
-  assert.equal(summary.upserted, 19)
+  assert.equal(summary.upserted, 18)
 
   const down = database({ upsert: () => ({ data: null, error: { message: 'Gateway Timeout' }, status: 504 }) })
   await assert.rejects(runCampusEventsIngest({ client: down, fetchImpl, now: NOW, sleep: noSleep, log: quiet }), (error) => {
@@ -279,12 +279,12 @@ test('the classify hook sees the planned rows; rows it answered are written apar
     return rows.map((row, i) => (i % 2 === 0 ? { ...row, free_food: true, classifier: verdict } : row))
   }
   await runCampusEventsIngest({ client: supabase, fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify })
-  assert.equal(seen.length, 19)
+  assert.equal(seen.length, 18)
   const batches = supabase.queriesOf('campus_events').filter((q) => operation(q.chain) === 'upsert').map((q) => q.chain[0].args[0])
   assert.equal(batches.length, 2)
   assert.ok(batches[0].every((row) => !('classifier' in row)))
   assert.ok(batches[1].every((row) => row.classifier === verdict && row.free_food === true))
-  assert.equal(batches[0].length + batches[1].length, 19)
+  assert.equal(batches[0].length + batches[1].length, 18)
 
   await assert.rejects(
     runCampusEventsIngest({ client: database(), fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify: async () => undefined }),

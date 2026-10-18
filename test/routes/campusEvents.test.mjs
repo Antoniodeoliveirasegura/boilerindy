@@ -116,7 +116,7 @@ test('a dry run, asked for in the query or the body, answers the rows and writes
       assert.equal(res.status, 200)
       assert.equal(res.body.ok, true)
       assert.equal(res.body.dryRun, true)
-      assert.equal(res.body.rows.length, 19)
+      assert.equal(res.body.rows.length, 18)
       assert.deepEqual(res.body.sources.map((s) => [s.key, s.enabled]), [
         ['purdue_events', true], ['iu_events', true], ['boilerlink', false], ['thespot', false],
       ])
@@ -134,13 +134,13 @@ test('a run upserts, sweeps and answers its summary; the cron body {} is a run, 
     const res = await call(PATH, { body: {} })
     assert.equal(res.status, 200)
     assert.equal(res.body.dryRun, false)
-    assert.equal(res.body.upserted, 19)
+    assert.equal(res.body.upserted, 18)
     assert.equal(res.body.rows, undefined)
     const ops = supabase.queriesOf('campus_events').map((q) => operation(q.chain))
     assert.deepEqual(ops, ['upsert', 'delete', 'delete'])
   })
   assert.equal(lines.length, 1)
-  assert.match(lines[0], /^\[campus-events\] run: purdue_events=9 iu_events=10, 19 rows, 19 upserted in \d+ ms$/)
+  assert.match(lines[0], /^\[campus-events\] run: purdue_events=9 iu_events=9, 18 rows, 18 upserted in \d+ ms$/)
 })
 
 test('with Engage on, the club directory is read and BoilerLink and TheSpot are fetched', async (t) => {
