@@ -300,6 +300,40 @@ test('the classify hook sees the planned rows; rows it answered are written apar
   )
 })
 
+test('the classify hook gets the database and the free food the sources state; its summary is reported, the totals recounted', async () => {
+  const { fetchImpl } = fakeFetch(bySource())
+  const supabase = database()
+  let context = null
+  const classify = async (rows, ctx) => {
+    context = ctx
+    return {
+      rows: rows.map((row) => ({ ...row, free_food: true, classifier: { model: 'jev-test' } })),
+      summary: { mode: 'on', reused: 0, asked: rows.length, answered: rows.length, failed: 0, deferred: 0 },
+    }
+  }
+  const summary = await runCampusEventsIngest({ client: supabase, fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify })
+  assert.equal(context.client, supabase)
+  assert.ok(context.sourceFreeFood instanceof Set)
+  assert.deepEqual([...context.sourceFreeFood].sort(), ['iu_events:2440319', 'purdue_events:54231361791375'])
+  assert.equal(summary.classify.mode, 'on')
+  assert.equal(summary.classify.answered, 17)
+  assert.equal(summary.totals.freeFood, 17) // what was written, not what the rules planned
+  assert.equal(upsertedRows(supabase).filter((row) => row.free_food).length, 17)
+})
+
+test('a dry run never calls the classifier, which would read the database', async () => {
+  const { fetchImpl } = fakeFetch(bySource())
+  let called = false
+  const classify = async (rows) => {
+    called = true
+    return rows
+  }
+  const summary = await runCampusEventsIngest({ dryRun: true, fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify })
+  assert.equal(called, false)
+  assert.deepEqual(summary.classify, { skipped: 'dry run' })
+  assert.ok(summary.rows.every((row) => !('classifier' in row)))
+})
+
 test('more rows than one batch holds go up in batches', async () => {
   const { fetchImpl } = fakeFetch(bySource())
   const supabase = database()

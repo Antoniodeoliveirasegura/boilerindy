@@ -12,7 +12,7 @@
 // docs/campus-events-ingest.md.
 
 import { queryError, retryOnceIfTransient } from './cronTick.mjs'
-import { CAMPUS, SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents } from './sharedEvents.mjs'
+import { CAMPUS, SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents, summarizeRows } from './sharedEvents.mjs'
 import { fetchUpstreamJson } from './upstreamFetch.mjs'
 
 export const PAGE_SIZE = 100
@@ -196,10 +196,13 @@ async function sweepSource(client, sourceKey, runAt, { log }) {
  * a list of their keys for some (engageSourcesFromSetting reads
  * CAMPUS_EVENTS_ENGAGE), anything else for neither.
  *
- * `classify` is the Jev hook (docs/campus-events-ingest.md): an async function
- * given the planned rows that resolves with them, where it may have set
- * category, free_food, venue_kind and open_to_all and added `classifier`.
- * Nothing passes one yet.
+ * `classify` is the Jev hook (src/campusEventsClassify.mjs, with
+ * CAMPUS_EVENTS_CLASSIFY on): an async function given the planned rows and
+ * `{ client, sourceFreeFood, log, sleep }` that resolves with the rows, where
+ * it may have set category, free_food, venue_kind and open_to_all and added
+ * `classifier`, or with `{ rows, summary }`, the summary reported as
+ * `classify`. A dry run skips it: it would read the stored verdicts, and a dry
+ * run touches no database.
  */
 export async function runCampusEventsIngest({
   client,
@@ -228,9 +231,16 @@ export async function runCampusEventsIngest({
     { isIndianapolisOrg: engageOrgLookup(clubs) },
   )
   let rows = plan.rows
+  let classified = null
   if (typeof classify === 'function') {
-    rows = await classify(rows)
-    if (!Array.isArray(rows)) throw new Error('classify must resolve with the rows')
+    if (dryRun) {
+      classified = { skipped: 'dry run' }
+    } else {
+      const result = await classify(rows, { client, sourceFreeFood: plan.sourceFreeFood, log, sleep })
+      rows = Array.isArray(result) ? result : result?.rows
+      if (!Array.isArray(rows)) throw new Error('classify must resolve with the rows')
+      classified = Array.isArray(result) ? null : (result.summary ?? null)
+    }
   }
 
   const planned = new Map(plan.sources.map((stats) => [stats.key, stats]))
@@ -240,7 +250,10 @@ export async function runCampusEventsIngest({
     const { key, ...stats } = planned.get(source.key)
     return { key, enabled: true, ok: !result.error, complete: result.complete, pages: result.pages, error: result.error, ...stats }
   })
-  const summary = { ok: true, dryRun: Boolean(dryRun), startedAt: runAt, sources, collapsed: plan.collapsed, dropped: plan.dropped, totals: plan.totals }
+  // The totals count what is written, so after a classifier they are recounted.
+  const totals = rows === plan.rows ? plan.totals : summarizeRows(rows)
+  const summary = { ok: true, dryRun: Boolean(dryRun), startedAt: runAt, sources, collapsed: plan.collapsed, dropped: plan.dropped, totals }
+  if (classified) summary.classify = classified
 
   if (dryRun) return { ...summary, rows, durationMs: Date.now() - startedAt }
 

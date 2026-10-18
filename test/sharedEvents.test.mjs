@@ -239,6 +239,26 @@ test("the excluded LiveWhale groups drop as `group`; a listing the place rules d
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: undefined }, IU).indianapolis, { keep: true, by: 'place' })
 })
 
+test("the source's own word on free food is kept apart from the keyword matcher, which Jev may overrule", () => {
+  // Stated by the source: Localist's free entry with food, LiveWhale's "Free food" tag, Engage's Free Food benefit.
+  assert.equal(one(normalizeLocalistEvent(localist(54231361790350), PURDUE)).sourceFreeFood, true)
+  assert.equal(normalizeLiveWhaleEvent(liveWhale(2440319)[0], IU).sourceFreeFood, true)
+  assert.equal(normalizeEngageEvent(engage(BOILERLINK, '12884656'), BOILERLINK_SOURCE, { isIndianapolisOrg }).sourceFreeFood, true)
+  // Free entry alone states nothing (Purdue's hockey games).
+  assert.equal(one(normalizeLocalistEvent(localist(54036713356057), PURDUE)).sourceFreeFood, false)
+  // The matcher's word alone is free food by the rules, not by the source.
+  const pizza = normalizeLiveWhaleEvent({ ...liveWhale(2394594)[0], cost: '', summary: '<p>Pizza provided after class.</p>' }, IU)
+  assert.equal(pizza.row.free_food, true)
+  assert.equal(pizza.sourceFreeFood, false)
+  const refreshments = normalizeEngageEvent(
+    { ...engage(BOILERLINK, '12884656'), benefitNames: [], description: '<p>Refreshments will be served.</p>' },
+    BOILERLINK_SOURCE,
+    { isIndianapolisOrg },
+  )
+  assert.equal(refreshments.row.free_food, true)
+  assert.equal(refreshments.sourceFreeFood, false)
+})
+
 // ── Anthology Engage (BoilerLink, TheSpot) ──────────────────────────────────
 
 test('BoilerLink events are kept by an Indianapolis organizer, a campus place or 2.5 km, and dropped otherwise', () => {
@@ -413,6 +433,30 @@ test('planCampusEvents over every fixture: per-source counts, one collapse, vali
   }
   // Only the sources handed in are planned.
   assert.deepEqual(planCampusEvents({ purdue_events: LOCALIST }).sources.map((s) => s.key), ['purdue_events'])
+})
+
+test('the plan names the rows whose free food the source states, and a collapsed copy hands its word on', () => {
+  const plan = planCampusEvents(
+    { purdue_events: LOCALIST, iu_events: LIVEWHALE, boilerlink: BOILERLINK, thespot: THESPOT },
+    { isIndianapolisOrg },
+  )
+  assert.deepEqual([...plan.sourceFreeFood].sort(), [
+    'boilerlink:12768937', // Bible Study, Free Food benefit
+    'boilerlink:12884656', // SHPE Industry Networking Night
+    'iu_events:2440319', // "Free food" tag
+    'purdue_events:54231361791375', // Boiler Fuel Up: free, and students eat free
+    'thespot:12818733', // Chancellor's Distinguished Speaker Series Luncheon
+  ])
+  const byKey = new Map(plan.rows.map((row) => [row.dedupe_key, row]))
+  for (const key of plan.sourceFreeFood) assert.equal(byKey.get(key)?.free_food, true, key)
+
+  // Weekly Badminton Club Hours is on both Engage sites; TheSpot's copy collapses into BoilerLink's.
+  const thespot = THESPOT.map((raw) => (raw.id === '12728562' ? { ...raw, benefitNames: ['Free Food'] } : raw))
+  const handed = planCampusEvents({ boilerlink: BOILERLINK, thespot }, { isIndianapolisOrg })
+  assert.deepEqual(handed.collapsed.map(({ kept, dropped }) => [kept, dropped]), [['boilerlink:12728673', 'thespot:12728562']])
+  assert.ok(handed.sourceFreeFood.has('boilerlink:12728673'))
+  assert.ok(!handed.sourceFreeFood.has('thespot:12728562'))
+  assert.equal(handed.rows.find((row) => row.dedupe_key === 'boilerlink:12728673').free_food, true)
 })
 
 test('the vocabularies and columns match db/supabase-campus-events.sql', () => {

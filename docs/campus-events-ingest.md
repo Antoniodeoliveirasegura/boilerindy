@@ -33,7 +33,10 @@ exist.
 2. **Plan** (`src/sharedEvents.mjs`, pure). Each listing becomes a row, the
    Indianapolis filter keeps or drops it, one source's repeated ids merge, and
    the same event listed by two sources collapses into one row.
-3. **Write**, unless it is a dry run. Every row is upserted on `dedupe_key` with
+3. **Classify**, only with `CAMPUS_EVENTS_CLASSIFY` on (or `shadow`) and never
+   in a dry run: Jev answers four questions about each new or edited listing
+   and refines the rows ([Jev classification](#jev-classification)).
+4. **Write**, unless it is a dry run. Every row is upserted on `dedupe_key` with
    `last_seen_at` set to the run's start, 500 to a request. Then, for each
    source fetched completely and with listings in it, the rows of that source
    whose `last_seen_at` is older are deleted: events the feed no longer lists,
@@ -46,19 +49,19 @@ One run at a time: a second call while one is running answers 409.
 ## What a row says
 
 The columns are in `db/supabase-campus-events.sql`. Everything below is a rule
-over the source's own data; a classifier can refine it later (see
-[The Jev hook](#the-jev-hook)).
+over the source's own data; with `CAMPUS_EVENTS_CLASSIFY` on, Jev refines four
+of them (see [Jev classification](#jev-classification)).
 
 | Column | Rule |
 |---|---|
 | `dedupe_key` | `<source_key>:<id>`: Localist's event instance id (one per occurrence), LiveWhale's event id, the Engage event id. Without an id, the design doc's sha256 of the trimmed, lowercased title, the start and the trimmed, lowercased location. |
 | `series_key` | `<source_key>:` and a hash of the organizer or group (the Localist event, the LiveWhale group, the Engage organization) and the folded title, so a weekly practice is one series. |
-| `content_hash` | sha256 of the title, description and location: the text a classifier reads. |
-| `free_food` | The source's own tag (LiveWhale's "Free food", Engage's "Free Food" benefit); or free entry (Localist's `free`, a LiveWhale cost that starts with "Free") together with food in the listing; or the keyword matcher in `src/freeFood.mjs`. Free entry alone is not free food: Purdue's hockey games carry `free`. |
-| `category` | From the source's types (Localist event types, LiveWhale event types and fitness tags, the Engage theme), with the keys of the planned Jev category question plus `deadline` for Purdue's "Dates and Deadlines". NULL when the source gives nothing usable. |
-| `venue_kind` | `online` (Localist's `virtual`, LiveWhale's online only, "Online" or "Zoom" as the location, "online only" in the title), `indy_campus` (a campus building or room in the title or location, or within 2.5 km of campus), `west_lafayette` (a West Lafayette place in the location, or coordinates near that campus), `elsewhere` (another city in the location, or coordinates farther out), else `unknown`. |
-| `open_to_all` | `false` for a practice, rehearsal, officer or committee meeting, tryout or members-only session (by title); `true` when the source lists students or the public as the audience; NULL otherwise. |
-| `classifier` | Never written by this ingest. |
+| `content_hash` | sha256 of the title, description and location: the text Jev reads. A stored verdict is reused while it is unchanged. |
+| `free_food` | The source's own word: its tag (LiveWhale's "Free food", Engage's "Free Food" benefit), a LiveWhale cost that names free food, or free entry (Localist's `free`, a LiveWhale cost that starts with "Free") together with food in the listing or its tags. Else the keyword matcher in `src/freeFood.mjs`, which Jev's answer replaces when it has one. Free entry alone is not free food: Purdue's hockey games carry `free`. |
+| `category` | From the source's types (Localist event types, LiveWhale event types and fitness tags, the Engage theme), with the keys of Jev's category question plus `deadline` for Purdue's "Dates and Deadlines". NULL when the source gives nothing usable. Jev may fill or replace it, never a deadline. |
+| `venue_kind` | `online` (Localist's `virtual`, LiveWhale's online only, "Online" or "Zoom" as the location, "online only" in the title), `indy_campus` (a campus building or room in the title or location, or within 2.5 km of campus), `west_lafayette` (a West Lafayette place in the location, or coordinates near that campus), `elsewhere` (another city in the location, or coordinates farther out), else `unknown`. Jev may turn `unknown` into `online` or `elsewhere`. |
+| `open_to_all` | `false` for a practice, rehearsal, officer or committee meeting, tryout or members-only session (by title); `true` when the source lists students or the public as the audience; NULL otherwise. Jev may close one (a staff luncheon) or open one. |
+| `classifier` | Jev's stored verdict: the model, the question version, every answer with its probabilities, and `classified_at`. Written only with `CAMPUS_EVENTS_CLASSIFY` on or `shadow`; NULL otherwise, and again after the text changes. |
 
 The Indianapolis filter decides in this order, and the summary counts each
 reason:
@@ -143,7 +146,10 @@ The 14 Purdue listings dropped were the State Fairgrounds hockey games and the
 World Food Championships, the Carmel Christmas show, a West Lafayette workshop
 and the four Winter Commencement listings at Mackey Arena. The 62 IU merges are
 multi-day exhibits listed once a day. A real run answers the same summary
-without `rows`, plus `upserted` and, per swept source, `swept`.
+without `rows`, plus `upserted` and, per swept source, `swept`, and with
+classification on, `classify` ([Jev classification](#jev-classification)). A
+dry run never asks Jev: its rows are the rules' answers, and with
+classification on it says `"classify": { "skipped": "dry run" }`.
 
 ## Turning it on (owner)
 
@@ -162,6 +168,7 @@ without `rows`, plus `upserted` and, per swept source, `swept`.
    (The read path stops listing them 26 hours after their last run anyway.)
 5. Then turn on the read path, `CAMPUS_EVENTS_FEED`:
    [campus-events-feed.md](campus-events-feed.md#turning-it-on-owner).
+6. Optionally, Jev: [Jev classification](#turning-jev-on-owner).
 
 ## Answers
 
@@ -174,33 +181,142 @@ without `rows`, plus `upserted` and, per swept source, `swept`.
 | 503 | `campus_events_schema_missing`: the migration has not run (a dry run still works). Otherwise a database 5xx or timeout that survived its retry, logged as a warning; the next run retries. |
 | 500 | Any other database failure, logged as an error. |
 
-## The Jev hook
+## Jev classification
 
-Jev (TypeSafe's decision model, issue #121) is not wired: there is no key yet.
-Three things are in place for it:
+Off by default. With `CAMPUS_EVENTS_CLASSIFY=on` and `TYPESAFE_API_KEY` set,
+each real run asks Jev, TypeSafe's decision model (`src/campusEventsClassify.mjs`
+over `src/jevClient.mjs`), four questions about every listing it holds no
+current verdict for, and combines the answers with the rules above. `shadow`
+asks and stores the same verdicts but changes no column, so they can be read
+before they count. With the switch on and no key, the server says so once at
+boot and the ingest keeps to its rules. Classify at ingest, never at read: the
+Events and Free Food reads only see the stored columns.
 
-- `content_hash` marks the text it would read, and a trigger in
-  `db/supabase-campus-events.sql` clears `classifier` when an update changes
-  `content_hash` without bringing a verdict of its own. `classifier IS NULL` is
-  therefore the queue of rows to ask about, and an edited listing is asked
-  again.
-- `runCampusEventsIngest` takes a `classify` option: an async function given
-  the planned rows that resolves with them, where it may have refined
-  `category`, `free_food`, `venue_kind` and `open_to_all` and added
-  `classifier` (the model id, the answers and probabilities, `classified_at`).
-  Rows with and without `classifier` are upserted in separate batches, so a row
-  that has none never erases a stored verdict. Nothing passes it yet.
-- `category` and `venue_kind` use the keys of the planned Jev questions, so a
-  verdict drops straight into the columns their CHECK constraints allow.
+### What Jev reads and answers
 
-The design rules for that change: classify at ingest, never at read; combine
-with the rules rather than replace them (`free_food` stays true when the source
-tags it); and pin a versioned model id once the thresholds are tuned.
+The state is the listing's own public text as named fields: `title`,
+`location`, `starts` (campus time) and `description` (cut at 1,500
+characters). Nothing about any student is sent, and the Privacy page names
+TypeSafe for this. The questions are `EVENT_QUESTIONS`:
+
+| Key | Type | Asks |
+|---|---|---|
+| `category` | choice | The main kind of event, with the `category` keys except `deadline`. |
+| `free_food` | noul | Attendees are offered food or drinks at no cost. |
+| `where` | choice | Where it takes place, with the `venue_kind` keys. |
+| `open_to_all` | noul | A student who is not a member of the organizing group could show up. |
+
+The model is pinned (`JEV_MODEL`, `jev-1.13.0`), never an alias: `jev-latest`
+moves when TypeSafe ships, and the thresholds were tuned on this version.
+
+### How the answers combine with the rules
+
+| Column | With a verdict (`THRESHOLDS`) |
+|---|---|
+| `free_food` | The source's own word stays true. Otherwise Jev's `free_food` at 0.7 or above: Jev stands in for the keyword matcher, which reads the same text. |
+| `open_to_all` | A rule's `false` (a practice, a rehearsal) stays. Jev under 0.2 makes it `false`, at 0.8 or above `true`; in between the rule's answer stands. A deadline is left alone. |
+| `category` | A deadline stays. An empty one takes Jev's pick at a probability of 0.7 or more; the source's is replaced at 0.9 or more. |
+| `venue_kind` | Only an `unknown` one, and only to `online` or `elsewhere` at 0.9 or more. Jev never says `indy_campus` here. |
+
+The thresholds come from the evals of 2026-10-18: Jev on the 305 rows a run
+plans with BoilerLink on (Purdue 40, IU 194, BoilerLink 71) against the rules,
+and on 170 BoilerLink listings against their organizers' tags.
+
+- Free food at 0.7 added the free food the rules missed ("enjoy some free
+  Caribou Coffee", "coffee and cookies", "grab some coffee") and took none
+  away: every free food row that day rested on the source's own word, which
+  Jev cannot see (a "Free food" tag, a "Brunch" tag on a free event). Between
+  0.5 and 0.7 sat a brown bag talk, a chili cook-off and a staff luncheon.
+- Under 0.2 on `open_to_all` were only an instructors' monthly meeting, a staff
+  luncheon and a faculty and staff lunch, which are now not listed. Practices
+  and rehearsals scored 0.19 to 0.33; the title rule already has them.
+- The category replacements at 0.9 were all right or defensible: ten "1:1
+  Workshops: Mental Well-being" from academic to wellness, a "Campus Cleanup"
+  from wellness to service. Fills under 0.7 changed when the order of the
+  options was reversed.
+- `where` put 60 of 100 West Lafayette events on this campus and the downtown
+  Westin `elsewhere` at 0.86, so it only ever fills an `unknown` venue.
+- Two identical runs over the 234 Purdue and IU rows moved the free food
+  probabilities by 0.003 on average and flipped no decision; reversing the
+  options flipped one free food answer that sat on the line (0.68 against 0.70).
+
+Of those 305 rows, turning it on changes: free food on 3 more (Honors House
+Coffee, an office hours with coffee and cookies, Coffee & Careers); 3 rows
+closed, so no longer listed (the three above); `open_to_all` from NULL to
+`true` on 27; 50 categories; no venue.
+
+### Which rows are asked
+
+A row whose stored `classifier` answers the same `content_hash`, under today's
+`JEV_MODEL` and questions (`classifier.questions` is a hash of them), reuses it:
+its columns are refined again from the stored answers, so changing a threshold
+asks nothing. Every other row is asked: a new listing, an edited one (the
+trigger in `db/supabase-campus-events.sql` clears a verdict when the text
+changes without a new one), or one answered by another model or other
+questions. Rows go soonest first, 4 at a time, at most 400 a run
+(`CLASSIFY_MAX_ROWS`) and for at most 90 s (`CLASSIFY_BUDGET_MS`); what is left
+is asked on the next run. On 2026-10-18 a call took about 0.2 s, so a first run
+over 305 rows asks for about 15 s.
+
+A call that fails after its retries (429, 529, a 5xx, a timeout: three retries
+with backoff) leaves its row to the rules, without a verdict, until the next
+run. A bad key or a malformed question (401, 422) stops the asking at once, as
+do five failures in a row; the run goes on and writes the rules' rows, and the
+server logs why. Only a failed read of the stored verdicts fails the run, as a
+failed write would. Rows with and without a verdict are upserted in separate
+batches, so a row asked in vain never erases a stored verdict.
+
+A real run's answer carries `classify`: `mode`, `model`, `rows`, `reused`,
+`asked`, `answered`, `failed`, `deferred` (left for the next run), `stopped`
+(`row cap`, `time budget`, `Jev error: ...`, `5 failed calls in a row`, or
+null), `inputTokens`, `changed` (rows per column the verdicts changed, or in
+shadow would change), `examples` (up to 20 of those changes) and `durationMs`.
+The server log line ends with `jev on: N reused, N asked, N failed, N left for
+the next run`.
+
+### Turning Jev on (owner)
+
+1. Create a key at [console.typesafe.ai/keys](https://console.typesafe.ai/keys)
+   and set `TYPESAFE_API_KEY` on Render.
+2. Set `CAMPUS_EVENTS_CLASSIFY=shadow` and redeploy. The next run (or one
+   started with the curl above, without `?dryRun=1`) asks about every row and
+   stores the verdicts without changing a column; its `classify.changed` and
+   `examples` say what `on` would change.
+3. Read the stored verdicts, then set `CAMPUS_EVENTS_CLASSIFY=on` and redeploy.
+   The next run applies them without asking again.
+
+```sql
+select title, free_food, open_to_all, category, venue_kind,
+       classifier->'answers'->'free_food'->>'p' as free_food_p,
+       classifier->'answers'->'open_to_all'->>'p' as open_p,
+       classifier->'answers'->'category'->>'choice' as jev_category
+from campus_events
+where classifier is not null
+order by (classifier->'answers'->'free_food'->>'p')::numeric desc
+limit 50;
+```
+
+Back to `off`, the next run writes the rules' answers; the stored verdicts
+stay, and turning it on again reuses them.
+
+Cost: about 1,240 input tokens a row at $0.042 per million, so a full pass over
+305 rows is about $0.016, and later runs ask only about new and edited
+listings, well under a dollar a month.
+
+### Changing the model or the questions
+
+Re-run an eval like the one of 2026-10-18 first (issue #30 has the method and
+the numbers), then change `JEV_MODEL`, `EVENT_QUESTIONS` and `THRESHOLDS`
+together in one change. A verdict records the model and a hash of the
+questions, so the next runs ask again about every row, 400 a run, and verdicts
+of two versions are never mixed.
 
 ## Known limits
 
-- Free food a listing offers without the matcher's words or a free flag ("enjoy
-  some free Caribou Coffee") is missed until a classifier reads the text.
+- Without Jev, free food a listing offers without the matcher's words or a
+  free flag ("enjoy some free Caribou Coffee") is missed. With it on, Jev
+  reads the text, but not a source's tags: a tag it cannot see still counts
+  through the source's own word.
 - An Indianapolis club's away game is kept (`venue_kind` `elsewhere`), and an
   event whose start moves by an hour on a source without stable ids becomes a
   new row (the old one is swept on the next complete run).
@@ -208,9 +324,9 @@ tags it); and pin a versioned model id once the thresholds are tuned.
   spanning only the days inside the 31-day window, so its start moves forward
   with each run and its end is the window's. Localist's `distinct=true` gives
   the same "next occurrence" view of a recurring event.
-- Whether IU Indianapolis's own events are open to Purdue students is an owner
-  decision; the rows carry `source_key = 'iu_events'`, and the read path labels
-  them "IU event" until it is made.
+- IU Indianapolis's own events are open to Purdue Indianapolis students (the
+  owner's call on #30, 2026-10-18); the rows carry `source_key = 'iu_events'`,
+  and the read path labels them "IU event" to say where they come from.
 - Each source is ingested in full every run. At today's volumes that is 5 page
   requests with Engage off and about 24 with it on.
 
@@ -223,3 +339,5 @@ window of 31 days and distance of 1 mile). `complete: false` with "more than N
 pages" means a source outgrew its page cap. The cron's `pg_net` timeout is 180
 seconds. A run with Engage off took 14 s on 2026-10-17; with it on a run reads
 about 24 pages a second apart, so it should still finish well inside that.
+Jev's model, thresholds, row cap, time budget and concurrency are the
+constants at the top of `src/campusEventsClassify.mjs`.

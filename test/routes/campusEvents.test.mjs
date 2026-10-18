@@ -34,7 +34,7 @@ function campusEventsTable({ upsert = () => ({ error: null }) } = {}) {
   }
 }
 
-async function withApp({ cronSecret = CRON_SECRET, engageEnabled = false, table = campusEventsTable(), directory = { ok: true, clubs: [] }, gate } = {}, run) {
+async function withApp({ cronSecret = CRON_SECRET, engageEnabled = false, classify = null, table = campusEventsTable(), directory = { ok: true, clubs: [] }, gate } = {}, run) {
   const supabase = fakeSupabase({ campus_events: table })
   const fetched = []
   const cronWarnings = []
@@ -61,6 +61,7 @@ async function withApp({ cronSecret = CRON_SECRET, engageEnabled = false, table 
         },
       },
       engageEnabled,
+      classify,
       ingestOptions: { fetchImpl, now: NOW, sleep: async () => {}, log: { log() {}, error() {}, warn() {} } },
     }),
   )
@@ -177,6 +178,27 @@ test('CAMPUS_EVENTS_ENGAGE=boilerlink reads BoilerLink and the directory only; t
     assert.equal(res.status, 200)
     assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'thespot.indianapolis.iu.edu'])
     assert.equal(directoryReads(), 0, 'TheSpot needs no club directory')
+  })
+})
+
+test('with a classifier, a run hands it the rows and answers its summary; a dry run leaves it alone', async (t) => {
+  const lines = []
+  t.mock.method(console, 'log', (line) => lines.push(line))
+  const calls = []
+  const classify = async (rows, context) => {
+    calls.push({ rows: rows.length, client: Boolean(context.client) })
+    return { rows, summary: { mode: 'shadow', reused: 3, asked: 14, answered: 14, failed: 0, deferred: 0 } }
+  }
+  await withApp({ classify }, async ({ call }) => {
+    const dry = await call(`${PATH}?dryRun=1`)
+    assert.deepEqual(dry.body.classify, { skipped: 'dry run' })
+    assert.equal(calls.length, 0)
+
+    const res = await call(PATH)
+    assert.equal(res.status, 200)
+    assert.deepEqual(calls, [{ rows: 17, client: true }])
+    assert.equal(res.body.classify.mode, 'shadow')
+    assert.match(lines.at(-1), /, jev shadow: 3 reused, 14 asked, 0 failed, 0 left for the next run in \d+ ms$/)
   })
 })
 
