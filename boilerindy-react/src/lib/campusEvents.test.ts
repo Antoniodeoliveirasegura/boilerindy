@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { hasEnded, isOngoing, listedTime, listingLink, runsFromEarlierDay, untilLabel } from './campusEvents'
+import {
+  activeSourceFilter,
+  eventSourceCounts,
+  eventSourceOf,
+  hasEnded,
+  isOngoing,
+  listedTime,
+  listingLink,
+  matchesSourceFilter,
+  runsFromEarlierDay,
+  untilLabel,
+} from './campusEvents'
 
 // Issue #30: the shared campus events' link out, and the timing both pages
 // give every row, so a listing that runs for days stays listed until it ends.
@@ -62,5 +73,47 @@ describe('timing by the end', () => {
     expect(untilLabel({ startTime: local(13, 0), endTime: local(15, 0) }, NOW)).toBe('ends today')
     // A midnight end closes the day before it: Friday's midnight is Thursday.
     expect(untilLabel({ startTime: local(13, 0), endTime: local(17, 0) }, NOW)).toBe(`until ${shortDate(new Date(2026, 9, 16))}`)
+  })
+})
+
+describe('the source pills', () => {
+  const purdue = { shared: true, sourceKey: 'purdue_events' }
+  const boilerlink = { shared: true, sourceKey: 'boilerlink' }
+  const iu = { shared: true, sourceKey: 'iu_events' }
+  const thespot = { shared: true, sourceKey: 'thespot' }
+  const mine = {}
+
+  it("sorts each row by school: Purdue's calendars, IU's, or the student's own", () => {
+    expect([purdue, boilerlink, iu, thespot, mine].map(eventSourceOf)).toEqual(['purdue', 'purdue', 'iu', 'iu', 'mine'])
+    expect(eventSourceOf({ shared: true, sourceKey: 'somewhere_else' })).toBeNull()
+    expect(eventSourceOf({ shared: true })).toBeNull()
+  })
+
+  it('counts the sources present in a fixed order, and none while no row is shared', () => {
+    expect(eventSourceCounts([mine, iu, purdue, thespot, mine, iu])).toEqual([
+      { id: 'purdue', label: 'Purdue', count: 1 },
+      { id: 'iu', label: 'IU', count: 3 },
+      { id: 'mine', label: 'My calendar', count: 2 },
+    ])
+    expect(eventSourceCounts([iu, { shared: true, sourceKey: 'somewhere_else' }])).toEqual([{ id: 'iu', label: 'IU', count: 1 }])
+    expect(eventSourceCounts([mine, mine])).toEqual([])
+    expect(eventSourceCounts([])).toEqual([])
+  })
+
+  it('keeps a pick only while its source has rows and there is a second source to switch to', () => {
+    const counts = eventSourceCounts([purdue, iu, mine])
+    expect(activeSourceFilter('iu', counts)).toBe('iu')
+    expect(activeSourceFilter('all', counts)).toBe('all')
+    expect(activeSourceFilter('mine', eventSourceCounts([purdue, iu]))).toBe('all')
+    expect(activeSourceFilter('iu', eventSourceCounts([iu]))).toBe('all')
+  })
+
+  it('matches a row against the pick; all matches every row, an unknown shared source included', () => {
+    expect(matchesSourceFilter(iu, 'iu')).toBe(true)
+    expect(matchesSourceFilter(thespot, 'iu')).toBe(true)
+    expect(matchesSourceFilter(purdue, 'iu')).toBe(false)
+    expect(matchesSourceFilter(mine, 'mine')).toBe(true)
+    expect(matchesSourceFilter({ shared: true, sourceKey: 'somewhere_else' }, 'all')).toBe(true)
+    expect(matchesSourceFilter({ shared: true, sourceKey: 'somewhere_else' }, 'purdue')).toBe(false)
   })
 })

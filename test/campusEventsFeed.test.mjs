@@ -167,7 +167,7 @@ test('categories pick deadlines, campus events or both, and the list is in start
   assert.deepEqual(planSharedCalendarItems(null, { now: NOW }), [])
 })
 
-test('the rows the ingest planned from the 2026-10-17 listings: 33 rows list as 28', () => {
+test('the rows the ingest planned from the 2026-10-17 listings: 31 rows list as 26', () => {
   const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
   const plan = planCampusEvents(
     {
@@ -179,15 +179,17 @@ test('the rows the ingest planned from the 2026-10-17 listings: 33 rows list as 
     // BoilerLink organizations by name alone, as with an empty club directory.
     { isIndianapolisOrg: engageOrgLookup([]) },
   )
-  assert.equal(plan.rows.length, 33)
+  // The medical school's ICMH Journal Club and Faculty Crossing's Scholarly Writing
+  // drop at the ingest (LIVEWHALE_EXCLUDED_GROUPS).
+  assert.equal(plan.rows.length, 31)
   // What the table adds on insert, the run having just finished.
   const stored = plan.rows.map((row) => ({ ...row, id: row.dedupe_key, last_seen_at: NOW.toISOString() }))
   const items = planSharedCalendarItems(stored, { now: NOW })
 
   // Two away games (venue_kind elsewhere), two club practices (members only)
   // and the second Yoga class of the day.
-  assert.equal(items.length, 28)
-  for (const gone of ['Wright State Tornament', 'College Night Oct', 'Fall 2026 practices part 2', 'Club Tennis Practice']) {
+  assert.equal(items.length, 26)
+  for (const gone of ['Wright State Tornament', 'College Night Oct', 'Fall 2026 practices part 2', 'Club Tennis Practice', 'ICMH Journal Club', 'Scholarly Writing - ONLINE ONLY']) {
     assert.ok(!titles(items).includes(gone), gone)
   }
   assert.equal(titles(items).filter((title) => title === 'Yoga').length, 1)

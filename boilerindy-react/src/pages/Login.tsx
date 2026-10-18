@@ -88,18 +88,21 @@ export default function Login() {
   // Set while a sign-in or sign-up on this page is finishing: that flow picks
   // the destination itself, so the redirect below must not race it.
   const finishing = useRef(false)
-  // The field to focus once the next render lands. Swapping forms unmounts the
-  // button that had focus ("Forgot password?", "Back to sign in", "Use a
-  // different account") and a submit is disabled while it runs, so focus fell
-  // to the page and a screen reader heard nothing of the new form or the
+  // The field to focus once the render that mounts it lands. Swapping forms
+  // unmounts the button that had focus ("Forgot password?", "Back to sign in",
+  // "Use a different account") and a submit is disabled while it runs, so focus
+  // fell to the page and a screen reader heard nothing of the new form or the
   // error. Each of those paths names the field to move to instead.
-  const focusNext = useRef<string | null>(null)
+  // State, not a ref: React flushes the previous render's pending effects before
+  // it renders a click's update, so a ref set in the click handler was read and
+  // cleared by that older effect while the old form was still on screen, and
+  // focus fell to the page (a flaky Login test under load). A new object per
+  // request, so asking for the same field twice moves focus twice.
+  const [focusRequest, setFocusRequest] = useState<{ id: string } | null>(null)
+  const focusField = (id: string | null) => setFocusRequest(id ? { id } : null)
   useEffect(() => {
-    const id = focusNext.current
-    if (!id) return
-    focusNext.current = null
-    document.getElementById(id)?.focus()
-  })
+    if (focusRequest) document.getElementById(focusRequest.id)?.focus()
+  }, [focusRequest])
 
   useEffect(() => {
     if (loading || !user || finishing.current) return
@@ -118,7 +121,7 @@ export default function Login() {
   // message (tied to it by aria-describedby) is read out.
   function showFieldErrors(next: Record<string, string>) {
     setFieldErr(next)
-    focusNext.current = ['name', 'email', 'password', 'confirm', 'code'].find((field) => next[field]) ?? null
+    focusField(['name', 'email', 'password', 'confirm', 'code'].find((field) => next[field]) ?? null)
   }
 
   // Hands off to Supabase, which redirects the browser to Google and back to
@@ -305,7 +308,7 @@ export default function Login() {
     setConfirm('')
     setPwVisible(false)
     clearErrors()
-    focusNext.current = tab === 'signup' ? 'name' : 'email'
+    focusField(tab === 'signup' ? 'name' : 'email')
   }
 
   async function handleVerifyCode(e: React.FormEvent<HTMLFormElement>) {
@@ -326,7 +329,7 @@ export default function Login() {
     } catch (error) {
       // The verify button is disabled while it runs, so put focus back on the
       // code for another try, or on the password form when the step is over.
-      if (!closeCodeStepIfOver(error)) focusNext.current = 'code'
+      if (!closeCodeStepIfOver(error)) focusField('code')
       setBanner(error instanceof Error ? error.message : 'Could not verify the code. Please try again.')
     } finally {
       setSubmitting(false)
@@ -348,7 +351,7 @@ export default function Login() {
       setPassword('')
       setConfirm('')
       setPwVisible(false)
-      focusNext.current = 'password'
+      focusField('password')
     }
     return restart
   }
@@ -596,7 +599,7 @@ export default function Login() {
               </button>
               <button
                 type="button"
-                onClick={() => { setForgotMode(false); clearErrors(); focusNext.current = 'email' }}
+                onClick={() => { setForgotMode(false); clearErrors(); focusField('email') }}
                 className="btn btn-ghost min-h-11 w-full"
               >
                 Back to sign in
@@ -652,7 +655,7 @@ export default function Login() {
               {!isSignup && (
                 <button
                   type="button"
-                  onClick={() => { setForgotMode(true); clearErrors(); focusNext.current = 'email' }}
+                  onClick={() => { setForgotMode(true); clearErrors(); focusField('email') }}
                   className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink}`}
                 >
                   Forgot password?
