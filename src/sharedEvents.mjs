@@ -198,9 +198,16 @@ const LIVEWHALE_TYPE_CATEGORY = [
 ]
 const LIVEWHALE_FITNESS_TAG_RE = /^(?:fitness|fitness classes|group fitness classes)$/i
 // LiveWhale groups whose listings are not for Purdue students, compared after
-// foldText. The medical school's calendar is room bookings, exam sittings,
-// grand rounds and research seminars: 50 of the 320 IU listings on 2026-10-18.
-export const LIVEWHALE_EXCLUDED_GROUPS = Object.freeze(['iu school of medicine calendar'])
+// foldText. Counts are of the 320 IU listings on 2026-10-18:
+//   - the medical school's calendar: room bookings, exam sittings, grand rounds
+//     and research seminars (50);
+//   - Faculty Crossing: development sessions for faculty (13);
+//   - Kelley's Executive Education: paid programs for working professionals (3).
+export const LIVEWHALE_EXCLUDED_GROUPS = Object.freeze([
+  'iu school of medicine calendar',
+  'iu indianapolis faculty crossing events',
+  'kelley school of business executive education programs events',
+])
 const ENGAGE_THEME_CATEGORY = new Map([
   ['social', 'social'],
   ['athletics', 'sports_fitness'],

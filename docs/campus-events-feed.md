@@ -65,10 +65,11 @@ it can never be taken for one of the student's `calendar_items`:
   "sourceUrl": "https://events.iu.edu/event/..." }
 ```
 
-On the 2026-10-17 fixtures (`test/campusEventsFeed.test.mjs`) the 32 rows the
-ingest plans list as 27: two away games, two club practices and the second
-Yoga class of the day are left out (the medical school's journal club no longer
-reaches the table; see `docs/campus-events-ingest.md`).
+On the 2026-10-17 fixtures (`test/campusEventsFeed.test.mjs`) the 31 rows the
+ingest plans list as 26: two away games, two club practices and the second
+Yoga class of the day are left out (the medical school's journal club and
+Faculty Crossing's writing session no longer reach the table; see
+`docs/campus-events-ingest.md`).
 
 Both pages filter by source once their rows come from two sources or more:
 All sources, Purdue (Purdue's calendar and BoilerLink), IU (IU's calendar and
