@@ -65,9 +65,18 @@ it can never be taken for one of the student's `calendar_items`:
   "sourceUrl": "https://events.iu.edu/event/..." }
 ```
 
-On the 2026-10-17 fixtures (`test/campusEventsFeed.test.mjs`) the 33 rows the
-ingest plans list as 28: two away games, two club practices and the second
-Yoga class of the day are left out.
+On the 2026-10-17 fixtures (`test/campusEventsFeed.test.mjs`) the 31 rows the
+ingest plans list as 26: two away games, two club practices and the second
+Yoga class of the day are left out (the medical school's journal club and
+Faculty Crossing's writing session no longer reach the table; see
+`docs/campus-events-ingest.md`).
+
+Both pages filter by source once their rows come from two sources or more:
+All sources, Purdue (Purdue's calendar and BoilerLink), IU (IU's calendar and
+TheSpot) and My calendar (the student's own rows), each pill with its count, by
+`sourceKey` (`components/EventSourceFilter.tsx`, `lib/campusEvents.ts`). Events
+counts over every row, as its category pills do; Free Food over its free-food
+list. A pick whose source runs out of rows falls back to All sources.
 
 ## When the read fails
 

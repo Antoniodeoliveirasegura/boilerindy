@@ -123,3 +123,42 @@ it('lists shared free-food events with their source and a link out, and keeps on
   expect(screen.queryByText('Breakfast that ended')).not.toBeInTheDocument()
   expect(screen.getByText(/^2 upcoming events on your calendar and campus calendars that mention free food/)).toBeInTheDocument()
 })
+
+// Issue #30: the source pills count the free-food list, not the whole calendar.
+it('filters the free-food events by source', async () => {
+  const at = (hours: number) => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
+  const campus = (id: string, title: string, hours: number, sourceKey: string, freeFood = true) => ({
+    id: `campus:${id}`,
+    title,
+    category: 'campus_event',
+    startTime: at(hours),
+    freeFood,
+    shared: true,
+    sourceKey,
+    sourceLabel: sourceKey === 'purdue_events' ? 'Purdue event' : 'IU event',
+    sourceUrl: `https://example.edu/event/${id}`,
+  })
+  calendar = {
+    items: [
+      pizzaSocial(),
+      campus('breakfast', 'Veterans Day Breakfast', 30, 'iu_events'),
+      campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events'),
+      campus('yoga', 'Yoga', 3, 'iu_events', false),
+    ],
+  }
+  renderPage()
+  await screen.findByText('Veterans Day Breakfast')
+  const pills = screen.getByRole('group', { name: 'Event source' })
+  expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual([
+    'All sources', 'Purdue (1)', 'IU (1)', 'My calendar (1)',
+  ])
+
+  fireEvent.click(within(pills).getByRole('button', { name: 'Purdue (1)' }))
+  expect(screen.getByText('Boiler Fuel Up')).toBeInTheDocument()
+  expect(screen.queryByText('Veterans Day Breakfast')).not.toBeInTheDocument()
+  expect(screen.queryByText('Pizza social')).not.toBeInTheDocument()
+
+  fireEvent.click(within(pills).getByRole('button', { name: 'All sources' }))
+  expect(screen.getByText('Pizza social')).toBeInTheDocument()
+  expect(screen.getByText('Veterans Day Breakfast')).toBeInTheDocument()
+})
