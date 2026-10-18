@@ -20,9 +20,11 @@
 //     listed by two sources.
 //
 // No I/O: src/campusEventsIngest.mjs fetches the pages and writes the rows, and
-// docs/campus-events-ingest.md is the operator's view. Jev is not wired (there
-// is no TypeSafe key yet), so `classifier` stays NULL here; the hook is the
-// `classify` option of runCampusEventsIngest.
+// docs/campus-events-ingest.md is the operator's view. `classifier` is never
+// set here: with CAMPUS_EVENTS_CLASSIFY on, Jev refines the signals afterwards
+// (src/campusEventsClassify.mjs, the `classify` option of
+// runCampusEventsIngest), which is why the plan also says which rows have free
+// food on the source's own word.
 
 import { createHash } from 'node:crypto'
 import { decodeEntities, foldText, htmlToText, isIndianapolisOrganization, truncate } from './boilerlinkClubs.mjs'
@@ -37,13 +39,13 @@ const WEST_LAFAYETTE_KM = 10
 export const DESCRIPTION_MAX = 4000
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// The keys of the planned Jev `category` question (docs/campus-events-ingest.md),
-// plus `deadline` for the official academic dates in Purdue's calendar.
+// The keys of Jev's `category` question (src/campusEventsClassify.mjs), plus
+// `deadline` for the official academic dates in Purdue's calendar.
 export const CATEGORIES = Object.freeze([
   'career', 'academic', 'social', 'club_business', 'sports_fitness',
   'arts_culture', 'service', 'faith', 'wellness', 'deadline', 'other',
 ])
-// The keys of the planned Jev `where` question, so its verdict can replace the
+// The keys of Jev's `where` question, so its verdict can stand in for the
 // rule's answer.
 export const VENUE_KINDS = Object.freeze(['indy_campus', 'west_lafayette', 'online', 'elsewhere', 'unknown'])
 
@@ -101,6 +103,30 @@ export const SOURCES = Object.freeze([
 
 export function sourceByKey(key) {
   return SOURCES.find((source) => source.key === key) || null
+}
+
+export const ENGAGE_SOURCE_KEYS = Object.freeze(SOURCES.filter((source) => source.engage).map((source) => source.key))
+
+/**
+ * CAMPUS_EVENTS_ENGAGE to the Engage sources it turns on: `on`, `1`, `true` or
+ * `all` for both, a comma list of keys for some (`boilerlink` alone: Purdue's
+ * Student Activities and Organizations agreed on 2026-10-18, TheSpot's admins
+ * have not been asked), anything else for none. Unknown names are ignored.
+ */
+export function engageSourcesFromSetting(value) {
+  const text = String(value ?? '').trim().toLowerCase()
+  if (['on', '1', 'true', 'all'].includes(text)) return [...ENGAGE_SOURCE_KEYS]
+  const named = new Set(text.split(/[\s,]+/).filter(Boolean))
+  return ENGAGE_SOURCE_KEYS.filter((key) => named.has(key))
+}
+
+/** The Engage source keys a run reads: `true` for both, a list for some, anything else for none. */
+export function enabledEngageSources(engageEnabled) {
+  if (engageEnabled === true) return new Set(ENGAGE_SOURCE_KEYS)
+  if (Array.isArray(engageEnabled) || engageEnabled instanceof Set) {
+    return new Set([...engageEnabled].filter((key) => ENGAGE_SOURCE_KEYS.includes(key)))
+  }
+  return new Set()
 }
 
 // ── Places ──────────────────────────────────────────────────────────────────
@@ -172,6 +198,12 @@ const MEMBERS_ONLY_RE =
 // free: Localist's `free` and a LiveWhale cost of "Free" mean free admission
 // (Purdue's hockey games carry it), so they count as free food only together
 // with food in the listing ("the first 90 students eat free").
+//
+// Each normalizer keeps the source's own word on free food (its tag, its cost
+// field, free entry with food listed) apart from the keyword matcher, which
+// reads only the title and description: Jev reads those too, and once it has
+// answered it stands in for the matcher, never for the source's word
+// (src/campusEventsClassify.mjs).
 const FOOD_RE =
   /\b(?:food|foods|eat|meal|meals|lunch|dinner|breakfast|brunch|snacks?|pizza|coffee|donuts?|doughnuts?|bagels?|cookies?|treats?|candy|boba|ice cream|s'mores|popcorn|refreshments|drinks|beverages|cider|cupcakes?|tacos?|entrees?|catered|catering)\b/i
 
@@ -303,7 +335,9 @@ export function httpUrlOrNull(value) {
 
 /**
  * One listing, already read out of its platform's shape, to the row the table
- * stores plus the Indianapolis decision. Null without a title or a start.
+ * stores plus the Indianapolis decision and whether the source itself says it
+ * has free food (`sourceFreeFood`, which is not a column). Null without a
+ * title or a start.
  */
 function buildEvent(source, listing) {
   const title = clean(listing.title)
@@ -358,7 +392,7 @@ function buildEvent(source, listing) {
     series_key: seriesKeyFor(source.key, listing.seriesGroup ?? '', title),
     content_hash: contentHashFor({ title, description, location }),
   }
-  return { row, indianapolis }
+  return { row, indianapolis, sourceFreeFood: Boolean(listing.sourceFreeFood) }
 }
 
 /**
@@ -373,6 +407,7 @@ export function normalizeLocalistEvent(event, source = sourceByKey('purdue_event
   const audience = toArray(event.filters?.event_audience).map((type) => clean(type?.name)).filter(Boolean)
   const title = clean(event.title)
   const description = clean(event.description_text)
+  const sourceFreeFood = event.free === true && FOOD_RE.test(`${title} ${description}`)
   const listing = {
     title,
     description,
@@ -382,7 +417,8 @@ export function normalizeLocalistEvent(event, source = sourceByKey('purdue_event
     online: event.experience === 'virtual',
     sourceUrl: event.localist_url,
     category: localistCategory(types),
-    freeFood: (event.free === true && FOOD_RE.test(`${title} ${description}`)) || hasFreeFood(title, description),
+    freeFood: sourceFreeFood || hasFreeFood(title, description),
+    sourceFreeFood,
     openToAll: openToAll(title, audience, LOCALIST_OPEN_AUDIENCE_RE),
     seriesGroup: `event:${event.id ?? ''}`,
   }
@@ -416,11 +452,10 @@ export function normalizeLiveWhaleEvent(raw, source = sourceByKey('iu_events')) 
   const cost = htmlToText(raw.cost)
   const location = clean(raw.location || raw.location_title)
   const excluded = LIVEWHALE_EXCLUDED_GROUPS.includes(foldText(clean(raw.group_title)))
-  const freeFood =
+  const sourceFreeFood =
     tags.some((tag) => /^free food$/i.test(tag)) ||
     hasFreeFood(cost) ||
-    (/^free\b/i.test(cost) && FOOD_RE.test(`${title} ${description} ${tags.join(' ')}`)) ||
-    hasFreeFood(title, description)
+    (/^free\b/i.test(cost) && FOOD_RE.test(`${title} ${description} ${tags.join(' ')}`))
   return buildEvent(source, {
     externalUid: raw.id,
     title,
@@ -435,7 +470,8 @@ export function normalizeLiveWhaleEvent(raw, source = sourceByKey('iu_events')) 
     online: Boolean(raw.is_online) && (/online only/i.test(String(raw.online_type ?? '')) || !location),
     sourceUrl: raw.url,
     category: liveWhaleCategory(types, tags),
-    freeFood,
+    freeFood: sourceFreeFood || hasFreeFood(title, description),
+    sourceFreeFood,
     openToAll: openToAll(title, audience, LIVEWHALE_OPEN_AUDIENCE_RE),
     seriesGroup: `group:${raw.gid ?? ''}`,
     exclude: excluded ? 'group' : null,
@@ -454,6 +490,7 @@ export function normalizeEngageEvent(raw, source, { isIndianapolisOrg = () => fa
   const id = String(raw.id ?? '').trim()
   const title = clean(raw.name)
   const description = htmlToText(raw.description)
+  const sourceFreeFood = toArray(raw.benefitNames).some((name) => /^free food$/i.test(clean(name)))
   return buildEvent(source, {
     externalUid: id,
     title,
@@ -466,7 +503,8 @@ export function normalizeEngageEvent(raw, source, { isIndianapolisOrg = () => fa
     lon: raw.longitude,
     sourceUrl: id ? `${source.origin}/event/${encodeURIComponent(id)}` : null,
     category: engageCategory(raw.theme),
-    freeFood: toArray(raw.benefitNames).some((name) => /^free food$/i.test(clean(name))) || hasFreeFood(title, description),
+    freeFood: sourceFreeFood || hasFreeFood(title, description),
+    sourceFreeFood,
     openToAll: MEMBERS_ONLY_RE.test(title) ? false : null,
     seriesGroup: `org:${raw.organizationId ?? ''}`,
     org: source.everyOrgIsIndianapolis ? true : Boolean(isIndianapolisOrg(raw)),
@@ -589,17 +627,33 @@ const count = (tally, key) => {
   tally[key] = (tally[key] || 0) + 1
 }
 
+/** What a run reports about its rows: how many, how many with free food, and each venue kind and category. */
+export function summarizeRows(rows) {
+  const totals = { rows: rows.length, freeFood: 0, venueKinds: {}, categories: {} }
+  for (const row of rows) {
+    if (row.free_food) totals.freeFood += 1
+    count(totals.venueKinds, row.venue_kind)
+    count(totals.categories, row.category ?? 'none')
+  }
+  return totals
+}
+
 /**
  * Raw listings per source key in, the rows to upsert out, plus what a dry run
  * reports: per source, how many listings came in, how many rows each
  * Indianapolis signal kept or dropped (keptBy, droppedBy), and the merges; the cross-source
  * collapses; a sample of what was dropped and why; totals. Sources absent from
  * `listingsBySource` are skipped. Rows are sorted by start.
+ *
+ * `sourceFreeFood` is the set of dedupe keys whose free food the source itself
+ * states, through merges and collapses (a copy that has it gives it to the row
+ * it joins): the classifier keeps those, whatever Jev reads in the text.
  */
 export function planCampusEvents(listingsBySource, { isIndianapolisOrg } = {}) {
   const sources = []
   const kept = []
   const dropped = []
+  const statedFreeFood = new Set()
   for (const source of SOURCES) {
     if (!Object.prototype.hasOwnProperty.call(listingsBySource || {}, source.key)) continue
     const listings = toArray(listingsBySource[source.key])
@@ -608,10 +662,11 @@ export function planCampusEvents(listingsBySource, { isIndianapolisOrg } = {}) {
     for (const raw of listings) {
       const built = normalizeListing(source, raw, { isIndianapolisOrg })
       if (built.length === 0) stats.skipped += 1
-      for (const { row, indianapolis } of built) {
+      for (const { row, indianapolis, sourceFreeFood } of built) {
         if (indianapolis.keep) {
           count(stats.keptBy, indianapolis.by)
           sourceRows.push(row)
+          if (sourceFreeFood) statedFreeFood.add(row.dedupe_key)
         } else {
           count(stats.droppedBy, indianapolis.by)
           if (dropped.length < DROPPED_SAMPLE) {
@@ -628,11 +683,9 @@ export function planCampusEvents(listingsBySource, { isIndianapolisOrg } = {}) {
   }
   const { rows, collapsed } = collapseCrossSource(kept)
   rows.sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.dedupe_key.localeCompare(b.dedupe_key))
-  const totals = { rows: rows.length, freeFood: 0, venueKinds: {}, categories: {} }
-  for (const row of rows) {
-    if (row.free_food) totals.freeFood += 1
-    count(totals.venueKinds, row.venue_kind)
-    count(totals.categories, row.category ?? 'none')
+  for (const { kept: winner, dropped: copy } of collapsed) {
+    if (statedFreeFood.has(copy)) statedFreeFood.add(winner)
   }
-  return { rows, sources, collapsed, dropped, totals }
+  const sourceFreeFood = new Set(rows.map((row) => row.dedupe_key).filter((key) => statedFreeFood.has(key)))
+  return { rows, sources, collapsed, dropped, totals: summarizeRows(rows), sourceFreeFood }
 }

@@ -52,6 +52,18 @@ describe('Privacy back link', () => {
   })
 })
 
+// Issue #30 - the campus events ingest can send public event listings to
+// TypeSafe's Jev, so TypeSafe is named among the service providers, with what
+// it receives.
+describe('Privacy service providers', () => {
+  test('name TypeSafe and say that nothing about the student goes to it', () => {
+    renderAt('/privacy')
+    const providers = screen.getByText(/We rely on a few service providers/)
+    expect(providers.textContent).toMatch(/TypeSafe \(which\s+reads the public campus event listings/)
+    expect(providers.textContent).toMatch(/nothing about you is sent to it/)
+  })
+})
+
 // Issue #193 - Contact points at the public deletion page the Play Data Safety
 // form links to.
 describe('Privacy contact', () => {

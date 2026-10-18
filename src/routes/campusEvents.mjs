@@ -2,6 +2,7 @@ import express from 'express'
 import { runCampusEventsIngest } from '../campusEventsIngest.mjs'
 import { isTransientFailure } from '../cronTick.mjs'
 import { DB_FEATURES, isSchemaMissingError, respondSchemaMissing } from '../dbErrors.mjs'
+import { enabledEngageSources } from '../sharedEvents.mjs'
 
 // Shared campus events (issue #30): the ingest cron route. The Supabase pg_cron
 // job in db/supabase-campus-events-ingest.sql calls it every 6 hours with the
@@ -9,9 +10,9 @@ import { DB_FEATURES, isSchemaMissingError, respondSchemaMissing } from '../dbEr
 // the work: fetch the public campus calendars, plan the rows
 // (src/sharedEvents.mjs), upsert them into campus_events and sweep what each
 // source no longer lists. `?dryRun=1` (or `{ "dryRun": true }`) answers the
-// rows a run would write and writes nothing. Nothing reads campus_events yet;
-// the read path is a later change behind a flag. See
-// docs/campus-events-ingest.md.
+// rows a run would write and writes nothing. With CAMPUS_EVENTS_CLASSIFY on, a
+// real run also asks Jev about new and edited listings
+// (src/campusEventsClassify.mjs). See docs/campus-events-ingest.md.
 
 const ROUTE = 'POST /api/internal/campus-events/ingest'
 
@@ -28,9 +29,12 @@ function wantsDryRun(req) {
  * @param {Function} deps.warnCronTransient      server.mjs's warning for a transient database
  *   failure that survived its retry
  * @param {object}   deps.clubDirectoryCache     server.mjs's club directory (src/boilerlinkClubs.mjs),
- *   which says which BoilerLink organizations are Indianapolis ones; read only with Engage on
- * @param {boolean}  deps.engageEnabled          CAMPUS_EVENTS_ENGAGE: also read the BoilerLink and
- *   TheSpot event searches, whose robots.txt disallows /api/ (off by default)
+ *   which says which BoilerLink organizations are Indianapolis ones; read only with BoilerLink on
+ * @param {boolean|string[]} deps.engageEnabled  CAMPUS_EVENTS_ENGAGE through engageSourcesFromSetting:
+ *   the Engage event searches to read as well (`boilerlink`, `thespot`), or `true` for both;
+ *   both sites' robots.txt disallows /api/, and only Purdue has agreed (off by default)
+ * @param {Function|null} [deps.classify]        the Jev hook from createCampusEventsClassifier
+ *   (CAMPUS_EVENTS_CLASSIFY with TYPESAFE_API_KEY), null when classification is off
  * @param {object}  [deps.ingestOptions]         passed to runCampusEventsIngest (tests hand in
  *   fetchImpl, sleep and now)
  */
@@ -41,6 +45,7 @@ export function createCampusEventsRouter({
   warnCronTransient,
   clubDirectoryCache,
   engageEnabled = false,
+  classify = null,
   ingestOptions = {},
 }) {
   const router = express.Router()
@@ -60,13 +65,17 @@ export function createCampusEventsRouter({
     try {
       const dryRun = wantsDryRun(req)
       let clubs = []
-      if (engageEnabled && clubDirectoryCache) {
+      // Only BoilerLink needs the directory: on TheSpot every organization is an Indianapolis one.
+      if (enabledEngageSources(engageEnabled).has('boilerlink') && clubDirectoryCache) {
         const { directory } = await clubDirectoryCache.get()
         if (directory?.ok) clubs = directory.clubs
       }
-      const summary = await runCampusEventsIngest({ ...ingestOptions, client: supabase, dryRun, engageEnabled, clubs })
+      const summary = await runCampusEventsIngest({ ...ingestOptions, client: supabase, dryRun, engageEnabled, clubs, classify })
       const brief = summary.sources.filter((s) => s.enabled).map((s) => `${s.key}=${s.ok ? s.rows : 'failed'}`).join(' ')
-      console.log(`[campus-events] ${dryRun ? 'dry run' : 'run'}: ${brief}, ${summary.totals.rows} rows${dryRun ? '' : `, ${summary.upserted} upserted`} in ${summary.durationMs} ms`)
+      const jev = summary.classify?.mode
+        ? `, jev ${summary.classify.mode}: ${summary.classify.reused} reused, ${summary.classify.asked} asked, ${summary.classify.failed} failed, ${summary.classify.deferred} left for the next run`
+        : ''
+      console.log(`[campus-events] ${dryRun ? 'dry run' : 'run'}: ${brief}, ${summary.totals.rows} rows${dryRun ? '' : `, ${summary.upserted} upserted`}${jev} in ${summary.durationMs} ms`)
       return res.json(summary)
     } catch (error) {
       if (isSchemaMissingError(error)) return respondSchemaMissing(res, DB_FEATURES.campus_events, error)
