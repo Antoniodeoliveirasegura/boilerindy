@@ -2,6 +2,7 @@ import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import AppErrorBoundary from './AppErrorBoundary'
+import { isAdFreePath } from '../lib/adFreeRoutes'
 import { isPreviewPath } from '../lib/publicPreview'
 import { syncScheduleOverridesFromServer } from '../lib/scheduleOverrideStore'
 import Navbar from './Navbar'
@@ -31,6 +32,9 @@ export default function AppLayout() {
   const preview = isPreviewPath(pathname)
   const showPreviewBar = preview && !loading && !user
   const holdNavbarSlot = preview && loading
+  // No sponsor rails beside the pages that list the shared campus events
+  // (lib/adFreeRoutes.ts): Ticketmaster's API terms bar revenue from its listings.
+  const showRails = showChrome && !isAdFreePath(pathname)
 
   // Reconcile this device's schedule edits with the server once the user is
   // known. Every page reads them from localStorage synchronously, so this only
@@ -45,9 +49,9 @@ export default function AppLayout() {
       <SkipLink />
       {holdNavbarSlot && <div className="h-14 md:h-16" aria-hidden="true" data-testid="navbar-slot" />}
       {showPreviewBar && <PreviewBar />}
-      {showChrome && (
+      {showChrome && <Navbar />}
+      {showRails && (
         <>
-          <Navbar />
           <SideSpotlightRail side="left" />
           <SideSpotlightRail side="right" />
         </>

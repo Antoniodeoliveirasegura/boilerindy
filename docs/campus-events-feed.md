@@ -79,6 +79,12 @@ TheSpot) and My calendar (the student's own rows), each pill with its count, by
 counts over every row, as its category pills do; Free Food over its free-food
 list. A pick whose source runs out of rows falls back to All sources.
 
+Neither page shows the sponsor side rails (`lib/adFreeRoutes.ts`, read by
+`AppLayout`): Ticketmaster's API terms bar deriving revenue from the use of its
+API, and these are the pages its listings would reach. Home's sponsored widget
+and featured deal never show shared rows, since Home's calendar read leaves out
+`shared=1`.
+
 ## When the read fails
 
 The shared rows only add to a student's own calendar, so they never fail the

@@ -37,6 +37,8 @@ function renderLayout(value: typeof auth.value, path = '/events') {
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/events" element={<p>page outlet</p>} />
+          <Route path="/free-food" element={<p>page outlet</p>} />
+          <Route path="/clubs" element={<p>page outlet</p>} />
           <Route path="/dining" element={<p>page outlet</p>} />
           <Route path="/transit" element={<p>page outlet</p>} />
         </Route>
@@ -63,9 +65,19 @@ describe('AppLayout chrome', () => {
   })
 
   test('signed in: navigation, rails and assistant render', () => {
-    renderLayout({ loading: false, user: { id: 'user-1' } })
+    renderLayout({ loading: false, user: { id: 'user-1' } }, '/clubs')
     expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0)
     expect(screen.getAllByTestId('spotlight-rail')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'BoilerIndy' })).toBeInTheDocument()
+  })
+
+  // Issue #30: the pages that list the shared campus events carry no sponsor
+  // rails, since Ticketmaster's API terms bar revenue from its listings.
+  test.each(['/events', '/free-food', '/Events/'])('signed in on %s: navigation and assistant, no sponsor rails', (path) => {
+    renderLayout({ loading: false, user: { id: 'user-1' } }, path)
+    expect(screen.getByText('page outlet')).toBeInTheDocument()
+    expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('spotlight-rail')).toBeNull()
     expect(screen.getByRole('button', { name: 'BoilerIndy' })).toBeInTheDocument()
   })
 })
