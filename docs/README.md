@@ -11,6 +11,7 @@ coding conventions live in the root [README.md](../README.md).
 - [api-routes.md](api-routes.md) - every route the backend serves, generated from `server.mjs` and `src/routes/` by `pnpm run docs:routes` and kept in step by a test (issue #191).
 - [api-error-codes.md](api-error-codes.md) - the standard JSON error envelope, used by new code and by every code in the table it lists (issue #218).
 - [brand.md](brand.md) - the nominative fair use posture that names Purdue only to describe who the app is for and uses none of the university's identity assets (issue #112).
+- [campus-events-feed.md](campus-events-feed.md) - the shared campus events on `/events` and `/free-food`, for every student including one with no linked calendar, behind `CAMPUS_EVENTS_FEED` (off by default): which reads get them, what is listed and what a student sees (issue #30).
 - [campus-events-ingest.md](campus-events-ingest.md) - the cron route that reads Purdue's and IU's public events calendars into the shared `campus_events` table every 6 hours, with a dry run that writes nothing (issue #30).
 - [campus-news.md](campus-news.md) - the latest headlines from The Circuit, Purdue Indy's student newspaper, behind the "Campus news" dashboard widget and `GET /api/campus-news`: headlines, excerpts and links only (issue #470).
 - [client-cache.md](client-cache.md) - the TanStack Query layer in the React app: the public reads persisted to localStorage so the dashboard paints from the last visit, with their keys, stale times, polling and retry rules (issue #251).
@@ -26,7 +27,7 @@ coding conventions live in the root [README.md](../README.md).
 - [push-notifications.md](push-notifications.md) - Web Push deadline reminders: the `/settings` card, the `/api/push/` routes behind it, and the reminder runner the Supabase scheduler triggers every 5 minutes (issue #9); the native app's Expo push tokens and their delivery (issue #194).
 - [RATE_LIMITS.md](RATE_LIMITS.md) - the configurable, in-memory rate limiting that protects the backend, keyed by the signed-in user id when a session exists and otherwise by client IP.
 - [schedule-import.md](schedule-import.md) - how a student gets their classes and due dates into BoilerIndy, and why the production path is a pasted link (issue #120).
-- [shared-campus-events.md](shared-campus-events.md) - the design for campus events that are shared rather than owned by one student's feed, and the public sources chosen for it; the table and the ingest are built, the read path is not (issue #30).
+- [shared-campus-events.md](shared-campus-events.md) - the design for campus events that are shared rather than owned by one student's feed, and the public sources chosen for it; the table, the ingest and the read path are built, the read path behind a switch (issue #30).
 - [source-resync.md](source-resync.md) - the cron job that re-imports every connected calendar feed on a schedule, instead of only when the student presses Sync (issue #12).
 
 ## History

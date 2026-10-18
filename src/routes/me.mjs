@@ -1,5 +1,6 @@
 import express from 'express'
 import { categoryListFromCounts, loadCalendarCategoryCounts } from '../calendarCategoryCounts.mjs'
+import { SHARED_CALENDAR_CATEGORIES, sharedCategoriesFor } from '../campusEventsFeed.mjs'
 import { badRequest, isSchemaMissingError, respondRouteError } from '../dbErrors.mjs'
 import { getProgram } from '../degreePrograms.mjs'
 import {
@@ -37,6 +38,15 @@ import {
 const CALENDAR_DEFAULT_LOOKBACK_DAYS = 14
 function defaultCalendarFrom() {
   return new Date(Date.now() - CALENDAR_DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
+}
+
+// GET /api/me/calendar adds the shared campus events (issue #30) only when
+// asked with ?shared=1, and then only while the server's feed is on
+// (CAMPUS_EVENTS_FEED). The Events and Free Food window asks; the unfiltered
+// reads behind Assignments and the native app's task list, and Home's, never
+// do, so a shared row never reaches a list that offers "mark done".
+function wantsSharedEvents(query) {
+  return ['1', 'true'].includes(String(query.shared ?? '').trim().toLowerCase())
 }
 
 // ── Tasks: mark calendar rows done + user-created dated tasks (see db/supabase-user-tasks.sql) ──
@@ -129,10 +139,13 @@ export function createMeRouter({ supabase, requireAuth, userWriteRateLimit, list
     const categories = typeof req.query.categories === 'string' ? req.query.categories.split(',').filter(Boolean) : null
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 100
     const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
+    const sharedCategories = wantsSharedEvents(req.query) ? sharedCategoriesFor({ category, categories }) : null
     // A failed read is a 500, not an empty list: Home, Assignments and Events
     // read { items: [] } as "nothing due" and said so.
     try {
-      res.json({ items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from, throwOnError: true }) })
+      res.json({
+        items: await listCalendarItems(req.currentUser.id, { category, categories, limit, order: 'asc', from, throwOnError: true, sharedCategories }),
+      })
     } catch (e) {
       respondRouteError(res, e, { label: 'GET /api/me/calendar', fallback: 'Could not load your calendar.' })
     }
@@ -453,10 +466,20 @@ export function createMeRouter({ supabase, requireAuth, userWriteRateLimit, list
     res.json(data)
   })
 
+  // The student's own `event` rows, plus every upcoming shared campus event
+  // while the feed is on: no list built on this read offers "mark done".
   router.get('/api/me/events', requireAuth, async (req, res) => {
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20
     const from = typeof req.query.from === 'string' ? req.query.from : defaultCalendarFrom()
-    res.json({ items: await listCalendarItems(req.currentUser.id, { category: 'event', limit, order: 'asc', from }) })
+    res.json({
+      items: await listCalendarItems(req.currentUser.id, {
+        category: 'event',
+        limit,
+        order: 'asc',
+        from,
+        sharedCategories: [...SHARED_CALENDAR_CATEGORIES],
+      }),
+    })
   })
 
   return router

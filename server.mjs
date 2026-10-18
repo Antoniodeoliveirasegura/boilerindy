@@ -598,7 +598,12 @@ function requireAdmin(req, res, next) {
 
 // The per-user calendar reads the me, assistant, study groups and friends
 // routers share (src/calendarReads.mjs, issue #191), built once.
-const { listCalendarItems, getClassItemsForUser, readScheduleOverrides } = createCalendarReads(supabase)
+// CAMPUS_EVENTS_FEED (off by default) lets the Events and Free Food read and
+// GET /api/me/events add the shared campus events (issue #30,
+// docs/campus-events-feed.md); with README step 43 not run they read as none.
+const { listCalendarItems, getClassItemsForUser, readScheduleOverrides } = createCalendarReads(supabase, {
+  sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'),
+})
 
 // Linking a Purdue identity onto a student, and clearing one: the auth and
 // purdueEmail routers and the admin link release share one instance
