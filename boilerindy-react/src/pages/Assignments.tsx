@@ -623,7 +623,7 @@ export default function Assignments() {
 
   return (
     <div className="page">
-      <PageTitle>Assignments</PageTitle>
+      <PageTitle>Tasks</PageTitle>
       <TaskCompleteReward
         origin={rewardOrigin}
         onDone={() => setRewardOrigin(null)}
@@ -632,7 +632,7 @@ export default function Assignments() {
       <SourceErrorNotice className="mb-6" />
       <header className="page-head animate-fade-in-up">
         <div>
-          <h1 className="page-title">Assignments</h1>
+          <h1 className="page-title">Tasks</h1>
           <p className="page-sub">
             {filteredItems.length} item{filteredItems.length === 1 ? '' : 's'} · Brightspace imports and tasks you add
           </p>
@@ -852,7 +852,7 @@ export default function Assignments() {
               {insightsLoading && !activeInsight ? (
                 <div className="flex items-center gap-2 py-2 text-[13.5px] text-[var(--color-txt-2)]">
                   <Icon name="refresh" size={14} className="animate-spin" />
-                  Analyzing your assignments…
+                  Analyzing your tasks…
                 </div>
               ) : activeInsight ? (
                 <>
@@ -875,7 +875,7 @@ export default function Assignments() {
 
       {loading ? (
         <div className="card card-pad text-center text-[14px] text-[var(--color-txt-2)]">
-          Loading assignments...
+          Loading tasks...
         </div>
       ) : filteredItems.length === 0 && loadFailure ? (
         // The failed read is said above; "No items found" would claim the
@@ -891,10 +891,10 @@ export default function Assignments() {
               <div className="font-display text-[15px] font-bold text-[var(--color-txt-0)]">No items found</div>
               <p className="mt-1">
                 {hasNoSources
-                  ? 'Connect your Brightspace calendar to see assignments and events.'
+                  ? 'Connect your Brightspace calendar to see tasks and events.'
                   : selectedCategories.length > 0
                     ? 'Try selecting different categories or showing past items.'
-                    : 'No upcoming assignments or events.'}
+                    : 'No upcoming tasks or events.'}
               </p>
             </div>
           </div>

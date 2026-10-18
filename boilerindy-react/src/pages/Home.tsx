@@ -1937,8 +1937,8 @@ export default function Home() {
                 <Icon name="document" size={18} />
               </span>
               <p>
-                Nothing due right now. Add assignments on the{' '}
-                <Link to="/assignments" className="text-[var(--color-accent)] hover:underline">assignments page</Link>.
+                Nothing due right now. Add tasks on the{' '}
+                <Link to="/assignments" className="text-[var(--color-accent)] hover:underline">Tasks page</Link>.
               </p>
             </div>
           ) : (

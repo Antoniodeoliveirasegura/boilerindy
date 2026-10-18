@@ -207,10 +207,6 @@ export default function Navbar() {
                     <Icon name="calendar" size={16} />
                     Setup
                   </Link>
-                  <Link to="/advertise" role="menuitem" className="menu-item" onClick={() => setMenuOpen(false)}>
-                    <Icon name="briefcase" size={16} />
-                    Advertiser portal
-                  </Link>
                   <button
                     type="button"
                     role="menuitem"

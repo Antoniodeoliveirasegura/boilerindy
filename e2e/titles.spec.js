@@ -23,4 +23,12 @@ test.describe('Page titles', () => {
     await page.goto('/dashboard')
     await expect(page).toHaveTitle('Dashboard - BoilerIndy')
   })
+
+  // Issue #376 - the nav says Tasks, so the tab does too. The route stays
+  // /assignments, so bookmarks and push reminder links keep working.
+  test('the Tasks page titles the tab Tasks', async ({ page, mockApi }) => {
+    mockApi.login()
+    await page.goto('/assignments')
+    await expect(page).toHaveTitle('Tasks - BoilerIndy')
+  })
 })

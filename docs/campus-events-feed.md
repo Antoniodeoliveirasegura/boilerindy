@@ -33,7 +33,7 @@ reads ask:
 | `GET /api/me/calendar?shared=1` | The categories the read names, as `listCalendarItems` gives its own filter precedence (`category` over `categories`, none for both). The Events and Free Food window (`categories=campus_event,event,deadline&limit=500&shared=1`, `CAMPUS_EVENTS_CALENDAR` in `boilerindy-react/src/lib/queries/userData.ts`) gets both. |
 | `GET /api/me/events` | Both categories, with the student's `event` rows. No page reads it today. |
 
-Nothing else asks, so Assignments, Home, the assistant and the native app's
+Nothing else asks, so the Tasks page, Home, the assistant and the native app's
 task list read exactly what they read before, and a shared row never reaches a
 list that offers "mark done". The native app's Events screen gets them once it
 adds `shared=1` to its read (a change in `boilerindy-app`).
