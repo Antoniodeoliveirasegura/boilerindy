@@ -3,17 +3,19 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import { hasEnded, listedTime, listingLink, runsFromEarlierDay, untilLabel, type CampusEventFields } from '../lib/campusEvents'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
 
 // Dedicated Free Food feed (issue #46): campus events flagged by the server's
 // keyword matcher (item.freeFood). Reuses the same /api/me/calendar source as
-// the Events page, then narrows to free-food events.
+// the Events page, then narrows to free-food events. The shared campus events
+// (issue #30) carry the free food their source or the ingest found, and say
+// where they came from, with a link out to the listing.
 
-type CalendarItem = {
+type CalendarItem = CampusEventFields & {
   id: string
   title?: string
-  startTime: string
   location?: string
   description?: string
   freeFood?: boolean
@@ -36,8 +38,18 @@ function formatTime(dateString: string) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
-function isPast(dateString: string) {
-  return new Date(dateString) < new Date()
+// The clock line of a row: its start time, or until when it runs for a row
+// still on from an earlier day (lib/campusEvents).
+function timeLine(item: CalendarItem) {
+  if (!runsFromEarlierDay(item)) return formatTime(item.startTime)
+  const until = untilLabel(item)
+  return until.charAt(0).toUpperCase() + until.slice(1)
+}
+
+// Where the listed events come from: the shared rows are the campus calendars'.
+function sourcesLine(items: CalendarItem[], hasNoSources: boolean) {
+  if (!items.some((item) => item.shared)) return 'on your calendar'
+  return hasNoSources ? 'on campus calendars' : 'on your calendar and campus calendars'
 }
 
 function isToday(dateString: string) {
@@ -61,18 +73,19 @@ export default function FreeFood() {
   // to show, the page says it failed and offers a retry.
   const loadFailed = calendarQuery.isError && !calendarQuery.data
 
+  // Listed until each event is over, as on Events.
   const freeFoodItems = useMemo(
     () =>
       items
-        .filter((item) => item.freeFood && !isPast(item.startTime))
-        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()),
+        .filter((item) => item.freeFood && !hasEnded(item))
+        .sort((a, b) => new Date(listedTime(a)).getTime() - new Date(listedTime(b)).getTime()),
     [items],
   )
 
   const grouped = useMemo(() => {
     const groups: Record<string, CalendarItem[]> = {}
     for (const item of freeFoodItems) {
-      const key = formatDate(item.startTime)
+      const key = formatDate(listedTime(item))
       if (!groups[key]) groups[key] = []
       groups[key].push(item)
     }
@@ -95,7 +108,7 @@ export default function FreeFood() {
           <p className="page-sub">
             {loadFailed
               ? 'Upcoming events on your calendar that mention free food - pizza, snacks, refreshments, and more.'
-              : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} on your calendar that mention free food - pizza, snacks, refreshments, and more.`}
+              : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} ${sourcesLine(items, hasNoSources)} that mention free food - pizza, snacks, refreshments, and more.`}
           </p>
         </div>
       </header>
@@ -168,9 +181,11 @@ export default function FreeFood() {
               </div>
               <ol className="dep">
                 {dateItems.map((item) => {
-                  const block = dateBlock(item.startTime)
+                  const listedAt = listedTime(item)
+                  const block = dateBlock(listedAt)
+                  const listing = listingLink(item)
                   return (
-                    <li key={item.id} className={isToday(item.startTime) ? 'urgent' : undefined}>
+                    <li key={item.id} className={isToday(listedAt) ? 'urgent' : undefined}>
                       {/* No end column: the Free food badge leads the meta
                           line, as on Events, so the title keeps the width. */}
                       <div className="dep-row items-start grid-cols-[48px_minmax(0,1fr)]">
@@ -186,9 +201,10 @@ export default function FreeFood() {
                             <span className="badge badge-route">
                               Free food
                             </span>
+                            {item.shared && <span className="badge">{item.sourceLabel || 'Campus calendar'}</span>}
                             <span className="inline-flex items-center gap-1">
                               <Icon name="clock" size={12} />
-                              {formatTime(item.startTime)}
+                              {timeLine(item)}
                             </span>
                             {item.location && (
                               <span className="inline-flex items-center gap-1 min-w-0 max-w-full truncate">
@@ -201,6 +217,17 @@ export default function FreeFood() {
                             <p className="text-[13px] text-[var(--color-txt-2)] mt-2 line-clamp-2 [overflow-wrap:anywhere]">
                               {linkifyText(stripHtml(item.description).slice(0, 200), { maxDisplayLength: 60 })}
                             </p>
+                          )}
+                          {listing && (
+                            <a
+                              href={listing.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 mt-2 text-[13px] text-[var(--color-accent)] hover:underline [overflow-wrap:anywhere]"
+                            >
+                              <Icon name="external" size={12} />
+                              View on {listing.host}
+                            </a>
                           )}
                         </div>
                       </div>

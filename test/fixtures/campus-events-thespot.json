@@ -1,0 +1,136 @@
+{
+  "@odata.count": 6,
+  "value": [
+    {
+      "id": "12728562",
+      "organizationId": 393614,
+      "organizationName": "Purdue Student Activities and Organizations",
+      "branchId": 127779,
+      "name": "Weekly Badminton Club Hours",
+      "description": "<p>Join the Purdue Indy Badminton Club for our weekly rec hours! Whether you're a seasoned player bringing your own racket, or you just want to casually rally with friends to de-stress, all skill levels are welcome to drop in.</p>\r\n<p>&nbsp;</p>\r\n<p>This is a great way to stay active, meet other club members, and get consistent court time throughout the semester.</p>\r\n<p>&nbsp;</p>\r\n<p>The Details:</p>\r\n<p>&nbsp;</p>\r\n<p>- When: Mondays and Wednesdays, 9:00 PM - 11:00 PM</p>\r\n<p>&nbsp;</p>\r\n<p>- Where: The Jungle / IUI Gymnasium</p>\r\n<p>&nbsp;</p>\r\n<p>- What to Bring: Indoor court shoes, a water bottle, and your racket (club rackets available to borrow as well!)</p>\r\n<p>&nbsp;</p>\r\n<p>Stay Connected:</p>\r\n<p>&nbsp;</p>\r\n<p>- Discord: https://discord.gg/rbJQxVKVK</p>\r\n<p>&nbsp;</p>\r\n<p>- Instagram: instagram.com/purdueindybadminton</p>\r\n<p>&nbsp;</p>\r\n<p>See you on the court!</p>",
+      "location": "The Jungle",
+      "startsOn": "2026-10-20T01:00:00+00:00",
+      "endsOn": "2026-10-20T02:00:00+00:00",
+      "imagePath": null,
+      "theme": "Athletics",
+      "categoryNames": [],
+      "benefitNames": [],
+      "visibility": "Public",
+      "status": "Approved",
+      "latitude": null,
+      "longitude": null,
+      "rsvpTotal": 0
+    },
+    {
+      "id": "12515641",
+      "organizationId": 385801,
+      "organizationName": "Club Soccer at IU Indianapolis",
+      "branchId": 127779,
+      "name": "IU Indy Club Soccer vs other Universities Club Soccer",
+      "description": "<p>IU Indy Club soccer will be playing against other university student soccer clubs for 90 minutes. Our home games will be at Carroll playing against Notre Dame 9/20, Ball State 9/26, IUB 10/18, Bowling Green 10/24, and Dayton 10/25.</p>",
+      "location": "Michael A. Carroll Track and Soccer Stadium",
+      "startsOn": "2026-10-18T13:00:00+00:00",
+      "endsOn": "2026-10-18T16:00:00+00:00",
+      "imagePath": "02d9a3bb-01dd-4be1-9879-21ff0122ecd333b89885-976a-45fa-9933-1d662a253bc3.png",
+      "theme": "Athletics",
+      "categoryNames": [
+        "Athletic Contest/Sporting Event"
+      ],
+      "benefitNames": [],
+      "visibility": "Public",
+      "status": "Approved",
+      "latitude": "41.763400",
+      "longitude": "-88.339700",
+      "rsvpTotal": 27
+    },
+    {
+      "id": "12818733",
+      "organizationId": 157667,
+      "organizationName": "IU Indianapolis Division of Student Affairs",
+      "branchId": 127779,
+      "name": "Chancellor\u2019s Distinguished Speaker Series Luncheon",
+      "description": "<div id=\"lw_cal_event_detail_intro\" class=\"lw_cal_event_detail_block\">\r\n<p>Learn from accomplished business and community leaders in a personal, engaging setting.&nbsp; Hear their career journeys, real-world experiences, lessons learned, and advice to help students think about their own futures.</p>\r\n</div>\r\n<div id=\"lw_cal_event_detail_description\" class=\"lw_cal_event_detail_block\">\r\n<p>Join us for lunch beginning at 11:30 a.m.; then settle in for an inspiring conversation with our distinguished speaker, Joey Graziano, Chief Commercial Office, Pacers Sports &amp; Entertainment. Be sure to <a href=\"https://events.iu.edu/studentaffairs-indianapolis/event/2422493-chancellors-distinguished-speaker-series-luncheon\">RSVP</a>.</p>\r\n</div>",
+      "location": "UNIVERSITY HALL Room: 2041-2043",
+      "startsOn": "2026-10-21T15:30:00+00:00",
+      "endsOn": "2026-10-21T17:00:00+00:00",
+      "imagePath": "754690d8-510f-4b55-a8d6-a49f59be73262ddb10d7-45f8-40d3-9fc2-5dcb38cc989c.png",
+      "theme": "Social",
+      "categoryNames": [
+        "Training/Workshop/Learning Opportunity",
+        "Engage & Thrive - Career Exploration"
+      ],
+      "benefitNames": [
+        "Free Food"
+      ],
+      "visibility": "Public",
+      "status": "Approved",
+      "latitude": "29.311320",
+      "longitude": "-94.778130",
+      "rsvpTotal": 0
+    },
+    {
+      "id": "12865995",
+      "organizationId": 142876,
+      "organizationName": "American Dental Education Association at IUSD",
+      "branchId": 127779,
+      "name": "Chipotle Fundraiser",
+      "description": "<p>ADEA chipotle fundraiser</p>",
+      "location": "Chipotle",
+      "startsOn": "2026-10-19T20:00:00+00:00",
+      "endsOn": "2026-10-20T00:00:00+00:00",
+      "imagePath": null,
+      "theme": "Fundraising",
+      "categoryNames": [
+        "Food Fundraiser"
+      ],
+      "benefitNames": [],
+      "visibility": "Public",
+      "status": "Approved",
+      "latitude": "39.781810",
+      "longitude": "-86.169610",
+      "rsvpTotal": 0
+    },
+    {
+      "id": "12807359",
+      "organizationId": 398763,
+      "organizationName": "Motion to Move! Running & Walking Club ",
+      "branchId": 127779,
+      "name": "Oct. 20 Run/Walk ",
+      "description": "<p>Will begin and end in the courtyard at Inlow Hall.&nbsp;</p>",
+      "location": "Downtown Indy",
+      "startsOn": "2026-10-20T21:30:00+00:00",
+      "endsOn": "2026-10-20T22:30:00+00:00",
+      "imagePath": null,
+      "theme": "Athletics",
+      "categoryNames": [],
+      "benefitNames": [],
+      "visibility": "Public",
+      "status": "Approved",
+      "latitude": null,
+      "longitude": null,
+      "rsvpTotal": 0
+    },
+    {
+      "id": "12827272",
+      "organizationId": 135000,
+      "organizationName": "Club Tennis at IU Indianapolis",
+      "branchId": 127779,
+      "name": "Club Tennis Practice",
+      "description": "<p>Outdoor Practice at the IUI campus tennis courts for all members.</p>",
+      "location": "IUI Campus Tennis Courts",
+      "startsOn": "2026-10-19T21:30:00+00:00",
+      "endsOn": "2026-10-19T22:30:00+00:00",
+      "imagePath": "9fdbac02-2234-43f0-adac-6a833fc41b5e5f1edd5e-47aa-4107-a4df-1e59edd544a3.png",
+      "theme": "Athletics",
+      "categoryNames": [
+        "Athletic Contest/Sporting Event"
+      ],
+      "benefitNames": [],
+      "visibility": "Public",
+      "status": "Approved",
+      "latitude": null,
+      "longitude": null,
+      "rsvpTotal": 0
+    }
+  ]
+}
