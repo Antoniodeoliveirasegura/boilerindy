@@ -66,6 +66,7 @@ import { createMeRouter } from './src/routes/me.mjs'
 import { createSourcesRouter } from './src/routes/sources.mjs'
 import { createCampusEventsRouter } from './src/routes/campusEvents.mjs'
 import { engageSourcesFromSetting } from './src/sharedEvents.mjs'
+import { createCampusEventsClassifier } from './src/campusEventsClassify.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -666,8 +667,11 @@ app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinking
 // (docs/campus-events-ingest.md). CAMPUS_EVENTS_ENGAGE (off by default) adds
 // the Engage event searches it names, `boilerlink`, `thespot`, or `on` for both,
 // and the club directory cache built above says which BoilerLink organizations
-// are Indianapolis ones.
-app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE) }))
+// are Indianapolis ones. CAMPUS_EVENTS_CLASSIFY (off by default; `shadow` stores
+// the verdicts without using them) with TYPESAFE_API_KEY asks Jev about each new
+// or edited listing (src/campusEventsClassify.mjs).
+const classifyCampusEvents = createCampusEventsClassifier({ apiKey: process.env.TYPESAFE_API_KEY, setting: process.env.CAMPUS_EVENTS_CLASSIFY })
+app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE), classify: classifyCampusEvents }))
 
 // ── The student's calendar, classes, tasks, grades, degree and schedule edits ──
 // GET /api/me/calendar, /calendar/categories, /classes and /events, the task

@@ -45,10 +45,10 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 | Not over | Its end, or for an all-day row with no end the end of its day, or else its start, is now or later. A row still running from an earlier day (a gallery exhibit) is listed under Today, its clock line saying until when, and the details card "On now · until ...". Both pages now treat the student's own rows the same way, so an event in progress stays listed until it ends. |
 | Fresh | Written by the ingest within the last 26 hours: four missed 6-hourly runs and two hours' grace. An older row belongs to a source that has been failing for a day, and may have been cancelled or moved since. |
 | Reachable | `venue_kind` is not `west_lafayette` or `elsewhere` (Mackey Arena, an Indianapolis club's away game). `online` and `unknown` are listed. |
-| Open | `open_to_all` is not `false` (a practice, a rehearsal, an officer meeting). `NULL` is listed. |
+| Open | `open_to_all` is not `false` (a practice, a rehearsal, an officer meeting, and with Jev on an event for staff or instructors). `NULL` is listed. |
 | Once per series | One row per `series_key`, its next occurrence, so a weekly class is listed once. |
 | Category | `deadline` (Purdue's "Dates and Deadlines") reads as Deadline, every other row as Campus Event. |
-| Free food | The stored `free_food`: the source's own tag, free entry with food in the listing, or the keyword matcher. |
+| Free food | The stored `free_food`: the source's own tag, free entry with food in the listing, or the keyword matcher, which Jev's answer replaces with `CAMPUS_EVENTS_CLASSIFY` on ([campus-events-ingest.md](campus-events-ingest.md#jev-classification)). |
 
 Each listed row carries `shared: true`, a source label and the listing's link,
 http(s) only. The labels are `SOURCE_LABELS` in `src/campusEventsFeed.mjs`:

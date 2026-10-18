@@ -86,10 +86,12 @@ no Meta pixel). You can opt out anytime in Settings → Privacy, and raw events 
 impression and tap counts for their own campaigns. We rely on a few service providers to run the
 app: Supabase (database and authentication), Groq (only the AI-assistant requests
 described above), Sentry (crash and error reports, with emails, tokens, and cookies stripped out
-before they are sent), Vercel (hosting and anonymous page-performance metrics), and Resend (email
-delivery for advertiser accounts and for the code that verifies a Purdue email). Public info shown
-in the app - transit, dining menus, and map buildings - is fetched from public sources without
-sending them anything about you.`,
+before they are sent), Vercel (hosting and anonymous page-performance metrics), Resend (email
+delivery for advertiser accounts and for the code that verifies a Purdue email), and TypeSafe (which
+reads the public campus event listings to sort them, for example whether one offers free food;
+nothing about you is sent to it). Public info shown in the app - transit, dining menus, campus
+events, and map buildings - is fetched from public sources without sending them anything about
+you.`,
   },
   {
     title: 'Your calendar feed link',
@@ -150,7 +152,7 @@ export default function Privacy() {
             <div>
               <h1 className="page-title">Privacy policy</h1>
               <p className="page-sub">
-                Last updated September 14, 2026. The short version: your data stays in our own database, we
+                Last updated October 18, 2026. The short version: your data stays in our own database, we
                 use no advertising trackers, we never store your Purdue password, and you can opt out of
                 analytics or delete your account anytime.
               </p>
