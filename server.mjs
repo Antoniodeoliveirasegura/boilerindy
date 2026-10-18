@@ -64,6 +64,7 @@ import { createAnalyticsRouter } from './src/routes/analytics.mjs'
 import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
 import { createMeRouter } from './src/routes/me.mjs'
 import { createSourcesRouter } from './src/routes/sources.mjs'
+import { createCampusEventsRouter } from './src/routes/campusEvents.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -214,10 +215,11 @@ const sessionStore = await createSessionStore(supabase)
 // src/routes/auth.mjs and the choke points listed in src/onboardingSummaryCache.mjs.
 const onboardingSummaryCache = createOnboardingSummaryCache()
 
-// The bearer token the Supabase pg_cron jobs send to the two cron routes, the
-// push reminder runner (src/routes/push.mjs) and the source re-sync
-// (src/routes/sources.mjs). Blank leaves both to the JSON 404. Read here,
-// above every mount, because both routers are handed it where they mount.
+// The bearer token the Supabase pg_cron jobs send to the three cron routes,
+// the push reminder runner (src/routes/push.mjs), the source re-sync
+// (src/routes/sources.mjs) and the campus events ingest
+// (src/routes/campusEvents.mjs). Blank leaves all three to the JSON 404. Read
+// here, above every mount, because each router is handed it where it mounts.
 const PUSH_CRON_SECRET = String(process.env.PUSH_CRON_SECRET || '').trim()
 
 function pushCronSecretMatches(header) {
@@ -650,6 +652,15 @@ app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, i
 // #191), with runScheduleSync and the host allowlist. warnFeedTransient and
 // warnCronTransient stay with the Sentry warnings and are handed in.
 app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinkingEnabled, onboardingSummaryCache, warnFeedTransient, sourceSyncRateLimit, userWriteRateLimit, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient }))
+
+// ── Shared campus events (issue #30) ────────────────────────────────────────
+// The ingest cron route POST /api/internal/campus-events/ingest is in
+// src/routes/campusEvents.mjs: every 6 hours it reads the public campus
+// calendars into campus_events, on the same cron token as the re-sync
+// (docs/campus-events-ingest.md). CAMPUS_EVENTS_ENGAGE (off by default) adds
+// the BoilerLink and TheSpot event searches, and the club directory cache built
+// above says which BoilerLink organizations are Indianapolis ones.
+app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: envSwitch('CAMPUS_EVENTS_ENGAGE') }))
 
 // ── The student's calendar, classes, tasks, grades, degree and schedule edits ──
 // GET /api/me/calendar, /calendar/categories, /classes and /events, the task

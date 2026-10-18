@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-161 routes in 24 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+162 routes in 25 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/campusEvents.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -76,6 +76,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/guide/:id/pin` | `src/routes/guide.mjs` |
 | POST | `/api/guide/:id/upvote` | `src/routes/guide.mjs` |
 | GET | `/api/health` | `server.mjs` |
+| POST | `/api/internal/campus-events/ingest` | `src/routes/campusEvents.mjs` |
 | POST | `/api/internal/push/run-reminders` | `src/routes/push.mjs` |
 | POST | `/api/internal/sources/resync` | `src/routes/sources.mjs` |
 | GET | `/api/lost-found` | `src/routes/lostFound.mjs` |

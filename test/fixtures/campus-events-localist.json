@@ -1,0 +1,962 @@
+{
+  "events": [
+    {
+      "event": {
+        "id": 54099974347398,
+        "title": "Leadership Experience at Purdue (LEAP) Retreat",
+        "url": "",
+        "updated_at": "2026-10-16T08:07:35-04:00",
+        "location": "",
+        "room_number": "327",
+        "location_name": "Engineering, Science and Technology Building - Purdue Indianapolis",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "723 W. Michigan St. Indianapolis IN 46202",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "The LEAP Retreat is a one-time, half-day workshop designed to support anyone looking to expand their leadership toolkits and learn more about the foundations of leadership. LEAP is broken up into 5 individual sections: Strengths, Leadership Development, Well-Being, Networks, and Impact. Each section will dive into the basics or that theme and involve activities, reflections, and discussions that result in actions and strategies to support students in their learning beyond LEAP. Lunch will be provided!\n\n \n\nREGISTER FOR THE LEAP RETREAT HERE",
+        "geo": {
+          "latitude": "39.773956",
+          "longitude": "-86.170803",
+          "street": "723 West Michigan Street",
+          "city": "Indianapolis",
+          "state": "IN",
+          "country": "US",
+          "zip": "46202"
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_strategic_initiative": [
+            {
+              "name": "Purdue in Indianpolis",
+              "id": 53816919395686
+            }
+          ],
+          "event_topic": [
+            {
+              "name": "Health and Wellness",
+              "id": 39925415859966
+            },
+            {
+              "name": "Career and Professional Development",
+              "id": 53816763920255
+            },
+            {
+              "name": "Student Life",
+              "id": 53816776694986
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Workshop/training",
+              "id": 53823016668543
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54099974349447,
+              "event_id": 54099974347398,
+              "start": "2026-10-17T10:00:00-04:00",
+              "end": "2026-10-17T15:00:00-04:00",
+              "ranking": 0.28,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/leadership-experience-at-purdue-leap-retreat"
+      }
+    },
+    {
+      "event": {
+        "id": 54231361790350,
+        "title": "Boiler Fuel Up! Sponsored by Purdue Polytechnic Institute",
+        "url": "",
+        "updated_at": "2026-10-16T08:18:55-04:00",
+        "location": "",
+        "room_number": "",
+        "location_name": "Boiler Park - Indianapolis",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "765 W. North Street, Indianapolis, IN",
+        "recurring": false,
+        "free": true,
+        "private": false,
+        "ticket_cost": "First 100 Students FREE!",
+        "description_text": "Join your fellow Boilermakers in Boiler Park for a delicious Boiler Fuel Up with the Grub House food truck! The first 90 students to arrive eat free! (one entree).",
+        "geo": {
+          "latitude": "39.775761",
+          "longitude": "-86.171906",
+          "street": "765 West North Street",
+          "city": "Indianapolis",
+          "state": "IN",
+          "country": "US",
+          "zip": "46202"
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Faculty",
+              "id": 39925426947703
+            },
+            {
+              "name": "Staff",
+              "id": 53816223311182
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_strategic_initiative": [
+            {
+              "name": "Purdue in Indianpolis",
+              "id": 53816919395686
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Social/networking event",
+              "id": 53823010996686
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54231361791375,
+              "event_id": 54231361790350,
+              "start": "2026-10-20T16:00:00-04:00",
+              "end": "2026-10-20T18:00:00-04:00",
+              "ranking": 0.25,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/boiler-fuel-up-sponsored-by-purdue-polytechnic-institute"
+      }
+    },
+    {
+      "event": {
+        "id": 54036713356057,
+        "title": "Purdue University Hockey vs Miami University ",
+        "url": "https://www.purduehockey.com/schedule/upcoming",
+        "updated_at": "2026-10-16T08:03:31-04:00",
+        "location": "Weaver Popcorn Youth Pavillion",
+        "room_number": "Main Floor",
+        "location_name": "Weaver Popcorn Youth Pavillion",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "Indiana State Fairgrounds & Event Center, 1202 East 38th Street, Indianapolis, IN 46205",
+        "recurring": false,
+        "free": true,
+        "private": false,
+        "ticket_cost": "Free",
+        "description_text": "Join fellow Boilermakers for an exciting night of Purdue Hockey as the team takes the ice in a fast-paced matchup filled with energy, school spirit, and competitive action. Whether you're a longtime fan or new to the sport, come cheer on Purdue and experience the excitement of game day with the Purdue community. All are welcome! \ud83c\udfd2\ud83d\udda4\ud83d\udc9b",
+        "geo": {
+          "latitude": "39.826125",
+          "longitude": "-86.136388",
+          "street": "1202 East 38th Street",
+          "city": "Indianapolis",
+          "state": "IN",
+          "country": "US",
+          "zip": "46205"
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Alumni",
+              "id": 39925422838934
+            },
+            {
+              "name": "General public",
+              "id": 39925424079137
+            },
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Faculty",
+              "id": 39925426947703
+            },
+            {
+              "name": "Families and parents",
+              "id": 39925430243622
+            },
+            {
+              "name": "Staff",
+              "id": 53816223311182
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Athletics",
+              "id": 39882150467792
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54036713357082,
+              "event_id": 54036713356057,
+              "start": "2026-10-17T16:00:00-04:00",
+              "end": null,
+              "ranking": 0.28,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/purdue-university-hockey-vs-miami-university-6437"
+      }
+    },
+    {
+      "event": {
+        "id": 54221764418376,
+        "title": "Crafting Your Digital Brand: LinkedIn Workshop with PrincetonOne & Hueman People Solutions",
+        "url": "",
+        "updated_at": "2026-10-17T08:12:51-04:00",
+        "location": "",
+        "room_number": null,
+        "location_name": "",
+        "status": "live",
+        "experience": "virtual",
+        "kind": "standalone",
+        "address": "",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "You have joined LinkedIn and created your profile, great! But how does it look? Do you have enough information that employers are looking for? Or is it too much? What should your background be? Should you include your courses? What else can you do to make your profile stand out?\n\n\nProfessionals from PrincetonOne & Hueman People Solutions are offering personalized sessions with a recruiter to get expert feedback and tips on how to improve your profile. Spots are limited, so reserve your time early by submitting this form: https://forms.cloud.microsoft/r/Vgk8r5kDQm \n\n*Please have your LinkedIn profile created before the workshop.",
+        "geo": {
+          "latitude": null,
+          "longitude": null,
+          "street": null,
+          "city": null,
+          "state": null,
+          "country": null,
+          "zip": null
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_topic": [
+            {
+              "name": "Career and Professional Development",
+              "id": 53816763920255
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54221764419401,
+              "event_id": 54221764418376,
+              "start": "2026-10-20T10:00:00-04:00",
+              "end": "2026-10-20T18:00:00-04:00",
+              "ranking": 0.25,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/crafting-your-digital-brand-linkedin-workshop-with-princetonone-hueman-people-solutions"
+      }
+    },
+    {
+      "event": {
+        "id": 52735943778575,
+        "title": "Thanksgiving Vacation",
+        "url": "https://www.purdue.edu/registrar/calendars/",
+        "updated_at": "2026-04-27T11:54:27-04:00",
+        "location": "",
+        "room_number": "",
+        "location_name": "",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "Classes not in session Nov. 25-28, 2026\n\nUniversity offices closed Nov. 26-27, 2026",
+        "geo": {
+          "latitude": null,
+          "longitude": null,
+          "street": null,
+          "city": null,
+          "state": null,
+          "country": null,
+          "zip": null
+        },
+        "groups": [
+          {
+            "id": 40052338560417,
+            "name": "Student Life"
+          },
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Faculty",
+              "id": 39925426947703
+            },
+            {
+              "name": "Families and parents",
+              "id": 39925430243622
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Dates and Deadlines",
+              "id": 39882159782456
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 52735961422721,
+              "event_id": 52735943778575,
+              "start": "2026-11-25T00:00:00-05:00",
+              "end": null,
+              "ranking": 0.18,
+              "all_day": true,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/thanksgiving-vacation-2026-4080"
+      }
+    },
+    {
+      "event": {
+        "id": 53734181400051,
+        "title": "Winter Commencement 2026 - Division I",
+        "url": "https://www.purdue.edu/commencement/",
+        "updated_at": "2026-10-14T11:22:44-04:00",
+        "location": "",
+        "room_number": "",
+        "location_name": "Guy J. Mackey Arena",
+        "status": "live",
+        "experience": "hybrid",
+        "kind": "standalone",
+        "address": "900 N John R Wooden Dr, West Lafayette, IN 47907-2117",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "Ceremonies for\n\nCollege of Agriculture (including Agricultural and Biological Engineering)Mitch Daniels School of BusinessPurdue Polytechnic Institute",
+        "geo": {
+          "latitude": "40.433223",
+          "longitude": "-86.915767",
+          "street": "900 John R Wooden Drive",
+          "city": "West Lafayette",
+          "state": "IN",
+          "country": "US",
+          "zip": "47906"
+        },
+        "groups": [
+          {
+            "id": 39368917924960,
+            "name": "Purdue for Life - Alumni"
+          },
+          {
+            "id": 40052338560417,
+            "name": "Student Life"
+          },
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Alumni",
+              "id": 39925422838934
+            },
+            {
+              "name": "General public",
+              "id": 39925424079137
+            },
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Faculty",
+              "id": 39925426947703
+            },
+            {
+              "name": "Families and parents",
+              "id": 39925430243622
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Dates and Deadlines",
+              "id": 39882159782456
+            },
+            {
+              "name": "Featured",
+              "id": 39884306898371
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 53734206257200,
+              "event_id": 53734181400051,
+              "start": "2026-12-20T09:30:00-05:00",
+              "end": null,
+              "ranking": 0.18,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/winter-commencement-2026-division-i"
+      }
+    },
+    {
+      "event": {
+        "id": 54258454489048,
+        "title": "Honors House Coffee",
+        "url": "",
+        "updated_at": "2026-10-16T13:54:19-04:00",
+        "location": "ET Atrium - 1st Floor",
+        "room_number": "",
+        "location_name": "ET Atrium - 1st Floor",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "Honors students are invited to stop by the ET Atrium to meet the Honors Engagement Mentors and enjoy some free Caribou Coffee.",
+        "geo": {
+          "latitude": null,
+          "longitude": null,
+          "street": null,
+          "city": null,
+          "state": null,
+          "country": null,
+          "zip": null
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Social/networking event",
+              "id": 53823010996686
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54258454489049,
+              "event_id": 54258454489048,
+              "start": "2026-10-20T15:00:00-04:00",
+              "end": "2026-10-20T17:00:00-04:00",
+              "ranking": 0.25,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/honors-house-coffee-5083"
+      }
+    },
+    {
+      "event": {
+        "id": 53488984667410,
+        "title": "Purdue Student Union Board: Halloween Event",
+        "url": "",
+        "updated_at": "2026-10-17T07:34:23-04:00",
+        "location": "",
+        "room_number": "",
+        "location_name": "",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "Join PSUB for a halloween event!",
+        "geo": {
+          "latitude": null,
+          "longitude": null,
+          "street": null,
+          "city": null,
+          "state": null,
+          "country": null,
+          "zip": null
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 53488984667411,
+              "event_id": 53488984667410,
+              "start": "2026-10-26T18:30:00-04:00",
+              "end": "2026-10-26T21:00:00-04:00",
+              "ranking": 0.18,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/psub-halloween-event"
+      }
+    },
+    {
+      "event": {
+        "id": 53728270164669,
+        "title": "3rd Annual Purdue + Google AI Summit",
+        "url": "https://www.purdue.edu/events/ai-summit/",
+        "updated_at": "2026-10-12T20:54:29-04:00",
+        "location": "Westin Indianapolis",
+        "room_number": "",
+        "location_name": "Westin Indianapolis",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "241 W. Washington St., Indianapolis, IN 46204",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "$425 before Sept. 25; $25 for students",
+        "description_text": "AI Impact: From Possible to Proven\n\nPurdue University and Google are sponsoring the 3rd Annual Purdue + Google AI Summit, organized by Purdue\u2019s Institute for Physical AI. This year\u2019s summit will focus on the shift from AI experimentation to execution, exploring how industry leaders, government agencies, and Purdue researchers are driving tangible outcomes and scaling real-world AI applications.\n\nJoin us for keynotes, breakout sessions, hands-on Google AI tool demos, exhibits, and networking designed for both technical and non-technical leaders. Program themes will include industry execution, next-generation technical and research frontiers, the future of work, and the evolving role of AI in education and the public sector.\n\nKeynotes featuring national leaders in AI, industry, and public policyIndustry-focused discussions on manufacturing, defense, agriculture, pharmaceuticals, drug discovery, transportation, and spaceTechnical sessions covering AI systems, semiconductors, cybersecurity, physical AI, quantum technologies, and research frontiersHands-on workshops and demonstrations, including Google AI toolsExhibits showcasing innovations from leading companies, Purdue research centers, startups, and student organizationsNetworking opportunities designed for both technical and business audiencesWhether you're leading AI adoption, developing next-generation technologies, conducting cutting-edge research, or preparing the workforce for the future, the AI Impact Summit offers an opportunity to learn from peers, discover new ideas, and build valuable connections.\n\n\nThis year\u2019s speaker lineup will be announced soon. Past keynotes included Purdue President Mung Chiang, Google Public Sector CEO Karen Dahut, Waymo VP Srikanth Thirumalai, and US Senator Todd Young. Previous presentations included leading experts from Bayer, Eli Lilly, Caterpillar, Cummins, Corteva, L3Harris, Saab, Boeing, IU Health, and more.\n\nRegister by September 25 for $175 off the standard registration fee of $600\n\n(Student registration: $25)",
+        "geo": {
+          "latitude": "39.76634",
+          "longitude": "-86.163816",
+          "street": "241 West Washington Street",
+          "city": "Indianapolis",
+          "state": "IN",
+          "country": "US",
+          "zip": "46204"
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Alumni",
+              "id": 39925422838934
+            },
+            {
+              "name": "General public",
+              "id": 39925424079137
+            },
+            {
+              "name": "Faculty",
+              "id": 39925426947703
+            },
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_strategic_initiative": [
+            {
+              "name": "Artificial Intelligence",
+              "id": 53816903150899
+            },
+            {
+              "name": "Purdue Computes",
+              "id": 53816917468700
+            },
+            {
+              "name": "Purdue in Indianpolis",
+              "id": 53816919395686
+            }
+          ],
+          "event_topic": [
+            {
+              "name": "Research",
+              "id": 39925410346478
+            },
+            {
+              "name": "Science and Technology",
+              "id": 39925418933758
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Meeting",
+              "id": 39882159793724
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 53728270165694,
+              "event_id": 53728270164669,
+              "start": "2026-10-29T00:00:00-04:00",
+              "end": null,
+              "ranking": 1.17,
+              "all_day": true,
+              "num_attending": 5
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/3rd-annual-purdue-google-ai-summit"
+      }
+    },
+    {
+      "event": {
+        "id": 54064756154516,
+        "title": "93rd Annual Purdue Christmas Show",
+        "url": "",
+        "updated_at": "2026-09-24T16:24:38-04:00",
+        "location": "Payne & Mencias Palladium",
+        "room_number": "",
+        "location_name": "Payne & Mencias Palladium",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "1 Carter Green, Carmel, IN 46032",
+        "recurring": false,
+        "free": false,
+        "private": false,
+        "ticket_cost": "$50",
+        "description_text": "The 93rd annual Purdue Christmas Show brings one of the university\u2019s most cherished holiday traditions to a new stage this year. Presented by Purdue Musical Organizations, the show features more than 300 student performers in a festive celebration of music and community. Three performances are scheduled for Dec. 5 at the Payne & Mencias Palladium at Allied Solutions Center for the Performing Arts in Carmel.",
+        "geo": {
+          "latitude": "39.969908",
+          "longitude": "-86.130175",
+          "street": "1 Carter Green",
+          "city": "Carmel",
+          "state": "IN",
+          "country": "US",
+          "zip": "46032"
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "General public",
+              "id": 39925424079137
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Concert/performance",
+              "id": 39882159790651
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54064756155541,
+              "event_id": 54064756154516,
+              "start": "2026-12-05T12:00:00-05:00",
+              "end": null,
+              "ranking": 0.18,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/93rd-annual-purdue-christmas-show"
+      }
+    },
+    {
+      "event": {
+        "id": 54045913664029,
+        "title": "CoE Halloween Crawl ",
+        "url": "",
+        "updated_at": "2026-09-30T13:35:11-04:00",
+        "location": "EL, ET, SL & STT",
+        "room_number": "EL 101, ET 215, ET 309,  SL 260, STT 1st floor",
+        "location_name": "EL, ET, SL & STT",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "",
+        "recurring": false,
+        "free": true,
+        "private": false,
+        "ticket_cost": "0",
+        "description_text": "Students, Staff & Faculty .....Stop by in costume for Trick or Treating Halloween Crawl! Oct. 29.     CoE/Motorsports: EL 101: 10-2,  ECE  SL 174: 10-2 pm,  Advising Office: ET 309 10-2 pm,  EPICS/VIP: ET 215, 11:30-1 pm,     OPP/CCO:  STT 1st floor time 10-2 pm",
+        "geo": {
+          "latitude": null,
+          "longitude": null,
+          "street": null,
+          "city": null,
+          "state": null,
+          "country": null,
+          "zip": null
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Faculty",
+              "id": 39925426947703
+            },
+            {
+              "name": "Staff",
+              "id": 53816223311182
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_strategic_initiative": [
+            {
+              "name": "Purdue in Indianpolis",
+              "id": 53816919395686
+            }
+          ],
+          "event_topic": [
+            {
+              "name": "Entertainment",
+              "id": 39925414288531
+            },
+            {
+              "name": "Engineering",
+              "id": 53816771787485
+            }
+          ],
+          "event_types": [
+            {
+              "name": "Social/networking event",
+              "id": 53823010996686
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 54045913665054,
+              "event_id": 54045913664029,
+              "start": "2026-10-29T10:00:00-04:00",
+              "end": "2026-10-29T14:00:00-04:00",
+              "ranking": 0.18,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/coe-halloween-crawl"
+      }
+    },
+    {
+      "event": {
+        "id": 53877355225963,
+        "title": "The Founder's Table",
+        "url": "",
+        "updated_at": "2026-10-17T07:51:46-04:00",
+        "location": "ET 333 - Purdue Indianapolis",
+        "room_number": "",
+        "location_name": "ET 333 - Purdue Indianapolis",
+        "status": "live",
+        "experience": "inperson",
+        "kind": "standalone",
+        "address": "",
+        "recurring": true,
+        "free": false,
+        "private": false,
+        "ticket_cost": "",
+        "description_text": "A casual weekly gathering where students can talk openly about business ideas, startups, side hustles, challenges, and opportunities with fellow founders and aspiring entrepreneurs.\n\n \n\nNo registration needed and everyone is welcome! Come and chat about your exisiting business or business idea with Angie from the Certificate in Entrepreneurship and fellow students.\n\n \n\nThe Founder's Table is for anyone interested in entrepreneurship. Thinking of starting something? Join the table!\n\n \n\nEvery Wednesday in ET 333 from 10:00 to 11:00am.\n\n \n\nCan't make it? Email contact@example.edu to schedule a one-on-one meeting.",
+        "geo": {
+          "latitude": null,
+          "longitude": null,
+          "street": null,
+          "city": null,
+          "state": null,
+          "country": null,
+          "zip": null
+        },
+        "groups": [
+          {
+            "id": 46197580344207,
+            "name": "Purdue in Indianapolis"
+          }
+        ],
+        "filters": {
+          "event_audience": [
+            {
+              "name": "Students (undergraduate)",
+              "id": 39925425488556
+            },
+            {
+              "name": "Students (graduate/professional)",
+              "id": 53816242885194
+            }
+          ],
+          "event_strategic_initiative": [
+            {
+              "name": "Purdue in Indianpolis",
+              "id": 53816919395686
+            }
+          ],
+          "event_topic": [
+            {
+              "name": "Business and Economics",
+              "id": 53816761246306
+            },
+            {
+              "name": "Career and Professional Development",
+              "id": 53816763920255
+            }
+          ]
+        },
+        "event_instances": [
+          {
+            "event_instance": {
+              "id": 53877355231089,
+              "event_id": 53877355225963,
+              "start": "2026-10-21T10:00:00-04:00",
+              "end": "2026-10-21T11:00:00-04:00",
+              "ranking": 0.04,
+              "all_day": false,
+              "num_attending": 0
+            }
+          }
+        ],
+        "localist_url": "https://events.purdue.edu/event/the-founders-table"
+      }
+    }
+  ],
+  "page": {
+    "current": 1,
+    "size": 100,
+    "total": 1,
+    "total_items": 12,
+    "next_page": null,
+    "previous_page": null
+  },
+  "date": {
+    "first": "2026-10-17",
+    "last": "2027-02-14"
+  }
+}
