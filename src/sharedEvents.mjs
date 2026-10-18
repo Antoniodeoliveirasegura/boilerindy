@@ -103,6 +103,30 @@ export function sourceByKey(key) {
   return SOURCES.find((source) => source.key === key) || null
 }
 
+export const ENGAGE_SOURCE_KEYS = Object.freeze(SOURCES.filter((source) => source.engage).map((source) => source.key))
+
+/**
+ * CAMPUS_EVENTS_ENGAGE to the Engage sources it turns on: `on`, `1`, `true` or
+ * `all` for both, a comma list of keys for some (`boilerlink` alone: Purdue's
+ * Student Activities and Organizations agreed on 2026-10-18, TheSpot's admins
+ * have not been asked), anything else for none. Unknown names are ignored.
+ */
+export function engageSourcesFromSetting(value) {
+  const text = String(value ?? '').trim().toLowerCase()
+  if (['on', '1', 'true', 'all'].includes(text)) return [...ENGAGE_SOURCE_KEYS]
+  const named = new Set(text.split(/[\s,]+/).filter(Boolean))
+  return ENGAGE_SOURCE_KEYS.filter((key) => named.has(key))
+}
+
+/** The Engage source keys a run reads: `true` for both, a list for some, anything else for none. */
+export function enabledEngageSources(engageEnabled) {
+  if (engageEnabled === true) return new Set(ENGAGE_SOURCE_KEYS)
+  if (Array.isArray(engageEnabled) || engageEnabled instanceof Set) {
+    return new Set([...engageEnabled].filter((key) => ENGAGE_SOURCE_KEYS.includes(key)))
+  }
+  return new Set()
+}
+
 // ── Places ──────────────────────────────────────────────────────────────────
 
 // Rooms on the shared campus as the sources write them: a building code with a

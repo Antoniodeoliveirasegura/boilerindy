@@ -212,6 +212,14 @@ test('with Engage on, BoilerLink and TheSpot join, the club directory names Indi
   assert.equal(summary.rows.length, 31)
 })
 
+test('with only BoilerLink named, TheSpot is never fetched', async () => {
+  const { fetchImpl, calls } = fakeFetch(bySource())
+  const summary = await runCampusEventsIngest({ dryRun: true, engageEnabled: ['boilerlink'], fetchImpl, now: NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual([...new Set(calls.map((c) => new URL(c.url).hostname))], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu'])
+  assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, false])
+  assert.deepEqual(summary.collapsed, [])
+})
+
 test('a source that fails is reported and not swept; the rest of the run goes on', async () => {
   const { fetchImpl } = fakeFetch(bySource({ 'events.iu.edu': () => json({ message: 'down' }, 500) }))
   const supabase = database()

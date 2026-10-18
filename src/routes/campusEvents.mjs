@@ -2,6 +2,7 @@ import express from 'express'
 import { runCampusEventsIngest } from '../campusEventsIngest.mjs'
 import { isTransientFailure } from '../cronTick.mjs'
 import { DB_FEATURES, isSchemaMissingError, respondSchemaMissing } from '../dbErrors.mjs'
+import { enabledEngageSources } from '../sharedEvents.mjs'
 
 // Shared campus events (issue #30): the ingest cron route. The Supabase pg_cron
 // job in db/supabase-campus-events-ingest.sql calls it every 6 hours with the
@@ -28,9 +29,10 @@ function wantsDryRun(req) {
  * @param {Function} deps.warnCronTransient      server.mjs's warning for a transient database
  *   failure that survived its retry
  * @param {object}   deps.clubDirectoryCache     server.mjs's club directory (src/boilerlinkClubs.mjs),
- *   which says which BoilerLink organizations are Indianapolis ones; read only with Engage on
- * @param {boolean}  deps.engageEnabled          CAMPUS_EVENTS_ENGAGE: also read the BoilerLink and
- *   TheSpot event searches, whose robots.txt disallows /api/ (off by default)
+ *   which says which BoilerLink organizations are Indianapolis ones; read only with BoilerLink on
+ * @param {boolean|string[]} deps.engageEnabled  CAMPUS_EVENTS_ENGAGE through engageSourcesFromSetting:
+ *   the Engage event searches to read as well (`boilerlink`, `thespot`), or `true` for both;
+ *   both sites' robots.txt disallows /api/, and only Purdue has agreed (off by default)
  * @param {object}  [deps.ingestOptions]         passed to runCampusEventsIngest (tests hand in
  *   fetchImpl, sleep and now)
  */
@@ -60,7 +62,8 @@ export function createCampusEventsRouter({
     try {
       const dryRun = wantsDryRun(req)
       let clubs = []
-      if (engageEnabled && clubDirectoryCache) {
+      // Only BoilerLink needs the directory: on TheSpot every organization is an Indianapolis one.
+      if (enabledEngageSources(engageEnabled).has('boilerlink') && clubDirectoryCache) {
         const { directory } = await clubDirectoryCache.get()
         if (directory?.ok) clubs = directory.clubs
       }

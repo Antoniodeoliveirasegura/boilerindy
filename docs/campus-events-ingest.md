@@ -22,10 +22,14 @@ exist.
    the others.
    - Purdue's events calendar (Localist): `purdue_events`, always on.
    - IU's events calendar (LiveWhale): `iu_events`, always on.
-   - BoilerLink and TheSpot (Anthology Engage): `boilerlink` and `thespot`, only
-     with `CAMPUS_EVENTS_ENGAGE=on`. Both sites' robots.txt disallow `/api/`, so
-     this stays off until the owner has asked Purdue's Student Activities and
-     Organizations.
+   - BoilerLink and TheSpot (Anthology Engage): `boilerlink` and `thespot`, each
+     only when `CAMPUS_EVENTS_ENGAGE` names it (`boilerlink`, `thespot`, a comma
+     list, or `on` for both). Both sites' robots.txt disallow `/api/`. Purdue's
+     Student Activities and Organizations agreed on 2026-10-18 to BoilerIndy
+     reading BoilerLink's public event search every 6 hours (about 15 requests
+     a run, public events only, each linked back to its BoilerLink page), so
+     production runs `CAMPUS_EVENTS_ENGAGE=boilerlink`. TheSpot's admins have
+     not been asked.
 2. **Plan** (`src/sharedEvents.mjs`, pure). Each listing becomes a row, the
    Indianapolis filter keeps or drops it, one source's repeated ids merge, and
    the same event listed by two sources collapses into one row.
@@ -149,11 +153,12 @@ without `rows`, plus `upserted` and, per swept source, `swept`.
 3. Schedule the cron with the snippet in `db/supabase-campus-events-ingest.sql`
    (README step 44): every 6 hours at minute 41. It needs the `pg_cron` and
    `pg_net` extensions from `db/supabase-keep-warm.sql`.
-4. Leave `CAMPUS_EVENTS_ENGAGE` off until Purdue's Student Activities and
-   Organizations (and TheSpot's admins) have said yes or issued Engage keys.
-   Turning it off later leaves the Engage rows in place, since a source that is
-   not fetched is not swept: delete them with
-   `delete from campus_events where source_key in ('boilerlink', 'thespot');`.
+4. Set `CAMPUS_EVENTS_ENGAGE=boilerlink` (Purdue agreed on 2026-10-18), and
+   add `thespot` only once TheSpot's admins have said yes. Turning a source off
+   later leaves its rows in place, since a source that is not fetched is not
+   swept: delete them with
+   `delete from campus_events where source_key in ('boilerlink', 'thespot');`
+   (or just the one key).
    (The read path stops listing them 26 hours after their last run anyway.)
 5. Then turn on the read path, `CAMPUS_EVENTS_FEED`:
    [campus-events-feed.md](campus-events-feed.md#turning-it-on-owner).
