@@ -28,7 +28,9 @@ import {
   collapseCrossSource,
   contentHashFor,
   dedupeKeyFor,
+  enabledEngageSources,
   engageOrgLookup,
+  engageSourcesFromSetting,
   indianapolisDecision,
   kmFromCampus,
   mergeRepeatedIds,
@@ -270,6 +272,22 @@ test('an Engage row links its event page and carries the Free Food benefit, the 
   const hidden = normalizeEngageEvent({ ...engage(BOILERLINK, '12884656'), visibility: 'Private' }, BOILERLINK_SOURCE)
   assert.equal(hidden, null)
   assert.equal(normalizeEngageEvent({ ...engage(BOILERLINK, '12884656'), status: 'Pending' }, BOILERLINK_SOURCE), null)
+})
+
+test('CAMPUS_EVENTS_ENGAGE names the Engage sources to read: on for both, a list for some, else none', () => {
+  for (const value of ['on', 'ON', '1', 'true', ' all ']) {
+    assert.deepEqual(engageSourcesFromSetting(value), ['boilerlink', 'thespot'], value)
+  }
+  assert.deepEqual(engageSourcesFromSetting('boilerlink'), ['boilerlink'])
+  assert.deepEqual(engageSourcesFromSetting(' TheSpot , BoilerLink '), ['boilerlink', 'thespot'])
+  assert.deepEqual(engageSourcesFromSetting('thespot'), ['thespot'])
+  for (const value of [undefined, null, '', 'off', '0', 'false', 'no', 'boilerlnk', 'iu_events']) {
+    assert.deepEqual(engageSourcesFromSetting(value), [], String(value))
+  }
+  assert.deepEqual([...enabledEngageSources(true)], ['boilerlink', 'thespot'])
+  assert.deepEqual([...enabledEngageSources(['boilerlink', 'purdue_events'])], ['boilerlink'])
+  assert.deepEqual([...enabledEngageSources(false)], [])
+  assert.deepEqual([...enabledEngageSources('on')], [], 'a raw string is not a list')
 })
 
 test('engageOrgLookup trusts the club directory, then the organization name alone', () => {

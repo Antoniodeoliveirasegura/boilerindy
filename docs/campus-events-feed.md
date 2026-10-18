@@ -53,8 +53,9 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 Each listed row carries `shared: true`, a source label and the listing's link,
 http(s) only. The labels are `SOURCE_LABELS` in `src/campusEventsFeed.mjs`:
 "Purdue event", "IU event", "BoilerLink" and "TheSpot (IU)". IU Indianapolis's
-own listings read as IU events until the owner decides on #30 whether they are
-open to Purdue students. A shared row's id is `campus:` and the table's id, so
+own listings are open to Purdue Indianapolis students (the owner's call on #30,
+2026-10-18) and keep the "IU event" label to say where they come from. A shared
+row's id is `campus:` and the table's id, so
 it can never be taken for one of the student's `calendar_items`:
 
 ```json

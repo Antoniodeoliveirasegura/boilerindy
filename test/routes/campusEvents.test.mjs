@@ -163,6 +163,23 @@ test('with Engage on, the club directory is read and BoilerLink and TheSpot are 
   })
 })
 
+test('CAMPUS_EVENTS_ENGAGE=boilerlink reads BoilerLink and the directory only; thespot alone skips the directory', async (t) => {
+  t.mock.method(console, 'log', () => {})
+  await withApp({ engageEnabled: ['boilerlink'] }, async ({ call, fetched, directoryReads }) => {
+    const res = await call(`${PATH}?dryRun=1`)
+    assert.equal(res.status, 200)
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu'])
+    assert.equal(directoryReads(), 1)
+    assert.deepEqual(res.body.sources.map((s) => s.enabled), [true, true, true, false])
+  })
+  await withApp({ engageEnabled: ['thespot'] }, async ({ call, fetched, directoryReads }) => {
+    const res = await call(`${PATH}?dryRun=1`)
+    assert.equal(res.status, 200)
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'thespot.indianapolis.iu.edu'])
+    assert.equal(directoryReads(), 0, 'TheSpot needs no club directory')
+  })
+})
+
 test('a run already in flight answers 409, and the next one runs once it is done', async (t) => {
   t.mock.method(console, 'log', () => {})
   let release

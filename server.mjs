@@ -65,6 +65,7 @@ import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
 import { createMeRouter } from './src/routes/me.mjs'
 import { createSourcesRouter } from './src/routes/sources.mjs'
 import { createCampusEventsRouter } from './src/routes/campusEvents.mjs'
+import { engageSourcesFromSetting } from './src/sharedEvents.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
@@ -663,9 +664,10 @@ app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinking
 // src/routes/campusEvents.mjs: every 6 hours it reads the public campus
 // calendars into campus_events, on the same cron token as the re-sync
 // (docs/campus-events-ingest.md). CAMPUS_EVENTS_ENGAGE (off by default) adds
-// the BoilerLink and TheSpot event searches, and the club directory cache built
-// above says which BoilerLink organizations are Indianapolis ones.
-app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: envSwitch('CAMPUS_EVENTS_ENGAGE') }))
+// the Engage event searches it names, `boilerlink`, `thespot`, or `on` for both,
+// and the club directory cache built above says which BoilerLink organizations
+// are Indianapolis ones.
+app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE) }))
 
 // ── The student's calendar, classes, tasks, grades, degree and schedule edits ──
 // GET /api/me/calendar, /calendar/categories, /classes and /events, the task

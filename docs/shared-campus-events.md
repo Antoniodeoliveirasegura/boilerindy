@@ -117,13 +117,14 @@ publishing schedule of its own to follow.
   `/api/discovery/search/events`, which only answer the site's HTML shell.
 - Format: Engage JSON, `{ "@odata.count", value: [...] }`, 100 events a page.
 - Terms: no key, but both robots.txt files say `Disallow: /api/`; the event
-  pages (`/event/<id>`) are allowed. The ingest reads them only with
-  `CAMPUS_EVENTS_ENGAGE=on`, which defaults to off until the owner asks
-  Purdue's Student Activities and Organizations (the BoilerLink admins), and
-  TheSpot's admins, for an OK or for Engage API keys (#16's path c). The club
-  directory (`src/boilerlinkClubs.mjs`) already reads BoilerLink's `/api/`
-  organizations search every 6 hours, so this would be more of the same
-  reading, but it is the owner's call.
+  pages (`/event/<id>`) are allowed. Purdue's Student Activities and
+  Organizations (the BoilerLink admins) agreed on 2026-10-18 to BoilerIndy
+  reading BoilerLink's public event search every 6 hours, in reply to the
+  owner's email, which also mentioned that the club directory
+  (`src/boilerlinkClubs.mjs`) reads the organizations search on the same
+  `/api/` path. The ingest reads each site only when `CAMPUS_EVENTS_ENGAGE`
+  names it: production runs `boilerlink`; TheSpot's admins have not been
+  asked.
 - Volume on 2026-10-17: BoilerLink 1,282 upcoming events, 71 of them in
   Indianapolis (16 tagged Free Food by the organizer); TheSpot 574.
 - Ids: the Engage event id.

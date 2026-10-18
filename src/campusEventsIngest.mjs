@@ -12,7 +12,7 @@
 // docs/campus-events-ingest.md.
 
 import { queryError, retryOnceIfTransient } from './cronTick.mjs'
-import { CAMPUS, SOURCES, engageOrgLookup, planCampusEvents } from './sharedEvents.mjs'
+import { CAMPUS, SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents } from './sharedEvents.mjs'
 import { fetchUpstreamJson } from './upstreamFetch.mjs'
 
 export const PAGE_SIZE = 100
@@ -192,6 +192,10 @@ async function sweepSource(client, sourceKey, runAt, { log }) {
  * and the run goes on; a database failure rejects (after one retry when it is
  * transient), and the route answers it.
  *
+ * `engageEnabled` picks the Engage sources: `true` for BoilerLink and TheSpot,
+ * a list of their keys for some (engageSourcesFromSetting reads
+ * CAMPUS_EVENTS_ENGAGE), anything else for neither.
+ *
  * `classify` is the Jev hook (docs/campus-events-ingest.md): an async function
  * given the planned rows that resolves with them, where it may have set
  * category, free_food, venue_kind and open_to_all and added `classifier`.
@@ -213,9 +217,10 @@ export async function runCampusEventsIngest({
   const startedAt = Date.now()
   const runAt = now.toISOString()
 
+  const engage = enabledEngageSources(engageEnabled)
   const fetched = new Map()
   for (const source of SOURCES) {
-    if (source.engage && !engageEnabled) continue
+    if (source.engage && !engage.has(source.key)) continue
     fetched.set(source.key, await fetchSourceListings(source, { fetchImpl, now, sleep, pageDelayMs, log }))
   }
   const plan = planCampusEvents(
