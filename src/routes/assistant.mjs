@@ -253,7 +253,7 @@ function describeAssistantPage(page) {
 const ASSISTANT_PAGE_LABELS = {
   '/dashboard': 'dashboard',
   '/schedule': 'class schedule page',
-  '/assignments': 'assignments and tasks page',
+  '/assignments': 'Tasks page (their synced assignments and their own to-dos)',
   '/dining': 'dining page',
   '/events': 'campus events page',
   '/board': 'campus board',

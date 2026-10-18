@@ -56,7 +56,7 @@ curl -sS -X POST -H "Authorization: Bearer $PUSH_CRON_SECRET" https://boilerindy
 
 A feed that stops syncing (expired link, deleted calendar) used to show only
 as a status badge on the Connect page. `SourceErrorNotice` now renders on the
-dashboard and on Assignments with the source name, the sync error and a link
+dashboard and on the Tasks page with the source name, the sync error and a link
 back to Calendar sources.
 
 ## Tuning

@@ -232,9 +232,9 @@ As built ([campus-events-feed.md](campus-events-feed.md)): `listCalendarItems`
 merges the shared rows only into a read that asks for them, `GET
 /api/me/calendar?shared=1` (the Events and Free Food window) and `GET
 /api/me/events`, and only while `CAMPUS_EVENTS_FEED` is on. The unfiltered
-reads behind Assignments and the native app's task list never ask, so a shared
-row cannot reach a list that offers "mark done". The rows carry both markers,
-`shared: true` and `sourceType: 'campus'`, plus a source label and the
+reads behind the Tasks page and the native app's task list never ask, so a
+shared row cannot reach a list that offers "mark done". The rows carry both
+markers, `shared: true` and `sourceType: 'campus'`, plus a source label and the
 listing's link. A missing table, or any failed read of it, leaves the
 student's own rows alone. West Lafayette and other-city rows and members-only
 sessions are left out, a series is listed once as its next occurrence, and a
