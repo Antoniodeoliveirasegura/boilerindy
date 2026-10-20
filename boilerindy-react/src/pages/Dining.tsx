@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
+import ShareButton from '../components/ShareButton'
 import { useAuth } from '../context/AuthContext'
 import { track } from '../lib/usageStats'
+import { shareUrl } from '../lib/shareLinks'
+import { PAGE_PREVIEWS } from '../lib/pagePreviews'
 import { authRequest } from '../lib/authApi'
 import { normalizeItemName, favoritesOnTodaysMenu } from '../lib/diningFavorites'
 import { writeFailureMessage } from '../lib/writeFailure'
@@ -26,14 +30,17 @@ import {
   headlinersFor,
   locationMenus,
   readDietFilters,
+  readDiningView,
   snapshotWeekday,
   splitStations,
   statusDotClass,
   statusLine,
   weeklyHoursCell,
   writeDietFilters,
+  writeDiningView,
   type DiningLocation,
   type DiningSnapshot,
+  type DiningView,
   type MenuItem,
   type Station,
 } from '../lib/dining'
@@ -296,7 +303,18 @@ export default function Dining() {
   const loadError =
     refreshError ||
     (diningQuery.isError ? diningErrorMessage(diningQuery.error) : diningQuery.data && !live ? UNAVAILABLE_MESSAGE : '')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // The hall and meal on screen live in the address (?hall=tower-dining&meal=dinner),
+  // as the route does on /transit: a shared link opens the same menu, and
+  // coming Back to the page keeps it. Replace, not push, so each pill is not
+  // a Back step of its own. Nothing is written until a student picks, so a
+  // plain /dining still opens on Tower Dining and the meal being served.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const view = readDiningView(searchParams)
+  const showView = useCallback(
+    (next: DiningView) => setSearchParams((prev) => writeDiningView(prev, next), { replace: true }),
+    [setSearchParams],
+  )
 
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
@@ -416,42 +434,34 @@ export default function Dining() {
   const locations = useMemo<DiningLocation[]>(() => (loading ? [] : live?.locations || []), [live, loading])
   const weekday = snapshotWeekday(live)
 
-  // Default the selected location once the list loads, keeping any still-valid
-  // choice. Adjusting during render (guarded by a locations identity check)
-  // avoids the setState-in-effect cascading-render warning.
-  const [prevLocations, setPrevLocations] = useState<DiningLocation[] | null>(null)
-  if (locations !== prevLocations) {
-    setPrevLocations(locations)
-    if (locations.length) {
-      setSelectedId((prev) => {
-        if (prev && locations.some((l) => l.id === prev)) return prev
-        const tower = locations.find((l) => l.slug === 'tower-dining')
-        return tower?.id || locations[0].id
-      })
-    }
-  }
-
   const favoritesToday = useMemo(() => favoritesOnTodaysMenu(favorites, live?.locations || []), [favorites, live])
   const comingUp = useMemo(
     () => favoritesComingUp(favorites, upcomingQuery.data, upcomingQuery.data?.today, normalizeItemName),
     [favorites, upcomingQuery.data],
   )
 
-  const selected = locations.find((l) => l.id === selectedId) || locations[0]
+  // The hall the address names, else Tower Dining, else the first listed; a
+  // hall that leaves the feed falls back the same way.
+  const selected =
+    locations.find((l) => l.slug === view.hall) ?? locations.find((l) => l.slug === 'tower-dining') ?? locations[0]
   const withHours = locations.filter((l) => l.weekly_hours)
   const empty = selected ? emptyMenuState(selected) : null
   // The food court's vendors stand in for its menu (issue #477).
   const campusVendors = selected?.kind === 'retail' ? campusCenterVendorsFor(selected) : []
 
-  // Meal tabs (issue #466): the meal a student picked for this location, else
-  // the one being served now on campus time (defaultMeal). A snapshot from
-  // before per-meal menus has one ALL_MEALS view and no tabs.
-  const [mealChoice, setMealChoice] = useState<{ locationId: string; meal: string } | null>(null)
+  // Meal tabs (issue #466): the meal in the address when this hall posts it,
+  // else the one being served now on campus time (defaultMeal). Picking
+  // another hall keeps the meal in the address, so coming back to a hall
+  // finds the meal picked there, and a hall with no such meal opens on its
+  // own. A snapshot from before per-meal menus has one ALL_MEALS view and no
+  // tabs.
   const menus = selected ? locationMenus(selected) : []
   const mealOptions = menus.map((m) => m.meal)
-  const activeMeal =
-    selected && mealChoice?.locationId === selected.id && mealOptions.includes(mealChoice.meal) ? mealChoice.meal : defaultMeal(mealOptions)
+  const activeMeal = view.meal && mealOptions.includes(view.meal) ? view.meal : defaultMeal(mealOptions)
   const activeMenu = menus.find((m) => m.meal === activeMeal) ?? menus[0]
+  // What a shared link opens (docs/share-links.md): this hall and this meal,
+  // whether the address has them yet or not.
+  const sharedMeal = activeMenu && activeMenu.meal !== ALL_MEALS ? activeMenu.meal : null
 
   // Diet filters (issue #468), remembered on this device. A dish shows when it
   // carries every chosen label; stations left empty are hidden.
@@ -508,6 +518,19 @@ export default function Dining() {
               {aiLoading ? 'Thinking…' : 'What should I eat?'}
             </button>
           )}
+          {/* The hall and meal on screen, for a friend signed in or not. The
+              menu, never whether the hall is open: the feed's hours are
+              unreliable (docs/dining.md, "Weekend hours"). */}
+          <ShareButton
+            page="dining"
+            getUrl={() => shareUrl('dining', window.location.href, { hall: selected?.slug, meal: sharedMeal })}
+            title={PAGE_PREVIEWS.dining.title}
+            text={
+              selected
+                ? `${sharedMeal ? `${mealLabel(sharedMeal)} at ` : ''}${selected.name}, on BoilerIndy`
+                : "Today's campus dining menu, on BoilerIndy"
+            }
+          />
           <button
             type="button"
             onClick={() => void refreshMenu()}
@@ -657,7 +680,7 @@ export default function Dining() {
                   <button
                     key={loc.id}
                     type="button"
-                    onClick={() => setSelectedId(loc.id)}
+                    onClick={() => showView({ hall: loc.slug, meal: view.meal })}
                     aria-pressed={Boolean(isSelected)}
                     data-dining-location={loc.slug}
                     className={`pill shrink-0 whitespace-nowrap gap-2.5 md:min-h-[40px] px-4 text-[13.5px] ${isSelected ? 'pill-active' : ''}`}
@@ -773,7 +796,7 @@ export default function Dining() {
                         <button
                           key={meal}
                           type="button"
-                          onClick={() => setMealChoice({ locationId: selected.id, meal })}
+                          onClick={() => showView({ hall: selected.slug, meal })}
                           aria-pressed={meal === activeMenu.meal}
                           data-dining-meal={meal}
                           className={`pill md:min-h-[36px] px-4 text-[13.5px] ${meal === activeMenu.meal ? 'pill-active' : ''}`}

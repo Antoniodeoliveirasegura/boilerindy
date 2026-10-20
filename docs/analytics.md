@@ -39,6 +39,7 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 | `marketplace_viewed` | Marketplace page opened |
 | `friends_viewed` | Friends page opened |
 | `study_groups_viewed` | Study groups page opened |
+| `share_clicked` | The Share button on Transit or Dining is pressed, before the share sheet opens or the link is copied (`page` prop: `transit` or `dining`; never the link). See [share-links.md](share-links.md) |
 
 ## Privacy guarantees
 
