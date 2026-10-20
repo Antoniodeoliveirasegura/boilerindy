@@ -30,6 +30,8 @@
 //   icons/icon-512-maskable.png   512x512, subject inset 20% on the full-bleed gold ground, purpose "maskable"
 //   icons/icon-512-monochrome.png 512x512, the subject's silhouette in black, inset 20% on transparent, purpose "monochrome"
 //   og-image.png                  1200x630 social preview card (Open Graph / Twitter)
+//   og-transit.png                1200x630 card for a shared /transit link (docs/share-links.md)
+//   og-dining.png                 1200x630 card for a shared /dining link
 //
 // Headless Chromium (Playwright, already a workspace dev dependency for e2e) is
 // launched exactly once, in a light colour-scheme context; every asset is
@@ -172,6 +174,98 @@ function ogPage() {
   </div></body></html>`
 }
 
+// The cards for the pages students share (docs/share-links.md): og-image.png's
+// ground and faces, the brand small above the page's own headline, and on the
+// right an ink plate drawn like the page. No card says a hall is open: the
+// feed's hours are unreliable (docs/dining.md, "Weekend hours").
+const PLATE = 380 // .plate below, at the card's right padding, centred vertically
+const PLATE_GOLD = '#FFC94A'
+const PLATE_TEXT = '#F3F4F6'
+// The bus and dining icons of components/Icons.tsx, stroked in gold.
+const plateIcon = (paths) =>
+  `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="${PLATE_GOLD}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
+const BUS_ICON = plateIcon(
+  '<path d="M4 6a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"/><path d="M4 10h16"/>' +
+    `<circle cx="7.5" cy="14" r="1.5" fill="${PLATE_GOLD}" stroke="none"/><circle cx="16.5" cy="14" r="1.5" fill="${PLATE_GOLD}" stroke="none"/>` +
+    '<path d="M6 18v2"/><path d="M18 18v2"/><path d="M8 4v2"/><path d="M16 4v2"/>',
+)
+const DINING_ICON = plateIcon(
+  '<path d="M3 3v7c0 1.1.9 2 2 2h3v9a1 1 0 002 0V12h3a2 2 0 002-2V3"/><path d="M7 3v5"/>' +
+    '<path d="M19 3v18a1 1 0 01-1 1h0a1 1 0 01-1-1v-6h-1a2 2 0 01-2-2V5c0-1.1.9-2 2-2h3z"/>',
+)
+// The JAGLINE routes as lib/transitShared.ts colours them, each number in the
+// ink or white the app's onRouteColor picks for it.
+const ROUTE_SQUARES = [
+  ['1', '#990000', '#FFFFFF'],
+  ['2', '#83786F', '#0A0B0E'],
+  ['3', '#F1BE48', '#0A0B0E'],
+  ['4', '#006298', '#FFFFFF'],
+  ['5', '#66435A', '#FFFFFF'],
+  ['7', '#E68217', '#0A0B0E'],
+]
+
+function pageCard({ headline, sub, domain, plate }) {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${baseStyle}
+    ${cardFontFaces}
+    body { width: 1200px; height: 630px; background: ${GOLD_GROUND};
+           font-family: '${CARD_FAMILY}', ${FONT_STACK}; -webkit-font-smoothing: antialiased; }
+    .card { position: absolute; inset: 0; box-sizing: border-box; padding: 0 88px;
+            display: flex; align-items: center; gap: 56px; }
+    .copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; color: ${INK};
+             font-size: 38px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+    .brand svg { width: 60px; height: 60px; }
+    .brand .indy { color: #FFFFFF; }
+    .headline { margin: 0; color: ${INK}; font-size: 84px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.02; }
+    .sub { margin: 0; color: ${INK_SOFT}; font-size: 32px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+    .domain { margin: 4px 0 0; color: ${INK_DOMAIN}; font-size: 26px; font-weight: 700; letter-spacing: 0.04em; }
+    .plate { flex: none; box-sizing: border-box; width: ${PLATE}px; height: ${PLATE}px; padding: 36px;
+             border-radius: 36px; background: ${INK}; box-shadow: 0 18px 40px rgba(26, 18, 6, 0.28);
+             display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+    .plate-head { display: flex; align-items: center; justify-content: space-between; height: 52px; }
+    .icon { width: 52px; height: 52px; }
+    .live { display: flex; align-items: center; gap: 10px; color: ${PLATE_TEXT};
+            font-size: 22px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .live::before { content: ''; width: 14px; height: 14px; border-radius: 50%; background: #22C55E; }
+    .routes { display: grid; grid-template-columns: repeat(3, 92px); gap: 16px; }
+    .route { display: grid; place-items: center; width: 92px; height: 92px; border-radius: 12px;
+             font-size: 46px; font-weight: 800; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16); }
+    .meals { display: flex; flex-direction: column; gap: 14px; }
+    .meal { display: flex; align-items: center; height: 64px; box-sizing: border-box; padding: 0 28px;
+            border-radius: 32px; border: 2px solid rgba(243, 244, 246, 0.28); color: ${PLATE_TEXT};
+            font-size: 30px; font-weight: 700; }
+    .meal.on { background: ${PLATE_GOLD}; border-color: ${PLATE_GOLD}; color: ${INK}; }
+  </style></head><body><div class="card">
+    <div class="copy">
+      <p class="brand">${appIconBare}<span>Boiler<span class="indy">Indy</span></span></p>
+      <h1 class="headline">${headline}</h1>
+      <p class="sub">${sub}</p>
+      <p class="domain">${domain}</p>
+    </div>
+    <div class="plate">${plate}</div>
+  </div></body></html>`
+}
+
+const TRANSIT_CARD = pageCard({
+  headline: 'Live campus<br>bus map',
+  sub: 'Every JAGLINE shuttle, stop by stop.',
+  domain: 'boilerindy.app/transit',
+  plate: `<div class="plate-head">${BUS_ICON}<span class="live">Live</span></div>
+    <div class="routes">${ROUTE_SQUARES.map(([num, fill, text]) => `<span class="route" style="background:${fill};color:${text}">${num}</span>`).join('')}</div>`,
+})
+
+const DINING_CARD = pageCard({
+  headline: 'Today&rsquo;s<br>dining menu',
+  sub: 'Every meal, with diet labels and dish details.',
+  domain: 'boilerindy.app/dining',
+  plate: `<div class="plate-head">${DINING_ICON}</div>
+    <div class="meals"><span class="meal">Breakfast</span><span class="meal on">Lunch</span><span class="meal">Dinner</span></div>`,
+})
+
+// A point on the plate's left padding, clear of anything drawn on it.
+const plateInkAt = [1200 - 88 - PLATE + 24, 315, 'ink']
+const PAGE_CARD_FONTS = [`800 84px "${CARD_FAMILY}"`, `600 32px "${CARD_FAMILY}"`, `700 26px "${CARD_FAMILY}"`]
+
 const maskableGlyph = Math.round(512 * (1 - 2 * MASKABLE_SAFE_PADDING))
 
 // One point, in the source's 64-unit tile, that the subject must cover however
@@ -248,6 +342,24 @@ const ASSETS = [
     // The wordmark, the tagline and the domain line, as ogPage() sets them.
     fonts: [`800 104px "${CARD_FAMILY}"`, `600 32px "${CARD_FAMILY}"`, `700 26px "${CARD_FAMILY}"`],
     checks: [[0, 0, 'gold'], [1199, 629, 'gold'], ogInkAt],
+  },
+  {
+    file: 'og-transit.png',
+    width: 1200,
+    height: 630,
+    html: TRANSIT_CARD,
+    omitBackground: false,
+    fonts: PAGE_CARD_FONTS,
+    checks: [[0, 0, 'gold'], [1199, 629, 'gold'], plateInkAt],
+  },
+  {
+    file: 'og-dining.png',
+    width: 1200,
+    height: 630,
+    html: DINING_CARD,
+    omitBackground: false,
+    fonts: PAGE_CARD_FONTS,
+    checks: [[0, 0, 'gold'], [1199, 629, 'gold'], plateInkAt],
   },
 ]
 
