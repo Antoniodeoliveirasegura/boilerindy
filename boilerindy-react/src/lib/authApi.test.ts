@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { authRequest, parseNextPath, resolvePostLoginPath, safeNextPath, shouldSkipSetup, setSkipSetup } from './authApi'
+import {
+  authRequest,
+  parseNextPath,
+  registerSupabaseUser,
+  resolvePostLoginPath,
+  safeNextPath,
+  shouldSkipSetup,
+  setSkipSetup,
+} from './authApi'
+import { captureSignupRef, readSignupRef } from './signupRef'
 
 // Issues #23 (post-login redirect) and #40 (skip the connect-sources screen).
 beforeEach(() => localStorage.clear())
@@ -148,5 +157,53 @@ describe('authRequest errors', () => {
     const error = await authRequest('/api/guide').catch((e: unknown) => e)
     expect(error).toMatchObject({ status: 502, message: 'Bad gateway' })
     expect(error).not.toHaveProperty('code')
+  })
+})
+
+// The sign-up source (docs/analytics.md): an email sign-up carries the ref the
+// tab holds, and drops it once the account exists.
+describe('registerSupabaseUser and the sign-up source', () => {
+  const created = { session: { user: { id: 'u1', email: 'new@example.com' } } }
+  function jsonResponse(status: number, body: unknown) {
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+  const sentBody = (fetchMock: ReturnType<typeof vi.fn>) => JSON.parse(fetchMock.mock.calls[0][1].body as string)
+
+  beforeEach(() => sessionStorage.clear())
+  afterEach(() => vi.unstubAllGlobals())
+
+  test('sends the held ref with the new account, then forgets it', async () => {
+    captureSignupRef('?ref=amb-jane')
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, created))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(registerSupabaseUser('new@example.com', 'a long password', 'New', true)).resolves.toEqual(created)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/auth/register-supabase')
+    expect(sentBody(fetchMock)).toEqual({
+      email: 'new@example.com',
+      password: 'a long password',
+      name: 'New',
+      rememberMe: true,
+      signupRef: 'amb-jane',
+    })
+    expect(readSignupRef()).toBeNull()
+  })
+
+  test('sends no ref field when the tab holds none', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, created))
+    vi.stubGlobal('fetch', fetchMock)
+    await registerSupabaseUser('new@example.com', 'a long password', 'New')
+    expect(sentBody(fetchMock)).not.toHaveProperty('signupRef')
+  })
+
+  test('keeps the ref when the sign-up is refused, so the retry still carries it', async () => {
+    captureSignupRef('?ref=flyer-b')
+    const refused = { error: { message: 'An account with that email already exists.', status: 400 } }
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(400, refused)).mockResolvedValueOnce(jsonResponse(201, created))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(registerSupabaseUser('taken@example.com', 'a long password', 'New')).rejects.toThrow('already exists')
+    expect(readSignupRef()).toBe('flyer-b')
+    await registerSupabaseUser('new@example.com', 'a long password', 'New')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).signupRef).toBe('flyer-b')
+    expect(readSignupRef()).toBeNull()
   })
 })

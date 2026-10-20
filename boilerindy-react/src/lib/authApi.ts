@@ -4,6 +4,7 @@
 import type { BackendSession } from '../context/AuthContext'
 import { retryAfterMsFromHeader } from './queries/publicData'
 import { normalizeRoutePath } from './routePath'
+import { clearSignupRef, signupRefField } from './signupRef'
 
 type UserLike = { name?: string | null; email?: string | null } | null | undefined
 
@@ -21,16 +22,21 @@ export type SignInResponse = {
   codeSent?: boolean
 }
 
+// Carries the tab's sign-up source (lib/signupRef), which the server saves with
+// the new account; dropped once the account exists, and kept when the request
+// fails, so a retry with another address still carries it.
 export async function registerSupabaseUser(
   email: string,
   password: string,
   name: string,
   rememberMe = false,
 ): Promise<SignInResponse> {
-  return authRequest('/api/auth/register-supabase', {
+  const registered = (await authRequest('/api/auth/register-supabase', {
     method: 'POST',
-    body: JSON.stringify({ email, password, name, rememberMe }),
-  }) as Promise<SignInResponse>
+    body: JSON.stringify({ email, password, name, rememberMe, ...signupRefField() }),
+  })) as SignInResponse
+  clearSignupRef()
+  return registered
 }
 
 export async function authRequest(url: string, options: RequestInit = {}): Promise<unknown> {

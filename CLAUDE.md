@@ -36,8 +36,8 @@ rights to the BoilerIndy name or logo.
   (`dashboardLayout.mjs`, `servicesLayout.mjs`, `widgetLayout.mjs`,
   `boardLimits.mjs`, `contentReports.mjs`, `httpGuards.mjs`,
   `degreePrograms.mjs`, `purdueMajors.mjs`, `gradeTracker.mjs`,
-  `sentryScrub.mjs`, `diningMeals.mjs`) keep the browser and the API on one
-  set of values.
+  `sentryScrub.mjs`, `diningMeals.mjs`, `signupRef.mjs`) keep the browser and
+  the API on one set of values.
 - `src/dbErrors.mjs` and `docs/api-error-codes.md`: the error envelope
   `{ error: { message, status, code? } }` every new route answers with; a
   missing table answers 503 with `<feature>_schema_missing`.

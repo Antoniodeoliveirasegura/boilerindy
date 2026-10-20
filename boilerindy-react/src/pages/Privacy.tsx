@@ -8,7 +8,8 @@ import SkipLink from '../components/SkipLink'
 
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
 // (account, imported schedule, grades, posts, AI features, analytics, the
-// calendar feed). Contact is privacy@boilerindy.app (Cloudflare email routing).
+// sign-up link tag, the calendar feed). Contact is privacy@boilerindy.app
+// (Cloudflare email routing).
 // The Contact section links to /delete-account (issue #193).
 
 // Reading column type: Jakarta section heads over 15px/1.6 prose.
@@ -79,6 +80,15 @@ the time. We never record free-form text, your messages, your schedule contents,
 as analytics, and there are no advertising trackers or cross-site tracking (no Google Analytics,
 no Meta pixel). You can opt out anytime in Settings → Privacy, and raw events are kept at most
 12 months.`,
+  },
+  {
+    title: 'Sign-up links',
+    body: `Some of our posters, posts and student ambassadors share links that end in a short tag,
+like ?ref=flyer-a. If you open one, this browser tab keeps the tag until you close the tab. If you
+then create an account in that tab, we save the tag with your new account, once, so we can count
+how many sign-ups each poster, post or ambassador brought in; signing in to an account you already
+have saves nothing. The tag names the link, not you. It is not a cookie, it stays in our own
+database, it is never shared or used for advertising, and it is deleted with your account.`,
   },
   {
     title: 'Who we share data with',
@@ -152,7 +162,7 @@ export default function Privacy() {
             <div>
               <h1 className="page-title">Privacy policy</h1>
               <p className="page-sub">
-                Last updated October 18, 2026. The short version: your data stays in our own database, we
+                Last updated October 20, 2026. The short version: your data stays in our own database, we
                 use no advertising trackers, we never store your Purdue password, and you can opt out of
                 analytics or delete your account anytime.
               </p>
