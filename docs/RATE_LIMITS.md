@@ -42,8 +42,8 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `report` | `POST /api/reports` (every report on student content, see [moderation.md](moderation.md); the marketplace's own report route keeps `board-write`) | 20 | 1 hour | user, falls back to IP |
 | `advertiser-write` | `POST /api/advertiser/campaigns`, `PATCH /api/advertiser/campaigns/:id` | 60 | 15 min | advertiser portal session (`req.session.advertiserId`), falls back to IP |
 | `source-sync` | `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule`, `POST /api/sync/:sourceId` | 30 | 15 min | user, falls back to IP |
-| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news` (session-free upstream proxies, #215; the dish details and look-ahead reads, #468 and #469; campus news, #470; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
-| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
+| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news`, `GET /api/campus-events/free-food` (session-free upstream proxies, #215; the dish details and look-ahead reads, #468 and #469; campus news, #470; the signed-out Free Food page's read of the shared campus events, #366; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
+| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news`, `GET /api/campus-events/free-food` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
 | `transit-vehicles` | `GET /api/transit/vehicles` (polled every 10 to 20 s per open Transit screen; also served with `Cache-Control: public, max-age=10, s-maxage=10, stale-while-revalidate=20` so browsers and the Vercel edge absorb repeats) | 240 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
 | `transit-vehicles-ip` | `GET /api/transit/vehicles` (outer cap so one address cannot mint unlimited cookie buckets) | 2400 | 15 min | IP |
 | `clubs-read` | `GET /api/clubs` (served from an hours-long cache, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
@@ -61,9 +61,9 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 
 Read-only endpoints (`GET /api/...`) are generally not limited: they are
 session-gated, cheap, and limiting them would hurt normal navigation. Two
-exceptions: the session-free upstream proxies (dining, transit, parking) use
-the `public-read` bucket (vehicles have their own) so an anonymous client cannot
-burn the upstream quota,
+exceptions: the session-free upstream proxies (dining, transit, parking) and
+the signed-out free-food read use the `public-read` bucket (vehicles have their
+own) so an anonymous client cannot burn the upstream quota or the database,
 and `GET /api/marketplace/:id`, which returns the seller's contact
 email and is therefore enumeration-sensitive; `marketplace-read` throttles the
 bulk id-sweeps that would harvest every seller's address (#114).

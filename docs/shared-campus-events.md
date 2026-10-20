@@ -238,7 +238,10 @@ markers, `shared: true` and `sourceType: 'campus'`, plus a source label and the
 listing's link. A missing table, or any failed read of it, leaves the
 student's own rows alone. West Lafayette and other-city rows and members-only
 sessions are left out, a series is listed once as its next occurrence, and a
-row the ingest has not written for 26 hours counts as gone.
+row the ingest has not written for 26 hours counts as gone. Signed out,
+`/free-food` reads the rows with free food alone through
+`GET /api/campus-events/free-food` (issue #366), which never sees a session
+and so never a student's rows.
 
 Interaction with the existing regex: once shared events exist, the
 `campus_event` branch in `src/scheduleSync.mjs:42` is redundant at best and a

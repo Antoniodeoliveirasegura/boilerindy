@@ -60,6 +60,8 @@ const PUBLIC_READS = [
   '/api/dining/foods/:id',
   '/api/dining/upcoming',
   '/api/campus-news',
+  // The signed-out Free Food page's read (issue #366).
+  '/api/campus-events/free-food',
 ]
 
 test('the session middleware uses the exported cookie name', () => {
@@ -124,6 +126,7 @@ test('every public read answers with the cache header the edge needs', () => {
     handleClubs: "'public, max-age=300'",
     handlePushConfig: "'no-store'",
     handleDining: "'public, max-age=120, s-maxage=300'",
+    handlePublicFreeFood: "'public, max-age=60, s-maxage=300, stale-while-revalidate=600'",
   }
   for (const [handler, header] of Object.entries(expected)) {
     const body = handlerSource(handler)
@@ -140,4 +143,15 @@ test('a dining outage answer and a forced refresh are never stored', () => {
     'the public header is not limited to a good, unforced snapshot',
   )
   assert.ok(body.includes("else res.set('Cache-Control', 'no-store')"), 'the outage and forced-refresh answers are not marked no-store')
+})
+
+// Issue #366: an empty list stored at the edge after a failed read would tell
+// every signed-out visitor there is no free food.
+test('a failed free-food read is never stored', () => {
+  const body = handlerSource('handlePublicFreeFood')
+  assert.ok(body, 'handlePublicFreeFood not found')
+  const catchAt = body.indexOf('} catch (error) {')
+  assert.ok(catchAt > 0, 'handlePublicFreeFood has no catch')
+  assert.ok(body.slice(0, catchAt).includes("res.set('Cache-Control', 'public,"), 'the public header is not set on the answer')
+  assert.ok(body.slice(catchAt).includes("res.set('Cache-Control', 'no-store')"), 'the failure answer is not marked no-store')
 })

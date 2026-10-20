@@ -10,12 +10,15 @@ import { readFileSync } from 'node:fs'
 
 import {
   HIDDEN_VENUE_KINDS,
+  PUBLIC_FREE_FOOD_MAX_ROWS,
   SHARED_CALENDAR_CATEGORIES,
   SHARED_EVENTS_MAX_ROWS,
   SOURCE_LABELS,
   STALE_AFTER_MS,
   listSharedCalendarItems,
+  planPublicFreeFoodItems,
   planSharedCalendarItems,
+  readPublicFreeFoodRows,
   sharedCalendarCategory,
   sharedCategoriesFor,
   toSharedCalendarItem,
@@ -51,6 +54,24 @@ function campusRow(overrides = {}) {
   }
 }
 const titles = (items) => items.map((item) => item.title)
+
+// The rows the ingest planned from the real listings of 2026-10-17, as the
+// table holds them right after the run.
+function storedFixtureRows() {
+  const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
+  const plan = planCampusEvents(
+    {
+      purdue_events: fixture('campus-events-localist.json').events.map((wrapper) => wrapper.event),
+      iu_events: fixture('campus-events-livewhale.json').data,
+      boilerlink: fixture('campus-events-boilerlink.json').value,
+      thespot: fixture('campus-events-thespot.json').value,
+    },
+    // BoilerLink organizations by name alone, as with an empty club directory.
+    { isIndianapolisOrg: engageOrgLookup([]) },
+  )
+  // What the table adds on insert, the run having just finished.
+  return { plan, stored: plan.rows.map((row) => ({ ...row, id: row.dedupe_key, last_seen_at: NOW.toISOString() })) }
+}
 
 test('sharedCategoriesFor: category wins over categories, no filter asks for both, and only the shared two can come back', () => {
   assert.deepEqual(SHARED_CALENDAR_CATEGORIES, ['campus_event', 'deadline'])
@@ -168,22 +189,10 @@ test('categories pick deadlines, campus events or both, and the list is in start
 })
 
 test('the rows the ingest planned from the 2026-10-17 listings: 31 rows list as 26', () => {
-  const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
-  const plan = planCampusEvents(
-    {
-      purdue_events: fixture('campus-events-localist.json').events.map((wrapper) => wrapper.event),
-      iu_events: fixture('campus-events-livewhale.json').data,
-      boilerlink: fixture('campus-events-boilerlink.json').value,
-      thespot: fixture('campus-events-thespot.json').value,
-    },
-    // BoilerLink organizations by name alone, as with an empty club directory.
-    { isIndianapolisOrg: engageOrgLookup([]) },
-  )
+  const { plan, stored } = storedFixtureRows()
   // The medical school's ICMH Journal Club and Faculty Crossing's Scholarly Writing
   // drop at the ingest (LIVEWHALE_EXCLUDED_GROUPS).
   assert.equal(plan.rows.length, 31)
-  // What the table adds on insert, the run having just finished.
-  const stored = plan.rows.map((row) => ({ ...row, id: row.dedupe_key, last_seen_at: NOW.toISOString() }))
   const items = planSharedCalendarItems(stored, { now: NOW })
 
   // Two away games (venue_kind elsewhere), two club practices (members only)
@@ -258,4 +267,72 @@ test('a missing campus_events table answers [] and logs the file to run once; an
   assert.deepEqual(await listSharedCalendarItems(slow, { now: NOW }), [])
   assert.equal(logged.mock.callCount(), 3)
   assert.deepEqual(logged.mock.calls[2].arguments, ['%s:', 'campus_events read', '57014', 'canceling statement due to statement timeout'])
+})
+
+// ── The signed-out free-food read (issue #366) ──────────────────────────────
+
+test('the signed-out free-food list holds only rows with free food, by every rule of the signed-in read', () => {
+  const rows = [
+    campusRow({ title: 'Pizza social', free_food: true, starts_at: at(DAY), ends_at: at(DAY + HOUR) }),
+    campusRow({ title: 'No food', free_food: false }),
+    campusRow({ title: 'Food not known', free_food: null }),
+    campusRow({ title: 'Breakfast that ended', free_food: true, starts_at: at(-3 * HOUR), ends_at: at(-HOUR) }),
+    campusRow({ title: 'Pizza nobody has listed for two days', free_food: true, last_seen_at: at(-2 * DAY) }),
+    campusRow({ title: 'Pizza at Mackey', free_food: true, venue_kind: 'west_lafayette' }),
+    campusRow({ title: 'Officers dinner', free_food: true, open_to_all: false }),
+    campusRow({ title: 'Weekly lunch', free_food: true, series_key: 'iu_events:lunch', starts_at: at(3 * DAY), ends_at: at(3 * DAY + HOUR) }),
+    campusRow({ title: 'Weekly lunch', free_food: true, series_key: 'iu_events:lunch', starts_at: at(10 * DAY), ends_at: at(10 * DAY + HOUR) }),
+  ]
+  const items = planPublicFreeFoodItems(rows, { now: NOW })
+  assert.deepEqual(titles(items), ['Pizza social', 'Weekly lunch'])
+  // The client shape of the signed-in read, campus rows only.
+  assert.deepEqual(items[0], toSharedCalendarItem(rows[0]))
+  assert.equal(items[1].startTime, at(3 * DAY))
+  assert.ok(items.every((item) => item.freeFood === true && item.shared === true && item.id.startsWith('campus:')))
+  assert.deepEqual(planPublicFreeFoodItems(null, { now: NOW }), [])
+})
+
+test('on the 2026-10-17 listings the signed-out list is exactly the signed-in page\'s free food: 5 rows', () => {
+  const { stored } = storedFixtureRows()
+  const signedIn = planSharedCalendarItems(stored, { now: NOW }).filter((item) => item.freeFood)
+  const signedOut = planPublicFreeFoodItems(stored, { now: NOW })
+  assert.equal(signedOut.length, 5)
+  assert.deepEqual(signedOut, signedIn)
+})
+
+test('the signed-out read asks campus_events alone for its free-food rows, by the same rules, in one capped page', async () => {
+  const answered = [campusRow({ title: 'Pizza social', free_food: true })]
+  const supabase = fakeSupabase({ campus_events: () => ({ data: answered, error: null }) })
+  assert.deepEqual(await readPublicFreeFoodRows(supabase, { now: NOW }), answered)
+
+  // Never a student's calendar_items: the fake throws for any table it was not handed.
+  assert.deepEqual(supabase.queries.map((query) => query.table), ['campus_events'])
+  assert.deepEqual(supabase.queries[0].chain, [
+    {
+      method: 'select',
+      args: ['id, title, description, starts_at, ends_at, location, all_day, source_key, source_url, category, free_food, venue_kind, open_to_all, series_key, last_seen_at'],
+    },
+    { method: 'gte', args: ['last_seen_at', at(-STALE_AFTER_MS)] },
+    { method: 'or', args: [`ends_at.gte.${NOW.toISOString()},starts_at.gte.${at(-DAY)}`] },
+    { method: 'not', args: ['venue_kind', 'in', '(elsewhere,west_lafayette)'] },
+    { method: 'not', args: ['open_to_all', 'is', false] },
+    { method: 'eq', args: ['free_food', true] },
+    { method: 'order', args: ['starts_at', { ascending: true }] },
+    { method: 'order', args: ['id', { ascending: true }] },
+    { method: 'limit', args: [PUBLIC_FREE_FOOD_MAX_ROWS] },
+  ])
+  assert.equal(PUBLIC_FREE_FOOD_MAX_ROWS, 500)
+  assert.deepEqual(await readPublicFreeFoodRows(fakeSupabase({ campus_events: () => ({ data: null, error: null }) }), { now: NOW }), [])
+})
+
+// The calendar read answers [] on a failure, which there means "the
+// student's rows alone"; a public [] would mean "no free food" to everyone.
+test('the signed-out read throws a failure instead of answering none', async () => {
+  for (const error of [
+    { code: 'PGRST205', message: "Could not find the table 'public.campus_events' in the schema cache (public read test)" },
+    { code: '57014', message: 'canceling statement due to statement timeout' },
+  ]) {
+    const failing = fakeSupabase({ campus_events: () => ({ data: null, error }) })
+    await assert.rejects(readPublicFreeFoodRows(failing, { now: NOW }), (thrown) => thrown === error)
+  }
 })

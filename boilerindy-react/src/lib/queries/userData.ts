@@ -236,8 +236,15 @@ export function useUserId(): string | null {
   return (user?.id as string | undefined) ?? null
 }
 
-export function useMyCalendar<T = Record<string, unknown>>(params: CalendarParams) {
-  return useQuery(myCalendarQuery<T>(useUserId(), params))
+/**
+ * `enabled: false` holds the read even with a user, for a page signed-out
+ * visitors can open (lib/publicPreview.ts): it waits until auth has settled,
+ * since a read while a cold load re-mints the cookie would 401 and send a
+ * signed-in student to /login.
+ */
+export function useMyCalendar<T = Record<string, unknown>>(params: CalendarParams, { enabled = true }: { enabled?: boolean } = {}) {
+  const userId = useUserId()
+  return useQuery({ ...myCalendarQuery<T>(userId, params), enabled: enabled && Boolean(userId) })
 }
 
 export function useMyClasses<T = Record<string, unknown>, M = { totalInTerm?: number; selectedTermLabel?: string }>(

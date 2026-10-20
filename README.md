@@ -134,7 +134,7 @@ code starts reading a name that file does not list (issue #210).
 | `PARKING_STATUS_URL`, `PARKING_STATUS_CACHE_MS` | Garage occupancy upstream and its cache window |
 | `BOILERLINK_CLUBS_URL`, `BOILERLINK_CLUBS_CACHE_MS` | Club directory upstream and its cache window |
 | `CAMPUS_EVENTS_ENGAGE` | `off` (default). The Engage event searches the shared campus events ingest also reads: `boilerlink`, `thespot`, a comma list, or `on` (also `1`, `true`, `all`) for both. Both sites' robots.txt disallows `/api/`: Purdue's Student Activities and Organizations agreed to BoilerLink on 2026-10-18, TheSpot's admins have not been asked, so production runs `boilerlink`. See [docs/campus-events-ingest.md](docs/campus-events-ingest.md) |
-| `CAMPUS_EVENTS_FEED` | `off` (default; only `on`, `1` or `true` turn it on). When on, `/events` and `/free-food` list the upcoming shared campus events beside each student's own calendar, a student with no linked calendar included, through `GET /api/me/calendar?shared=1` and `GET /api/me/events`. Turn it on after step 43 and a first ingest run; without the table the pages show each student's own calendar alone. See [docs/campus-events-feed.md](docs/campus-events-feed.md) |
+| `CAMPUS_EVENTS_FEED` | `off` (default; only `on`, `1` or `true` turn it on). When on, `/events` and `/free-food` list the upcoming shared campus events beside each student's own calendar, a student with no linked calendar included, through `GET /api/me/calendar?shared=1` and `GET /api/me/events`, and a signed-out visitor to `/free-food` gets the ones with free food through `GET /api/campus-events/free-food` (issue #366). Turn it on after step 43 and a first ingest run; without the table the pages show each student's own calendar alone. See [docs/campus-events-feed.md](docs/campus-events-feed.md) |
 | `CAMPUS_EVENTS_CLASSIFY` | `off` (default; `on`, `1` or `true` turn it on, `shadow` stores Jev's answers without using them). With `TYPESAFE_API_KEY` set, the shared campus events ingest asks Jev, TypeSafe's classifier, four questions about each new or edited listing and refines `free_food`, `open_to_all`, `category` and `venue_kind` by thresholds tuned on 2026-10-18. Only the public listing text is sent. Start with `shadow`. See [docs/campus-events-ingest.md](docs/campus-events-ingest.md#jev-classification) |
 | `TYPESAFE_API_KEY` | [console.typesafe.ai/keys](https://console.typesafe.ai/keys). Read only when `CAMPUS_EVENTS_CLASSIFY` is `on` or `shadow`: a key alone sends nothing |
 | `VAPID_SUBJECT` | Contact address push services can reach. Defaults to `mailto:support@boilerindy.app` |
@@ -428,7 +428,9 @@ use; they never create a website session. Details and error reasons:
 powers a 🍕 badge + filter on the Events page and a dedicated `/free-food`
 page. No schema change. The shared campus events (issue #30, behind
 `CAMPUS_EVENTS_FEED`) carry the `free_food` their ingest stored instead; see
-[docs/campus-events-feed.md](docs/campus-events-feed.md).
+[docs/campus-events-feed.md](docs/campus-events-feed.md). Signed-out visitors
+can open `/free-food` too (the public preview, issue #366): they get the shared
+events with free food, from the session-free `GET /api/campus-events/free-food`.
 
 ### Lost & Found (issue #47)
 

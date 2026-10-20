@@ -1,5 +1,6 @@
 import { CircleMarker, Popup, Tooltip } from 'react-leaflet'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import {
   availabilityLabel,
   directionsUrl,
@@ -26,6 +27,10 @@ const FILL: Record<'light' | 'dark', Record<GarageStatus, string>> = {
  * nothing until a student asks for it.
  */
 export default function ParkingGarageLayer({ visible, dark = false }: { visible: boolean; dark?: boolean }) {
+  // The map is open to signed-out visitors (the public preview, issue #366),
+  // and /parking is not, so a visitor's popup has no "All garages" link to it.
+  const { user, loading: authLoading } = useAuth()
+  const signedIn = !authLoading && Boolean(user)
   const parkingQuery = useParking({ enabled: visible })
   const garages: Garage[] = parkingQuery.data?.garages ?? []
 
@@ -62,9 +67,11 @@ export default function ParkingGarageLayer({ visible, dark = false }: { visible:
                   <a href={directionsUrl(g)} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)]!">
                     Directions
                   </a>
-                  <Link to="/parking" className="text-[var(--color-accent)]!">
-                    All garages
-                  </Link>
+                  {signedIn && (
+                    <Link to="/parking" className="text-[var(--color-accent)]!">
+                      All garages
+                    </Link>
+                  )}
                 </div>
               </div>
             </Popup>

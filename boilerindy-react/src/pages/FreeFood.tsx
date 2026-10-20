@@ -15,6 +15,7 @@ import {
   type CampusEventFields,
   type SourceFilter,
 } from '../lib/campusEvents'
+import { usePublicFreeFood } from '../lib/queries/publicData'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
 import PageTitle from '../components/PageTitle'
 import EventSourceFilter from '../components/EventSourceFilter'
@@ -23,13 +24,15 @@ import EventSourceFilter from '../components/EventSourceFilter'
 // keyword matcher (item.freeFood). Reuses the same /api/me/calendar source as
 // the Events page, then narrows to free-food events. The shared campus events
 // (issue #30) carry the free food their source or the ingest found, and say
-// where they came from, with a link out to the listing.
+// where they came from, with a link out to the listing. Signed-out visitors
+// can open the page too (the public preview, issue #366): they get the shared
+// rows with free food alone, from GET /api/campus-events/free-food.
 
 type CalendarItem = CampusEventFields & {
   id: string
   title?: string
-  location?: string
-  description?: string
+  location?: string | null
+  description?: string | null
   freeFood?: boolean
   [key: string]: unknown
 }
@@ -58,8 +61,10 @@ function timeLine(item: CalendarItem) {
   return until.charAt(0).toUpperCase() + until.slice(1)
 }
 
-// Where the listed events come from: the shared rows are the campus calendars'.
-function sourcesLine(items: CalendarItem[], hasNoSources: boolean) {
+// Where the listed events come from: the shared rows are the campus calendars',
+// and signed out they are all there is.
+function sourcesLine(items: CalendarItem[], signedIn: boolean, hasNoSources: boolean) {
+  if (!signedIn) return 'on campus calendars'
   if (!items.some((item) => item.shared)) return 'on your calendar'
   return hasNoSources ? 'on campus calendars' : 'on your calendar and campus calendars'
 }
@@ -75,15 +80,21 @@ function dateBlock(dateString: string) {
 }
 
 export default function FreeFood() {
-  const { onboarding } = useAuth()
+  // One read or the other, once auth has settled: a calendar read while a
+  // cold load re-mints a signed-in student's cookie would 401 and bounce them
+  // to /login, and a visitor has no calendar to read.
+  const { user, loading: authLoading, onboarding } = useAuth()
+  const signedIn = !authLoading && Boolean(user)
   // The same calendar window the Events page reads, one cache entry for both (#327).
-  const calendarQuery = useMyCalendar<CalendarItem>(CAMPUS_EVENTS_CALENDAR)
-  const items = useMemo<CalendarItem[]>(() => calendarQuery.data?.items ?? [], [calendarQuery.data])
-  const loading = calendarQuery.isPending
+  const calendarQuery = useMyCalendar<CalendarItem>(CAMPUS_EVENTS_CALENDAR, { enabled: signedIn })
+  const publicQuery = usePublicFreeFood({ enabled: !authLoading && !user })
+  const feed = signedIn ? calendarQuery : publicQuery
+  const items = useMemo<CalendarItem[]>(() => feed.data?.items ?? [], [feed.data])
+  const loading = authLoading || feed.isPending
   // isPending turns false once the retries are spent, so a failed read fell
   // through to "No free-food events right now". With no earlier answer
   // to show, the page says it failed and offers a retry.
-  const loadFailed = calendarQuery.isError && !calendarQuery.data
+  const loadFailed = feed.isError && !feed.data
 
   // Listed until each event is over, as on Events.
   const allFreeFood = useMemo(
@@ -93,9 +104,13 @@ export default function FreeFood() {
         .sort((a, b) => new Date(listedTime(a)).getTime() - new Date(listedTime(b)).getTime()),
     [items],
   )
-  // The source pills count the free-food list, not the whole calendar.
+  // The source pills count the free-food list, not the whole calendar. Signed
+  // out every row is a campus calendar's, so there is no My calendar pill.
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
-  const sourceCounts = useMemo(() => eventSourceCounts(allFreeFood), [allFreeFood])
+  const sourceCounts = useMemo(
+    () => eventSourceCounts(allFreeFood).filter((count) => signedIn || count.id !== 'mine'),
+    [allFreeFood, signedIn],
+  )
   const source = activeSourceFilter(sourceFilter, sourceCounts)
   const freeFoodItems = useMemo(
     () => (source === 'all' ? allFreeFood : allFreeFood.filter((item) => matchesSourceFilter(item, source))),
@@ -112,7 +127,9 @@ export default function FreeFood() {
     return groups
   }, [freeFoodItems])
 
-  const hasNoSources = onboarding?.linkedSourceCount === 0
+  // Signed out, onboarding is the empty default (no linked source), and the
+  // card's link to /setup would only bounce a visitor to sign in.
+  const hasNoSources = signedIn && onboarding?.linkedSourceCount === 0
 
   return (
     <div className="page r-din">
@@ -125,10 +142,13 @@ export default function FreeFood() {
             </span>
             <h1 className="page-title">Free Food</h1>
           </div>
+          {/* No count until the list is in: "0 upcoming events" while it loads
+              reads as none, and would be the first thing a visitor from a
+              shared link sees. */}
           <p className="page-sub">
-            {loadFailed
-              ? 'Upcoming events on your calendar that mention free food - pizza, snacks, refreshments, and more.'
-              : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} ${sourcesLine(items, hasNoSources)} that mention free food - pizza, snacks, refreshments, and more.`}
+            {loading || loadFailed
+              ? `Upcoming events ${signedIn ? 'on your calendar' : 'on campus calendars'} that mention free food - pizza, snacks, refreshments, and more.`
+              : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} ${sourcesLine(items, signedIn, hasNoSources)} that mention free food - pizza, snacks, refreshments, and more.`}
           </p>
         </div>
       </header>
@@ -164,17 +184,19 @@ export default function FreeFood() {
               <Icon name="alert" size={18} />
             </span>
             <div>
-              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">Could not load your calendar</div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">
+                {signedIn ? 'Could not load your calendar' : 'Could not load campus events'}
+              </div>
               <p className="text-[13px] mt-0.5">
                 Free-food events are not shown. Check your connection and try again.
               </p>
               <button
                 type="button"
-                onClick={() => void calendarQuery.refetch()}
-                disabled={calendarQuery.isFetching}
+                onClick={() => void feed.refetch()}
+                disabled={feed.isFetching}
                 className="btn btn-secondary btn-sm mt-3"
               >
-                {calendarQuery.isFetching ? 'Trying again…' : 'Try again'}
+                {feed.isFetching ? 'Trying again…' : 'Try again'}
               </button>
             </div>
           </div>
@@ -188,8 +210,14 @@ export default function FreeFood() {
             <div>
               <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No free-food events right now</div>
               <p className="text-[13px] mt-0.5">
-                When an upcoming event mentions free food, it will appear here automatically.{' '}
-                <Link to="/events" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">Browse all events</Link>.
+                When an upcoming event mentions free food, it will appear here automatically.
+                {/* Events needs an account, so a visitor gets no link to it. */}
+                {signedIn && (
+                  <>
+                    {' '}
+                    <Link to="/events" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">Browse all events</Link>.
+                  </>
+                )}
               </p>
             </div>
           </div>
