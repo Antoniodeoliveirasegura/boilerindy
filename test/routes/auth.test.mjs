@@ -738,8 +738,8 @@ test('sign-in regenerates the session: a pre-existing session id is dropped, nev
     assert.equal(all[0].planted, undefined)
     assert.ok(isRecent(all[0].authAt))
     assert.equal(res.body.session.user.id, U1)
-    // ensureUserRowForSupabaseAuth took the Auth metadata name.
-    assert.equal(db.users[0].display_name, 'Purdue Pete')
+    // A name already stored on the row wins over Auth metadata.
+    assert.equal(db.users[0].display_name, 'Pete')
     assert.equal(res.body.session.expiresAt, null)
     const remembered = await call('POST', '/api/auth/sign-in', { body: { email: 'pete@example.com', password: PASSWORD, rememberMe: true } })
     assert.equal(maxAgeOf(remembered.sessionCookie), 30 * DAY / 1000)
@@ -812,6 +812,27 @@ test('supabase-sync inserts a new profile and signs it in', async () => {
     assert.equal(stored.sid, sidOf(res.cookie))
     assert.equal(stored.userId, U1)
     assert.ok(isRecent(stored.authAt))
+  })
+})
+
+test('supabase-sync keeps a display name the student already saved', async () => {
+  const seed = { users: [{ ...STUDENT, display_name: 'Campus Name' }] }
+  await withApp({ seed, tokens: { good: TOKEN_USER } }, async ({ call, db }) => {
+    const res = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: 'Bearer good' } })
+    assert.equal(res.status, 200)
+    assert.equal(db.users[0].display_name, 'Campus Name')
+    assert.equal(res.body.session.user.name, 'Campus Name')
+    assert.equal(db.users[0].avatar_url, 'https://img.example/p.png')
+  })
+})
+
+test('supabase-sync uses the Google name when the account has none yet', async () => {
+  const seed = { users: [{ ...STUDENT, display_name: '' }] }
+  await withApp({ seed, tokens: { good: TOKEN_USER } }, async ({ call, db }) => {
+    const res = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: 'Bearer good' } })
+    assert.equal(res.status, 200)
+    assert.equal(db.users[0].display_name, 'Pete Google')
+    assert.equal(res.body.session.user.name, 'Pete Google')
   })
 })
 
