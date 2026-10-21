@@ -44,10 +44,10 @@ export default defineConfig(({ mode }) => {
       // Link previews (docs/share-links.md): a chat app unfurls a link from
       // the HTML it fetches, without running the app, so each shared page gets
       // a copy of the built index.html with its own title, description and
-      // image (dist/transit.html, dist/dining.html), which vercel.json rewrites
-      // the page's path to. pagePreviewHtml throws when a tag it rewrites is
-      // gone from index.html, so the copies cannot quietly fall back to the
-      // home card.
+      // image (dist/transit.html, dist/dining.html, dist/free-food.html), which
+      // vercel.json rewrites the page's path to. pagePreviewHtml throws when a
+      // tag it rewrites is gone from index.html, so the copies cannot quietly
+      // fall back to the home card.
       {
         name: 'page-previews',
         apply: 'build',

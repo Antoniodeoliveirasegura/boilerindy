@@ -41,7 +41,7 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 | `marketplace_viewed` | Marketplace page opened |
 | `friends_viewed` | Friends page opened |
 | `study_groups_viewed` | Study groups page opened |
-| `share_clicked` | The Share button on Transit or Dining is pressed, before the share sheet opens or the link is copied (`page` prop: `transit` or `dining`; never the link). See [share-links.md](share-links.md) |
+| `share_clicked` | A Share button on Transit, Dining or Free Food is pressed, before the share sheet opens or the link is copied (`page` prop: `transit`, `dining` or `free-food`, plus `kind: event` when one free-food event is shared rather than the list; never the link or the event). See [share-links.md](share-links.md) |
 
 ## Privacy guarantees
 
@@ -98,6 +98,7 @@ has both.
 | Instagram bio or story | `ig-bio`, `ig-story` |
 | A class group chat | `gc-<course>`, for example `gc-cs180` |
 | A student ambassador | `amb-<name>`, for example `amb-jane` |
+| A Share button: the bus map, the dining menu, free food (the list or one event) | `share-bus`, `share-dining`, `share-free-food`, set by the button ([share-links.md](share-links.md)) |
 
 ### How it works
 

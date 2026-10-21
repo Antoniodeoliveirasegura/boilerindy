@@ -3,11 +3,11 @@ import Icon from './Icons'
 import { track } from '../lib/usageStats'
 import type { SharePage } from '../lib/shareLinks'
 
-// The Share button on /transit and /dining (docs/share-links.md). A phone or
-// tablet opens the system share sheet, which goes straight to a group chat. A
-// laptop copies the link and says so: its share sheet, where it has one, is
-// slower than pasting. A clipboard that refuses (some in-app browsers do)
-// shows the link in a field to copy by hand.
+// The Share button on /transit, /dining and /free-food (docs/share-links.md).
+// A phone or tablet opens the system share sheet, which goes straight to a
+// group chat. A laptop copies the link and says so: its share sheet, where it
+// has one, is slower than pasting. A clipboard that refuses (some in-app
+// browsers do) shows the link in a field to copy by hand.
 
 const COPIED_MS = 2500
 
@@ -19,6 +19,12 @@ type ShareButtonProps = {
   /** The share sheet's title and message. */
   title: string
   text: string
+  /** One listing shared rather than the page (an event on /free-food), recorded with share_clicked. */
+  kind?: 'event'
+  /** The button's name where a page has a Share per listing ("Share Boiler Fuel Up"); its text stays "Share". */
+  label?: string
+  /** A small text button in a listing's row, rather than the header's. */
+  inline?: boolean
 }
 
 // A coarse pointer is a touch screen: a phone or a tablet.
@@ -28,7 +34,7 @@ function opensShareSheet(data: ShareData): boolean {
   return window.matchMedia('(pointer: coarse)').matches
 }
 
-export default function ShareButton({ page, getUrl, title, text }: ShareButtonProps) {
+export default function ShareButton({ page, getUrl, title, text, kind, label, inline = false }: ShareButtonProps) {
   // When the link was last copied; the label says so for a moment after.
   const [copiedAt, setCopiedAt] = useState<number | null>(null)
   // The link to copy by hand, after the clipboard refused it.
@@ -59,7 +65,7 @@ export default function ShareButton({ page, getUrl, title, text }: ShareButtonPr
 
   function share() {
     const url = getUrl()
-    track('share_clicked', { page })
+    track('share_clicked', kind ? { page, kind } : { page })
     const data = { title, text, url }
     if (!opensShareSheet(data)) {
       copy(url)
@@ -81,8 +87,21 @@ export default function ShareButton({ page, getUrl, title, text }: ShareButtonPr
 
   return (
     <>
-      <button ref={buttonRef} type="button" onClick={share} className="btn btn-secondary whitespace-nowrap" data-share={page}>
-        <Icon name={copied ? 'check' : 'share'} size={15} />
+      {/* The label names the listing until the link is copied, when the
+          text says so. */}
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={share}
+        aria-label={label && !copied ? label : undefined}
+        className={
+          inline
+            ? '-my-1 inline-flex items-center gap-1 whitespace-nowrap py-1 text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px]'
+            : 'btn btn-secondary whitespace-nowrap'
+        }
+        data-share={page}
+      >
+        <Icon name={copied ? 'check' : 'share'} size={inline ? 12 : 15} />
         {copied ? 'Link copied' : 'Share'}
       </button>
       {/* A live region without the status role: the pages have their own

@@ -25,7 +25,7 @@ export type PagePreview = {
 }
 
 /** One per page with a Share button (lib/shareLinks.ts). */
-export const PAGE_PREVIEWS: Record<'transit' | 'dining', PagePreview> = {
+export const PAGE_PREVIEWS: Record<'transit' | 'dining' | 'free-food', PagePreview> = {
   transit: {
     path: '/transit',
     file: 'transit.html',
@@ -41,6 +41,16 @@ export const PAGE_PREVIEWS: Record<'transit' | 'dining', PagePreview> = {
     description: "Today's campus dining menus, meal by meal, with diet labels and dish details. Free for Purdue Indianapolis students, no sign-in needed.",
     image: '/og-dining.png',
     imageAlt: "BoilerIndy dining menu, with today's meals",
+  },
+  // One card for the list and for a single event's link: a card naming the
+  // event would have to be built per request.
+  'free-food': {
+    path: '/free-food',
+    file: 'free-food.html',
+    title: 'Free food on campus - BoilerIndy',
+    description: 'Upcoming campus events with free food: pizza, snacks, coffee and more, from the campus calendars. Free for Purdue Indianapolis students, no sign-in needed.',
+    image: '/og-free-food.png',
+    imageAlt: 'BoilerIndy free food list, with upcoming campus events',
   },
 }
 

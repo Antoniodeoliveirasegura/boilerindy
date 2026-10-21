@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { SHARE_REFS, shareUrl } from './shareLinks'
+import { SHARE_REFS, eventLinkParam, linkedEventId, shareUrl } from './shareLinks'
 import { readDiningView, writeDiningView } from './dining'
 
 const SITE = 'https://www.boilerindy.app'
@@ -46,6 +46,37 @@ describe('shareUrl', () => {
 
   test('the refs are slugs the sign-up source accepts', () => {
     for (const ref of Object.values(SHARE_REFS)) expect(ref).toMatch(/^[a-z0-9-]{1,40}$/)
+  })
+})
+
+describe('a free-food link', () => {
+  const EVENT = '5b0c1d4e-8f7a-4c2b-9e3d-1a2b3c4d5e6f'
+
+  test('shares the list, without the event a shared link opened it on', () => {
+    expect(shareUrl('free-food', `${SITE}/free-food`)).toBe(`${SITE}/free-food?ref=share-free-food`)
+    expect(shareUrl('free-food', `${SITE}/free-food?event=${EVENT}&ref=share-free-food`, { event: null })).toBe(
+      `${SITE}/free-food?ref=share-free-food`,
+    )
+  })
+
+  test('shares one event by the id it is listed under, with the free-food ref', () => {
+    expect(shareUrl('free-food', `${SITE}/free-food?utm_source=instagram&ref=flyer-a`, { event: eventLinkParam(`campus:${EVENT}`) })).toBe(
+      `${SITE}/free-food?event=${EVENT}&ref=share-free-food`,
+    )
+  })
+
+  test("names only a shared campus event, never a student's own row", () => {
+    expect(eventLinkParam(`campus:${EVENT}`)).toBe(EVENT)
+    expect(eventLinkParam('ev-1')).toBeNull()
+    expect(eventLinkParam('campus:')).toBeNull()
+  })
+
+  test('the event round-trips through a shared link, and a link without one names none', () => {
+    const link = new URL(shareUrl('free-food', `${SITE}/free-food`, { event: eventLinkParam('campus:fuel-up') }))
+    expect(link.pathname).toBe('/free-food')
+    expect(linkedEventId(link.searchParams.get('event'))).toBe('campus:fuel-up')
+    expect(linkedEventId(null)).toBeNull()
+    expect(linkedEventId(' ')).toBeNull()
   })
 })
 
