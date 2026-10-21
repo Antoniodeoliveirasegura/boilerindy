@@ -27,6 +27,31 @@ const DEFAULT_USER = {
 const DEFAULT_CREDENTIALS = { email: 'student@purdue.edu', password: 'correct-horse-battery' }
 export const LOGIN_CODE = '246810'
 
+// The Google round trip (enableGoogleSignIn): the code the mocked /authorize
+// sends back to /auth/callback, and the access token its PKCE exchange answers,
+// which supabase-sync then accepts for the Google account.
+const GOOGLE_CODE = 'e2e-google-code'
+const GOOGLE_ACCESS_TOKEN = 'e2e-google-access-token'
+
+function googleSession(googleUser) {
+  return {
+    access_token: GOOGLE_ACCESS_TOKEN,
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    refresh_token: 'e2e-google-refresh-token',
+    user: {
+      id: googleUser.id,
+      aud: 'authenticated',
+      role: 'authenticated',
+      email: googleUser.email,
+      app_metadata: { provider: 'google', providers: ['google'] },
+      user_metadata: { full_name: googleUser.name },
+      created_at: new Date().toISOString(),
+    },
+  }
+}
+
 function defaultOnboarding(overrides = {}) {
   return {
     linkedSourceCount: 1,
@@ -645,6 +670,13 @@ export const test = base.extend({
       // Purdue email-code verification (#181): the one live code, whose value
       // is always 123456, as { email, expiresAt, attempts, consumed }.
       purdueChallenge: null,
+      // Every body sent to the two routes that create an account, POST
+      // /api/auth/register-supabase and /api/auth/supabase-sync, oldest first,
+      // as { path, body }. The sign-up source rides on them (docs/analytics.md).
+      authBodies: [],
+      // The Google account for the OAuth round trip; null keeps Supabase Auth
+      // disabled, as every other spec expects.
+      googleUser: null,
     }
 
     // A block by the test user, kept once like the blocked_users primary key.
@@ -659,11 +691,23 @@ export const test = base.extend({
     // Supabase JS SDK token/refresh calls - kept offline so getSession() and the
     // non-blocking signInWithEmail() in Login.jsx resolve fast and predictably.
     // /recover (resetPasswordForEmail) succeeds so the forgot-password flow is
-    // testable; everything else stays disabled.
+    // testable; everything else stays disabled, unless enableGoogleSignIn()
+    // turned on the Google round trip: /authorize stands in for Google and
+    // sends the browser straight back to /auth/callback with a code, and the
+    // PKCE exchange answers a session for the Google account.
     await context.route('**/auth/v1/**', (route) => {
-      const { pathname } = new URL(route.request().url())
+      const url = new URL(route.request().url())
+      const { pathname } = url
       if (pathname.endsWith('/auth/v1/recover')) {
         return json(route, 200, {})
+      }
+      if (state.googleUser && pathname.endsWith('/auth/v1/authorize')) {
+        const back = new URL(url.searchParams.get('redirect_to'))
+        back.searchParams.set('code', GOOGLE_CODE)
+        return route.fulfill({ status: 302, headers: { location: back.toString() } })
+      }
+      if (state.googleUser && pathname.endsWith('/auth/v1/token') && url.searchParams.get('grant_type') === 'pkce') {
+        return json(route, 200, googleSession(state.googleUser))
       }
       return json(route, 400, { error: 'supabase-disabled-in-e2e' })
     })
@@ -727,13 +771,23 @@ export const test = base.extend({
       }
 
       if (pathname === '/api/auth/register-supabase' && method === 'POST') {
-        const { email, name } = bodyOf()
+        const body = bodyOf()
+        state.authBodies.push({ path: pathname, body })
+        const { email, name } = body
         state.user = { ...state.user, email: email || state.user.email, name: name || state.user.name }
         state.loggedIn = true
         return json(route, 200, { session: sessionPayload(state) })
       }
 
       if (pathname === '/api/auth/supabase-sync') {
+        state.authBodies.push({ path: pathname, body: bodyOf() })
+        // The Google round trip's token signs its account in, as the server
+        // does for a first Google sign-in.
+        if (state.googleUser && req.headers().authorization === `Bearer ${GOOGLE_ACCESS_TOKEN}`) {
+          const { id, email, name } = state.googleUser
+          state.user = { ...state.user, id, email, name, authProvider: 'google', purdueEmail: null, hasPurdueLinked: false }
+          state.loggedIn = true
+        }
         return json(route, 200, { session: state.loggedIn ? sessionPayload(state) : null })
       }
 
@@ -1254,6 +1308,12 @@ export const test = base.extend({
       },
       requireLoginCode(required = true) {
         state.requireLoginCode = required
+      },
+      // Turns on the Google round trip: Continue with Google leaves for the
+      // mocked /authorize, comes back to /auth/callback with a code, and the
+      // code exchange and supabase-sync sign this new Google account in.
+      enableGoogleSignIn(overrides = {}) {
+        state.googleUser = { id: 'e2e-google-user', email: 'new.student@gmail.com', name: 'New Student', ...overrides }
       },
       timeOutLoginCode() {
         state.loginCodeTimedOut = true

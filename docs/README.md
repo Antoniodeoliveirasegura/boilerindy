@@ -7,7 +7,7 @@ coding conventions live in the root [README.md](../README.md).
 ## Documents
 
 - [advertiser-portal.md](advertiser-portal.md) - scope and architecture of the advertiser portal, with M1 (auth, leads) and M2 (campaigns dashboard) shipped.
-- [analytics.md](analytics.md) - privacy-conscious usage analytics stored in our own Supabase, with no third-party trackers, no pixel and no external script (issue #51).
+- [analytics.md](analytics.md) - privacy-conscious usage analytics stored in our own Supabase, with no third-party trackers, no pixel and no external script (issue #51), and the sign-up source: which marketing link brought each new account.
 - [api-routes.md](api-routes.md) - every route the backend serves, generated from `server.mjs` and `src/routes/` by `pnpm run docs:routes` and kept in step by a test (issue #191).
 - [api-error-codes.md](api-error-codes.md) - the standard JSON error envelope, used by new code and by every code in the table it lists (issue #218).
 - [brand.md](brand.md) - the nominative fair use posture that names Purdue only to describe who the app is for and uses none of the university's identity assets (issue #112).

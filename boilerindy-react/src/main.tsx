@@ -5,8 +5,14 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import AppErrorBoundary from './components/AppErrorBoundary'
 import { BUILD_ID, QUERY_CACHE_MAX_AGE_MS, createQueryClient, createQueryPersister, dehydrateOptions, hydrateOptions } from './lib/queryClient'
 import { attachBreadcrumbSink, attachErrorSink, captureEarlyWindowErrors } from './lib/errorReporting'
+import { captureSignupRef } from './lib/signupRef'
 import './index.css'
 import App from './App'
+
+// The sign-up source (docs/analytics.md): a ?ref= or ?utm_source= on whatever
+// page this load landed on, kept in the tab before anything renders, so the
+// session sync that may run on mount can already carry it.
+captureSignupRef(window.location.search)
 
 // Error tracking (issue #50), loaded OFF the critical path: @sentry/react and the
 // scrubber are not in the initial bundle, and init runs after first paint. Until
