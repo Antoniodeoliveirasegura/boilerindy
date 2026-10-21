@@ -445,6 +445,13 @@ const icons: Record<string, ReactNode> = {
       <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
     </>
   ),
+  share: (
+    <>
+      <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
+      <path d="M16 6l-4-4-4 4"/>
+      <line x1="12" y1="2" x2="12" y2="15"/>
+    </>
+  ),
 }
 
 type IconProps = {

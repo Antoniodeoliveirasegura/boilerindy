@@ -1,0 +1,98 @@
+# Share links
+
+The Share buttons on `/transit` and `/dining`, the link each one sends, and
+the link preview cards a chat app shows for it. Both pages open signed out
+(the public preview, issue #366), so a shared link is a free sample for a
+friend: the same live map or menu, under the preview bar.
+
+## The link
+
+`boilerindy-react/src/lib/shareLinks.ts` builds it: the page's own path on the
+site the student is on, the view on screen, and a `ref` that says where the
+visit came from.
+
+| Page | View in the link | `ref` |
+|---|---|---|
+| `/transit` | `route`, the route picked (`?route=31`), none for All Routes | `share-bus` |
+| `/dining` | `hall`, a location slug, and `meal` (`?hall=tower-dining&meal=dinner`) | `share-dining` |
+
+Anything else in the address is left out: an earlier `ref` (a friend who
+reshares a shared link sends `share-bus` again, not the ref they arrived
+with), utm tags, another app's click id. The refs are slugs of `[a-z0-9-]`
+of at most 40 characters, which is what the sign-up source accepts; recording
+it at sign-up is that feature's job, not this one's.
+
+The dining hall and meal live in the address, as the transit route already
+did: `?hall=` and `?meal=`, written with replace (not push) when a student
+picks a pill, so the pills add no Back steps. A plain `/dining` still opens on
+Tower Dining and the meal being served (`defaultMeal`) and stays plain until
+a pick. Picking another hall keeps the meal in the address, so coming back to
+a hall finds the meal picked there. A meal the hall does not post that day
+falls back to the one being served, and a hall the feed does not list to
+Tower Dining. The Share button sends the hall and meal on screen even before
+they are in the address, so a friend opens the same menu.
+
+A link shares the menu, never the hall's status: the share text and the card
+say nothing about a hall being open, since the feed's hours are unreliable
+([dining.md](dining.md), "Weekend hours").
+
+## The button
+
+`components/ShareButton.tsx`, in each page's header, for every visitor:
+
+- On a phone or tablet (a coarse pointer and the Web Share API), it opens the
+  system share sheet with the page title, a short line ("Dinner at Tower
+  Dining, on BoilerIndy") and the link. Closing the sheet does nothing more;
+  any other refusal copies the link instead.
+- Elsewhere it copies the link and the button reads "Link copied" for 2.5
+  seconds (announced to screen readers too). A laptop's own share sheet, where
+  there is one, is slower than a paste into a group chat.
+- When the clipboard refuses (some in-app browsers do), the link shows in a
+  read-only field, selected, to copy by hand.
+
+Each press records `share_clicked` with a `page` prop of `transit` or `dining`
+([analytics.md](analytics.md)). Like every event it is recorded only for a
+signed-in student who has not opted out, so a signed-out friend who reshares
+is not counted; the `ref` on a new account is the measure of what sharing
+brings in.
+
+On `/transit`, a signed-out visitor who picks a route sees, above the stops
+where a student's "my stop" bells would be, an invitation to sign in for the
+chime, with a link that comes back to the same route.
+
+## Link previews
+
+A chat app (iMessage, Discord, WhatsApp, Slack) builds its card from the HTML
+it fetches and never runs the app, so every address used to unfurl as the one
+card in `boilerindy-react/index.html`. Each shared page now has its own:
+
+- `boilerindy-react/src/lib/pagePreviews.ts` holds each page's title,
+  description and image. The `page-previews` plugin in `vite.config.js` writes
+  a copy of the built `index.html` per page (`dist/transit.html`,
+  `dist/dining.html`) with its `<title>`, description, `og:` and `twitter:`
+  tags rewritten. The build stops if `index.html` loses one of those tags.
+- `boilerindy-react/vercel.json` rewrites `/transit` and `/dining` to their
+  copies ahead of the SPA fallback `/(.*)`. A rewrite matches the path only, so
+  `/transit?route=31&ref=share-bus` gets the transit card. Headers match the
+  address asked for, so these pages keep the same CSP as every other.
+  `vite preview` serves `dist/transit.html` for `/transit` on its own.
+- The cards, `public/og-transit.png` and `public/og-dining.png` (1200x630),
+  are rendered with the other launch assets by
+  `pnpm -C boilerindy-react run render-icons` and committed.
+
+Other spellings (`/transit/`, `/Dining`) fall through to the home card; the
+Share button always sends `/transit` and `/dining`. The `og:image` addresses
+point at `https://www.boilerindy.app`, so a preview deployment's card shows an
+image only once it is released.
+
+To see what an unfurler gets:
+
+```bash
+curl -s -A "facebookexternalhit/1.1" "https://www.boilerindy.app/transit?route=31&ref=share-bus" | grep -E "<title>|og:|twitter:"
+```
+
+Chat apps cache a card, some for days, so a changed card can take a while to
+show; Facebook's Sharing Debugger can ask for a fresh one.
+
+A card that shows today's menu (built per request rather than per build) is
+not done.

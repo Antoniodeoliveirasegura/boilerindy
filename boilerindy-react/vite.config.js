@@ -4,6 +4,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
+import { PAGE_PREVIEWS, pagePreviewHtml } from './src/lib/pagePreviews.ts'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '')
@@ -38,6 +39,23 @@ export default defineConfig(({ mode }) => {
           const stamped = source.replace("const BUILD_ID = 'dev'", `const BUILD_ID = '${buildId}'`)
           if (stamped === source) throw new Error("dist/sw.js has no const BUILD_ID = 'dev' line to stamp")
           writeFileSync(file, stamped)
+        },
+      },
+      // Link previews (docs/share-links.md): a chat app unfurls a link from
+      // the HTML it fetches, without running the app, so each shared page gets
+      // a copy of the built index.html with its own title, description and
+      // image (dist/transit.html, dist/dining.html), which vercel.json rewrites
+      // the page's path to. pagePreviewHtml throws when a tag it rewrites is
+      // gone from index.html, so the copies cannot quietly fall back to the
+      // home card.
+      {
+        name: 'page-previews',
+        apply: 'build',
+        writeBundle(options) {
+          const indexHtml = readFileSync(join(options.dir, 'index.html'), 'utf8')
+          for (const page of Object.values(PAGE_PREVIEWS)) {
+            writeFileSync(join(options.dir, page.file), pagePreviewHtml(indexHtml, page))
+          }
         },
       },
       ...(uploadSourceMaps

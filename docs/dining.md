@@ -333,6 +333,11 @@ has nothing else. A snapshot without `menus` shows its merged stations with no
 pills. Home's dining widget previews the same meal, specials first, under
 "Today's lunch" (or the meal it is).
 
+The hall and meal on screen live in the address (`?hall=tower-dining&meal=dinner`,
+written with replace once a student picks a pill), so the Share button in the
+header sends a link that opens the same menu, signed in or not
+([share-links.md](share-links.md)).
+
 A dining hall's header has an "Official menu" button next to the
 directions, and when its `menu_source` is stale a notice above the menu says
 why and links the official menu too.
