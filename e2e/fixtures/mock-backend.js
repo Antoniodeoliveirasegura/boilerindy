@@ -951,6 +951,15 @@ export const test = base.extend({
         return json(route, 200, { feedUrl: state.feedUrl })
       }
 
+      // The signed-out Free Food page's read (#366): the shared campus events
+      // with free food, soonest first, with or without a session, as the
+      // server answers while CAMPUS_EVENTS_FEED is on.
+      if (pathname === '/api/campus-events/free-food') {
+        const items = state.sharedEvents
+          .filter((item) => item.freeFood === true)
+          .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime))
+        return json(route, 200, { ok: true, items })
+      }
       // Dining (#119): the public snapshot, plus the favorites routes (#49) so
       // starring an item persists across a reload the way the DB does.
       // Campus news (#470): The Circuit's headlines, as src/circuitNews.mjs shapes them.

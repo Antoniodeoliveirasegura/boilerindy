@@ -64,7 +64,7 @@ import { createAnalyticsRouter } from './src/routes/analytics.mjs'
 import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
 import { createMeRouter } from './src/routes/me.mjs'
 import { createSourcesRouter } from './src/routes/sources.mjs'
-import { createCampusEventsRouter } from './src/routes/campusEvents.mjs'
+import { createCampusEventsPublicRouter, createCampusEventsRouter } from './src/routes/campusEvents.mjs'
 import { engageSourcesFromSetting } from './src/sharedEvents.mjs'
 import { createCampusEventsClassifier } from './src/campusEventsClassify.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
@@ -529,12 +529,15 @@ try {
 // express-session refreshes the cookie on every response that has a session,
 // and Vercel will not store a response that sets a cookie, which kept the edge
 // cache empty for every signed-in poll. Same precedent as /api/health. The
-// campus, push and dining reads are routers from src/routes/ (issue #191),
-// and what they are handed is built above this block: a const or let
-// declared further down would not be initialized yet when these lines run.
+// campus, push, dining and campus events reads are routers from src/routes/
+// (issue #191), and what they are handed is built above this block: a const
+// or let declared further down would not be initialized yet when these lines
+// run. The campus events one is the signed-out /free-food's read (issue #366),
+// behind the same CAMPUS_EVENTS_FEED switch as the signed-in calendar read.
 app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
+app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED') }))
 
 // Everything below runs behind the cookie session.
 app.use(

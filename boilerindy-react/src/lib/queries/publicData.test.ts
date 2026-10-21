@@ -5,6 +5,7 @@ import {
   CAMPUS_NEWS_STALE_MS,
   CLUBS_STALE_MS,
   DINING_STALE_MS,
+  FREE_FOOD_STALE_MS,
   PARKING_REFRESH_MS,
   PARKING_STALE_MS,
   TRANSIT_STATIC_STALE_MS,
@@ -15,6 +16,7 @@ import {
   diningQuery,
   errorMessage,
   fetchJson,
+  freeFoodQuery,
   normalizeClubFilters,
   parkingQuery,
   refreshDining,
@@ -73,6 +75,21 @@ describe('per-dataset defaults', () => {
     expect(isPersistedQueryKey(['news', 'circuit'])).toBe(true)
   })
 
+  // Issue #366: the signed-out Free Food page's read, public like the others.
+  test('the free food on campus calendars is fresh for a minute, persisted, and read from the session-free route', async () => {
+    expect(freeFoodQuery.queryKey).toEqual(['events', 'free-food'])
+    expect(freeFoodQuery.staleTime).toBe(FREE_FOOD_STALE_MS)
+    expect(FREE_FOOD_STALE_MS).toBe(60_000)
+    expect(freeFoodQuery.gcTime).toBe(QUERY_CACHE_MAX_AGE_MS)
+    expect(isPersistedQueryKey(['events', 'free-food'])).toBe(true)
+
+    const items = [{ id: 'campus:fuel-up', title: 'Boiler Fuel Up', startTime: '2026-10-21T15:00:00.000Z', freeFood: true, shared: true }]
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true, items }), { status: 200 }))
+    const client = new QueryClient()
+    await expect(client.fetchQuery(freeFoodQuery)).resolves.toEqual({ ok: true, items })
+    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual(['/api/campus-events/free-food'])
+  })
+
   test('the vehicle poll runs every 10 s and pauses while the tab is hidden', () => {
     expect(transitVehiclesQuery.refetchInterval).toBe(TRANSIT_VEHICLES_POLL_MS)
     expect(TRANSIT_VEHICLES_POLL_MS).toBe(10_000)
@@ -86,7 +103,7 @@ describe('per-dataset defaults', () => {
   })
 
   test('public entries outlive the five-minute default so tomorrow still paints from them', () => {
-    for (const q of [transitRoutesQuery, transitVehiclesQuery, diningQuery, parkingQuery, clubSearchQuery({})]) {
+    for (const q of [transitRoutesQuery, transitVehiclesQuery, diningQuery, parkingQuery, clubSearchQuery({}), freeFoodQuery]) {
       expect(q.gcTime).toBe(QUERY_CACHE_MAX_AGE_MS)
     }
   })

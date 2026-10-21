@@ -1,6 +1,7 @@
+import { useLayoutEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
-import { PREVIEW_MESSAGE, PREVIEW_SIGN_UP_HREF, previewSignInHref } from '../lib/publicPreview'
+import { PREVIEW_SIGN_UP_HREF, previewMessage, previewSignInHref } from '../lib/publicPreview'
 import BrandMark from './BrandMark'
 import Icon from './Icons'
 
@@ -16,10 +17,29 @@ import Icon from './Icons'
 // The one-line pitch fits beside the links from `md` up. On a phone it moves
 // to a fixed ink plate at the bottom, in the slot the signed-in bottom tab bar
 // uses (SiteDisclaimer's mobile padding already clears it), because a fixed
-// plate never shifts the page the way an in-flow banner would.
+// plate never shifts the page the way an in-flow banner would. A page that
+// fills the screen instead of scrolling (the campus map) stops above the
+// plate: its height, which the message's length and the screen's width set,
+// is kept on the root as --preview-note-h.
 export default function PreviewBar() {
   const { pathname, search } = useLocation()
   const { dark, toggleTheme } = useTheme()
+  const message = previewMessage(pathname)
+
+  const noteRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const note = noteRef.current
+    if (!note) return
+    const root = document.documentElement
+    const update = () => root.style.setProperty('--preview-note-h', `${note.offsetHeight}px`)
+    update()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(note)
+    return () => {
+      observer?.disconnect()
+      root.style.removeProperty('--preview-note-h')
+    }
+  }, [])
 
   return (
     <>
@@ -31,7 +51,7 @@ export default function PreviewBar() {
           </Link>
           <span className="topbar-divider hidden md:block" aria-hidden="true" />
           <p className="hidden md:block flex-1 min-w-0 pl-3 pr-4 text-[13px] leading-snug text-[var(--color-txt-2)] line-clamp-2">
-            {PREVIEW_MESSAGE}
+            {message}
           </p>
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
@@ -53,6 +73,7 @@ export default function PreviewBar() {
       </header>
       <div className="h-14 md:h-16" aria-hidden="true" />
       <div
+        ref={noteRef}
         data-testid="preview-note"
         className="md:hidden fixed left-0 right-0 bottom-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]"
       >
@@ -62,7 +83,7 @@ export default function PreviewBar() {
           className="ink-panel flex items-start gap-2.5 min-h-11 px-3.5 py-3 text-[13.5px] leading-snug text-[var(--color-ink-txt)] shadow-[var(--shadow-lg)]"
         >
           <Icon name="info" size={16} className="shrink-0 mt-0.5 text-[var(--color-ink-dim)]" />
-          <span className="min-w-0">{PREVIEW_MESSAGE}</span>
+          <span className="min-w-0">{message}</span>
         </div>
       </div>
     </>

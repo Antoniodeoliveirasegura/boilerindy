@@ -393,9 +393,11 @@ export default function Map() {
 
   return (
     // Phones: the map stops above the fixed tab bar (62px plus the safe area)
-    // so nothing pinned to its bottom edge hides behind it. From md the bar is
-    // gone and the nav band is 64px.
-    <div className="flex flex-col lg:grid lg:grid-cols-[340px_1fr] h-[calc(100dvh_-_118px_-_env(safe-area-inset-bottom))] md:h-[calc(100dvh-4rem)] overflow-hidden bg-[var(--color-bg-1)]">
+    // so nothing pinned to its bottom edge hides behind it; signed out, above
+    // the preview bar's pitch card instead, whose height PreviewBar keeps in
+    // --preview-note-h (issue #366). From md the bar is gone and the nav band
+    // is 64px.
+    <div className="flex flex-col lg:grid lg:grid-cols-[340px_1fr] h-[calc(100dvh_-_56px_-_var(--preview-note-h,calc(62px_+_env(safe-area-inset-bottom))))] md:h-[calc(100dvh-4rem)] overflow-hidden bg-[var(--color-bg-1)]">
       <PageTitle>Campus Map</PageTitle>
       {/* The visible h1 lives in the desktop sidebar, which is display:none
           below lg, so phones and tablets had no page heading at all. This
