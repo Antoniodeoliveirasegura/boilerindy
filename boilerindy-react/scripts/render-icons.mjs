@@ -32,6 +32,7 @@
 //   og-image.png                  1200x630 social preview card (Open Graph / Twitter)
 //   og-transit.png                1200x630 card for a shared /transit link (docs/share-links.md)
 //   og-dining.png                 1200x630 card for a shared /dining link
+//   og-free-food.png              1200x630 card for a shared /free-food link, the list or one event
 //
 // Headless Chromium (Playwright, already a workspace dev dependency for e2e) is
 // launched exactly once, in a light colour-scheme context; every asset is
@@ -181,7 +182,7 @@ function ogPage() {
 const PLATE = 380 // .plate below, at the card's right padding, centred vertically
 const PLATE_GOLD = '#FFC94A'
 const PLATE_TEXT = '#F3F4F6'
-// The bus and dining icons of components/Icons.tsx, stroked in gold.
+// The bus, dining and coffee icons of components/Icons.tsx, stroked in gold.
 const plateIcon = (paths) =>
   `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="${PLATE_GOLD}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
 const BUS_ICON = plateIcon(
@@ -192,6 +193,10 @@ const BUS_ICON = plateIcon(
 const DINING_ICON = plateIcon(
   '<path d="M3 3v7c0 1.1.9 2 2 2h3v9a1 1 0 002 0V12h3a2 2 0 002-2V3"/><path d="M7 3v5"/>' +
     '<path d="M19 3v18a1 1 0 01-1 1h0a1 1 0 01-1-1v-6h-1a2 2 0 01-2-2V5c0-1.1.9-2 2-2h3z"/>',
+)
+const COFFEE_ICON = plateIcon(
+  '<path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/>' +
+    '<path d="M6 1v3"/><path d="M10 1v3"/><path d="M14 1v3"/>',
 )
 // The JAGLINE routes as lib/transitShared.ts colours them, each number in the
 // ink or white the app's onRouteColor picks for it.
@@ -235,6 +240,8 @@ function pageCard({ headline, sub, domain, plate }) {
             border-radius: 32px; border: 2px solid rgba(243, 244, 246, 0.28); color: ${PLATE_TEXT};
             font-size: 30px; font-weight: 700; }
     .meal.on { background: ${PLATE_GOLD}; border-color: ${PLATE_GOLD}; color: ${INK}; }
+    .meal .free { margin-left: auto; margin-right: -14px; padding: 9px 14px; border-radius: 20px;
+                  background: ${PLATE_GOLD}; color: ${INK}; font-size: 18px; font-weight: 800; letter-spacing: 0.1em; }
   </style></head><body><div class="card">
     <div class="copy">
       <p class="brand">${appIconBare}<span>Boiler<span class="indy">Indy</span></span></p>
@@ -260,6 +267,16 @@ const DINING_CARD = pageCard({
   domain: 'boilerindy.app/dining',
   plate: `<div class="plate-head">${DINING_ICON}</div>
     <div class="meals"><span class="meal">Breakfast</span><span class="meal on">Lunch</span><span class="meal">Dinner</span></div>`,
+})
+
+// No event on the card: one card serves the list and every single event's
+// link, and it stays up in a chat long after an event is over.
+const FREE_FOOD_CARD = pageCard({
+  headline: 'Free food<br>on campus',
+  sub: 'Campus events with pizza, snacks and more.',
+  domain: 'boilerindy.app/free-food',
+  plate: `<div class="plate-head">${COFFEE_ICON}</div>
+    <div class="meals">${['Pizza', 'Snacks', 'Coffee'].map((food) => `<span class="meal">${food}<span class="free">FREE</span></span>`).join('')}</div>`,
 })
 
 // A point on the plate's left padding, clear of anything drawn on it.
@@ -357,6 +374,15 @@ const ASSETS = [
     width: 1200,
     height: 630,
     html: DINING_CARD,
+    omitBackground: false,
+    fonts: PAGE_CARD_FONTS,
+    checks: [[0, 0, 'gold'], [1199, 629, 'gold'], plateInkAt],
+  },
+  {
+    file: 'og-free-food.png',
+    width: 1200,
+    height: 630,
+    html: FREE_FOOD_CARD,
     omitBackground: false,
     fonts: PAGE_CARD_FONTS,
     checks: [[0, 0, 'gold'], [1199, 629, 'gold'], plateInkAt],

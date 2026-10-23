@@ -145,3 +145,32 @@ describe('when the clipboard refuses', () => {
     expect(screen.queryByLabelText('Copy this link to share it')).toBeNull()
   })
 })
+
+// A Share per listing (each event on /free-food): named after its listing, so
+// a screen reader tells the rows' buttons apart, and counted as one event.
+describe('in a listing row', () => {
+  const EVENT_LINK = 'https://www.boilerindy.app/free-food?event=fuel-up&ref=share-free-food'
+
+  test('is named after its listing, records an event share, and says it copied', async () => {
+    render(
+      <ShareButton
+        page="free-food"
+        kind="event"
+        inline
+        label="Share Boiler Fuel Up"
+        getUrl={() => EVENT_LINK}
+        title="Free food on campus - BoilerIndy"
+        text="Free food at Boiler Fuel Up, on BoilerIndy"
+      />,
+    )
+    const button = screen.getByRole('button', { name: 'Share Boiler Fuel Up' })
+    expect(button).toHaveTextContent('Share')
+    expect(button).not.toHaveClass('btn')
+
+    fireEvent.click(button)
+    await act(async () => {})
+    expect(writeText).toHaveBeenCalledWith(EVENT_LINK)
+    expect(track).toHaveBeenCalledWith('share_clicked', { page: 'free-food', kind: 'event' })
+    expect(screen.getByRole('button', { name: 'Link copied' })).toBe(button)
+  })
+})

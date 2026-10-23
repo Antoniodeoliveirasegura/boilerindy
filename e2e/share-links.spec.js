@@ -1,9 +1,9 @@
 import { test, expect, sampleDining, sampleDiningLocation } from './fixtures/mock-backend.js'
 
-// Share links (docs/share-links.md): the Share buttons on /transit and
-// /dining send the view on screen with a ref, a signed-out friend who opens
-// the link lands on that same view, and each page answers an unfurler with
-// its own link preview instead of the home card.
+// Share links (docs/share-links.md): the Share buttons on /transit, /dining
+// and /free-food send the view on screen with a ref, a signed-out friend who
+// opens the link lands on that same view, and each page answers an unfurler
+// with its own link preview instead of the home card.
 
 // Tower posts a different special for each meal, so the meal on screen shows.
 const tower = sampleDiningLocation({
@@ -156,6 +156,132 @@ test.describe('A shared bus link', () => {
   })
 })
 
+// Shared campus events with free food, in the client shape of
+// src/campusEventsFeed.mjs, timed from a fixed Wednesday morning: eight of
+// them, so the last is well below the fold on a laptop.
+const FREE_FOOD_NOW = new Date('2026-09-09T08:00:00-04:00')
+const HOUR = 60 * 60 * 1000
+function freeFoodEvent(slug, title, hoursAhead) {
+  const start = FREE_FOOD_NOW.getTime() + hoursAhead * HOUR
+  return {
+    id: `campus:${slug}`,
+    sourceId: null,
+    title,
+    description: null,
+    startTime: new Date(start).toISOString(),
+    endTime: new Date(start + 2 * HOUR).toISOString(),
+    location: 'Campus Center 450',
+    category: 'campus_event',
+    externalUid: null,
+    sourceType: 'campus',
+    allDay: false,
+    freeFood: true,
+    shared: true,
+    sourceKey: 'purdue_events',
+    sourceLabel: 'Purdue event',
+    sourceUrl: `https://events.purdue.edu/event/${slug}`,
+  }
+}
+const FREE_FOOD = [
+  freeFoodEvent('fuel-up', 'Boiler Fuel Up', 4),
+  freeFoodEvent('pizza-night', 'Pizza Night at the Library', 9.5),
+  freeFoodEvent('bagels', 'Bagels with the Dean', 28),
+  freeFoodEvent('tacos', 'Taco Social', 33.5),
+  freeFoodEvent('study-snacks', 'Study Break Snacks', 52),
+  freeFoodEvent('coffee', 'Coffee and Careers', 57.5),
+  freeFoodEvent('ice-cream', 'Ice Cream Social', 76),
+  freeFoodEvent('chili', 'United Way Chili Cook-off', 81.5),
+]
+
+test.describe('A shared free-food link', () => {
+  test.beforeEach(async ({ page, mockApi }) => {
+    await page.clock.setFixedTime(FREE_FOOD_NOW)
+    mockApi.seedSharedEvents(FREE_FOOD)
+  })
+
+  test('opens on the event it names for a signed-out friend, scrolled to and marked', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/free-food?event=chili&ref=share-free-food')
+
+    await expect(page.getByTestId('preview-bar')).toBeVisible()
+    const linked = page.locator('[data-linked-event]')
+    await expect(linked).toHaveCount(1)
+    await expect(linked).toContainText('United Way Chili Cook-off')
+    await expect(linked).toContainText('Shared with you')
+    await expect(linked).toBeInViewport()
+    // The rest of the list is there too, and the address stays as it came.
+    await expect(page.getByText('Boiler Fuel Up')).toBeAttached()
+    await expect(page.locator('[data-linked-event-missing]')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/free-food\?event=chili&ref=share-free-food$/)
+  })
+
+  test('a student shares one event, and a friend who is signed out lands on it', async ({ page, context, mockApi }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    mockApi.login()
+    await page.goto('/free-food')
+    await page.getByRole('button', { name: 'Share Ice Cream Social' }).click()
+    await expect(page.getByRole('button', { name: 'Link copied' })).toBeVisible()
+    const link = await page.evaluate(() => navigator.clipboard.readText())
+    expect(link).toBe(new URL('/free-food?event=ice-cream&ref=share-free-food', page.url()).href)
+
+    // The friend has no account.
+    mockApi.logout()
+    await page.goto(link)
+    await expect(page.getByTestId('preview-bar')).toBeVisible()
+    await expect(page.locator('[data-linked-event]')).toContainText('Ice Cream Social')
+    await expect(page.locator('[data-linked-event]')).toBeInViewport()
+  })
+
+  test('the header Share sends the whole list, not the event a link opened it on', async ({ page, context, mockApi }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    mockApi.logout()
+    await page.goto('/free-food?event=chili&ref=share-free-food')
+    await expect(page.locator('[data-linked-event]')).toBeInViewport()
+
+    await page.getByRole('button', { name: 'Share', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Link copied' })).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL('/free-food?ref=share-free-food', page.url()).href)
+  })
+
+  test('a link to an event that is over says so, above the rest of the list', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/free-food?event=last-weeks-picnic&ref=share-free-food')
+
+    await expect(page.locator('[data-linked-event-missing]')).toContainText('That event is not listed any more')
+    await expect(page.getByText('Boiler Fuel Up')).toBeVisible()
+    await expect(page.locator('[data-linked-event]')).toHaveCount(0)
+  })
+
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test("an event's Share opens the share sheet with what it is and when", async ({ page, mockApi }) => {
+      await page.addInitScript(() => {
+        window.__shared = []
+        Object.defineProperty(navigator, 'share', {
+          configurable: true,
+          value: (data) => {
+            window.__shared.push(data)
+            return Promise.resolve()
+          },
+        })
+      })
+      mockApi.logout()
+      await page.goto('/free-food')
+      await page.getByRole('button', { name: 'Share Pizza Night at the Library' }).click()
+
+      await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1)
+      const [shared] = await page.evaluate(() => window.__shared)
+      expect(shared.title).toBe('Free food on campus - BoilerIndy')
+      // The day spelled out, where the row says Today: the message stays in the chat.
+      expect(shared.text).toMatch(/^Free food at Pizza Night at the Library, Wed, Sep 9, 5:30\sPM, on BoilerIndy$/)
+      expect(shared.url).toBe(new URL('/free-food?event=pizza-night&ref=share-free-food', page.url()).href)
+      // The page does not widen past the screen with the row's Share.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    })
+  })
+})
+
 // What a chat app's unfurler gets: the HTML, never the running app.
 test.describe('Link previews', () => {
   const UNFURLER = { 'User-Agent': 'facebookexternalhit/1.1', Accept: 'text/html' }
@@ -163,6 +289,8 @@ test.describe('Link previews', () => {
   for (const { link, title, image } of [
     { link: '/transit?route=31&ref=share-bus', title: 'JAGLINE live bus map - BoilerIndy', image: 'og-transit.png' },
     { link: '/dining?hall=tower-dining&meal=dinner&ref=share-dining', title: "Today's campus dining menu - BoilerIndy", image: 'og-dining.png' },
+    // One card for the list and for every single event's link.
+    { link: '/free-food?event=chili&ref=share-free-food', title: 'Free food on campus - BoilerIndy', image: 'og-free-food.png' },
   ]) {
     const path = link.split('?')[0]
 

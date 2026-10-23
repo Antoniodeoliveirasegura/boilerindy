@@ -27,7 +27,7 @@ coding conventions live in the root [README.md](../README.md).
 - [push-notifications.md](push-notifications.md) - Web Push deadline reminders: the `/settings` card, the `/api/push/` routes behind it, and the reminder runner the Supabase scheduler triggers every 5 minutes (issue #9); the native app's Expo push tokens and their delivery (issue #194).
 - [RATE_LIMITS.md](RATE_LIMITS.md) - the configurable, in-memory rate limiting that protects the backend, keyed by the signed-in user id when a session exists and otherwise by client IP.
 - [schedule-import.md](schedule-import.md) - how a student gets their classes and due dates into BoilerIndy, and why the production path is a pasted link (issue #120).
-- [share-links.md](share-links.md) - the Share buttons on `/transit` and `/dining`, the link each one sends, and the link preview cards a chat app shows for it.
+- [share-links.md](share-links.md) - the Share buttons on `/transit`, `/dining` and `/free-food` (the list, or one campus event), the link each one sends, and the link preview cards a chat app shows for it.
 - [shared-campus-events.md](shared-campus-events.md) - the design for campus events that are shared rather than owned by one student's feed, and the public sources chosen for it; the table, the ingest and the read path are built, the read path behind a switch (issue #30).
 - [source-resync.md](source-resync.md) - the cron job that re-imports every connected calendar feed on a schedule, instead of only when the student presses Sync (issue #12).
 

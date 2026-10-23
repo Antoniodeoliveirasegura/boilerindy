@@ -1,8 +1,11 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import Icon from '../components/Icons'
+import ShareButton from '../components/ShareButton'
+import { eventLinkParam, linkedEventId, shareUrl } from '../lib/shareLinks'
+import { PAGE_PREVIEWS } from '../lib/pagePreviews'
 import {
   activeSourceFilter,
   eventSourceCounts,
@@ -27,6 +30,10 @@ import EventSourceFilter from '../components/EventSourceFilter'
 // where they came from, with a link out to the listing. Signed-out visitors
 // can open the page too (the public preview, issue #366): they get the shared
 // rows with free food alone, from GET /api/campus-events/free-food.
+//
+// Every visitor can share the list, and each shared row (docs/share-links.md).
+// A shared row's link (?event=) opens the list on that row; a student's own
+// calendar rows get no Share, since a friend could never see them.
 
 type CalendarItem = CampusEventFields & {
   id: string
@@ -79,6 +86,15 @@ function dateBlock(dateString: string) {
   return { day: date.toLocaleDateString(undefined, { weekday: 'short' }), date: date.getDate() }
 }
 
+// The share sheet's line for one event: what and when. A message stays in a
+// chat for days, so the day is spelled out where the row says "Today".
+function eventShareText(item: CalendarItem) {
+  const day = new Date(item.startTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  const time = formatTime(item.startTime)
+  const when = runsFromEarlierDay(item) ? untilLabel(item) : time === 'All day' ? day : `${day}, ${time}`
+  return `Free food at ${item.title || 'a campus event'}, ${when}, on BoilerIndy`
+}
+
 export default function FreeFood() {
   // One read or the other, once auth has settled: a calendar read while a
   // cold load re-mints a signed-in student's cookie would 401 and bounce them
@@ -127,6 +143,20 @@ export default function FreeFood() {
     return groups
   }, [freeFoodItems])
 
+  // The event a shared link names (?event=): its row is marked and scrolled to
+  // once the list is in, and a link to one no longer listed (over, or taken
+  // down by its calendar) says so above the rest.
+  const [searchParams] = useSearchParams()
+  const linkedId = linkedEventId(searchParams.get('event'))
+  const linkedListed = linkedId !== null && allFreeFood.some((item) => item.id === linkedId)
+  const linkedRowRef = useRef<HTMLDivElement | null>(null)
+  const scrolledTo = useRef<string | null>(null)
+  useEffect(() => {
+    if (!linkedListed || scrolledTo.current === linkedId) return
+    scrolledTo.current = linkedId
+    linkedRowRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [linkedId, linkedListed])
+
   // Signed out, onboarding is the empty default (no linked source), and the
   // card's link to /setup would only bounce a visitor to sign in.
   const hasNoSources = signedIn && onboarding?.linkedSourceCount === 0
@@ -151,6 +181,15 @@ export default function FreeFood() {
               : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} ${sourcesLine(items, signedIn, hasNoSources)} that mention free food - pizza, snacks, refreshments, and more.`}
           </p>
         </div>
+        {/* The whole list, never the event a link opened it on. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ShareButton
+            page="free-food"
+            getUrl={() => shareUrl('free-food', window.location.href, { event: null })}
+            title={PAGE_PREVIEWS['free-food'].title}
+            text="Free food at campus events, on BoilerIndy"
+          />
+        </div>
       </header>
 
       {hasNoSources && (
@@ -171,6 +210,23 @@ export default function FreeFood() {
             </Link>
           </div>
         </section>
+      )}
+
+      {linkedId && !loading && !loadFailed && !linkedListed && (
+        <div className="card card-pad mb-4" role="status" data-linked-event-missing>
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="clock" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">That event is not listed any more</div>
+              <p className="text-[13px] mt-0.5">
+                It may be over, or its calendar took it down.
+                {freeFoodItems.length > 0 && ' The rest of the free food coming up is below.'}
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} />
@@ -234,11 +290,21 @@ export default function FreeFood() {
                   const listedAt = listedTime(item)
                   const block = dateBlock(listedAt)
                   const listing = listingLink(item)
+                  const eventParam = item.shared ? eventLinkParam(item.id) : null
+                  const linked = item.id === linkedId
                   return (
                     <li key={item.id} className={isToday(listedAt) ? 'urgent' : undefined}>
                       {/* No end column: the Free food badge leads the meta
-                          line, as on Events, so the title keeps the width. */}
-                      <div className="dep-row items-start grid-cols-[48px_minmax(0,1fr)]">
+                          line, as on Events, so the title keeps the width.
+                          The row a shared link opened on is tinted, with
+                          its text where every other row's is. */}
+                      <div
+                        ref={linked ? linkedRowRef : undefined}
+                        className={`dep-row items-start grid-cols-[48px_minmax(0,1fr)]${
+                          linked ? ' -mx-3 rounded-[var(--radius-md)] bg-[var(--color-accent-bg)] px-3' : ''
+                        }`}
+                        data-linked-event={linked ? 'true' : undefined}
+                      >
                         <span className="when" aria-hidden="true">
                           <span>{block.day}</span>
                           <b>{block.date}</b>
@@ -248,6 +314,7 @@ export default function FreeFood() {
                             {item.title}
                           </div>
                           <div className="meta flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5">
+                            {linked && <span className="badge bg-[var(--color-surface)] text-[var(--color-accent)]">Shared with you</span>}
                             <span className="badge badge-route">
                               Free food
                             </span>
@@ -268,16 +335,31 @@ export default function FreeFood() {
                               {linkifyText(stripHtml(item.description).slice(0, 200), { maxDisplayLength: 60 })}
                             </p>
                           )}
-                          {listing && (
-                            <a
-                              href={listing.href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 mt-2 text-[13px] text-[var(--color-accent)] hover:underline [overflow-wrap:anywhere]"
-                            >
-                              <Icon name="external" size={12} />
-                              View on {listing.host}
-                            </a>
+                          {(listing || eventParam) && (
+                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                              {listing && (
+                                <a
+                                  href={listing.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[13px] text-[var(--color-accent)] hover:underline [overflow-wrap:anywhere]"
+                                >
+                                  <Icon name="external" size={12} />
+                                  View on {listing.host}
+                                </a>
+                              )}
+                              {eventParam && (
+                                <ShareButton
+                                  page="free-food"
+                                  kind="event"
+                                  inline
+                                  label={`Share ${item.title || 'this event'}`}
+                                  getUrl={() => shareUrl('free-food', window.location.href, { event: eventParam })}
+                                  title={PAGE_PREVIEWS['free-food'].title}
+                                  text={eventShareText(item)}
+                                />
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>

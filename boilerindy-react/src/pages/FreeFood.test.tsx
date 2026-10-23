@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import FreeFood from './FreeFood'
 import { authRequest } from '../lib/authApi'
+import { track } from '../lib/usageStats'
 
 vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
+vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
 type AuthState = { loading: boolean; user: null | { id: string }; onboarding: { linkedSourceCount: number } }
 const SIGNED_IN: AuthState = { loading: false, user: { id: 'user-1' }, onboarding: { linkedSourceCount: 1 } }
 // Signed out, AuthContext's onboarding is its empty default: no linked source.
@@ -74,11 +76,11 @@ afterEach(() => {
 const fetchedUrls = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url))
 
 // A client per test, with no retries, so a failed read settles at once.
-function renderPage() {
+function renderPage(path = '/free-food') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const page = () => (
     <QueryClientProvider client={client}>
-      <MemoryRouter useTransitions={false}>
+      <MemoryRouter initialEntries={[path]} useTransitions={false}>
         <FreeFood />
       </MemoryRouter>
     </QueryClientProvider>
@@ -285,5 +287,139 @@ describe('signed out (the public preview)', () => {
     expect(await screen.findByText('Boiler Fuel Up')).toBeInTheDocument()
     expect(fetchedUrls()).toEqual([PUBLIC_FREE_FOOD])
     expect(authRequest).not.toHaveBeenCalled()
+  })
+})
+
+// Sharing (docs/share-links.md): the list from the header, a campus event
+// from its row, and a shared event's link opening the list on that event.
+describe('sharing', () => {
+  const writeText = vi.fn(async (_text: string) => {})
+  const scrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+  // The link as the page builds it, on the test's own origin.
+  const link = (path: string) => new URL(path, window.location.href).href
+
+  beforeEach(() => {
+    writeText.mockReset().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    vi.mocked(track).mockClear()
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'clipboard')
+    Reflect.deleteProperty(navigator, 'share')
+    if (scrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', scrollIntoView)
+    else Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
+
+  it('the header shares the whole list, signed out too, never the event a link opened it on', async () => {
+    auth.value = SIGNED_OUT
+    publicFeed = { ok: true, items: [campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events')] }
+    renderPage('/free-food?event=fuel&ref=share-free-food')
+    await screen.findByText('Boiler Fuel Up')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(link('/free-food?ref=share-free-food')))
+    expect(track).toHaveBeenCalledWith('share_clicked', { page: 'free-food' })
+  })
+
+  it("a campus event's row shares that event, and a student's own row has no Share", async () => {
+    calendar = { items: [pizzaSocial(), campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events')] }
+    renderPage()
+    const fuelUp = (await screen.findByText('Boiler Fuel Up')).closest('li') as HTMLElement
+    const own = screen.getByText('Pizza social').closest('li') as HTMLElement
+    expect(within(own).queryByRole('button')).not.toBeInTheDocument()
+
+    fireEvent.click(within(fuelUp).getByRole('button', { name: 'Share Boiler Fuel Up' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(link('/free-food?event=fuel&ref=share-free-food')))
+    expect(track).toHaveBeenCalledWith('share_clicked', { page: 'free-food', kind: 'event' })
+    expect(await within(fuelUp).findByRole('button', { name: 'Link copied' })).toBeInTheDocument()
+  })
+
+  it('on a phone, the share sheet says what the event is and when, with the day spelled out', async () => {
+    const start = new Date()
+    start.setDate(start.getDate() + 1)
+    start.setHours(17, 30, 0, 0)
+    auth.value = SIGNED_OUT
+    publicFeed = { ok: true, items: [{ ...campus('fuel', 'Boiler Fuel Up', 0, 'purdue_events'), startTime: start.toISOString() }] }
+    const share = vi.fn(async (_data: ShareData) => {})
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true })
+    // A touch screen: the coarse pointer.
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({ matches: query === '(pointer: coarse)', media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList,
+    )
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Share Boiler Fuel Up' }))
+    const day = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    const time = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    expect(share).toHaveBeenCalledWith({
+      title: 'Free food on campus - BoilerIndy',
+      text: `Free food at Boiler Fuel Up, ${day}, ${time}, on BoilerIndy`,
+      url: link('/free-food?event=fuel&ref=share-free-food'),
+    })
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('a shared link opens the list on its event: marked, said so, and scrolled to once', async () => {
+    const scrolled: { row: Element; options: unknown }[] = []
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value(this: Element, options: unknown) {
+        scrolled.push({ row: this, options })
+      },
+    })
+    auth.value = SIGNED_OUT
+    publicFeed = {
+      ok: true,
+      items: [campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events'), campus('breakfast', 'Veterans Day Breakfast', 30, 'iu_events')],
+    }
+    renderPage('/free-food?event=breakfast&ref=share-free-food')
+
+    const breakfast = (await screen.findByText('Veterans Day Breakfast')).closest('[data-linked-event]') as HTMLElement
+    expect(breakfast).not.toBeNull()
+    expect(within(breakfast).getByText('Shared with you')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-linked-event]')).toHaveLength(1)
+    expect(scrolled).toEqual([{ row: breakfast, options: { block: 'center' } }])
+    expect(screen.queryByText('That event is not listed any more')).not.toBeInTheDocument()
+
+    // Filtering away from the row and back does not scroll to it again.
+    const pills = screen.getByRole('group', { name: 'Event source' })
+    fireEvent.click(within(pills).getByRole('button', { name: 'Purdue (1)' }))
+    fireEvent.click(within(pills).getByRole('button', { name: 'All sources' }))
+    expect(screen.getByText('Veterans Day Breakfast').closest('[data-linked-event]')).not.toBeNull()
+    expect(scrolled).toHaveLength(1)
+  })
+
+  it('a link to an event no longer listed says so, above the rest of the list', async () => {
+    auth.value = SIGNED_OUT
+    publicFeed = { ok: true, items: [campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events')] }
+    renderPage('/free-food?event=over&ref=share-free-food')
+
+    const notice = (await screen.findByText('That event is not listed any more')).closest('[role="status"]')
+    expect(notice).toHaveTextContent('It may be over, or its calendar took it down. The rest of the free food coming up is below.')
+    expect(screen.getByText('Boiler Fuel Up')).toBeInTheDocument()
+    expect(document.querySelector('[data-linked-event]')).toBeNull()
+  })
+
+  it('with nothing else listed, the notice points to no list', async () => {
+    auth.value = SIGNED_OUT
+    renderPage('/free-food?event=over&ref=share-free-food')
+    const notice = (await screen.findByText('That event is not listed any more')).closest('[role="status"]')
+    expect(notice).toHaveTextContent(/^That event is not listed any moreIt may be over, or its calendar took it down\.$/)
+    expect(screen.getByText('No free-food events right now')).toBeInTheDocument()
+  })
+
+  it('says nothing about the event while the list loads, or when it did not load', async () => {
+    auth.value = { ...SIGNED_OUT, loading: true }
+    publicFeed = 500
+    const { rerenderPage } = renderPage('/free-food?event=fuel&ref=share-free-food')
+    expect(screen.getByText('Loading free-food events…')).toBeInTheDocument()
+    expect(screen.queryByText('That event is not listed any more')).not.toBeInTheDocument()
+
+    auth.value = SIGNED_OUT
+    rerenderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load campus events')
+    expect(screen.queryByText('That event is not listed any more')).not.toBeInTheDocument()
   })
 })
