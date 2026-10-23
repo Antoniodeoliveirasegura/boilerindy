@@ -836,7 +836,9 @@ export function createAuthRouter({
       const { data, error } = await supabase
         .from('users')
         .update({
-          display_name: metadataName || deriveDisplayName(normalizedEmail, user.display_name),
+          // A name the student saved in settings stays. Provider metadata fills
+          // the name only when the row does not have one yet.
+          display_name: user.display_name || metadataName || deriveDisplayName(normalizedEmail, ''),
           auth_provider: user.auth_provider || 'email',
           updated_at: new Date().toISOString(),
         })
@@ -1199,8 +1201,10 @@ export function createAuthRouter({
         const { data, error } = await supabase
           .from('users')
           .update({
-            // Only columns whose input was sent; the rest keep their stored value.
-            ...(syncName ? { display_name: syncName } : {}),
+            // Google (and other providers) send a name on every sign-in. Writing
+            // it here replaced a display name the student had set in settings.
+            // The provider name is used only when this account has none yet.
+            ...(syncName && !user.display_name ? { display_name: syncName } : {}),
             ...(syncAvatarUrl ? { avatar_url: syncAvatarUrl } : {}),
             auth_provider: user.auth_provider === 'local' ? user.auth_provider : normalizeProvider(provider, user.auth_provider),
             updated_at: new Date().toISOString()
