@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import express from 'express'
 import { buildCasServiceUrl, createCasState, spendCasState } from '../casLinkState.mjs'
-import { DB_FEATURES, badRequest, logRouteError, respondDbError } from '../dbErrors.mjs'
+import { DB_FEATURES, badRequest, isSchemaMissingError, logRouteError, logSchemaMissingOnce, respondDbError } from '../dbErrors.mjs'
 import { maskEmail, signInCodeEmail } from '../email.mjs'
 import { onboardingFlags } from '../onboardingFlags.mjs'
 import { verifyPassword } from '../passwordHash.mjs'
@@ -9,6 +9,7 @@ import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
 import { isSessionStale } from '../sessionFreshness.mjs'
+import { sanitizeSignupRef } from '../signupRef.mjs'
 import { applyPasswordChange, applyPasswordSet, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
 import {
   CODE_TTL_MS,
@@ -412,6 +413,30 @@ export function createAuthRouter({
     return data
   }
 
+  // The sign-up source (src/signupRef.mjs): the ?ref= a new account arrived
+  // with, saved by the request that created the row and only while signup_ref
+  // is still null, so no later request can overwrite it. Best effort: before
+  // README step 45 adds the column, or on any other failure, the sign-up goes
+  // on without it and the log says why.
+  const SIGNUP_REF_SCHEMA = { feature: 'signup_ref', sqlFile: 'db/supabase-signup-ref.sql' }
+
+  async function saveSignupRef(userId, value) {
+    const signupRef = sanitizeSignupRef(value)
+    if (!signupRef) return
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ signup_ref: signupRef })
+        .eq('id', userId)
+        .is('signup_ref', null)
+      if (!error) return
+      if (isSchemaMissingError(error)) logSchemaMissingOnce(SIGNUP_REF_SCHEMA, error)
+      else logRouteError('[signup-ref] could not save the sign-up source', error)
+    } catch (error) {
+      logRouteError('[signup-ref] could not save the sign-up source', error)
+    }
+  }
+
   async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, providerConfirmed = false }) {
     const user = await getUserById(userId)
     if (!user) throw new Error('User not found.')
@@ -744,6 +769,7 @@ export function createAuthRouter({
           error: { message: 'Could not create your profile.', status: 500 },
         })
       }
+      await saveSignupRef(row.id, req.body.signupRef)
 
       // The first sign-in proves the address is the student's own.
       if (loginTwoFactorEnabled) return await startSignInChallenge(req, res, row, { rememberMe, status: 201, keepOnUnsent: true })
@@ -1161,6 +1187,7 @@ export function createAuthRouter({
           .single()
 
         if (error) {
+          // Another request created the account first; the ref is its to save.
           if (error.code === '23505') {
             user = await getUserByEmail(normalizedEmail)
           } else {
@@ -1168,6 +1195,7 @@ export function createAuthRouter({
           }
         } else {
           user = data
+          await saveSignupRef(user.id, req.body.signupRef)
         }
       } else {
         const { data, error } = await supabase

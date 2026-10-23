@@ -881,6 +881,131 @@ test('supabase-sync reuses the session the same user already holds, and regenera
   })
 })
 
+// ── Sign-up source (users.signup_ref) ───────────────────────────────────────
+
+const updatePatch = (chain) => chain.find((c) => c.method === 'update').args[0]
+const setsSignupRef = (chain) => operation(chain) === 'update' && 'signup_ref' in updatePatch(chain)
+// The writes that touch signup_ref, as { patch, chain }.
+const signupRefWrites = (supabase) =>
+  supabase
+    .queriesOf('users')
+    .filter((q) => setsSignupRef(q.chain))
+    .map((q) => ({ patch: updatePatch(q.chain), chain: q.chain }))
+
+test('register saves the sign-up source, sanitized, once the row exists, and only while it is still empty', async () => {
+  await withApp({}, async ({ call, db, supabase }) => {
+    const res = await call('POST', '/api/auth/register-supabase', {
+      body: { email: 'new@example.com', password: PASSWORD, name: 'New', signupRef: '  Flyer_A ' },
+    })
+    assert.equal(res.status, 201)
+    assert.equal(db.users[0].signup_ref, 'flyer-a')
+    const [write] = signupRefWrites(supabase)
+    assert.deepEqual(write.patch, { signup_ref: 'flyer-a' })
+    assert.ok(hasCall(write.chain, 'eq', 'id', U3))
+    assert.ok(hasCall(write.chain, 'is', 'signup_ref', null), 'never overwrites a saved source')
+    // The insert itself is unchanged, and the session payload does not carry it.
+    const insert = supabase.queriesOf('users').find((q) => operation(q.chain) === 'insert')
+    assert.ok(!('signup_ref' in insert.chain.find((c) => c.method === 'insert').args[0]))
+    assert.equal(JSON.stringify(res.body).includes('flyer'), false)
+  })
+  // No ref, or one that sanitizes to nothing: no write at all.
+  for (const signupRef of [undefined, '', '@@@', 'jane@purdue.edu', ['flyer-a'], 42]) {
+    await withApp({}, async ({ call, db, supabase }) => {
+      const res = await call('POST', '/api/auth/register-supabase', { body: { email: 'new@example.com', password: PASSWORD, signupRef } })
+      assert.equal(res.status, 201)
+      assert.equal(db.users[0].signup_ref, undefined)
+      assert.deepEqual(signupRefWrites(supabase), [], String(signupRef))
+    })
+  }
+})
+
+test('register with two-step on saves the source when it creates the account, before the code step', async () => {
+  await withApp({ twoFactor: true }, async ({ call, db }) => {
+    const res = await call('POST', '/api/auth/register-supabase', {
+      body: { email: 'new@example.com', password: PASSWORD, name: 'New', signupRef: 'amb-jane' },
+    })
+    assert.equal(res.status, 201)
+    assert.equal(res.body.twoFactorRequired, true)
+    assert.equal(db.users[0].signup_ref, 'amb-jane')
+  })
+})
+
+test('a sign-up still succeeds when the source cannot be saved, and a missing column names README step 45 once', async () => {
+  await withApp({}, async ({ call, db, failures }) => {
+    failures.users = (chain) =>
+      setsSignupRef(chain) ? { code: 'PGRST204', message: "Could not find the 'signup_ref' column of 'users' in the schema cache" } : null
+    const lines = await quietly(async () => {
+      for (const email of ['one@example.com', 'two@example.com']) {
+        const res = await call('POST', '/api/auth/register-supabase', { body: { email, password: PASSWORD, signupRef: 'flyer-a' } })
+        assert.equal(res.status, 201)
+        assert.ok(res.cookie)
+      }
+    })
+    assert.equal(db.users.length, 2)
+    const named = lines.filter((l) => l.includes('db/supabase-signup-ref.sql'))
+    assert.equal(named.length, 1, lines.join('\n'))
+    assert.match(named[0], /\[signup_ref\] schema missing/)
+  })
+  await withApp({ tokens: { good: TOKEN_USER } }, async ({ call, db, failures }) => {
+    failures.users = (chain) => (setsSignupRef(chain) ? { code: 'XX000', message: 'connection reset' } : null)
+    const lines = await quietly(async () => {
+      const res = await call('POST', '/api/auth/supabase-sync', { body: { ...SYNC, signupRef: 'flyer-a' }, headers: { Authorization: 'Bearer good' } })
+      assert.equal(res.status, 200)
+      assert.equal(res.body.session.user.id, U1)
+    })
+    assert.equal(db.users[0].signup_ref, undefined)
+    assert.ok(lines.some((l) => l.includes('[signup-ref] could not save the sign-up source') && l.includes('XX000')), lines.join('\n'))
+  })
+})
+
+test('supabase-sync saves the source of an account it creates, as after the Google round trip', async () => {
+  await withApp({ tokens: { good: TOKEN_USER } }, async ({ call, db, supabase }) => {
+    const res = await call('POST', '/api/auth/supabase-sync', {
+      body: { ...SYNC, signupRef: 'IG Bio' },
+      headers: { Authorization: 'Bearer good' },
+    })
+    assert.equal(res.status, 200)
+    assert.equal(db.users[0].signup_ref, 'ig-bio')
+    const [write] = signupRefWrites(supabase)
+    assert.ok(hasCall(write.chain, 'eq', 'id', U1))
+    assert.ok(hasCall(write.chain, 'is', 'signup_ref', null))
+  })
+})
+
+test('supabase-sync never overwrites a saved source, and gives none to an account that existed before', async () => {
+  const seed = { users: [{ ...STUDENT, signup_ref: 'flyer-a' }, { ...OTHER, signup_ref: null }] }
+  const tokens = { pete: TOKEN_USER, other: { id: U2, email: 'other@example.com' } }
+  await withApp({ seed, tokens }, async ({ call, db, supabase }) => {
+    for (const [token, body] of [['pete', SYNC], ['other', { supabaseUserId: U2, email: 'other@example.com' }]]) {
+      const res = await call('POST', '/api/auth/supabase-sync', { body: { ...body, signupRef: 'amb-jane' }, headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(res.status, 200)
+    }
+    assert.equal(db.users.find((u) => u.id === U1).signup_ref, 'flyer-a')
+    // Signing in later through a tagged link does not make that link the source.
+    assert.equal(db.users.find((u) => u.id === U2).signup_ref, null)
+    assert.deepEqual(signupRefWrites(supabase), [])
+  })
+})
+
+test('supabase-sync that loses the race to create the account leaves the source to the request that won', async () => {
+  const created = { ...STUDENT, signup_ref: 'flyer-a' }
+  await withApp({ seed: { users: [created] }, tokens: { good: TOKEN_USER } }, async ({ call, db, supabase, failures }) => {
+    // The first read misses (the other request has not committed yet) and the
+    // insert then hits the unique email.
+    let reads = 0
+    failures.users = (chain) => {
+      if (operation(chain) === 'select' && (reads += 1) === 1) return { code: 'PGRST116', message: 'no rows' }
+      if (operation(chain) === 'insert') return { code: '23505', message: 'duplicate key value violates unique constraint "users_email_key"' }
+      return null
+    }
+    const res = await call('POST', '/api/auth/supabase-sync', { body: { ...SYNC, signupRef: 'amb-jane' }, headers: { Authorization: 'Bearer good' } })
+    assert.equal(res.status, 200)
+    assert.equal(res.body.session.user.id, U1)
+    assert.equal(db.users[0].signup_ref, 'flyer-a')
+    assert.deepEqual(signupRefWrites(supabase), [])
+  })
+})
+
 // ── Two-step sign-in ────────────────────────────────────────────────────────
 
 const PETE_AUTH = { 'pete@example.com': { id: U1, password: PASSWORD } }

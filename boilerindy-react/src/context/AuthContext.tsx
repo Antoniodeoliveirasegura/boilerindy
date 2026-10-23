@@ -22,6 +22,7 @@ import {
   startPurdueLink,
   type ApiRequestError,
 } from '../lib/authApi'
+import { clearSignupRef, signupRefField } from '../lib/signupRef'
 
 type AuthUser = {
   name?: string | null
@@ -123,6 +124,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the first kind may be torn down by a SIGNED_OUT. Issue #298.
   const supabaseOwnsSession = useRef(false)
 
+  // The sync creates the account on a first Google sign-in, so it carries the
+  // tab's sign-up source (lib/signupRef). The server saves it only for an
+  // account it creates; after any sync that went through, the account exists
+  // and the source is dropped.
   const postSync = useCallback(
     async (supabaseSession: SupabaseSession): Promise<BackendSession | null> => {
       try {
@@ -140,8 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               supabaseSession.user.email?.split('@')[0],
             avatarUrl: supabaseSession.user.user_metadata?.avatar_url,
             provider: supabaseSession.user.app_metadata?.provider || 'email',
+            ...signupRefField(),
           }),
         })) as { session?: BackendSession | null }
+        clearSignupRef()
         return response.session ?? null
       } catch (error) {
         console.error('Failed to sync user to backend:', error)

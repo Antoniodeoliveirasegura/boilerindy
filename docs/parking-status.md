@@ -39,7 +39,10 @@ The static garage table and the permit rules come from
 - `boilerindy-react/src/lib/parking.ts` holds the client types and formatting
   helpers; `pages/Parking.tsx` is the page; `components/map/ParkingGarageLayer.tsx`
   draws the pins, switched by the shared layer toggle (`components/map/mapLayers.ts`,
-  issue #158). `/map?layer=parking` opens the map with the layer on.
+  issue #158). `/map?layer=parking` opens the map with the layer on. The map
+  is open to signed-out visitors (the public preview, issue #366) and
+  `/parking` is not, so a pin's popup links to "All garages" for a signed-in
+  student only; the pins and directions are for everyone.
 
 ## Normalization rules
 

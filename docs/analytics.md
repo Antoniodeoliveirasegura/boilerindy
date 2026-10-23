@@ -3,7 +3,9 @@
 Privacy-conscious usage analytics stored in our own Supabase. **No third-party
 trackers** - there is no Google Analytics, no pixel, no external script. Events
 power feature prioritization (e.g. consolidating the marketplace issues) and the
-accurate data disclosure required for app-store listing (issue #26).
+accurate data disclosure required for app-store listing (issue #26). The same
+posture covers the [sign-up source](#sign-up-source): which marketing link
+brought each new account, saved once in `users.signup_ref`.
 
 ## How it works
 
@@ -39,6 +41,7 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 | `marketplace_viewed` | Marketplace page opened |
 | `friends_viewed` | Friends page opened |
 | `study_groups_viewed` | Study groups page opened |
+| `share_clicked` | A Share button on Transit, Dining or Free Food is pressed, before the share sheet opens or the link is copied (`page` prop: `transit`, `dining` or `free-food`, plus `kind: event` when one free-food event is shared rather than the list; never the link or the event). See [share-links.md](share-links.md) |
 
 ## Privacy guarantees
 
@@ -71,6 +74,69 @@ SELECT cron.schedule(
 );
 ```
 
+## Sign-up source
+
+Which marketing link brought each new account, so the owner can count sign-ups
+per channel (class group chats, Instagram, the two QR flyer messages, each
+student ambassador) without a third-party tracker. One tag per account, in
+`users.signup_ref`, saved when the account is created and never changed after.
+
+### Making a link
+
+Add `?ref=<tag>` to any page: `https://www.boilerindy.app/?ref=flyer-a`,
+`/dining?ref=gc-cs180`, `/transit?ref=ig-bio`, or straight to the form with
+`/login?tab=signup&ref=amb-jane`. A tag is a slug: lowercase letters, digits
+and single hyphens, at most 40 characters. Anything else is folded into one
+(`Flyer_A` reads `flyer-a`) or cut at 40, and a value with nothing usable left,
+or with an `@` in it, is dropped. A link that carries only `?utm_source=` (from
+a tool that writes UTM tags) counts under that source; `ref` wins when a link
+has both.
+
+| Channel | Tag |
+|---|---|
+| QR flyer, message A or B | `flyer-a`, `flyer-b` |
+| Instagram bio or story | `ig-bio`, `ig-story` |
+| A class group chat | `gc-<course>`, for example `gc-cs180` |
+| A student ambassador | `amb-<name>`, for example `amb-jane` |
+| A Share button: the bus map, the dining menu, free food (the list or one event) | `share-bus`, `share-dining`, `share-free-food`, set by the button ([share-links.md](share-links.md)) |
+
+### How it works
+
+| Piece | Where | What it does |
+|---|---|---|
+| `src/signupRef.mjs` | shared | The slug rule (`sanitizeSignupRef`) and the parameters it reads (`ref`, then `utm_source`): one copy for the browser and the API. |
+| `captureSignupRef` | `boilerindy-react/src/main.tsx`, `lib/signupRef.ts` | Once per page load, before the app renders: a usable tag in the address goes to `sessionStorage` (`boilerindy-signup-ref`). A page without one leaves the held tag alone; another tagged link replaces it. |
+| Email sign-up | `lib/authApi.ts` (`registerSupabaseUser`) | Sends `signupRef` with `POST /api/auth/register-supabase`. Drops the tag once the account exists, and keeps it when the sign-up is refused so a retry still carries it. |
+| Google sign-in | `context/AuthContext.tsx` (`postSync`) | `sessionStorage` survives the redirect to Google and back, as `postAuthNext` does, so `POST /api/auth/supabase-sync` sends `signupRef`. Dropped after any sync that went through. |
+| Saving | `src/routes/auth.mjs` (`saveSignupRef`) | Sanitizes again and, only in the request that inserted the `users` row, runs `update users set signup_ref = <tag> where id = <new id> and signup_ref is null`. A sync for an account that already existed saves nothing, and nothing overwrites a saved tag. Best effort: a failed save never fails the sign-up. |
+| `db/supabase-signup-ref.sql` | `db/` | README "Database setup" step 45: the nullable column, with a `CHECK` that holds it to the slug rule. Until it runs, sign-up works as before, no tag is saved, and the server log names the file once. |
+| `scripts/signup-refs.mjs` | `scripts/` | Prints sign-ups per tag and per campus week, Monday start (`--since=YYYY-MM-DD`, `--csv` for a spreadsheet). Reads `signup_ref` and `created_at` only: counts, never an email or a name. The counting is `src/signupRefReport.mjs`. |
+
+### What it misses
+
+The tag lives in one browser tab, so a sign-up counts under its link only when
+it happens in the tab the link opened. These count as `(none)`:
+
+- a student who closes the tab and signs up later in a new one, or in the app
+  installed from `/install` (a Home Screen app has its own storage);
+- a link opened in an in-app browser (Instagram, GroupMe) whose student moves
+  to Safari or Chrome to sign up, unless the page they carry over still has the
+  tag in its address;
+- sign-ups in the native app, and every account created before the column.
+
+A short-lived first-party cookie would also catch the first case, at the cost
+of a second cookie and a change to the privacy page: an owner decision, not
+built.
+
+### Privacy
+
+- First-party only: the tag stays in the tab's `sessionStorage` and our own
+  database. No cookie, no third-party script, and it goes nowhere else.
+- It names the link, not the student. The slug rule refuses a value with an
+  `@`, so an email address cannot be saved as a tag.
+- It is a column of the `users` row, so deleting the account deletes it.
+- The privacy page discloses it in its "Sign-up links" section.
+
 ## HUMAN CHECKPOINT before production
 
 Per issue #51, tracking must not ship to prod until the owner reviews and
@@ -81,3 +147,10 @@ approves:
 
 After approval: run `db/supabase-analytics.sql` in production Supabase, deploy,
 and update the "Last updated" date on the privacy page.
+
+The [sign-up source](#sign-up-source) is a tracking change too (2026-10-20), so
+the same review applies before it ships: the privacy page's "Sign-up links"
+section and its "Last updated October 20, 2026" date. After approval, run
+`db/supabase-signup-ref.sql` (README "Database setup" step 45) in production.
+Sign-up works with or without the column, so that step can come before or
+after the deploy; tags are saved from the moment both are in place.

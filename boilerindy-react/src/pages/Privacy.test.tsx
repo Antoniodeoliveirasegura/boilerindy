@@ -126,3 +126,21 @@ describe('Privacy title', () => {
     }
   })
 })
+
+// The sign-up source (docs/analytics.md): a tagged link's ?ref= is kept in the
+// tab and saved with an account created there, so the policy says what is
+// kept, where, for how long, and that it is not a tracker.
+describe('Privacy sign-up links', () => {
+  test('say what the tag is, where it is kept and when it is saved', () => {
+    renderAt('/privacy')
+    expect(screen.getByRole('heading', { name: 'Sign-up links' })).toBeInTheDocument()
+    const body = screen.getByText(/share links that end in a short tag/).textContent || ''
+    expect(body).toMatch(/\?ref=flyer-a/)
+    expect(body).toMatch(/this browser tab keeps the tag until you close the tab/)
+    expect(body).toMatch(/we save the tag with your new account, once/)
+    expect(body).toMatch(/signing in to an account you already\s+have saves nothing/)
+    expect(body).toMatch(/It is not a cookie/)
+    expect(body).toMatch(/never shared or used for advertising/)
+    expect(body).toMatch(/deleted with your account/)
+  })
+})

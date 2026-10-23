@@ -162,14 +162,6 @@ export default function App() {
                 }
               />
               <Route
-                path="/map"
-                element={
-                  <RequireAuth>
-                    <Map />
-                  </RequireAuth>
-                }
-              />
-              <Route
                 path="/schedule"
                 element={
                   <RequireAuth>
@@ -198,14 +190,6 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Events />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/free-food"
-                element={
-                  <RequireAuth>
-                    <FreeFood />
                   </RequireAuth>
                 }
               />
@@ -258,10 +242,12 @@ export default function App() {
                 }
               />
               {/* The public preview (issue #366): signed-out visitors may open these
-                  two, which read only public data, and get AppLayout's preview bar.
+                  four, which read only public data, and get AppLayout's preview bar.
                   The list lives in lib/publicPreview.ts. */}
               <Route path="/dining" element={<Dining />} />
               <Route path="/transit" element={<Transit />} />
+              <Route path="/map" element={<Map />} />
+              <Route path="/free-food" element={<FreeFood />} />
               <Route
                 path="/parking"
                 element={

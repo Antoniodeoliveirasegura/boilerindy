@@ -34,6 +34,7 @@ answer stays on screen.
 | `['parking']` | `GET /api/parking/garages` | 60 s | every 60 s while the parking page or the map's garage layer is open and the tab is visible |
 | `['clubs', filters]` | `GET /api/clubs?...` | 30 min | none; one entry per set of filters holds every page fetched so far, and "Show more" appends the next |
 | `['news', 'circuit']` | `GET /api/campus-news` | 30 min, or none for an answer with `ok: false` | none; read by the Campus news widget and the Clubs page (issue #470, [campus-news.md](campus-news.md)) |
+| `['events', 'free-food']` | `GET /api/campus-events/free-food` | 60 s | none; the signed-out Free Food page's list, read only once auth has settled with no user (issue #366, [campus-events-feed.md](campus-events-feed.md#signed-out)). A signed-in student's page reads the calendar window below instead |
 
 `refetchIntervalInBackground` is off for the two polls, so a hidden tab stops
 them (and stops spending the `transit-vehicles` budget); TanStack resumes them
