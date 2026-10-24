@@ -345,7 +345,7 @@ describe('club follows', () => {
   test('a follow lands at once with PUT, then the follows and the calendar windows are refetched', async () => {
     const { client, result } = setup()
     let resolveWrite: (v: unknown) => void = () => {}
-    request.mockImplementation((url, options) => {
+    request.mockImplementation((_url, options) => {
       if (options?.method === 'PUT') return new Promise((resolve) => (resolveWrite = resolve))
       return Promise.resolve({ follows: ['boilerlink:404807', 'boilerlink:401442'], clubs: [] })
     })
@@ -362,7 +362,7 @@ describe('club follows', () => {
 
   test('an unfollow sends DELETE; a refusal puts the club back and rejects with the error', async () => {
     const { client, result } = setup()
-    const refusal = Object.assign(httpError(429, 'You are making changes too quickly. Please wait a moment and try again.'), {})
+    const refusal = httpError(429, 'You are making changes too quickly. Please wait a moment and try again.')
     request.mockImplementation((_url, options) => (options?.method ? Promise.reject(refusal) : Promise.resolve(server)))
     await expect(result.current.mutateAsync({ club: CHESS, following: false })).rejects.toBe(refusal)
     expect(request).toHaveBeenCalledWith('/api/me/club-follows/boilerlink%3A404807', { method: 'DELETE' })

@@ -178,7 +178,11 @@ export default function Clubs() {
   const { user } = useAuth()
   const userId = useUserId()
   const follows = useMyClubFollows()
-  const followsNotSetUp = (follows.error as ApiRequestError | null)?.code === 'club_follows_schema_missing'
+  // Following is not there yet, rather than broken: the follows table is
+  // missing (README step 48), or a server older than this page has no such
+  // route (a 404 while a release deploys the website ahead of the API).
+  const followsError = follows.error as ApiRequestError | null
+  const followsUnavailable = followsError?.code === 'club_follows_schema_missing' || followsError?.status === 404
   const followsData = user ? follows.data : undefined
   const followedKeys = useMemo(() => new Set(followsData?.follows ?? []), [followsData])
   // The Following view (?following=1) waits for the follows, and gives way to
@@ -380,7 +384,7 @@ export default function Clubs() {
         <div className="card p-4 mb-6 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30">{requestError}</div>
       ) : null}
 
-      {user && follows.isError && !followsNotSetUp ? (
+      {user && follows.isError && !followsUnavailable ? (
         <div className="card p-4 mb-6 text-[13px] text-[var(--color-txt-1)] flex flex-wrap items-center gap-3" data-clubs-follows-failed>
           <span>Could not load the clubs you follow, so the Follow buttons are hidden.</span>
           <button type="button" onClick={() => void follows.refetch()} disabled={follows.isFetching} className="btn btn-secondary btn-sm">

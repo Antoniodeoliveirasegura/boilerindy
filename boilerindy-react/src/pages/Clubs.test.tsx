@@ -183,16 +183,33 @@ describe('the Follow toggle', () => {
     await waitFor(() => expect(toggleOf(CHESS)).toHaveAttribute('aria-pressed', 'false'))
   })
 
-  it('shows no follow UI before the server has the follows table', async () => {
+  it.each([
+    ['before the server has the follows table', { status: 503, code: 'club_follows_schema_missing' }],
+    // A release deploys the website ahead of the API for a few minutes.
+    ['while the API is older than the page', { status: 404 }],
+  ])('shows no follow UI %s, and no failure either', async (_case, failure) => {
     followsAnswer = () => {
-      throw Object.assign(new Error('Following clubs is not set up yet. Please try again later.'), { status: 503, code: 'club_follows_schema_missing' })
+      throw Object.assign(new Error('Not set up'), failure)
     }
     renderPage()
     await screen.findByText('3 organizations in Indianapolis')
     await waitFor(() => expect(vi.mocked(authRequest)).toHaveBeenCalledTimes(1))
     expect(within(card(CHESS)).queryByRole('button', { name: /Follow/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Following/ })).not.toBeInTheDocument()
-    // Not set up is not a failure to report.
+    expect(document.querySelector('[data-clubs-follows-failed]')).toBeNull()
+  })
+
+  it('says when the follows did not load, with a way to try again', async () => {
+    let fail = true
+    followsAnswer = () => {
+      if (fail) throw Object.assign(new Error('Request failed'), { status: 400 })
+      return followsBody()
+    }
+    renderPage()
+    const notice = await screen.findByText('Could not load the clubs you follow, so the Follow buttons are hidden.')
+    fail = false
+    fireEvent.click(within(notice.parentElement as HTMLElement).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(toggleOf(TAEKWONDO)).toHaveAttribute('aria-pressed', 'true'))
     expect(document.querySelector('[data-clubs-follows-failed]')).toBeNull()
   })
 
