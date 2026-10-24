@@ -6,6 +6,8 @@ Supabase scheduler triggers every 5 minutes. Departure alerts (#44) will reuse
 the same delivery path. The native app registers Expo push tokens at
 `/api/me/push-token` and gets the same reminders and test sends through
 Expo's push service (issue #194): see [Native devices (Expo)](#native-devices-expo).
+A phone that schedules its reminders itself gets no deadline reminders from
+the server: see [Phones with local reminders](#phones-with-local-reminders).
 
 ## How it fits together
 
@@ -63,11 +65,11 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | Route | Purpose | Notes |
 |---|---|---|
 | `GET /api/push/config` | `{ enabled, publicKey }` | Public; `public-read` rate limit. |
-| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts }, diningAlertsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs. |
+| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts }, diningAlertsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
 | `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts? }` | `leadMinutes` 5 to 10080. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
-| `POST /api/me/push-token` | Body `{ token, platform, deviceName? }`, returns 201 `{ device: { id, createdAt } }` | The native app. Upsert by token; at most 10 phones per user. `push-write` limit. See [Native devices (Expo)](#native-devices-expo). |
+| `POST /api/me/push-token` | Body `{ token, platform, deviceName?, localReminders? }`, returns 201 `{ device: { id, createdAt, localReminders } }` | The native app. Upsert by token; at most 10 phones per user. `localReminders` defaults to false, and every registration replaces it. `push-write` limit. See [Native devices (Expo)](#native-devices-expo) and [Phones with local reminders](#phones-with-local-reminders). |
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
 | `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). |
 | `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
@@ -128,7 +130,8 @@ student's favorite dishes (the stars on the Dining page) on that day's menu.
   "Beef Stroganoff (dinner, Tower Dining).", "url": "/dining", "tag":
   "dining-favorites-<YYYY-MM-DD>", "kind": "dining-favorites" }`, three dishes
   named at most, then "and N more". It goes to every browser and phone the
-  student has, through the same delivery path as the reminders.
+  student has, phones with local reminders included, through the same
+  delivery path as the reminders.
 
 ## Native devices (Expo)
 
@@ -138,23 +141,26 @@ registers that instead (issue #194); the server sends through Expo's push
 service, which hands the message to APNs or FCM with the credentials stored in
 EAS.
 
-1. The app posts `{ token, platform, deviceName? }` to `POST /api/me/push-token`.
-   `platform` is `ios` or `android`, the token must match
-   `ExponentPushToken[...]` or `ExpoPushToken[...]`, and `deviceName` is cut to
-   120 characters. The row lands in `push_devices`
+1. The app posts `{ token, platform, deviceName?, localReminders? }` to
+   `POST /api/me/push-token`. `platform` is `ios` or `android`, the token must
+   match `ExponentPushToken[...]` or `ExpoPushToken[...]`, `deviceName` is cut
+   to 120 characters, and `localReminders` is a boolean, false when left out
+   ([below](#phones-with-local-reminders)). The row lands in `push_devices`
    (`db/supabase-push-devices.sql`, README step 40), upserted by token:
-   registering again refreshes `last_seen_at` and clears the strikes, and a
-   phone that signs in to another account moves to that student. At most 10
-   phones per student, refused with the same 409 as the browser cap.
+   registering again refreshes `last_seen_at`, clears the strikes and replaces
+   `localReminders`, and a phone that signs in to another account moves to
+   that student. At most 10 phones per student, refused with the same 409 as
+   the browser cap.
 2. The same call makes sure the student has a `push_settings` row, inserting
    the defaults (reminders on, 60 minutes ahead) when there is none and never
    overwriting a saved choice: the reminder runner reads only students who
    have a row. The switch and the lead time are shared with the website.
-3. Reminders and test sends go to every browser and phone the student has.
-   `push_deliveries` still claims each item once per student before anything
-   is sent. `src/expoPush.mjs` posts the messages to
-   `https://exp.host/--/api/v2/push/send`, at most 100 per request with an
-   8 s deadline, and reads one ticket per message back.
+3. Reminders go to every browser and phone the student has, except the phones
+   with local reminders on ([below](#phones-with-local-reminders)); test sends
+   and favorite-dish alerts go to all of them. `push_deliveries` still claims
+   each item once per student before anything is sent. `src/expoPush.mjs`
+   posts the messages to `https://exp.host/--/api/v2/push/send`, at most 100
+   per request with an 8 s deadline, and reads one ticket per message back.
 4. `DELETE /api/me/push-token` with `{ token }` removes the phone, for the app
    to call when the student signs out or turns notifications off.
 
@@ -208,6 +214,50 @@ Owner setup, once:
    the same student on the website with notifications on for that browser
    (the test button needs it), press "Send a test notification": the browser
    and the phone should both get it.
+5. Run `db/supabase-push-local-reminders.sql` (README step 47) before an app
+   build that sends `localReminders` ships, or its phones get each deadline
+   twice ([below](#phones-with-local-reminders)).
+
+### Phones with local reminders
+
+The app schedules the student's class and task reminders on the phone itself
+(local notifications, off by default, per account and device). A phone also
+needs to register for push to get what it cannot know ahead of time: the
+favorite-dish alerts now, club or "leave now" alerts later. Once registered,
+it would get every deadline reminder twice, once from the phone and once from
+the reminder run. The owner's choice on 2026-10-24
+(Antoniodeoliveirasegura/boilerindy-app#55, option a): such a phone gets no
+deadline reminders from the server, and every remote-only alert still reaches
+it. Browsers are unchanged.
+
+- The app sends `localReminders: true` in the `POST /api/me/push-token` body
+  while local reminders are on for that student on that phone, and `false`
+  when they are off. Every registration replaces the stored flag, and a body
+  without it stores `false`, so the app sends it on every registration
+  (launch, a new token, an account switch), not only when the switch changes.
+  Anything but `true` or `false` answers 400 with
+  `localReminders must be true or false.`, before anything is stored.
+- The answer says what the server stored, `201 { device: { id, createdAt,
+  localReminders } }`, and `GET /api/push/settings` lists `localReminders` for
+  each phone.
+- The reminder run (`runDeadlineReminders`) leaves a phone with the flag out
+  of the deadline reminders. The student's browsers and other phones still
+  get them, each item claimed once in `push_deliveries` as before. A student
+  whose only devices are phones with the flag is skipped and nothing is
+  claimed, so an item still gets its reminder if local reminders are turned
+  off, and the phone registers again, while the item is in its window.
+- The favorite-dish alerts and the Settings test send ignore the flag and
+  reach every phone.
+- The column is `push_devices.local_reminders`, added by
+  `db/supabase-push-local-reminders.sql` (README step 47), false by default.
+  Until it runs nothing breaks: a phone registers without the flag and the
+  answer says `localReminders: false`, the server log names the file once per
+  process (`[push_local_reminders] schema missing: run
+  db/supabase-push-local-reminders.sql ...`), the settings list every phone
+  with `localReminders: false`, and the reminder run sends deadline reminders
+  to every phone, as before. Every read and write of the column goes through
+  `withLocalRemindersColumn` in `src/pushReminders.mjs`, which retries without
+  it.
 
 ## Platform notes
 
