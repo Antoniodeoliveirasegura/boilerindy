@@ -9,6 +9,7 @@ import { PAGE_PREVIEWS } from '../lib/pagePreviews'
 import {
   activeSourceFilter,
   eventSourceCounts,
+  followedEventCount,
   hasEnded,
   listedTime,
   listingLink,
@@ -121,13 +122,16 @@ export default function FreeFood() {
     [items],
   )
   // The source pills count the free-food list, not the whole calendar. Signed
-  // out every row is a campus calendar's, so there is no My calendar pill.
+  // out every row is a campus calendar's, so there is no My calendar pill, and
+  // no "Clubs I follow" either (issue #16): a visitor follows no club, and the
+  // public read marks none.
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const sourceCounts = useMemo(
     () => eventSourceCounts(allFreeFood).filter((count) => signedIn || count.id !== 'mine'),
     [allFreeFood, signedIn],
   )
-  const source = activeSourceFilter(sourceFilter, sourceCounts)
+  const followedCount = useMemo(() => (signedIn ? followedEventCount(allFreeFood) : null), [allFreeFood, signedIn])
+  const source = activeSourceFilter(sourceFilter, sourceCounts, followedCount)
   const freeFoodItems = useMemo(
     () => (source === 'all' ? allFreeFood : allFreeFood.filter((item) => matchesSourceFilter(item, source))),
     [allFreeFood, source],
@@ -229,7 +233,7 @@ export default function FreeFood() {
         </div>
       )}
 
-      <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} />
+      <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} followedCount={followedCount} />
 
       {loading ? (
         <div className="card card-pad text-[14px] text-[var(--color-txt-2)]">Loading free-food events…</div>
@@ -254,6 +258,24 @@ export default function FreeFood() {
               >
                 {feed.isFetching ? 'Trying again…' : 'Try again'}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : freeFoodItems.length === 0 && source === 'following' ? (
+        <div className="card card-pad" data-following-empty>
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="coffee" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No free food from clubs you follow</div>
+              <p className="text-[13px] mt-0.5">
+                When a club you follow lists an event with free food, it shows up here.{' '}
+                <Link to="/clubs" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">
+                  Find clubs to follow
+                </Link>
+                .
+              </p>
             </div>
           </div>
         </div>

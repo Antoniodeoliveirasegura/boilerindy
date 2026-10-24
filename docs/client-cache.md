@@ -64,6 +64,7 @@ rows, and the 30 s default stale time applies.
 | `['me', userId, 'blocks']` | `GET /api/me/blocks` | Settings, Blocked users (issue #192) |
 | `['me', userId, 'purdue-email']` | `GET /api/me/purdue-email/status` | The Purdue email card on Settings and setup (issue #181); no retries |
 | `['me', userId, 'dining-favorites']` | `GET /api/me/dining/favorites` | Home's favorite dish alert (issue #469); no retries. The Dining page reads the same route itself for its stars |
+| `['me', userId, 'club-follows']` | `GET /api/me/club-follows` | Clubs, for its Follow toggles and Following view (issue #16); never retried on `club_follows_schema_missing`. A follow or unfollow (`useToggleClubFollow`) flips it at once, undoes only that club on a failure, then refetches it and every `['me', userId, 'calendar']` window, whose shared rows say which clubs are followed |
 
 Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
 lands in the cached metadata at once, after cancelling any metadata fetch in

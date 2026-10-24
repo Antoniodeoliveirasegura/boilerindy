@@ -277,6 +277,55 @@ test('an upsert that fails transiently is retried once; a second failure, or a m
   await assert.rejects(runCampusEventsIngest({ fetchImpl, now: NOW, sleep: noSleep, log: quiet }), /needs a client/)
 })
 
+// Issue #16: each row says which Engage organization listed it, and a run
+// writes that on every row, so the first run after README step 48 fills the
+// rows already stored. Until step 48 adds the column the run must still work.
+test('a run writes organization_key on every row: the club on BoilerLink rows, null on the calendars', async () => {
+  const { fetchImpl } = fakeFetch(bySource())
+  const supabase = database()
+  const summary = await runCampusEventsIngest({ client: supabase, engageEnabled: ['boilerlink'], fetchImpl, now: NOW, sleep: noSleep, log: quiet })
+  const rows = upsertedRows(supabase)
+  assert.ok(rows.every((row) => 'organization_key' in row))
+  const keyed = rows.filter((row) => row.source_key === 'boilerlink')
+  assert.equal(keyed.length, 9)
+  assert.ok(keyed.every((row) => /^boilerlink:[1-9][0-9]*$/.test(row.organization_key)), keyed.map((row) => row.organization_key).join())
+  assert.ok(keyed.some((row) => row.organization_key === 'boilerlink:383441')) // SHPE
+  assert.ok(rows.filter((row) => row.source_key !== 'boilerlink').every((row) => row.organization_key === null))
+  assert.equal(summary.organizationKeys, 'written')
+})
+
+test('before README step 48 the run writes its rows without organization_key, names the file once and says so', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {})
+  const { fetchImpl } = fakeFetch(bySource())
+  const missingColumn = {
+    code: 'PGRST204',
+    message: "Could not find the 'organization_key' column of 'campus_events' in the schema cache",
+  }
+  const attempts = []
+  const supabase = database({
+    upsert: (chain) => {
+      const batch = chain.find((call) => call.method === 'upsert').args[0]
+      const named = batch.some((row) => 'organization_key' in row)
+      attempts.push(named)
+      return named ? { data: null, error: missingColumn, status: 400 } : { error: null }
+    },
+  })
+  const classify = async (rows) => rows.map((row, i) => (i === 0 ? { ...row, classifier: { model: 'jev-test' } } : row))
+  const summary = await runCampusEventsIngest({ client: supabase, engageEnabled: ['boilerlink'], fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify })
+  // The first batch is tried once with the column, then every batch goes up without it.
+  assert.deepEqual(attempts, [true, false, false])
+  assert.equal(summary.ok, true)
+  assert.equal(summary.upserted, 26)
+  assert.equal(summary.organizationKeys, 'column_missing')
+  assert.equal(sweeps(supabase).length, 3, 'the sweep still runs')
+  assert.equal(logged.mock.callCount(), 1)
+  assert.match(logged.mock.calls[0].arguments[0], /^\[club_follows\] schema missing: run db\/supabase-club-follows\.sql/)
+
+  // Another missing column is not this one: the run fails as before.
+  const other = database({ upsert: () => ({ data: null, error: { code: 'PGRST204', message: "Could not find the 'classifier' column of 'campus_events' in the schema cache" }, status: 400 }) })
+  await assert.rejects(runCampusEventsIngest({ client: other, fetchImpl, now: NOW, sleep: noSleep, log: quiet }), { code: 'PGRST204' })
+})
+
 test('the classify hook sees the planned rows; rows it answered are written apart from rows it did not', async () => {
   const { fetchImpl } = fakeFetch(bySource())
   const supabase = database()

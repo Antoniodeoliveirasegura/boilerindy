@@ -38,10 +38,11 @@ function orderClassItemsForDisplay(items) {
  *   thrown when throwOnError is set. With the shared events feed on and
  *   sharedCategories naming 'campus_event' or 'deadline', the upcoming shared
  *   campus events of those categories (listSharedCalendarItems, marked
- *   `shared: true`) join them in start order, the student's own row first on a
- *   tie, and `limit` counts both. Those rows never fail the read: without them
- *   (a missing campus_events table, a failed read) it answers the student's
- *   rows alone.
+ *   `shared: true`, and `followed` saying whether the student follows the club
+ *   that listed one, issue #16) join them in start order, the student's own
+ *   row first on a tie, and `limit` counts both. Those rows never fail the
+ *   read: without them (a missing campus_events table, a failed read) it
+ *   answers the student's rows alone.
  * - getClassItemsForUser(userId, { limit, term, mode }): the class meetings
  *   of one term ('auto' picks it, 'all' keeps every term, or a key such as
  *   '2026-fall'), read from classScanFrom(term) on. Mode 'display' keeps the
@@ -89,7 +90,7 @@ export function createCalendarReads(supabase, { sharedEventsFeed = false } = {})
     // start_time from repeating or vanishing across page boundaries.
     const [{ data, error }, shared] = await Promise.all([
       selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit),
-      withShared ? listSharedCalendarItems(supabase, { categories: sharedCategories, from }) : [],
+      withShared ? listSharedCalendarItems(supabase, { categories: sharedCategories, from, userId }) : [],
     ])
 
     // The readers that only add context (the assistant, study groups, friends)

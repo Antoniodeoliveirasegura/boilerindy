@@ -12,6 +12,8 @@
 // docs/campus-events-ingest.md.
 
 import { queryError, retryOnceIfTransient } from './cronTick.mjs'
+import { DB_FEATURES, logSchemaMissingOnce } from './dbErrors.mjs'
+import { isMissingColumnError } from './moderation.mjs'
 import { CAMPUS, SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents, summarizeRows } from './sharedEvents.mjs'
 import { fetchUpstreamJson } from './upstreamFetch.mjs'
 
@@ -138,22 +140,36 @@ export async function fetchSourceListings(
 
 // ── Writes ──────────────────────────────────────────────────────────────────
 
+const withoutOrganizationKey = (rows) => rows.map(({ organization_key: _organizationKey, ...row }) => row)
+
 /**
  * Upsert on dedupe_key, in batches. A row carries `classifier` only when a
  * classifier answered for it; supabase-js writes NULL for a key one row of a
  * batch lacks, so rows with and without it go in separate batches and a
  * stored verdict is never erased by a row that has none.
+ *
+ * organization_key is a column README step 48 adds (db/supabase-club-follows.sql).
+ * Until it runs, the first batch that names it fails on the missing column:
+ * the log names the file once, that batch and every later one go up without
+ * it, and `organizationKeys` answers 'column_missing' instead of 'written'.
  */
 async function upsertRows(client, rows, { log, sleep }) {
   const groups = [rows.filter((row) => !('classifier' in row)), rows.filter((row) => 'classifier' in row)]
   let upserted = 0
+  let organizationKeys = 'written'
+  const upsert = (batch) => client.from('campus_events').upsert(batch, { onConflict: 'dedupe_key' })
   for (const group of groups) {
     for (let i = 0; i < group.length; i += UPSERT_BATCH_SIZE) {
       const batch = group.slice(i, i + UPSERT_BATCH_SIZE)
       await retryOnceIfTransient(
         '[campus-events] upsert',
         async () => {
-          const result = await client.from('campus_events').upsert(batch, { onConflict: 'dedupe_key' })
+          let result = await upsert(organizationKeys === 'written' ? batch : withoutOrganizationKey(batch))
+          if (result.error && organizationKeys === 'written' && isMissingColumnError(result.error, 'organization_key')) {
+            logSchemaMissingOnce(DB_FEATURES.club_follows, result.error)
+            organizationKeys = 'column_missing'
+            result = await upsert(withoutOrganizationKey(batch))
+          }
           if (result.error) throw queryError(result, 'campus_events upsert')
         },
         { log, sleep },
@@ -161,7 +177,7 @@ async function upsertRows(client, rows, { log, sleep }) {
       upserted += batch.length
     }
   }
-  return upserted
+  return { upserted, organizationKeys }
 }
 
 /**
@@ -188,9 +204,10 @@ async function sweepSource(client, sourceKey, runAt, { log }) {
  * per source whether it was enabled, fetched completely and how its listings
  * fared (sharedEvents.planCampusEvents), the cross-source collapses, a sample
  * of the dropped listings, totals, and either the rows a real run would write
- * (dry run) or what was upserted and swept. A source that fails is reported
- * and the run goes on; a database failure rejects (after one retry when it is
- * transient), and the route answers it.
+ * (dry run) or what was upserted and swept, with `organizationKeys` saying
+ * whether organization_key was written or its column is still missing. A
+ * source that fails is reported and the run goes on; a database failure
+ * rejects (after one retry when it is transient), and the route answers it.
  *
  * `engageEnabled` picks the Engage sources: `true` for BoilerLink and TheSpot,
  * a list of their keys for some (engageSourcesFromSetting reads
@@ -257,11 +274,11 @@ export async function runCampusEventsIngest({
 
   if (dryRun) return { ...summary, rows, durationMs: Date.now() - startedAt }
 
-  const upserted = await upsertRows(client, rows.map((row) => ({ ...row, last_seen_at: runAt })), { log, sleep })
+  const { upserted, organizationKeys } = await upsertRows(client, rows.map((row) => ({ ...row, last_seen_at: runAt })), { log, sleep })
   for (const entry of sources) {
     const result = fetched.get(entry.key)
     if (!result || result.error || !result.complete || result.listings.length === 0) continue
     Object.assign(entry, await sweepSource(client, entry.key, runAt, { log }))
   }
-  return { ...summary, upserted, durationMs: Date.now() - startedAt }
+  return { ...summary, upserted, organizationKeys, durationMs: Date.now() - startedAt }
 }

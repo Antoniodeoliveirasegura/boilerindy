@@ -3,6 +3,7 @@ import {
   activeSourceFilter,
   eventSourceCounts,
   eventSourceOf,
+  followedEventCount,
   hasEnded,
   isOngoing,
   listedTime,
@@ -115,5 +116,43 @@ describe('the source pills', () => {
     expect(matchesSourceFilter(mine, 'mine')).toBe(true)
     expect(matchesSourceFilter({ shared: true, sourceKey: 'somewhere_else' }, 'all')).toBe(true)
     expect(matchesSourceFilter({ shared: true, sourceKey: 'somewhere_else' }, 'purdue')).toBe(false)
+  })
+})
+
+// Issue #16: "Clubs I follow", beside the source pills. The server marks each
+// shared row of a student's read with `followed`, and leaves it out when it
+// cannot say (signed out, or before README step 48).
+describe('the Clubs I follow pill', () => {
+  const followed = { shared: true, sourceKey: 'boilerlink', followed: true }
+  const notFollowed = { shared: true, sourceKey: 'boilerlink', followed: false }
+  const calendar = { shared: true, sourceKey: 'purdue_events', followed: false }
+  const unmarked = { shared: true, sourceKey: 'boilerlink' }
+  const mine = {}
+
+  it('counts the followed clubs\' rows, and is not there when no shared row says', () => {
+    expect(followedEventCount([followed, notFollowed, calendar, mine, followed])).toBe(2)
+    expect(followedEventCount([notFollowed, calendar, mine])).toBe(0)
+    expect(followedEventCount([unmarked, mine])).toBeNull()
+    expect(followedEventCount([mine, { followed: true }])).toBeNull()
+    expect(followedEventCount([])).toBeNull()
+  })
+
+  it('stays picked while its pill shows, even with none to list, and reads as all once it is gone', () => {
+    const counts = eventSourceCounts([followed, calendar, mine])
+    expect(activeSourceFilter('following', counts, 2)).toBe('following')
+    expect(activeSourceFilter('following', counts, 0)).toBe('following')
+    expect(activeSourceFilter('following', [], 0)).toBe('following')
+    expect(activeSourceFilter('following', counts, null)).toBe('all')
+    expect(activeSourceFilter('following', counts)).toBe('all')
+    // The source pills keep their own rule.
+    expect(activeSourceFilter('purdue', counts, 2)).toBe('purdue')
+  })
+
+  it('lists only the shared rows of followed clubs', () => {
+    expect([followed, notFollowed, calendar, unmarked, mine].map((item) => matchesSourceFilter(item, 'following'))).toEqual([
+      true, false, false, false, false,
+    ])
+    // A student's own row never matches, whatever it carries.
+    expect(matchesSourceFilter({ followed: true }, 'following')).toBe(false)
   })
 })

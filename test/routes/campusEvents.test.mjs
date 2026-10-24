@@ -371,6 +371,8 @@ test('free food: anyone gets the upcoming campus events with free food, in the c
       sourceKey: 'iu_events',
       sourceLabel: 'IU event',
       sourceUrl: 'https://events.iu.edu/event/pizza',
+      // The club that listed it (issue #16); a visitor follows none, so no `followed`.
+      organizationKey: null,
     })
     assert.equal(res.headers.get('cache-control'), PUBLIC_CACHE)
     assert.equal(res.headers.get('set-cookie'), null)

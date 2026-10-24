@@ -64,6 +64,18 @@ describe('Privacy service providers', () => {
   })
 })
 
+// Issue #16 - following a club stores the clubs with the account, so the
+// policy says where they are kept and that deleting the account deletes them.
+describe('Privacy followed clubs', () => {
+  test('say the clubs a student follows are stored with the account and deleted with it', () => {
+    renderAt('/privacy')
+    expect(screen.getByRole('heading', { name: 'Clubs you follow' })).toBeInTheDocument()
+    const body = screen.getByText(/The clubs you follow on the Clubs page/).textContent || ''
+    expect(body).toMatch(/are stored with your account/)
+    expect(body).toMatch(/they are deleted with your account/)
+  })
+})
+
 // Issue #193 - Contact points at the public deletion page the Play Data Safety
 // form links to.
 describe('Privacy contact', () => {
