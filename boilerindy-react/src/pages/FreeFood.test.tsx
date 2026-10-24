@@ -193,6 +193,61 @@ it('filters the free-food events by source', async () => {
   expect(screen.getByText('Veterans Day Breakfast')).toBeInTheDocument()
 })
 
+// Issue #16: "Clubs I follow" beside the source pills, over the free-food list,
+// for the clubs the student follows on /clubs.
+describe('Clubs I follow', () => {
+  const club = (id: string, title: string, hours: number, followed: boolean, freeFood = true) => ({
+    ...campus(id, title, hours, 'boilerlink', freeFood),
+    sourceLabel: 'BoilerLink',
+    organizationKey: `boilerlink:${id}`,
+    followed,
+  })
+
+  it('narrows the free food to the followed clubs\' events, counted over the free-food list', async () => {
+    calendar = {
+      items: [
+        pizzaSocial(),
+        club('383441', 'SHPE Industry Networking Night', 30, true),
+        club('400129', 'Badminton club hours', 32, true, false),
+        club('420527', 'Climbing club pizza night', 34, false),
+        { ...campus('breakfast', 'Veterans Day Breakfast', 36, 'iu_events'), followed: false },
+      ],
+    }
+    renderPage()
+    await screen.findByText('SHPE Industry Networking Night')
+    const pills = screen.getByRole('group', { name: 'Event source' })
+    expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual([
+      'All sources', 'Purdue (2)', 'IU (1)', 'My calendar (1)', 'Clubs I follow (1)',
+    ])
+    fireEvent.click(within(pills).getByRole('button', { name: 'Clubs I follow (1)' }))
+    expect(screen.getByText('SHPE Industry Networking Night')).toBeInTheDocument()
+    for (const title of ['Pizza social', 'Climbing club pizza night', 'Veterans Day Breakfast', 'Badminton club hours']) {
+      expect(screen.queryByText(title)).not.toBeInTheDocument()
+    }
+  })
+
+  it('with no free food from a followed club, says so and links to the clubs to follow', async () => {
+    calendar = { items: [pizzaSocial(), club('420527', 'Climbing club pizza night', 34, false)] }
+    renderPage()
+    await screen.findByText('Climbing club pizza night')
+    const pills = screen.getByRole('group', { name: 'Event source' })
+    fireEvent.click(within(pills).getByRole('button', { name: 'Clubs I follow (0)' }))
+    expect(screen.getByText('No free food from clubs you follow')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Find clubs to follow' })).toHaveAttribute('href', '/clubs')
+    expect(screen.queryByText('No free-food events right now')).not.toBeInTheDocument()
+  })
+
+  it('is never offered signed out, whatever the rows carry', async () => {
+    auth.value = SIGNED_OUT
+    publicFeed = { ok: true, items: [club('383441', 'SHPE Industry Networking Night', 30, true), campus('breakfast', 'Veterans Day Breakfast', 30, 'iu_events')] }
+    renderPage()
+    const pills = await screen.findByRole('group', { name: 'Event source' })
+    expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual(['All sources', 'Purdue (1)', 'IU (1)'])
+    expect(screen.queryByText(/Clubs I follow/)).not.toBeInTheDocument()
+    expect(authRequest).not.toHaveBeenCalled()
+  })
+})
+
 it('reads the calendar window only once auth has settled, and never the public read', async () => {
   auth.value = { ...SIGNED_IN, loading: true }
   const { rerenderPage } = renderPage()

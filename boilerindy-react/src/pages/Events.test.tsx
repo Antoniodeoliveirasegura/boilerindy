@@ -24,6 +24,8 @@ type Item = {
   sourceKey?: string
   sourceLabel?: string
   sourceUrl?: string | null
+  organizationKey?: string | null
+  followed?: boolean
 }
 let calendar: { items: Item[] } | Error
 
@@ -312,6 +314,76 @@ describe('shared campus events', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Show past events' }))
     expect(await screen.findByRole('button', { name: /Lunch and learn/ })).toBeInTheDocument()
+  })
+
+  // Issue #16: "Clubs I follow" beside the source pills, for the events of the
+  // clubs the student follows on /clubs. The server marks each shared row of
+  // the student's read with `followed`.
+  describe('Clubs I follow', () => {
+    const club = (id: string, title: string, fromNowMs: number, followed: boolean) =>
+      shared(id, title, fromNowMs, {
+        sourceKey: 'boilerlink',
+        sourceLabel: 'BoilerLink',
+        sourceUrl: `https://boilerlink.purdue.edu/event/${id}`,
+        organizationKey: `boilerlink:${id}00`,
+        followed,
+      })
+
+    it('lists only the followed clubs\' events, with a count on the pill', async () => {
+      calendar = {
+        items: [
+          event('ev-1', 'Career fair prep workshop', 2 * HOUR),
+          club('12884656', 'SHPE Industry Networking Night', 3 * HOUR, true),
+          club('12838338', 'Indy Climbing Club bouldering', 4 * HOUR, false),
+          shared('yoga', 'Yoga in the Natatorium', 5 * HOUR, { followed: false }),
+        ],
+      }
+      renderPage()
+      await screen.findByRole('button', { name: /SHPE Industry Networking Night/ })
+      const pills = screen.getByRole('group', { name: 'Event source' })
+      expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual([
+        'All sources', 'Purdue (2)', 'IU (1)', 'My calendar (1)', 'Clubs I follow (1)',
+      ])
+
+      fireEvent.click(within(pills).getByRole('button', { name: 'Clubs I follow (1)' }))
+      expect(within(pills).getByRole('button', { name: 'Clubs I follow (1)' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: /SHPE Industry Networking Night/ })).toBeInTheDocument()
+      for (const title of ['Career fair prep workshop', 'Indy Climbing Club bouldering', 'Yoga in the Natatorium']) {
+        expect(screen.queryByRole('button', { name: new RegExp(title) })).not.toBeInTheDocument()
+      }
+      expect(screen.getByText('1 upcoming events from your calendar and campus calendars')).toBeInTheDocument()
+
+      fireEvent.click(within(pills).getByRole('button', { name: 'All sources' }))
+      expect(screen.getByRole('button', { name: /Yoga in the Natatorium/ })).toBeInTheDocument()
+    })
+
+    it('with no followed club\'s event, says so and links to the clubs to follow', async () => {
+      calendar = { items: [club('12838338', 'Indy Climbing Club bouldering', 4 * HOUR, false)] }
+      renderPage()
+      await screen.findByRole('button', { name: /Indy Climbing Club bouldering/ })
+      // One source alone gets no source pills, but the follow pill still shows.
+      const pills = screen.getByRole('group', { name: 'Event source' })
+      expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual(['All sources', 'Clubs I follow (0)'])
+
+      fireEvent.click(within(pills).getByRole('button', { name: 'Clubs I follow (0)' }))
+      expect(screen.getByText('No events from clubs you follow')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Find clubs to follow' })).toHaveAttribute('href', '/clubs')
+      expect(screen.queryByText('No events found')).not.toBeInTheDocument()
+    })
+
+    it('is not offered while the rows do not say what is followed', async () => {
+      calendar = {
+        items: [
+          event('ev-1', 'Career fair prep workshop', 2 * HOUR),
+          shared('yoga', 'Yoga in the Natatorium', 3 * HOUR),
+          shared('fuel', 'Boiler Fuel Up', 5 * HOUR, { sourceKey: 'purdue_events', sourceLabel: 'Purdue event' }),
+        ],
+      }
+      renderPage()
+      await screen.findByRole('button', { name: /Yoga in the Natatorium/ })
+      const pills = screen.getByRole('group', { name: 'Event source' })
+      expect(within(pills).queryByRole('button', { name: /Clubs I follow/ })).not.toBeInTheDocument()
+    })
   })
 })
 

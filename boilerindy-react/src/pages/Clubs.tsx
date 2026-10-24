@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icons'
+import { useAuth } from '../context/AuthContext'
+import type { ApiRequestError } from '../lib/authApi'
 import {
   BOILERLINK_URL,
   CLUBS_PAGE_SIZE,
   categoryCount,
+  filterFollowedClubs,
+  followedCategories,
+  followingFromParam,
+  followingLabel,
   formatFetched,
   initialsFor,
+  organizationKeyOf,
   resultsLabel,
   scopeFromParam,
   type Club,
@@ -14,12 +21,21 @@ import {
   type ClubSearchResult,
 } from '../lib/clubs'
 import { errorMessage, useCampusNews, useClubSearch } from '../lib/queries/publicData'
+import { useMyClubFollows, useToggleClubFollow, useUserId } from '../lib/queries/userData'
+import { writeFailureMessage } from '../lib/writeFailure'
 import PageTitle from '../components/PageTitle'
 
 // Student organization directory (issue #16). Data is BoilerLink's public
 // organizations API, cached and searched by GET /api/clubs. Indianapolis groups
 // come first because that is who this app is for; "All Purdue" is one tap away.
 // Events, membership and contacts stay on BoilerLink through the deep links.
+//
+// A signed-in student can follow clubs (GET, PUT and DELETE
+// /api/me/club-follows, docs/clubs.md#following-a-club): a Follow toggle on
+// every card, and a Following view (?following=1) of the clubs they follow.
+// Their events then have a "Clubs I follow" pill on Events and Free Food. No
+// follow UI shows without an account, or before the server has the follows
+// table (README step 48), which answers club_follows_schema_missing.
 
 const SEARCH_DEBOUNCE_MS = 300
 const SCOPES: ClubScope[] = ['indianapolis', 'all']
@@ -51,7 +67,20 @@ function ClubLogo({ club }: { club: Club }) {
   )
 }
 
-function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; onCategory: (name: string) => void }) {
+/** A card's Follow toggle: whether the student follows the club, and whether a change is on its way. */
+type FollowControl = { following: boolean; busy: boolean; onToggle: () => void }
+
+function ClubCard({
+  club,
+  scope,
+  onCategory,
+  follow,
+}: {
+  club: Club
+  scope: ClubScope
+  onCategory: (name: string) => void
+  follow: FollowControl | null
+}) {
   return (
     <article
       className="card card-pad r-evt flex gap-4 min-w-0"
@@ -86,14 +115,34 @@ function ClubCard({ club, scope, onCategory }: { club: Club; scope: ClubScope; o
               {name}
             </button>
           ))}
-          <a
-            href={club.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto inline-flex items-center gap-1 min-h-[32px] font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] whitespace-nowrap"
-          >
-            BoilerLink <Icon name="arrowUpRight" size={12} />
-          </a>
+          <span className="ml-auto inline-flex items-center gap-3">
+            {follow ? (
+              <button
+                type="button"
+                onClick={follow.onToggle}
+                disabled={follow.busy}
+                aria-pressed={follow.following}
+                data-club-follow={follow.following ? 'following' : 'not-following'}
+                className={`pill whitespace-nowrap ${follow.following ? 'pill-active' : ''}`}
+              >
+                {follow.following ? (
+                  <span aria-hidden="true" className="flex">
+                    <Icon name="check" size={13} />
+                  </span>
+                ) : null}
+                {follow.following ? 'Following' : 'Follow'}{' '}
+                <span className="sr-only">{club.name}</span>
+              </button>
+            ) : null}
+            <a
+              href={club.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 min-h-[32px] font-display font-bold text-[13px] text-[var(--color-accent)] hover:underline underline-offset-[3px] whitespace-nowrap"
+            >
+              BoilerLink <Icon name="arrowUpRight" size={12} />
+            </a>
+          </span>
         </div>
       </div>
     </article>
@@ -122,6 +171,53 @@ export default function Clubs() {
   const loading = search.isPending || search.isPlaceholderData
   const loadingMore = search.isFetchingNextPage
   const requestError = search.isError ? errorMessage(search.error, 'Could not load the club directory.') : null
+
+  // Following (issue #16): signed in only. Until the follows have loaded the
+  // cards show no toggle, since one that read "Follow" for a club already
+  // followed would undo it.
+  const { user } = useAuth()
+  const userId = useUserId()
+  const follows = useMyClubFollows()
+  const followsNotSetUp = (follows.error as ApiRequestError | null)?.code === 'club_follows_schema_missing'
+  const followsData = user ? follows.data : undefined
+  const followedKeys = useMemo(() => new Set(followsData?.follows ?? []), [followsData])
+  // The Following view (?following=1) waits for the follows, and gives way to
+  // the directory when they cannot be read.
+  const following = Boolean(user) && !follows.isError && followingFromParam(searchParams.get('following'))
+  const followingLoading = following && !followsData
+  const toggleFollow = useToggleClubFollow(userId)
+  const [busyKeys, setBusyKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const [followError, setFollowError] = useState<string | null>(null)
+
+  const followControl = (club: Club): FollowControl | null => {
+    if (!followsData) return null
+    const key = organizationKeyOf(club)
+    const isFollowing = followedKeys.has(key)
+    return {
+      following: isFollowing,
+      busy: busyKeys.has(key),
+      onToggle: () => {
+        setFollowError(null)
+        setBusyKeys((current) => new Set(current).add(key))
+        toggleFollow
+          .mutateAsync({ club, following: !isFollowing })
+          .catch((error: unknown) => {
+            // The follow routes' 503s say what is wrong in words a student
+            // can read (docs/api-error-codes.md); other 5xx messages may not.
+            const known = (error as ApiRequestError | null)?.code?.startsWith('club_follows_')
+            const what = `Could not ${isFollowing ? 'unfollow' : 'follow'} ${club.name}.`
+            setFollowError(known && error instanceof Error ? `${what} ${error.message}` : `${what} ${writeFailureMessage(error, 'Please try again.')}`)
+          })
+          .finally(() =>
+            setBusyKeys((current) => {
+              const next = new Set(current)
+              next.delete(key)
+              return next
+            }),
+          )
+      },
+    }
+  }
 
   const updateParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -158,12 +254,24 @@ export default function Clubs() {
     updateParams({ q: null, category: null })
   }
 
+  // The Following view lists the followed clubs the directory has, filtered
+  // here by the same search box and category menu (at most 100 clubs).
+  const followedClubs = followsData?.clubs ?? []
+  const followingClubs = filterFollowedClubs(followedClubs, { q, category })
+  const shownClubs = following ? followingClubs : clubs
+
   const total = result?.total ?? 0
   const remaining = Math.max(0, total - clubs.length)
-  const canLoadMore = result != null && result.ok && search.hasNextPage
-  const categories = (result?.categories ?? []).filter((c) => categoryCount(c, scope) > 0 || c.name === category)
+  const canLoadMore = !following && result != null && result.ok && search.hasNextPage
+  // The category menu counts what the view lists: the scope's clubs, or the followed ones.
+  const categories: { name: string; count: number }[] = following
+    ? followedCategories(followedClubs)
+    : (result?.categories ?? [])
+        .filter((c) => categoryCount(c, scope) > 0 || c.name === category)
+        .map((c) => ({ name: c.name, count: categoryCount(c, scope) }))
   const categoryKnown = categories.some((c) => c.name === category)
   const fetched = result ? formatFetched(result.fetchedAt) : null
+  const showSkeleton = following ? followingLoading : !result && loading
 
   return (
     <div className="page">
@@ -188,7 +296,7 @@ export default function Clubs() {
           role="group"
           aria-label="Campus"
           className="flex flex-wrap gap-2"
-          data-clubs-scope={scope}
+          data-clubs-scope={following ? 'following' : scope}
         >
           {SCOPES.map((s) => {
             const count = result ? (s === 'indianapolis' ? result.indianapolisTotal : result.directoryTotal) : null
@@ -196,15 +304,25 @@ export default function Clubs() {
               <button
                 key={s}
                 type="button"
-                aria-pressed={scope === s}
-                onClick={() => updateParams({ scope: s === 'all' ? 'all' : null })}
-                className={`pill tnum ${scope === s ? 'pill-active' : ''}`}
+                aria-pressed={!following && scope === s}
+                onClick={() => updateParams({ scope: s === 'all' ? 'all' : null, following: null })}
+                className={`pill tnum ${!following && scope === s ? 'pill-active' : ''}`}
               >
                 {s === 'indianapolis' ? 'Indianapolis' : 'All Purdue'}
                 {count != null ? ` (${count.toLocaleString()})` : ''}
               </button>
             )
           })}
+          {followsData || following ? (
+            <button
+              type="button"
+              aria-pressed={following}
+              onClick={() => updateParams({ following: '1' })}
+              className={`pill tnum ${following ? 'pill-active' : ''}`}
+            >
+              Following{followsData ? ` (${followsData.follows.length.toLocaleString()})` : ''}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -251,7 +369,7 @@ export default function Clubs() {
             {!categoryKnown && category ? <option value={category}>{category}</option> : null}
             {categories.map((c) => (
               <option key={c.name} value={c.name}>
-                {c.name} ({categoryCount(c, scope).toLocaleString()})
+                {c.name} ({c.count.toLocaleString()})
               </option>
             ))}
           </select>
@@ -260,6 +378,21 @@ export default function Clubs() {
 
       {requestError ? (
         <div className="card p-4 mb-6 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30">{requestError}</div>
+      ) : null}
+
+      {user && follows.isError && !followsNotSetUp ? (
+        <div className="card p-4 mb-6 text-[13px] text-[var(--color-txt-1)] flex flex-wrap items-center gap-3" data-clubs-follows-failed>
+          <span>Could not load the clubs you follow, so the Follow buttons are hidden.</span>
+          <button type="button" onClick={() => void follows.refetch()} disabled={follows.isFetching} className="btn btn-secondary btn-sm">
+            {follows.isFetching ? 'Trying again…' : 'Try again'}
+          </button>
+        </div>
+      ) : null}
+
+      {followError ? (
+        <div role="alert" className="card p-4 mb-6 text-[13px] text-[var(--color-error)] border-[var(--color-error)]/30" data-clubs-follow-error>
+          {followError}
+        </div>
       ) : null}
 
       {result && !result.ok ? (
@@ -279,10 +412,16 @@ export default function Clubs() {
       ) : null}
 
       <p className="text-[13px] text-[var(--color-txt-2)] mb-3 min-h-[1rem] tnum" aria-live="polite" data-clubs-results>
-        {result && result.ok ? resultsLabel({ total, q, category, scope }) : ''}
+        {following
+          ? followsData
+            ? followingLabel({ total: followingClubs.length, q, category })
+            : ''
+          : result && result.ok
+            ? resultsLabel({ total, q, category, scope })
+            : ''}
       </p>
 
-      {!result && loading ? (
+      {showSkeleton ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8" aria-busy="true">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="card card-pad flex gap-4">
@@ -296,14 +435,45 @@ export default function Clubs() {
           ))}
         </div>
       ) : (
-        <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 transition-opacity ${loading ? 'opacity-60' : ''}`} aria-busy={loading}>
-          {clubs.map((club) => (
-            <ClubCard key={club.id} club={club} scope={scope} onCategory={selectCategory} />
+        <div
+          className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 transition-opacity ${!following && loading ? 'opacity-60' : ''}`}
+          aria-busy={!following && loading}
+        >
+          {shownClubs.map((club) => (
+            <ClubCard key={club.id} club={club} scope={following ? 'all' : scope} onCategory={selectCategory} follow={followControl(club)} />
           ))}
         </div>
       )}
 
-      {result && result.ok && !loading && clubs.length === 0 ? (
+      {following && followsData && followingClubs.length === 0 ? (
+        <div className="card card-pad mb-6">
+          <div className="empty" data-clubs-following-empty>
+            <span className="ico">
+              <Icon name="users" size={18} />
+            </span>
+            <p className="text-[14px] text-[var(--color-txt-1)] m-0">
+              {followsData?.follows.length === 0
+                ? 'You do not follow any clubs yet. Follow one and its events show up under Clubs I follow on Events and Free Food.'
+                : followedClubs.length === 0
+                  ? 'The clubs you follow are not in the directory right now.'
+                  : `None of the clubs you follow match${q ? ` "${q}"` : ''}${category ? ` in ${category}` : ''}.`}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {followedClubs.length > 0 && (q || category) ? (
+                <button type="button" onClick={clearFilters} className="btn btn-secondary btn-sm">
+                  Clear filters
+                </button>
+              ) : (
+                <button type="button" onClick={() => updateParams({ following: null })} className="btn btn-primary btn-sm">
+                  Browse clubs
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!following && result && result.ok && !loading && clubs.length === 0 ? (
         <div className="card card-pad mb-6">
           <div className="empty" data-clubs-empty>
             <span className="ico">
@@ -355,6 +525,7 @@ export default function Clubs() {
           , Purdue&apos;s student organization hub, refreshed a few times a day{fetched ? ` (last ${fetched})` : ''}. Membership, events
           and contacts live on each organization&apos;s BoilerLink page. Indianapolis groups are the ones that say so in their name or
           description; a Purdue-wide organization may still welcome Indianapolis members.
+          {followsData ? ' The clubs you follow are saved with your account, and their events get a Clubs I follow filter on Events and Free Food.' : ''}
         </p>
       ) : null}
     </div>

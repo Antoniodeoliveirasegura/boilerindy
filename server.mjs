@@ -65,6 +65,7 @@ import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
 import { createMeRouter } from './src/routes/me.mjs'
 import { createSourcesRouter } from './src/routes/sources.mjs'
 import { createCampusEventsPublicRouter, createCampusEventsRouter } from './src/routes/campusEvents.mjs'
+import { createClubFollowsRouter } from './src/routes/clubFollows.mjs'
 import { engageSourcesFromSetting } from './src/sharedEvents.mjs'
 import { createCampusEventsClassifier } from './src/campusEventsClassify.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
@@ -682,6 +683,13 @@ app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMat
 // src/routes/me.mjs (issue #191). The readers it shares with the assistant,
 // study groups and friends routers come from src/calendarReads.mjs.
 app.use(createMeRouter({ supabase, requireAuth, userWriteRateLimit, listCalendarItems, getClassItemsForUser, readScheduleOverrides }))
+
+// ── Following a club (issue #16) ─────────────────────────────────────────────
+// GET /api/me/club-follows and PUT and DELETE /api/me/club-follows/:organizationKey
+// are in src/routes/clubFollows.mjs: the BoilerLink clubs a student follows,
+// in club_follows (README step 48), each checked against the club directory
+// cache built above. The calendar read above marks the followed clubs' events.
+app.use(createClubFollowsRouter({ supabase, requireAuth, userWriteRateLimit, clubDirectoryCache }))
 
 // ── Calendar feed: subscribable .ics of the user's aggregated calendar (#48) ──
 // The feed link routes and GET /feeds/calendar/:file are in
