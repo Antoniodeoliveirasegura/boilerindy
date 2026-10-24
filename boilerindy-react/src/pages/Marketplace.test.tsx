@@ -294,6 +294,71 @@ it('says when a listing will not open without reading the list again on a server
   expect(requestsTo('/api/marketplace?')).toHaveLength(0)
 })
 
+// Photo review (#504): photos that wait for an admin reach other students
+// without their URLs and with photosPending, so the page shows a placeholder
+// instead; their owner still gets the photos, and a note says why other
+// students do not, or that an admin removed them.
+
+function listingCardFor(id: string) {
+  return document.querySelector(`[data-listing-id="${id}"]`) as HTMLElement
+}
+
+it('shows other students a placeholder instead of photos that wait for review, on the card and the detail', async () => {
+  const waiting = { id: 'wait', title: 'Bike lock', priceCents: 1500, images: [], imageUrl: null, photosPending: true }
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace') return { listings: [waiting, { id: 'offer', title: 'Desk', priceCents: null, images: [] }], canPost: true, hasMore: false }
+    if (path === '/api/marketplace/wait') return { listing: { ...waiting, sellerName: 'Riley', sellerEmail: 'riley@purdue.edu' } }
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  const card = within((await screen.findByText('Bike lock')).closest('article') as HTMLElement)
+  expect(card.getByText('Photos under review')).toBeInTheDocument()
+  expect(listingCardFor('wait').querySelector('[data-listing-image]')).toHaveAttribute('data-listing-image', 'pending')
+  expect(listingCardFor('wait').querySelector('img')).toBeNull()
+  // A listing that simply has no photos keeps its plain category tile.
+  expect(listingCardFor('offer').querySelector('[data-listing-image]')).toHaveAttribute('data-listing-image', 'placeholder')
+  expect(within(listingCardFor('offer')).queryByText('Photos under review')).not.toBeInTheDocument()
+
+  fireEvent.click(card.getByText('Bike lock'))
+  await waitFor(() => expect(document.querySelector('[data-listing-detail="wait"]')).not.toBeNull())
+  const detail = within(document.querySelector('[data-listing-detail="wait"]') as HTMLElement)
+  expect(detail.getByText('Photos under review')).toBeInTheDocument()
+  // The note is the owner's: another student is not told anything more.
+  expect(detail.queryByText(/Your photos are waiting for review/)).not.toBeInTheDocument()
+  expect(document.querySelector('[data-photos-note]')).toBeNull()
+})
+
+it('tells the owner their photos wait for review, or that an admin removed them, and still shows them their photos', async () => {
+  const waiting = { id: 'wait', title: 'Bike lock', priceCents: 1500, images: ['https://example.com/lock.jpg'], isMine: true, photosPending: true, photosReview: 'pending' }
+  const removed = { id: 'gone', title: 'Rice cooker', priceCents: 2000, images: [], isMine: true, photosPending: false, photosReview: 'rejected' }
+  const live = { id: 'ok', title: 'Kettle', priceCents: 900, images: ['https://example.com/kettle.jpg'], isMine: true, photosPending: false, photosReview: 'approved' }
+  const answer = vi.mocked(authRequest).getMockImplementation()
+  vi.mocked(authRequest).mockImplementation(async (path, options) => {
+    if (path === '/api/marketplace/mine') return { listings: [waiting, removed, live] }
+    if (path === '/api/marketplace/wait') return { listing: waiting }
+    return answer?.(path, options)
+  })
+  render(<Marketplace />)
+  const card = await myListing('Bike lock')
+  expect(card.getByText('Your photos are waiting for review. Until then other students see the listing without them.')).toBeInTheDocument()
+  expect(listingCardFor('wait').querySelector('[data-photos-note]')).toHaveAttribute('data-photos-note', 'pending')
+  // The owner's own photos still show, with no placeholder.
+  expect(listingCardFor('wait').querySelector('[data-listing-image]')).toHaveAttribute('data-listing-image', 'photo')
+  expect(card.queryByText('Photos under review')).not.toBeInTheDocument()
+
+  const gone = within(listingCardFor('gone'))
+  expect(gone.getByText("An admin removed this listing's photos. You can add new ones.")).toBeInTheDocument()
+  expect(listingCardFor('gone').querySelector('[data-photos-note]')).toHaveAttribute('data-photos-note', 'rejected')
+  expect(listingCardFor('ok').querySelector('[data-photos-note]')).toBeNull()
+
+  fireEvent.click(card.getByText('Bike lock'))
+  await waitFor(() => expect(document.querySelector('[data-listing-detail="wait"]')).not.toBeNull())
+  const detail = within(document.querySelector('[data-listing-detail="wait"]') as HTMLElement)
+  expect(detail.getByText(/Your photos are waiting for review/)).toBeInTheDocument()
+  expect(detail.getByAltText('Bike lock photo 1')).toHaveAttribute('src', 'https://example.com/lock.jpg')
+})
+
 // An explicit behavior: 'smooth' overrode the reduced-motion rule's
 // scroll-behavior: auto, so the scroll to the edit form animated anyway (R76).
 it('scrolls to the edit form without forcing smooth motion', async () => {

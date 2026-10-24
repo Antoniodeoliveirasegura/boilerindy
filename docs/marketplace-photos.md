@@ -70,7 +70,9 @@ The legacy single-image fields still work: create/PATCH accepts `imageUploadRece
 instead of `imageUrl`. The API verifies the signature, seller, target listing,
 expiry, Storage size/content type, actual byte length and JPEG start/end markers
 before writing the canonical public URL. These are format checks, not a full image
-decoder or content moderation service. A new attachment cannot be made by
+decoder or content moderation service. With `MARKETPLACE_PHOTO_REVIEW` on, an admin
+approves new photos before other students get their URLs (see
+[moderation.md](moderation.md#photo-review), issue #504). A new attachment cannot be made by
 supplying a raw bucket URL. An existing URL can be preserved by an old website
 edit. Other HTTP(S) image links still work.
 
@@ -122,8 +124,9 @@ add `--yes` to skip that prompt (required when stdin is not a terminal).
 Only recognized managed objects older than 24 hours are considered, after their
 attachment receipts have expired. Every candidate is checked against all listing
 rows before deletion. Soft-deleted and hidden listings retain their images for
-moderation/restore; admin hard purge releases them for cleanup. Replaced photos
-and abandoned uploads are collected. Manual/legacy bucket files are untouched.
+moderation/restore; admin hard purge releases them for cleanup. Replaced photos,
+photos an admin rejected in the photo review queue, and abandoned uploads are
+collected. Manual/legacy bucket files are untouched.
 Pagination is completed before deleting to avoid skipping items. A database or
 Storage error stops the run; rerunning is safe. Do not enable a blanket bucket
 TTL, which would also delete images referenced by active listings.
