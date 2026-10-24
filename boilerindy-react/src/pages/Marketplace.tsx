@@ -16,8 +16,10 @@ import {
   labelForCategory,
   listingImage,
   listingImages,
+  ownerPhotoNote,
   parseImageLinks,
   parsePriceInput,
+  photosAwaitReview,
   priceModeOf,
   type Listing,
   type PriceMode,
@@ -40,7 +42,9 @@ import PageTitle from '../components/PageTitle'
 // (#171) go straight to Supabase Storage from the browser and are attached by a
 // signed receipt; a listing carries up to six ordered photos with the first as
 // the cover, and a price is a set amount, Free, or Best offer (#177). Cards and
-// the detail gallery render photos the way the mobile app does.
+// the detail gallery render photos the way the mobile app does. Photos that
+// wait for an admin (#504) reach other students as a placeholder, and their
+// owner gets a note.
 
 const EMPTY_FORM = { title: '', description: '', category: FORM_DEFAULT_CATEGORY, price: '', priceMode: 'fixed' as PriceMode, imageLinks: '' }
 type FormState = typeof EMPTY_FORM
@@ -88,20 +92,26 @@ function photoPreview(photo: PhotoState): string | null {
   return null
 }
 
-/** Category tile with the cover on top, so a slow or broken URL shows the tile. */
+/**
+ * Category tile with the cover on top, so a slow or broken URL shows the tile.
+ * Photos that wait for an admin (#504) come with no URLs for other students:
+ * the tile then says so instead of passing for a listing without photos.
+ */
 function ListingImage({ listing, className }: { listing: Listing; className: string }) {
   const url = listingImage(listing)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const cat = categoryFor(listing.category)
   const showImage = Boolean(url) && failedUrl !== url
+  const underReview = photosAwaitReview(listing)
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden bg-[var(--color-stat)] ${className}`}
-      data-listing-image={showImage ? 'photo' : 'placeholder'}
+      className={`relative flex flex-col items-center justify-center gap-2 overflow-hidden bg-[var(--color-stat)] ${className}`}
+      data-listing-image={showImage ? 'photo' : underReview ? 'pending' : 'placeholder'}
     >
       <span className="route-badge lg" aria-hidden="true">
-        <Icon name={cat.icon} size={22} />
+        <Icon name={underReview ? 'clock' : cat.icon} size={22} />
       </span>
+      {underReview ? <span className="px-2 text-center text-[12px] font-semibold leading-tight text-[var(--color-txt-2)]">Photos under review</span> : null}
       {showImage && url ? (
         <img src={url} alt="" loading="lazy" decoding="async" onError={() => setFailedUrl(url)} className="absolute inset-0 w-full h-full object-cover" />
       ) : null}
@@ -126,6 +136,22 @@ function ListingGallery({ listing }: { listing: Listing }) {
           className={`rounded-[var(--radius-lg)] object-cover bg-[var(--color-stat)] shrink-0 ${images.length === 1 ? 'w-full h-56 sm:h-72' : 'h-48 sm:h-64 max-w-[85%]'}`}
         />
       ))}
+    </div>
+  )
+}
+
+/** The owner's note about their own listing's photos (#504): waiting for an admin, or removed by one. */
+function PhotoNote({ listing, className = '' }: { listing: Listing; className?: string }) {
+  const note = ownerPhotoNote(listing)
+  if (!note) return null
+  const pending = listing.photosPending === true
+  return (
+    <div
+      className={`text-[12.5px] flex items-start gap-1.5 ${pending ? 'text-[var(--color-txt-2)]' : 'text-[var(--color-error)]'} ${className}`}
+      data-photos-note={pending ? 'pending' : 'rejected'}
+    >
+      <Icon name={pending ? 'clock' : 'info'} size={13} className="mt-0.5 shrink-0" />
+      <span>{note}</span>
     </div>
   )
 }
@@ -596,6 +622,7 @@ export default function Marketplace() {
             </span>
           </div>
         ) : null}
+        {context === 'mine' ? <PhotoNote listing={listing} className="px-3 sm:px-4 pb-3" /> : null}
         {context === 'mine' ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 sm:px-4 py-2 sm:py-2.5 mt-auto border-t border-[var(--color-border)]">
             <button type="button" onClick={() => openEdit(listing)} className="inline-flex items-center gap-1 py-1 font-display font-bold text-[13px] text-[var(--color-txt-1)] hover:text-[var(--color-accent)]">
@@ -766,6 +793,7 @@ export default function Marketplace() {
       {selected ? (
         <div ref={detailRef} className="card card-pad mb-6 border-[var(--color-accent)]/30 scroll-mt-24" data-listing-detail={selected.id}>
           <ListingGallery listing={selected} />
+          <PhotoNote listing={selected} className="mb-3" />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <span className="badge">{labelForCategory(selected.category)}</span>

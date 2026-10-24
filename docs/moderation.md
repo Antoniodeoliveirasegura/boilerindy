@@ -14,6 +14,10 @@ A student can also block another student. A block works both ways: the two
 stop seeing each other's content, matches and connection requests everywhere
 (see [Blocking users](#blocking-users)).
 
+New marketplace photos can be held for an admin before other students see
+them, behind `MARKETPLACE_PHOTO_REVIEW` (issue #504): an admin approves or
+rejects them at `/admin/photos` (see [Photo review](#photo-review)).
+
 ## Tables
 
 `db/supabase-report-and-block.sql` (README "Database setup" step 38, needs step
@@ -273,3 +277,149 @@ every page, so a new surface only places the buttons.
   (`DELETE /api/me/blocks/:userId`) and "You have not blocked anyone." when
   it is empty. Every block and unblock marks the per-user queries stale, so
   the list is current the next time Settings opens.
+
+## Photo review
+
+New marketplace photos wait for an admin before other students see them
+(owner decision, 2026-10-24, issue #504), so the native app's store
+submission can say how user-uploaded images are moderated (App Store
+guideline 1.2, boilerindy-app#56). Listing text already has the word list,
+Report and Block and the takedown; this covers the photos.
+
+### Turning it on
+
+1. Run `db/supabase-marketplace-photo-review.sql` (README "Database setup"
+   step 46, needs steps 1 and 13). It adds `marketplace_listings.photos_review`
+   (`pending`, `approved` or `rejected`, default `approved`, so every existing
+   listing stays as it is), `photos_reviewed_at` and `photos_reviewed_by`.
+2. Set `MARKETPLACE_PHOTO_REVIEW=on` on Render and let it restart. The switch
+   is off by default, and while it is off nothing changes for students.
+
+With the switch on and step 46 not run, the server warns at boot, and
+posting or editing a listing with photos answers
+`503 photo_review_schema_missing` (listings without photos still post). No
+marketplace read ever needs the columns: without them every listing reads as
+approved.
+
+### What waits
+
+With the switch on:
+
+- A listing posted with photos waits (`pending`).
+- An edit that adds a photo the listing did not have (a new upload, a new
+  image link, a replaced cover) makes it wait again, even when its earlier
+  photos were approved. Reordering or removing photos it already had, or
+  editing its text, price or status, leaves the state alone.
+- Removing every photo from a waiting or rejected listing approves it, since
+  nothing is left to review.
+
+With the switch off, a write never names the column, with two exceptions
+that only a database with the column can reach: new photos on a rejected
+listing are approved (the rejected ones were cleared), and clearing every
+photo of a waiting listing approves it. Listings that were already waiting
+stay in the queue until an admin decides, so turning the switch off never
+shows photos nobody reviewed.
+
+### Who sees what
+
+Every read that returns a listing applies the state through `mapListingRow`
+(`src/marketplace.mjs`): `GET /api/marketplace`, `GET /api/marketplace/:id`,
+`GET /api/marketplace/mine`, and the listing that `POST /api/marketplace` and
+`PATCH /api/marketplace/:id` answer with.
+
+| Photos | Other students | The seller, and admins |
+|---|---|---|
+| `pending` | `images: []`, `imageUrl: null`, `photosPending: true` | the photos, `photosPending: true`, `photosReview: "pending"` |
+| `approved` | the photos, `photosPending: false` | the photos, `photosPending: false`, `photosReview: "approved"` |
+| `rejected` | no photos (they were cleared), `photosPending: false` | no photos, `photosPending: false`, `photosReview: "rejected"` |
+
+The listing itself (title, price, description, contact) stays up while its
+photos wait; hiding by reports, blocks and soft deletes work as before.
+
+This hides photo URLs from the API; it does not delete or lock files. Photos
+already uploaded stay public at their storage links, and a new upload is
+public in the bucket from the moment it is uploaded. A managed upload's path
+is unguessable (`managed/<seller id>/<time>-<random UUID>.jpg`) and only the
+seller and admins are handed it until approval, but anyone with the link can
+open it.
+
+### The admin queue
+
+`src/routes/adminPhotoReview.mjs`, admin only (`requireAuth`, then
+`requireAdmin`), and the Photo review page at `/admin/photos`, next to
+Reports. The overview's "Photos to review" card counts the queue:
+`pendingPhotos` in `GET /api/admin/overview`, `null` while step 46 has not
+run. The queue works whether the switch is on or off.
+
+`GET /api/admin/photo-review` lists up to 200 live listings with pending
+photos, the longest waiting first (by `updated_at`, which every seller edit
+moves):
+
+```json
+{
+  "listings": [
+    {
+      "id": "<uuid>",
+      "title": "Mini fridge",
+      "description": "Works, a little loud",
+      "category": "furniture",
+      "status": "active",
+      "hidden": false,
+      "createdAt": "2026-10-24T12:00:00+00:00",
+      "updatedAt": "2026-10-24T15:04:05.123456+00:00",
+      "images": ["https://.../marketplace-images/managed/..."],
+      "seller": { "id": "<uuid>", "displayName": "Blake" }
+    }
+  ]
+}
+```
+
+`POST /api/admin/photo-review/:id/approve` and
+`POST /api/admin/photo-review/:id/reject` (`admin-write` limit, see
+[RATE_LIMITS.md](RATE_LIMITS.md)) take the listing's `updatedAt` from the
+queue, `{ "updatedAt": "2026-10-24T15:04:05.123456+00:00" }`, so a listing
+the seller edited after the queue loaded is never decided on photos the
+admin did not see:
+
+| Answer | When |
+|---|---|
+| `200 { "ok": true, "photosReview": "approved" }`, or `"rejected"` | Decided. |
+| `400` "Reload the photo queue and try again." | `updatedAt` is missing or not a date. |
+| `404` "No listing with photos waiting for review." | Another admin decided first, the seller removed the photos, or the listing is gone. A malformed id gets the `404` envelope. |
+| `409` "The seller changed this listing after the queue loaded. Reload to see the latest photos." | The listing still waits, but was edited after the queue loaded. |
+| `503 photo_review_schema_missing` | Step 46 has not run. |
+
+Both record `photos_reviewed_at` and `photos_reviewed_by`; deleting that
+admin's account clears `photos_reviewed_by` and keeps the decision. Approve
+shows the photos to everyone. Reject clears `image_url` and `image_urls`: the listing stays up
+without photos, its seller is told an admin removed them, and new photos
+wait again while the switch is on. On the page, Reject asks first, and a
+listing waiting longer than a day is marked, like an overdue report.
+
+**Rejected files are left in storage.** Reject removes the listing's
+references, not the files. A managed upload that no listing references is
+removed by `node scripts/cleanup-marketplace-photos.mjs --apply` once it is a
+day old (see [marketplace-photos.md](marketplace-photos.md#cleanup)). That
+script stays the one place listing photos are deleted, with its dry run and
+its target-host confirmation, rather than a second, unconfirmed delete in a
+request handler; the URL was never handed to other students; and an image
+link from another site is not ours to delete. For an image that must go at
+once, such as nonconsensual intimate imagery, reject it and then delete the
+object by hand in the Supabase dashboard (Storage, `marketplace-images`, the
+path after `/marketplace-images/` in its URL).
+
+### On the website
+
+- Other students see a "Photos under review" tile where a waiting listing's
+  photos would be, on its card and its detail.
+- The seller sees "Your photos are waiting for review." on the listing in
+  My listings and on its detail, and "An admin removed this listing's photos."
+  once they are rejected.
+
+### What the native app needs
+
+A follow-up in boilerindy-app: the same placeholder when `photosPending` is
+true and `images` is empty, the seller's note when `isMine` and
+`photosPending` are both true, and the removal note when `photosReview` is
+`rejected`. A build without them shows a waiting listing like one without
+photos (the category tile), which reveals nothing.

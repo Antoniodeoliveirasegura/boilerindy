@@ -10,6 +10,7 @@ const NAV = [
   { to: '/admin/campaigns', label: 'Campaigns', icon: 'briefcase' },
   { to: '/admin/advertisers', label: 'Advertisers', icon: 'check' },
   { to: '/admin/reports', label: 'Reports', icon: 'flag' },
+  { to: '/admin/photos', label: 'Photo review', icon: 'image' },
   { to: '/admin/deleted', label: 'Deleted content', icon: 'trash' },
 ]
 

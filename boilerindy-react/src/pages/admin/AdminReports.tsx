@@ -14,7 +14,7 @@ import {
 } from '../../lib/adminApi'
 import { reportReasonLabel } from '../../lib/reportReasons'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
-import { formatDateTime } from './adminHelpers'
+import { ageLabel, formatDateTime, REVIEW_WINDOW_MS } from './adminHelpers'
 import PageTitle from '../../components/PageTitle'
 
 // The report queue (issue #192): everything students reported, newest first.
@@ -49,9 +49,6 @@ const CONTENT_TYPES: Partial<Record<ReportTargetType, DeletedContentType>> = {
   marketplace: 'marketplace',
 }
 
-// The queue promises a review within a day (docs/moderation.md).
-const REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000
-
 type LiveRow = { id: string; [key: string]: unknown }
 type Preview = { reportId: string; item: LiveRow | null }
 
@@ -65,17 +62,6 @@ function firstString(row: LiveRow, keys: string[]): string {
 
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
-}
-
-function ageLabel(iso: string, now: number): string {
-  const ms = now - new Date(iso).getTime()
-  if (!Number.isFinite(ms) || ms < 60_000) return 'just now'
-  const minutes = Math.floor(ms / 60_000)
-  if (minutes < 60) return `${minutes} min ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} h ago`
-  const days = Math.floor(hours / 24)
-  return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
 function targetTitle(report: ContentReport): string {

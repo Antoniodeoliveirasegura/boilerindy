@@ -55,7 +55,8 @@ deleted.`,
     body: `Content you create - board posts, marketplace listings, lost & found reports, guide
 posts, study groups, and your friend profile - is stored and shown to other signed-in students.
 Marketplace listings display your name and Purdue email to signed-in users so buyers can reach
-you, so only share what you're comfortable making visible on campus.`,
+you, so only share what you're comfortable making visible on campus. Photos you add to a
+marketplace listing are reviewed by an admin before other students see them.`,
   },
   {
     title: 'AI assistant',

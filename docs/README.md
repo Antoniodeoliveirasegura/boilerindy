@@ -20,7 +20,7 @@ coding conventions live in the root [README.md](../README.md).
 - [error-tracking.md](error-tracking.md) - Sentry reporting from the Express API and the React app, fully off when no DSN is configured (issue #50).
 - [keep-warm.md](keep-warm.md) - why Render's free tier spins the backend down after about 15 minutes without a request, and what the app does about the cold start (issue #164).
 - [marketplace-photos.md](marketplace-photos.md) - how the app and the website authorize a direct Supabase Storage upload with the student session, up to six ordered photos per listing.
-- [moderation.md](moderation.md) - how students report what other students post and block each other, and how an admin works the one report queue at `/admin/reports` (issue #192).
+- [moderation.md](moderation.md) - how students report what other students post and block each other, and how an admin works the one report queue at `/admin/reports` (issue #192), and the photo queue at `/admin/photos` that holds new marketplace photos for an admin behind `MARKETPLACE_PHOTO_REVIEW` (issue #504).
 - [parking-status.md](parking-status.md) - live garage availability for Purdue Indianapolis students, behind the `/parking` page, the campus map layer and `GET /api/parking/garages` (issue #14).
 - [purdue-email-verification.md](purdue-email-verification.md) - how a student links a `@purdue.edu` address to their BoilerIndy account by typing a six-digit code mailed to it, with no Purdue CAS round trip and no admin or database step (issue #181).
 - [purdue-link.md](purdue-link.md) - the short-lived, single-use token that lets the native app link a Purdue identity without the `pih.sid` session cookie (issue #214).
