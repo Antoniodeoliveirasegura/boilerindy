@@ -192,7 +192,9 @@ refused. "Following (n)" beside the campus pills opens the Following view
 (`?following=1`): the followed clubs from `GET /api/me/club-follows`, narrowed
 by the same search box and category menu in the browser. There is no follow UI
 signed out, while the follows load, or when `GET /api/me/club-follows` answers
-`club_follows_schema_missing`; another failure says so with Try again.
+`club_follows_schema_missing` or 404 (an API older than the page, for the few
+minutes a release deploys the website first); another failure says so with
+Try again.
 
 ### Turning it on (owner)
 
