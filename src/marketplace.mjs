@@ -3,6 +3,7 @@
 // contact is the seller's display name + Purdue email shown on the detail page.
 
 import { REPORT_REASONS } from './contentReports.mjs'
+import { listingPhotoUrls, photoReviewState } from './marketplacePhotoReview.mjs'
 import { isMissingColumnError } from './moderation.mjs'
 
 export const MARKETPLACE_CATEGORIES = [
@@ -195,8 +196,19 @@ export function validateListingInput(body, { partial = false } = {}) {
  * Shape a DB row for the API. Seller contact (name + Purdue email) is included
  * only when `seller` is supplied (detail view for signed-in users), and
  * `reportCount` only when the row belongs to the caller (issue #204).
+ *
+ * Photo review (issue #504): until a listing's photos are approved, only its
+ * owner and admins (`viewerIsAdmin`) get their URLs; everyone else gets
+ * `images: []` and `imageUrl: null`. `photosPending` tells every viewer the
+ * photos are waiting for an admin, and the owner and admins also get
+ * `photosReview`, the state itself, so the owner can be told an admin removed
+ * them.
  */
-export function mapListingRow(row, currentUserId, seller = null, { reportCount } = {}) {
+export function mapListingRow(row, currentUserId, seller = null, { reportCount, viewerIsAdmin = false } = {}) {
+  const isMine = row.user_id === currentUserId
+  const review = photoReviewState(row)
+  const seesReview = isMine || viewerIsAdmin === true
+  const showPhotos = review === 'approved' || seesReview
   const base = {
     id: row.id,
     title: row.title,
@@ -204,13 +216,15 @@ export function mapListingRow(row, currentUserId, seller = null, { reportCount }
     category: row.category,
     priceCents: row.price_cents ?? null,
     priceMode: row.price_cents === 0 ? 'free' : row.price_mode || 'fixed',
-    imageUrl: row.image_url || null,
-    images: row.image_urls?.length ? row.image_urls : row.image_url ? [row.image_url] : [],
+    imageUrl: showPhotos ? row.image_url || null : null,
+    images: showPhotos ? listingPhotoUrls(row) : [],
     status: row.status,
     createdAt: row.created_at,
-    isMine: row.user_id === currentUserId,
+    isMine,
     hidden: Boolean(row.hidden),
+    photosPending: review === 'pending',
   }
+  if (seesReview) base.photosReview = review
   // Report totals are moderation data: the owner sees why their own listing
   // went dark, nobody else sees who is being reported or how close they are to
   // the threshold.

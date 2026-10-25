@@ -11,8 +11,10 @@ import {
   type SignInResponse,
 } from '../lib/authApi'
 import { sendPasswordResetEmail, signInWithEmail, signInWithGoogle, supabase } from '../lib/supabase'
+import { SERVER_WAKE_DETAIL, SERVER_WAKE_LEAD, useServerWarmup } from '../lib/serverWarmup'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
+import SignInSkeleton from '../components/SignInSkeleton'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import SkipLink from '../components/SkipLink'
 import StatusBanner from '../components/StatusBanner'
@@ -28,8 +30,9 @@ const asideFeatures = [
 type PendingCode = { email: string; flow: 'signin' | 'signup' }
 
 export default function Login() {
-  const { user, loading, onboarding, establishSession, applySession } = useAuth()
+  const { user, loading, hasStoredSession, onboarding, establishSession, applySession } = useAuth()
   const { dark, toggleTheme } = useTheme()
+  const serverWaking = useServerWarmup().status === 'slow'
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -380,14 +383,12 @@ export default function Login() {
     `pill justify-center ${active ? 'pill-active' : 'border-transparent bg-transparent hover:bg-[var(--color-surface)]'}`
   const textLink = 'font-semibold text-[var(--color-accent)] hover:underline underline-offset-2'
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg-1)] text-[var(--color-txt-2)] text-sm">
-        <PageTitle>{forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}</PageTitle>
-        Loading…
-      </div>
-    )
-  }
+  // Issue #389. With no stored session the form shows at once, while boot's
+  // session read is still out: the form needs nothing from the server, which
+  // can take 30 s to wake. A stored session is restored behind the skeleton
+  // instead, and a session that has arrived keeps the skeleton up for the
+  // moment before the redirect above.
+  const restoring = Boolean(user) || (loading && hasStoredSession !== false)
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] bg-[var(--color-bg-1)] text-[var(--color-txt-0)]">
@@ -476,214 +477,228 @@ export default function Login() {
           <h1 className="page-title compact">
             {pendingCode ? 'Check your email' : forgotMode ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}
           </h1>
-          <p className="page-sub mb-6">
-            {pendingCode
-              ? `We sent a 6-digit code to ${pendingCode.email}. Enter it to ${pendingCode.flow === 'signup' ? 'confirm your email' : 'finish signing in'}.`
-              : forgotMode
-                ? 'Enter your account email and we will send you a reset link.'
-                : isSignup
-                  ? 'Create your account with Google or your email. Purdue linking comes after sign-up, in setup.'
-                  : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
-          </p>
-
-          <div className={`mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] p-1 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
-            {/* aria-pressed says which mode is on; the pill-active fill only showed it. */}
-            <button type="button" aria-pressed={!isSignup} onClick={() => { setTab('signin'); clearErrors() }} className={segmentClass(!isSignup)}>
-              Sign in
-            </button>
-            <button type="button" aria-pressed={isSignup} onClick={() => { setTab('signup'); clearErrors() }} className={segmentClass(isSignup)}>
-              Create account
-            </button>
-          </div>
-
-          {banner && (
-            <StatusBanner tone="error" className="mb-4">
-              {banner}
-            </StatusBanner>
-          )}
-
-          {successBanner && (
-            <StatusBanner tone="success" className="mb-4">
-              {successBanner}
-            </StatusBanner>
-          )}
-
-          {!forgotMode && !pendingCode && (
-            <>
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={oauthSubmitting || submitting}
-                className="btn btn-secondary min-h-11 w-full"
-              >
-                <Icon name="google" size={18} />
-                {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
-              </button>
-
-              <div className="my-5 flex items-center gap-3" aria-hidden="true">
-                <span className="h-px flex-1 bg-[var(--color-border-2)]" />
-                <span className="eyebrow bare text-[var(--color-txt-3)]">or use your email</span>
-                <span className="h-px flex-1 bg-[var(--color-border-2)]" />
-              </div>
-            </>
-          )}
-
-          {pendingCode ? (
-            <form onSubmit={handleVerifyCode} className="space-y-4">
-              <div>
-                <label htmlFor="code" className={labelClass}>Verification code</label>
-                <input
-                  id="code"
-                  aria-invalid={fieldErr.code ? true : undefined}
-                  aria-describedby={fieldErr.code ? 'code-error' : undefined}
-                  className={`${fieldClass(fieldErr.code)} code`}
-                  value={code}
-                  onChange={(ev) => setCode(ev.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="000000"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  autoFocus
-                />
-                {fieldErr.code && <p id="code-error" className={errorClass}>{fieldErr.code}</p>}
-              </div>
-              <label className="flex cursor-pointer select-none items-start gap-2.5">
-                <input
-                  type="checkbox"
-                  checked={trustDevice}
-                  onChange={(e) => setTrustDevice(e.target.checked)}
-                  className="mt-px h-[18px] w-[18px] shrink-0 accent-[var(--color-txt-0)]"
-                />
-                <span className="text-[13.5px] leading-snug text-[var(--color-txt-1)]">Trust this device for 30 days (only on your own device)</span>
-              </label>
-              <button
-                type="submit"
-                disabled={submitting || code.length !== 6}
-                className="btn btn-primary min-h-11 w-full"
-              >
-                <Icon name="check" size={16} />
-                {submitting ? 'Verifying…' : 'Verify and continue'}
-              </button>
-              <div className="flex flex-wrap items-center justify-between gap-x-4">
-                <button
-                  type="button"
-                  onClick={handleResendCode}
-                  disabled={resending}
-                  className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink} disabled:opacity-60`}
-                >
-                  {resending ? 'Sending…' : 'Send a new code'}
-                </button>
-                <button
-                  type="button"
-                  onClick={leaveCodeStep}
-                  className="inline-flex min-h-11 items-center bg-transparent text-[13px] font-semibold text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]"
-                >
-                  Use a different account
-                </button>
-              </div>
-            </form>
-          ) : forgotMode ? (
-            <form onSubmit={handleForgotSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="email" className={labelClass}>Email address</label>
-                <input id="email" type="email" aria-invalid={fieldErr.email ? true : undefined} aria-describedby={fieldErr.email ? 'email-error' : undefined} className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
-                {fieldErr.email && <p id="email-error" className={errorClass}>{fieldErr.email}</p>}
-              </div>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="btn btn-primary min-h-11 w-full"
-              >
-                <Icon name="mail" size={16} />
-                {submitting ? 'Sending…' : 'Email me a reset link'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setForgotMode(false); clearErrors(); focusField('email') }}
-                className="btn btn-ghost min-h-11 w-full"
-              >
-                Back to sign in
-              </button>
-            </form>
+          {restoring ? (
+            <SignInSkeleton signup={isSignup} />
           ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {isSignup && (
-              <div>
-                <label htmlFor="name" className={labelClass}>Full name</label>
-                <input id="name" aria-invalid={fieldErr.name ? true : undefined} aria-describedby={fieldErr.name ? 'name-error' : undefined} className={fieldClass(fieldErr.name)} value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Your Name" autoComplete="name" />
-                {fieldErr.name && <p id="name-error" className={errorClass}>{fieldErr.name}</p>}
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="email" className={labelClass}>Email address</label>
-              <input id="email" type="email" aria-invalid={fieldErr.email ? true : undefined} aria-describedby={fieldErr.email ? 'email-error' : undefined} className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
-              {fieldErr.email && <p id="email-error" className={errorClass}>{fieldErr.email}</p>}
-            </div>
-
-            <div>
-              <label htmlFor="password" className={labelClass}>Password</label>
-              <div className="relative">
-                <input id="password" type={pwVisible ? 'text' : 'password'} aria-invalid={fieldErr.password ? true : undefined} aria-describedby={fieldErr.password ? 'password-error' : undefined} className={`${fieldClass(fieldErr.password)} pr-12`} value={password} onChange={(ev) => setPassword(ev.target.value)} placeholder="••••••••" autoComplete={isSignup ? 'new-password' : 'current-password'} />
-                {/* A 36px plate with a 44px hit area (the before: box) that fills the field's height.
-                    Icon-only, so the label names it and says what a press does. */}
-                <button type="button" aria-label={pwVisible ? 'Hide password' : 'Show password'} onClick={() => setPwVisible((v) => !v)} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[var(--radius-md)] bg-transparent text-[var(--color-txt-2)] before:absolute before:-inset-1 before:content-[''] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]">
-                  <Icon name={pwVisible ? 'eyeOff' : 'eye'} size={17} />
-                </button>
-              </div>
-              {fieldErr.password && <p id="password-error" className={errorClass}>{fieldErr.password}</p>}
-            </div>
-
-            {isSignup && (
-              <div>
-                <label htmlFor="confirm" className={labelClass}>Confirm password</label>
-                <input id="confirm" type="password" aria-invalid={fieldErr.confirm ? true : undefined} aria-describedby={fieldErr.confirm ? 'confirm-error' : undefined} className={fieldClass(fieldErr.confirm)} value={confirm} onChange={(ev) => setConfirm(ev.target.value)} placeholder="••••••••" autoComplete="new-password" />
-                {fieldErr.confirm && <p id="confirm-error" className={errorClass}>{fieldErr.confirm}</p>}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-3">
-              <label className="flex min-h-11 cursor-pointer select-none items-center gap-2.5">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="h-[18px] w-[18px] shrink-0 accent-[var(--color-txt-0)]"
-                />
-                <span className="text-[13.5px] text-[var(--color-txt-1)]">Remember me</span>
-              </label>
-              {!isSignup && (
-                <button
-                  type="button"
-                  onClick={() => { setForgotMode(true); clearErrors(); focusField('email') }}
-                  className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink}`}
-                >
-                  Forgot password?
-                </button>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="btn btn-primary min-h-11 w-full"
-            >
-              <Icon name={isSignup ? 'sparkles' : 'mail'} size={16} />
-              {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
-            </button>
-
-            {isSignup && (
-              <p className="text-[12px] leading-relaxed text-[var(--color-txt-3)]">
-                By creating an account you agree to basic usage analytics that help improve
-                BoilerIndy - stored in our own database, no third-party trackers, opt out anytime
-                in Settings.{' '}
-                <Link to="/privacy?from=signup" className={textLink}>
-                  Privacy policy
-                </Link>
-                .
+            <>
+              <p className="page-sub mb-6">
+                {pendingCode
+                  ? `We sent a 6-digit code to ${pendingCode.email}. Enter it to ${pendingCode.flow === 'signup' ? 'confirm your email' : 'finish signing in'}.`
+                  : forgotMode
+                    ? 'Enter your account email and we will send you a reset link.'
+                    : isSignup
+                      ? 'Create your account with Google or your email. Purdue linking comes after sign-up, in setup.'
+                      : 'Sign in with Google or your email. Purdue linking comes after sign-up, in setup.'}
               </p>
-            )}
-          </form>
+
+              <div className={`mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] p-1 ${forgotMode || pendingCode ? 'hidden' : ''}`}>
+                {/* aria-pressed says which mode is on; the pill-active fill only showed it. */}
+                <button type="button" aria-pressed={!isSignup} onClick={() => { setTab('signin'); clearErrors() }} className={segmentClass(!isSignup)}>
+                  Sign in
+                </button>
+                <button type="button" aria-pressed={isSignup} onClick={() => { setTab('signup'); clearErrors() }} className={segmentClass(isSignup)}>
+                  Create account
+                </button>
+              </div>
+
+              {banner && (
+                <StatusBanner tone="error" className="mb-4">
+                  {banner}
+                </StatusBanner>
+              )}
+
+              {successBanner && (
+                <StatusBanner tone="success" className="mb-4">
+                  {successBanner}
+                </StatusBanner>
+              )}
+
+              {!forgotMode && !pendingCode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={oauthSubmitting || submitting}
+                    className="btn btn-secondary min-h-11 w-full"
+                  >
+                    <Icon name="google" size={18} />
+                    {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
+                  </button>
+
+                  <div className="my-5 flex items-center gap-3" aria-hidden="true">
+                    <span className="h-px flex-1 bg-[var(--color-border-2)]" />
+                    <span className="eyebrow bare text-[var(--color-txt-3)]">or use your email</span>
+                    <span className="h-px flex-1 bg-[var(--color-border-2)]" />
+                  </div>
+                </>
+              )}
+
+              {pendingCode ? (
+                <form onSubmit={handleVerifyCode} className="space-y-4">
+                  <div>
+                    <label htmlFor="code" className={labelClass}>Verification code</label>
+                    <input
+                      id="code"
+                      aria-invalid={fieldErr.code ? true : undefined}
+                      aria-describedby={fieldErr.code ? 'code-error' : undefined}
+                      className={`${fieldClass(fieldErr.code)} code`}
+                      value={code}
+                      onChange={(ev) => setCode(ev.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="000000"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      autoFocus
+                    />
+                    {fieldErr.code && <p id="code-error" className={errorClass}>{fieldErr.code}</p>}
+                  </div>
+                  <label className="flex cursor-pointer select-none items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={trustDevice}
+                      onChange={(e) => setTrustDevice(e.target.checked)}
+                      className="mt-px h-[18px] w-[18px] shrink-0 accent-[var(--color-txt-0)]"
+                    />
+                    <span className="text-[13.5px] leading-snug text-[var(--color-txt-1)]">Trust this device for 30 days (only on your own device)</span>
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={submitting || code.length !== 6}
+                    className="btn btn-primary min-h-11 w-full"
+                  >
+                    <Icon name="check" size={16} />
+                    {submitting ? 'Verifying…' : 'Verify and continue'}
+                  </button>
+                  <div className="flex flex-wrap items-center justify-between gap-x-4">
+                    <button
+                      type="button"
+                      onClick={handleResendCode}
+                      disabled={resending}
+                      className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink} disabled:opacity-60`}
+                    >
+                      {resending ? 'Sending…' : 'Send a new code'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={leaveCodeStep}
+                      className="inline-flex min-h-11 items-center bg-transparent text-[13px] font-semibold text-[var(--color-txt-2)] hover:text-[var(--color-txt-0)]"
+                    >
+                      Use a different account
+                    </button>
+                  </div>
+                </form>
+              ) : forgotMode ? (
+                <form onSubmit={handleForgotSubmit} className="space-y-4">
+                  <div>
+                    <label htmlFor="email" className={labelClass}>Email address</label>
+                    <input id="email" type="email" aria-invalid={fieldErr.email ? true : undefined} aria-describedby={fieldErr.email ? 'email-error' : undefined} className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+                    {fieldErr.email && <p id="email-error" className={errorClass}>{fieldErr.email}</p>}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="btn btn-primary min-h-11 w-full"
+                  >
+                    <Icon name="mail" size={16} />
+                    {submitting ? 'Sending…' : 'Email me a reset link'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotMode(false); clearErrors(); focusField('email') }}
+                    className="btn btn-ghost min-h-11 w-full"
+                  >
+                    Back to sign in
+                  </button>
+                </form>
+              ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {isSignup && (
+                  <div>
+                    <label htmlFor="name" className={labelClass}>Full name</label>
+                    <input id="name" aria-invalid={fieldErr.name ? true : undefined} aria-describedby={fieldErr.name ? 'name-error' : undefined} className={fieldClass(fieldErr.name)} value={name} onChange={(ev) => setName(ev.target.value)} placeholder="Your Name" autoComplete="name" />
+                    {fieldErr.name && <p id="name-error" className={errorClass}>{fieldErr.name}</p>}
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="email" className={labelClass}>Email address</label>
+                  <input id="email" type="email" aria-invalid={fieldErr.email ? true : undefined} aria-describedby={fieldErr.email ? 'email-error' : undefined} className={fieldClass(fieldErr.email)} value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="you@example.com" autoComplete="email" />
+                  {fieldErr.email && <p id="email-error" className={errorClass}>{fieldErr.email}</p>}
+                </div>
+
+                <div>
+                  <label htmlFor="password" className={labelClass}>Password</label>
+                  <div className="relative">
+                    <input id="password" type={pwVisible ? 'text' : 'password'} aria-invalid={fieldErr.password ? true : undefined} aria-describedby={fieldErr.password ? 'password-error' : undefined} className={`${fieldClass(fieldErr.password)} pr-12`} value={password} onChange={(ev) => setPassword(ev.target.value)} placeholder="••••••••" autoComplete={isSignup ? 'new-password' : 'current-password'} />
+                    {/* A 36px plate with a 44px hit area (the before: box) that fills the field's height.
+                        Icon-only, so the label names it and says what a press does. */}
+                    <button type="button" aria-label={pwVisible ? 'Hide password' : 'Show password'} onClick={() => setPwVisible((v) => !v)} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[var(--radius-md)] bg-transparent text-[var(--color-txt-2)] before:absolute before:-inset-1 before:content-[''] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-txt-0)]">
+                      <Icon name={pwVisible ? 'eyeOff' : 'eye'} size={17} />
+                    </button>
+                  </div>
+                  {fieldErr.password && <p id="password-error" className={errorClass}>{fieldErr.password}</p>}
+                </div>
+
+                {isSignup && (
+                  <div>
+                    <label htmlFor="confirm" className={labelClass}>Confirm password</label>
+                    <input id="confirm" type="password" aria-invalid={fieldErr.confirm ? true : undefined} aria-describedby={fieldErr.confirm ? 'confirm-error' : undefined} className={fieldClass(fieldErr.confirm)} value={confirm} onChange={(ev) => setConfirm(ev.target.value)} placeholder="••••••••" autoComplete="new-password" />
+                    {fieldErr.confirm && <p id="confirm-error" className={errorClass}>{fieldErr.confirm}</p>}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3">
+                  <label className="flex min-h-11 cursor-pointer select-none items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="h-[18px] w-[18px] shrink-0 accent-[var(--color-txt-0)]"
+                    />
+                    <span className="text-[13.5px] text-[var(--color-txt-1)]">Remember me</span>
+                  </label>
+                  {!isSignup && (
+                    <button
+                      type="button"
+                      onClick={() => { setForgotMode(true); clearErrors(); focusField('email') }}
+                      className={`inline-flex min-h-11 items-center bg-transparent text-[13px] ${textLink}`}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn btn-primary min-h-11 w-full"
+                >
+                  <Icon name={isSignup ? 'sparkles' : 'mail'} size={16} />
+                  {submitting ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
+                </button>
+
+                {/* The form shows before the server has woken (issue #389), so on
+                    a cold start this is where the wait lands. */}
+                {submitting && serverWaking && (
+                  <p role="status" className="text-[12.5px] leading-snug text-[var(--color-txt-2)]">
+                    <span className="font-semibold text-[var(--color-txt-1)]">{SERVER_WAKE_LEAD}</span> {SERVER_WAKE_DETAIL}
+                  </p>
+                )}
+
+                {isSignup && (
+                  <p className="text-[12px] leading-relaxed text-[var(--color-txt-3)]">
+                    By creating an account you agree to basic usage analytics that help improve
+                    BoilerIndy - stored in our own database, no third-party trackers, opt out anytime
+                    in Settings.{' '}
+                    <Link to="/privacy?from=signup" className={textLink}>
+                      Privacy policy
+                    </Link>
+                    .
+                  </p>
+                )}
+              </form>
+              )}
+            </>
           )}
 
           <div className="mt-8 space-y-3 border-t border-[var(--color-border-2)] pt-5 text-[13px] leading-relaxed text-[var(--color-txt-2)]">

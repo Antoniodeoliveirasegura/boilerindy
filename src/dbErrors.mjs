@@ -98,6 +98,16 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-marketplace.sql',
     'Could not load the marketplace. Please try again.',
   ),
+  // Marketplace photo review (#504): the photos_review columns on
+  // marketplace_listings. The admin photo queue answers this code, and so does
+  // a listing written with photos while MARKETPLACE_PHOTO_REVIEW is on; the
+  // marketplace reads never need the columns.
+  photo_review: dbFeature(
+    'photo_review',
+    'Photo review',
+    'db/supabase-marketplace-photo-review.sql',
+    'Could not load the photo review queue. Please try again.',
+  ),
   friends: dbFeature(
     'friends',
     'Friend matching',

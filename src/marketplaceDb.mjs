@@ -4,6 +4,7 @@
 
 import { DB_FEATURES, respondSchemaMissing, respondSoftDeleteFeatureDbError } from './dbErrors.mjs'
 import { isMissingGalleryPricingColumn, MARKETPLACE_GALLERY_PRICING_SQL_FILE } from './marketplace.mjs'
+import { isMissingPhotoReviewColumn } from './marketplacePhotoReview.mjs'
 import { PhotoError, respondPhotoError } from './marketplacePhotos.mjs'
 
 // The caller's own live listing, or null; throws on a database error.
@@ -37,9 +38,13 @@ export async function countMarketplaceReports(supabase, listingIds) {
 
 // A missing image_urls or price_mode column also answers marketplace_schema_missing,
 // with the gallery and pricing migration named in the log, since the base
-// marketplace file does not add them (#218).
+// marketplace file does not add them (#218). A missing photo review column
+// (README step 46, #504) answers photo_review_schema_missing instead: only a
+// write that holds photos for review, or the admin photo queue, names it, and
+// the rest of the marketplace keeps working.
 export function respondMarketplaceDbError(res, err) {
   if (err instanceof PhotoError) return respondPhotoError(res, err)
+  if (isMissingPhotoReviewColumn(err)) return respondSchemaMissing(res, DB_FEATURES.photo_review, err)
   if (isMissingGalleryPricingColumn(err)) {
     return respondSchemaMissing(res, { ...DB_FEATURES.marketplace, sqlFile: MARKETPLACE_GALLERY_PRICING_SQL_FILE }, err)
   }

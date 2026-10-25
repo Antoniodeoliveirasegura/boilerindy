@@ -273,6 +273,41 @@ function defaultMarketplace() {
     failNextUpload: false,
     // Every create / edit body the page sent, for assertions on the wire shape.
     bodies: [],
+    // Photo review (#504): every approve or reject the admin page sent, as
+    // { id, decision, updatedAt }. A listing waits while its photosReview is
+    // 'pending' (seedPhotoReview).
+    photoDecisions: [],
+  }
+}
+
+// Same rule as mapListingRow on the server (#504): photos that wait for an
+// admin, or that an admin rejected, reach only their owner and admins, and
+// photosPending tells everyone they wait. A listing seeded without a
+// photosReview is passed through untouched, as before the feature.
+function viewListing(listing, user) {
+  if (!listing.photosReview) return listing
+  const shown = { ...listing, photosPending: listing.photosReview === 'pending' }
+  // The queue's version and the state itself, which other students never get.
+  for (const key of ['updatedAt', 'photosReview']) delete shown[key]
+  if (listing.isMine || user.isAdmin === true) shown.photosReview = listing.photosReview
+  else if (listing.photosReview !== 'approved') Object.assign(shown, { images: [], imageUrl: null })
+  return shown
+}
+
+// One row of GET /api/admin/photo-review, as mapPhotoReviewRow shapes it.
+function photoReviewRow(listing) {
+  return {
+    id: listing.id,
+    title: listing.title,
+    description: listing.description || '',
+    category: listing.category,
+    status: listing.status,
+    hidden: Boolean(listing.hidden),
+    createdAt: listing.createdAt,
+    updatedAt: listing.updatedAt,
+    images: listing.images?.length ? listing.images : listing.imageUrl ? [listing.imageUrl] : [],
+    // The same seller the listing detail names.
+    seller: listing.isMine ? { id: DEFAULT_USER.id, displayName: DEFAULT_USER.name } : { id: 'e2e-user-riley', displayName: 'Riley Boilermaker' },
   }
 }
 
@@ -682,6 +717,9 @@ export const test = base.extend({
       // The Google account for the OAuth round trip; null keeps Supabase Auth
       // disabled, as every other spec expects.
       googleUser: null,
+      // When the pretend Render instance is up (coldStart): an /api call made
+      // before then waits for it. 0 is a warm server.
+      awakeAt: 0,
     }
 
     // A block by the test user, kept once like the blocked_users primary key.
@@ -1069,10 +1107,15 @@ export const test = base.extend({
           (l) => l.status === 'active' && (!category || l.category === category) && (!q || l.title.toLowerCase().includes(q)),
         )
         const slice = visible.slice(page * 24, page * 24 + 24)
-        return json(route, 200, { listings: slice, page, hasMore: slice.length === 24, canPost: Boolean(state.onboarding.hasPurdueLinked) })
+        return json(route, 200, {
+          listings: slice.map((l) => viewListing(l, state.user)),
+          page,
+          hasMore: slice.length === 24,
+          canPost: Boolean(state.onboarding.hasPurdueLinked),
+        })
       }
       if (pathname === '/api/marketplace/mine' && method === 'GET') {
-        return json(route, 200, { listings: state.marketplace.listings.filter((l) => l.isMine) })
+        return json(route, 200, { listings: state.marketplace.listings.filter((l) => l.isMine).map((l) => viewListing(l, state.user)) })
       }
       if (pathname === '/api/marketplace/capabilities' && method === 'GET') {
         return json(route, 200, { gallery: true, pricing: true, maxPhotos: 6 })
@@ -1113,7 +1156,7 @@ export const test = base.extend({
           const seller = listing.isMine
             ? { sellerName: DEFAULT_USER.name, sellerEmail: DEFAULT_USER.email }
             : { sellerName: 'Riley Boilermaker', sellerEmail: 'riley@purdue.edu' }
-          return json(route, 200, { listing: { ...listing, ...seller } })
+          return json(route, 200, { listing: { ...viewListing(listing, state.user), ...seller } })
         }
         if (method === 'PATCH') {
           const b = bodyOf()
@@ -1134,6 +1177,46 @@ export const test = base.extend({
           m.listings = m.listings.filter((l) => l.id !== listing.id)
           return route.fulfill({ status: 204, body: '' })
         }
+      }
+
+      // The admin photo queue (#504), as src/routes/adminPhotoReview.mjs
+      // serves it: waiting listings oldest first, and approve or reject only
+      // for the version the queue showed (409 after an edit, 404 once decided).
+      // The overview counts the queue. Admins only, like requireAdmin.
+      if (pathname === '/api/admin/overview' || pathname.startsWith('/api/admin/photo-review')) {
+        if (!state.loggedIn) return json(route, 401, { error: { message: 'You must sign in to access this resource.', status: 401 } })
+        if (state.user.isAdmin !== true) return json(route, 403, { error: { message: 'Admin access required.', status: 403 } })
+      }
+      if (pathname === '/api/admin/overview' && method === 'GET') {
+        const pendingPhotos = state.marketplace.listings.filter((l) => l.photosReview === 'pending').length
+        return json(route, 200, { overview: { newLeads: 0, pendingCampaigns: 0, activeCampaigns: 0, advertisers: 0, pendingPhotos } })
+      }
+      if (pathname === '/api/admin/photo-review' && method === 'GET') {
+        const waiting = state.marketplace.listings
+          .filter((l) => l.photosReview === 'pending')
+          .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
+        return json(route, 200, { listings: waiting.map(photoReviewRow) })
+      }
+      const photoDecision = pathname.match(/^\/api\/admin\/photo-review\/([^/]+)\/(approve|reject)$/)
+      if (photoDecision && method === 'POST') {
+        const [, id, decision] = photoDecision
+        const { updatedAt } = bodyOf()
+        if (typeof updatedAt !== 'string' || !updatedAt) {
+          return json(route, 400, { error: { message: 'Reload the photo queue and try again.', status: 400 } })
+        }
+        const listing = state.marketplace.listings.find((l) => l.id === id)
+        if (!listing || listing.photosReview !== 'pending') {
+          return json(route, 404, { error: { message: 'No listing with photos waiting for review.', status: 404 } })
+        }
+        if (listing.updatedAt !== updatedAt) {
+          return json(route, 409, {
+            error: { message: 'The seller changed this listing after the queue loaded. Reload to see the latest photos.', status: 409 },
+          })
+        }
+        state.marketplace.photoDecisions.push({ id, decision, updatedAt })
+        listing.photosReview = decision === 'approve' ? 'approved' : 'rejected'
+        if (decision === 'reject') Object.assign(listing, { images: [], imageUrl: null })
+        return json(route, 200, { ok: true, photosReview: listing.photosReview })
       }
 
       // Club directory (#16): the payload shape mirrors searchClubDirectory()
@@ -1322,6 +1405,20 @@ export const test = base.extend({
       return json(route, 200, { items: [], ok: true })
     })
 
+    // A cold start (coldStart below): every /api call made before the pretend
+    // instance is up waits for it, then the handler above answers, so calls
+    // come back in the order they left. Registered after that handler, so
+    // Playwright tries this one first.
+    await context.route('**/api/**', async (route) => {
+      const wait = state.awakeAt - Date.now()
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+      try {
+        await route.fallback()
+      } catch {
+        // The test ended, and closed the page, while this call was waiting.
+      }
+    })
+
     // Supabase Storage (#171): the browser PUTs a listing photo straight to the
     // signed upload URL and later reads it back from the public bucket URL.
     // The PUT body is kept (the JPEG is cut out of it whether the client sent
@@ -1369,6 +1466,11 @@ export const test = base.extend({
       // code exchange and supabase-sync sign this new Google account in.
       enableGoogleSignIn(overrides = {}) {
         state.googleUser = { id: 'e2e-google-user', email: 'new.student@gmail.com', name: 'New Student', ...overrides }
+      },
+      // A Render cold start from now (issue #389): the free instance sleeps
+      // when idle and takes up to about 30 s to boot, and every call waits.
+      coldStart(ms = 20_000) {
+        state.awakeAt = Date.now() + ms
       },
       timeOutLoginCode() {
         state.loginCodeTimedOut = true
@@ -1429,6 +1531,16 @@ export const test = base.extend({
       },
       failNextPhotoUpload() {
         state.marketplace.failNextUpload = true
+      },
+      // Photo review (#504): these listings' photos wait for an admin, each
+      // since `hoursAgo` (default 2), which is also the version the queue sends.
+      seedPhotoReview(waiting = []) {
+        for (const { id, hoursAgo = 2 } of waiting) {
+          const listing = state.marketplace.listings.find((l) => l.id === id)
+          if (!listing) throw new Error(`seedPhotoReview: no listing ${id}`)
+          listing.photosReview = 'pending'
+          listing.updatedAt = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString()
+        }
       },
       seedPush(overrides = {}) {
         state.push = defaultPush(overrides)

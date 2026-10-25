@@ -11,6 +11,9 @@ about 15 minutes without a request and boots it again on the next one
 Every first page load pays that wait, because `AuthContext` calls
 `/api/session` on boot and every API call is a relative `/api/...` URL that
 Vercel rewrites to Render. Until the instance answers, the app looks hung.
+The sign-in page is the exception since issue #389: a browser with no stored
+Supabase session gets the form at once, since the form needs nothing from the
+server, and a stored session gets a skeleton of the form while it is restored.
 
 ## Why the GitHub cron was not enough
 
@@ -39,7 +42,9 @@ sleep, so most visits still hit a cold start.
    Any HTTP status counts as awake; a network error or a 90 s timeout hides
    the pill and leaves the page's normal error handling in charge. This does
    not shorten the cold start, it only stops it from looking like a broken
-   site.
+   site. The sign-in page shows no pill: the same words sit in the skeleton's
+   status line, or under the submit button when a sign-in is waiting on the
+   server (issue #389).
 
 ## One-time setup (owner)
 

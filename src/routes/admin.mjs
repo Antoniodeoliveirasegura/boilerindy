@@ -14,6 +14,7 @@ import { CAMPAIGN_STATUSES } from '../advertiserCampaign.mjs'
 import { DB_FEATURES, respondDbError, respondSchemaMissing, SOFT_DELETE_SQL_FILE } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
 import { countMarketplaceReports, respondMarketplaceDbError } from '../marketplaceDb.mjs'
+import { countPendingPhotoReviews } from '../marketplacePhotoReview.mjs'
 import { isMissingColumnError, isUuid } from '../moderation.mjs'
 import { hashPassword } from '../passwordHash.mjs'
 import { STUDY_SOFT_DELETE_SQL_FILE } from '../studyGroups.mjs'
@@ -24,8 +25,9 @@ import { STUDY_SOFT_DELETE_SQL_FILE } from '../studyGroups.mjs'
 // and the Sentry smoke test (issue #50). Moved out of server.mjs as a feature
 // router (issue #191) with the handlers unchanged apart from nowIso() and
 // makeId() inlined. The admin report queue (issue #192) is its own router,
-// src/routes/adminReports.mjs, which server.mjs mounts right after this one;
-// no path matches in both.
+// src/routes/adminReports.mjs, which server.mjs mounts right after this one,
+// and so is the marketplace photo queue (issue #504),
+// src/routes/adminPhotoReview.mjs; no path matches in two of them.
 
 // 503 advertiser_schema_missing until the advertiser portal tables exist, 500
 // otherwise: the same wrapper over src/dbErrors.mjs (#218) as the advertiser
@@ -104,13 +106,16 @@ export function createAdminRouter({ supabase, requireAuth, requireAdmin, adminWr
     return count || 0
   }
 
+  // pendingPhotos (issue #504) is the photo queue's length, or null while it
+  // cannot be counted (README step 46 has not run); it never fails the overview.
   router.get('/api/admin/overview', requireAuth, requireAdmin, async (_req, res) => {
     try {
-      const [newLeads, pendingCampaigns, activeCampaigns, advertisers] = await Promise.all([
+      const [newLeads, pendingCampaigns, activeCampaigns, advertisers, pendingPhotos] = await Promise.all([
         countTableRows('advertiser_leads', [['status', 'new']]),
         countTableRows('campaigns', [['status', 'pending_review']]),
         countTableRows('campaigns', [['status', 'active']]),
         countTableRows('advertisers'),
+        countPendingPhotoReviews(supabase),
       ])
       res.json({
         overview: {
@@ -118,6 +123,7 @@ export function createAdminRouter({ supabase, requireAuth, requireAdmin, adminWr
           pendingCampaigns,
           activeCampaigns,
           advertisers,
+          pendingPhotos,
         },
       })
     } catch (error) {

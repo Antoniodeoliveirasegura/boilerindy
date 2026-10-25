@@ -156,3 +156,13 @@ describe('Privacy sign-up links', () => {
     expect(body).toMatch(/deleted with your account/)
   })
 })
+
+// Issue #504 - new marketplace photos wait for an admin before other students
+// see them, so the policy says a person looks at them first.
+describe('Privacy marketplace photos', () => {
+  test('say an admin reviews listing photos before other students see them', () => {
+    renderAt('/privacy')
+    const body = screen.getByText(/Content you create/).textContent || ''
+    expect(body).toMatch(/Photos you add to a\s+marketplace listing are reviewed by an admin before other students see them\./)
+  })
+})

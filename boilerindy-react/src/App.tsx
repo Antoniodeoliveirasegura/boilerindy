@@ -60,6 +60,7 @@ const AdminCampaigns = lazyRoute(() => import('./pages/admin/AdminCampaigns'))
 const AdminAdvertisers = lazyRoute(() => import('./pages/admin/AdminAdvertisers'))
 const AdminDeleted = lazyRoute(() => import('./pages/admin/AdminDeleted'))
 const AdminReports = lazyRoute(() => import('./pages/admin/AdminReports'))
+const AdminPhotoReview = lazyRoute(() => import('./pages/admin/AdminPhotoReview'))
 
 // The student pages, fetched in idle time once someone is signed in, so the
 // first visit to each renders at once. With router transitions off (below), a
@@ -295,6 +296,7 @@ export default function App() {
                 <Route path="campaigns" element={<AdminCampaigns />} />
                 <Route path="advertisers" element={<AdminAdvertisers />} />
                 <Route path="reports" element={<AdminReports />} />
+                <Route path="photos" element={<AdminPhotoReview />} />
                 <Route path="deleted" element={<AdminDeleted />} />
               </Route>
             </Route>
