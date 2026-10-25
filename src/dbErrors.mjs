@@ -157,6 +157,14 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-campus-events.sql',
     'Could not save campus events.',
   ),
+  // Following a club (#16): club_follows, and campus_events.organization_key,
+  // which the ingest and the campus events reads do without until it exists.
+  club_follows: dbFeature(
+    'club_follows',
+    'Following clubs',
+    'db/supabase-club-follows.sql',
+    'Could not update the clubs you follow. Please try again.',
+  ),
   advertiser: dbFeature(
     'advertiser',
     'The advertiser portal',

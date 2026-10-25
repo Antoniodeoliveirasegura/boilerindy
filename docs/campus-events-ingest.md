@@ -62,6 +62,7 @@ of them (see [Jev classification](#jev-classification)).
 | `venue_kind` | `online` (Localist's `virtual`, LiveWhale's online only, "Online" or "Zoom" as the location, "online only" in the title), `indy_campus` (a campus building or room in the title or location, or within 2.5 km of campus), `west_lafayette` (a West Lafayette place in the location, or coordinates near that campus), `elsewhere` (another city in the location, or coordinates farther out), else `unknown`. Jev may turn `unknown` into `online` or `elsewhere`. |
 | `open_to_all` | `false` for a practice, rehearsal, officer or committee meeting, tryout or members-only session (by title); `true` when the source lists students or the public as the audience; NULL otherwise. Jev may close one (a staff luncheon) or open one. |
 | `classifier` | Jev's stored verdict: the model, the question version, every answer with its probabilities, and `classified_at`. Written only with `CAMPUS_EVENTS_CLASSIFY` on or `shadow`; NULL otherwise, and again after the text changes. |
+| `organization_key` | README step 48 (`db/supabase-club-follows.sql`, issue #16): the Engage organization that listed the event, `boilerlink:<organizationId>` or `thespot:<organizationId>`, which following a club reads ([clubs.md](clubs.md#following-a-club)). NULL for Localist and LiveWhale, and for an Engage listing whose `organizationId` is not a positive integer. A row that absorbs another source's copy of the event takes the copy's key when it has none. Written on every row of every run, so the first run after step 48 fills the stored rows. |
 
 The Indianapolis filter decides in this order, and the summary counts each
 reason:
@@ -146,10 +147,18 @@ The 14 Purdue listings dropped were the State Fairgrounds hockey games and the
 World Food Championships, the Carmel Christmas show, a West Lafayette workshop
 and the four Winter Commencement listings at Mackey Arena. The 62 IU merges are
 multi-day exhibits listed once a day. A real run answers the same summary
-without `rows`, plus `upserted` and, per swept source, `swept`, and with
-classification on, `classify` ([Jev classification](#jev-classification)). A
-dry run never asks Jev: its rows are the rules' answers, and with
-classification on it says `"classify": { "skipped": "dry run" }`.
+without `rows`, plus `upserted`, `organizationKeys` and, per swept source,
+`swept`, and with classification on, `classify` ([Jev
+classification](#jev-classification)). A dry run never asks Jev: its rows are
+the rules' answers, and with classification on it says
+`"classify": { "skipped": "dry run" }`.
+
+`organizationKeys` is `"written"`, or `"column_missing"` before README step 48
+has added `campus_events.organization_key`: the first batch that names the
+column fails on it, the log says once
+`[club_follows] schema missing: run db/supabase-club-follows.sql in the
+Supabase SQL Editor, then retry.`, and that batch and every later one go up
+without it. The run otherwise writes and sweeps as before.
 
 ## Turning it on (owner)
 

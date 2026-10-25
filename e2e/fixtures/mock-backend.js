@@ -681,6 +681,11 @@ export const test = base.extend({
       parking: null,
       // Club directory (#16): { clubs, degraded }. null === the built-in sample list.
       clubs: null,
+      // Following a club (#16): the organization keys the test user follows,
+      // oldest first. null === a server before README step 48, whose follow
+      // routes answer 503 club_follows_schema_missing and whose calendar read
+      // marks no shared row; seedClubFollows turns following on.
+      clubFollows: null,
       // Marketplace (#32) + listing photos (#171): see defaultMarketplace / seedMarketplace.
       marketplace: defaultMarketplace(),
       // Dining (#119): { snapshot, unavailable }. null === the built-in sample snapshot.
@@ -852,7 +857,12 @@ export const test = base.extend({
       if (pathname === '/api/me/calendar') {
         // As listCalendarItems: the shared rows join only a read that asks.
         if (searchParams.get('shared') !== '1') return json(route, 200, { items: state.calendarItems })
-        const merged = [...state.calendarItems, ...state.sharedEvents]
+        // With following on (#16), every shared row says whether the student
+        // follows the club that listed it, as toSharedCalendarItem does.
+        const shared = Array.isArray(state.clubFollows)
+          ? state.sharedEvents.map((item) => ({ ...item, followed: Boolean(item.organizationKey) && state.clubFollows.includes(item.organizationKey) }))
+          : state.sharedEvents
+        const merged = [...state.calendarItems, ...shared]
         return json(route, 200, { items: merged.sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime)) })
       }
 
@@ -1026,6 +1036,42 @@ export const test = base.extend({
         if (method === 'POST' && name && !state.diningFavorites.includes(name)) state.diningFavorites.push(name)
         if (method === 'DELETE') state.diningFavorites = state.diningFavorites.filter((n) => n !== name)
         return json(route, 200, { ok: true, favorites: [...state.diningFavorites] })
+      }
+
+      // Following a club (#16), as src/routes/clubFollows.mjs answers: the
+      // keys oldest first and the followed clubs the directory lists by name;
+      // a follow checks the key and the directory, an unfollow only the key.
+      const clubFollowMatch = /^\/api\/me\/club-follows(?:\/([^/]+))?$/.exec(pathname)
+      if (clubFollowMatch) {
+        if (!Array.isArray(state.clubFollows)) {
+          return json(route, 503, {
+            error: { message: 'Following clubs is not set up yet. Please try again later.', code: 'club_follows_schema_missing', status: 503 },
+          })
+        }
+        const directory = state.clubs?.clubs || sampleClubs()
+        const keyOf = (club) => `boilerlink:${club.id}`
+        if (!clubFollowMatch[1] && method === 'GET') {
+          const clubs = directory
+            .filter((club) => state.clubFollows.includes(keyOf(club)))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((club) => ({ ...club, organizationKey: keyOf(club) }))
+          return json(route, 200, { follows: [...state.clubFollows], clubs })
+        }
+        const key = decodeURIComponent(clubFollowMatch[1] || '')
+        if (!/^(boilerlink|thespot):[1-9][0-9]{0,11}$/.test(key)) {
+          return json(route, 400, { error: { message: 'That is not a club the app knows.', code: 'club_follows_bad_key', status: 400 } })
+        }
+        if (method === 'PUT') {
+          if (!directory.some((club) => keyOf(club) === key)) {
+            return json(route, 404, { error: { message: 'That club is not in the club directory.', code: 'club_follows_unknown_club', status: 404 } })
+          }
+          if (!state.clubFollows.includes(key)) state.clubFollows.push(key)
+          return json(route, 200, { ok: true, organizationKey: key, following: true })
+        }
+        if (method === 'DELETE') {
+          state.clubFollows = state.clubFollows.filter((k) => k !== key)
+          return json(route, 200, { ok: true, organizationKey: key, following: false })
+        }
       }
 
       // Marketplace (#32) and listing photos (#171): shapes mirror mapListingRow
@@ -1467,6 +1513,11 @@ export const test = base.extend({
       },
       seedClubs({ clubs = null, degraded = false } = {}) {
         state.clubs = { clubs, degraded }
+      },
+      // Turns following on (#16) with these organization keys followed, e.g.
+      // ['boilerlink:1'] for the sample Chess Club.
+      seedClubFollows(keys = []) {
+        state.clubFollows = [...keys]
       },
       seedDining({ snapshot = null, unavailable = false } = {}) {
         state.dining = { snapshot, unavailable }

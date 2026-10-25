@@ -7,9 +7,9 @@ import PageTitle from '../components/PageTitle'
 import SkipLink from '../components/SkipLink'
 
 // Privacy policy page (issues #51 / #113). Covers ALL data BoilerIndy handles
-// (account, imported schedule, grades, posts, AI features, analytics, the
-// sign-up link tag, the calendar feed). Contact is privacy@boilerindy.app
-// (Cloudflare email routing).
+// (account, imported schedule, grades, followed clubs, posts, AI features,
+// analytics, the sign-up link tag, the calendar feed). Contact is
+// privacy@boilerindy.app (Cloudflare email routing).
 // The Contact section links to /delete-account (issue #193).
 
 // Reading column type: Jakarta section heads over 15px/1.6 prose.
@@ -49,6 +49,11 @@ removes its events.`,
     body: `Grades you choose to enter in Grade Tracker are stored in your account so the tool can
 calculate your standing. They are visible only to you and are removed if your account is
 deleted.`,
+  },
+  {
+    title: 'Clubs you follow',
+    body: `The clubs you follow on the Clubs page are stored with your account, so they show on every
+device you sign in on, and they are deleted with your account.`,
   },
   {
     title: 'Things you post',
@@ -163,7 +168,7 @@ export default function Privacy() {
             <div>
               <h1 className="page-title">Privacy policy</h1>
               <p className="page-sub">
-                Last updated October 20, 2026. The short version: your data stays in our own database, we
+                Last updated October 25, 2026. The short version: your data stays in our own database, we
                 use no advertising trackers, we never store your Purdue password, and you can opt out of
                 analytics or delete your account anytime.
               </p>

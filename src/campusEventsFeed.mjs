@@ -11,8 +11,15 @@
 // student's rows. Behind CAMPUS_EVENTS_FEED, off by default: server.mjs builds
 // the calendar reads and the public router with the switch, and with it off
 // nothing here runs. docs/campus-events-feed.md is the operator's view.
+//
+// Every row says which club listed it (`organizationKey`), and on a student's
+// read whether the student follows that club (`followed`, issue #16,
+// src/clubFollows.mjs). Both come from README step 48: until it runs every
+// `organizationKey` is null and no row carries `followed`.
 
+import { readFollowedKeys } from './clubFollows.mjs'
 import { DB_FEATURES, isSchemaMissingError, logRouteError, logSchemaMissingOnce } from './dbErrors.mjs'
+import { isMissingColumnError } from './moderation.mjs'
 import { selectUpTo } from './pagedSelect.mjs'
 import { httpUrlOrNull } from './sharedEvents.mjs'
 
@@ -51,6 +58,9 @@ export const SOURCE_LABELS = Object.freeze({
 
 const COLUMNS =
   'id, title, description, starts_at, ends_at, location, all_day, source_key, source_url, category, free_food, venue_kind, open_to_all, series_key, last_seen_at'
+// organization_key is README step 48's (db/supabase-club-follows.sql); the
+// reads ask for it and fall back to COLUMNS while it is missing.
+const COLUMNS_WITH_ORGANIZATION = `${COLUMNS}, organization_key`
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** The calendar category a campus_events category is listed under. */
@@ -85,11 +95,22 @@ function byStartThenId(a, b) {
 /**
  * One campus_events row in the client shape of listCalendarItems, marked
  * `shared: true`, plus where it came from: `sourceKey`, the label the page
- * shows (SOURCE_LABELS) and the listing to link out to, http(s) only. The id is
- * prefixed so it can never be taken for one of the student's calendar_items,
- * the only rows a task can be marked done on.
+ * shows (SOURCE_LABELS), the listing to link out to, http(s) only, and the
+ * club that listed it (`organizationKey`, null for the Purdue and IU
+ * calendars). The id is prefixed so it can never be taken for one of the
+ * student's calendar_items, the only rows a task can be marked done on.
+ *
+ * With `followedKeys`, the organization keys a student follows, the row also
+ * says whether it is one of theirs (`followed`). Without them, on the
+ * signed-out read or when the follows could not be read (README step 48 not
+ * run), the row carries no `followed` at all, so a client can tell "not
+ * followed" from "not known". Fields are only ever added here: the native app
+ * reads these rows too.
+ * @param {object} row a campus_events row
+ * @param {{ followedKeys?: Set<string> | null }} [options]
  */
-export function toSharedCalendarItem(row) {
+export function toSharedCalendarItem(row, { followedKeys = null } = {}) {
+  const organizationKey = typeof row.organization_key === 'string' && row.organization_key ? row.organization_key : null
   return {
     id: `campus:${row.id}`,
     sourceId: null,
@@ -107,6 +128,8 @@ export function toSharedCalendarItem(row) {
     sourceKey: row.source_key,
     sourceLabel: SOURCE_LABELS[row.source_key] || 'Campus calendar',
     sourceUrl: httpUrlOrNull(row.source_url),
+    organizationKey,
+    ...(followedKeys ? { followed: organizationKey !== null && followedKeys.has(organizationKey) } : {}),
   }
 }
 
@@ -121,11 +144,17 @@ export function toSharedCalendarItem(row) {
  *   - under one of `categories`, as sharedCalendarCategory maps them;
  *   - one per series_key, its next occurrence, so a weekly class shows once.
  *
+ * `followedKeys` marks the rows of the clubs a student follows
+ * (toSharedCalendarItem); it never changes which rows are listed.
+ *
  * Pure: listSharedCalendarItems reads the rows and passes the clock.
  * @param {object[]} rows campus_events rows
- * @param {{ now?: Date, since?: Date, categories?: readonly string[] }} [options]
+ * @param {{ now?: Date, since?: Date, categories?: readonly string[], followedKeys?: Set<string> | null }} [options]
  */
-export function planSharedCalendarItems(rows, { now = new Date(), since = now, categories = SHARED_CALENDAR_CATEGORIES } = {}) {
+export function planSharedCalendarItems(
+  rows,
+  { now = new Date(), since = now, categories = SHARED_CALENDAR_CATEGORIES, followedKeys = null } = {},
+) {
   const freshFrom = now.getTime() - STALE_AFTER_MS
   const notOverBy = Math.max(now.getTime(), since.getTime())
   const listed = (rows || []).filter(
@@ -141,20 +170,32 @@ export function planSharedCalendarItems(rows, { now = new Date(), since = now, c
     const key = row.series_key || `row:${row.id}`
     if (!bySeries.has(key)) bySeries.set(key, row)
   }
-  return [...bySeries.values()].map(toSharedCalendarItem)
+  return [...bySeries.values()].map((row) => toSharedCalendarItem(row, { followedKeys }))
 }
 
 // The rows a read may list, narrowed in the database by the rules the plan
 // applies again: fresh, no hidden venue, no members-only session, and an end
 // from now on or a start within the last day (an all-day row with no end).
-function listableRowsQuery(supabase, now) {
+function listableRowsQuery(supabase, now, columns) {
   return supabase
     .from('campus_events')
-    .select(COLUMNS)
+    .select(columns)
     .gte('last_seen_at', new Date(now.getTime() - STALE_AFTER_MS).toISOString())
     .or(`ends_at.gte.${now.toISOString()},starts_at.gte.${new Date(now.getTime() - DAY_MS).toISOString()}`)
     .not('venue_kind', 'in', `(${HIDDEN_VENUE_KINDS.join(',')})`)
     .not('open_to_all', 'is', false)
+}
+
+/**
+ * selectUpTo over `buildQuery(columns)` with organization_key, and again
+ * without it while README step 48 has not added the column, the log naming
+ * db/supabase-club-follows.sql once. Every row then reads as listed by no club.
+ */
+async function selectListableRows(buildQuery, maxRows) {
+  const result = await selectUpTo(() => buildQuery(COLUMNS_WITH_ORGANIZATION), maxRows)
+  if (!result.error || !isMissingColumnError(result.error, 'organization_key')) return result
+  logSchemaMissingOnce(DB_FEATURES.club_follows, result.error)
+  return selectUpTo(() => buildQuery(COLUMNS), maxRows)
 }
 
 /**
@@ -168,15 +209,27 @@ function listableRowsQuery(supabase, now) {
  * (README step 43 not run yet) is logged once with the file to run, any other
  * failure on every read.
  *
+ * With `userId`, the clubs that student follows are read alongside
+ * (readFollowedKeys) and every row says whether it is one of theirs
+ * (`followed`); without the follows (README step 48 not run, a failed read)
+ * no row carries `followed`.
+ *
  * @param {object} supabase the Supabase client
- * @param {{ categories?: readonly string[], from?: string | null, now?: Date }} [options]
+ * @param {{ categories?: readonly string[], from?: string | null, now?: Date, userId?: string | null }} [options]
  *   from: the read's own lower bound; a later one than now also drops the shared rows over by then
  * @returns {Promise<object[]>}
  */
-export async function listSharedCalendarItems(supabase, { categories = SHARED_CALENDAR_CATEGORIES, from = null, now = new Date() } = {}) {
+export async function listSharedCalendarItems(
+  supabase,
+  { categories = SHARED_CALENDAR_CATEGORIES, from = null, now = new Date(), userId = null } = {},
+) {
   if (!categories.length) return []
-  const buildQuery = () => listableRowsQuery(supabase, now).order('starts_at', { ascending: true }).order('id', { ascending: true })
-  const { data, error } = await selectUpTo(buildQuery, SHARED_EVENTS_MAX_ROWS)
+  const buildQuery = (columns) =>
+    listableRowsQuery(supabase, now, columns).order('starts_at', { ascending: true }).order('id', { ascending: true })
+  const [{ data, error }, followedKeys] = await Promise.all([
+    selectListableRows(buildQuery, SHARED_EVENTS_MAX_ROWS),
+    userId ? readFollowedKeys(supabase, userId) : null,
+  ])
   if (error) {
     if (isSchemaMissingError(error)) logSchemaMissingOnce(DB_FEATURES.campus_events, error)
     else logRouteError('campus_events read', error)
@@ -184,7 +237,7 @@ export async function listSharedCalendarItems(supabase, { categories = SHARED_CA
   }
   const fromMs = from ? Date.parse(from) : NaN
   const since = fromMs > now.getTime() ? new Date(fromMs) : now
-  return planSharedCalendarItems(data, { now, since, categories })
+  return planSharedCalendarItems(data, { now, since, categories, followedKeys })
 }
 
 // ── The signed-out free-food read (issue #366) ──────────────────────────────
@@ -214,9 +267,9 @@ export function planPublicFreeFoodItems(rows, { now = new Date() } = {}) {
  * @returns {Promise<object[]>} campus_events rows
  */
 export async function readPublicFreeFoodRows(supabase, { now = new Date() } = {}) {
-  const buildQuery = () =>
-    listableRowsQuery(supabase, now).eq('free_food', true).order('starts_at', { ascending: true }).order('id', { ascending: true })
-  const { data, error } = await selectUpTo(buildQuery, PUBLIC_FREE_FOOD_MAX_ROWS)
+  const buildQuery = (columns) =>
+    listableRowsQuery(supabase, now, columns).eq('free_food', true).order('starts_at', { ascending: true }).order('id', { ascending: true })
+  const { data, error } = await selectListableRows(buildQuery, PUBLIC_FREE_FOOD_MAX_ROWS)
   if (error) throw error
   return data || []
 }
