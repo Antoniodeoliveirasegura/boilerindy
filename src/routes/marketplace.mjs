@@ -5,6 +5,7 @@ import { badRequest } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
 import { evaluateReportTarget, mapListingRow, parseReportParts, validateListingInput } from '../marketplace.mjs'
 import { countMarketplaceReports, findOwnedMarketplaceListing, respondMarketplaceDbError } from '../marketplaceDb.mjs'
+import { nextPhotoReview } from '../marketplacePhotoReview.mjs'
 import { photoAuthorizationHandler } from '../marketplacePhotos.mjs'
 import { recordListingReport } from '../marketplaceReports.mjs'
 import { ownerOrAdminScope } from '../moderation.mjs'
@@ -16,7 +17,10 @@ import { sanitizeSearchTerm } from '../searchTerm.mjs'
 // for photos and pricing, and db/supabase-soft-delete.sql for the deleted_at
 // column. Moved out of server.mjs as a feature router (issue #191) with the
 // handlers unchanged, except that the shared readers in src/marketplaceDb.mjs
-// take the Supabase client as their first argument.
+// take the Supabase client as their first argument. Photo review (issue #504):
+// with MARKETPLACE_PHOTO_REVIEW on, a create or an edit that adds a photo holds
+// the photos as pending (db/supabase-marketplace-photo-review.sql), and every
+// read leaves them out for anyone but the owner and admins (mapListingRow).
 
 const MARKETPLACE_PAGE_SIZE = 24
 
@@ -35,8 +39,9 @@ const MARKETPLACE_PAGE_SIZE = 24
  * @param {Function} deps.marketplaceReadRateLimit  the listing detail limiter (#114)
  * @param {Function} deps.boardWriteRateLimit       the community write limiter (create, edit, report)
  * @param {Function} deps.userWriteRateLimit        the shared per-user write limiter (delete)
+ * @param {boolean}  [deps.photoReview]             MARKETPLACE_PHOTO_REVIEW: new photos wait for an admin (off by default)
  */
-export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, marketplacePhotos, marketplacePhotoRateLimit, marketplaceReadRateLimit, boardWriteRateLimit, userWriteRateLimit }) {
+export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, marketplacePhotos, marketplacePhotoRateLimit, marketplaceReadRateLimit, boardWriteRateLimit, userWriteRateLimit, photoReview = false }) {
   const router = express.Router()
 
   router.post('/api/marketplace/photos/authorize', requireAuth, marketplacePhotoRateLimit,
@@ -65,8 +70,9 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
       query = excludeBlocked(query, 'user_id', blocked)
       const { data, error } = await query
       if (error) throw error
+      const viewerIsAdmin = isUserAdmin(req.currentUser) === true
       res.json({
-        listings: (data || []).map((r) => mapListingRow(r, userId)),
+        listings: (data || []).map((r) => mapListingRow(r, userId, null, { viewerIsAdmin })),
         page,
         hasMore: (data || []).length === MARKETPLACE_PAGE_SIZE,
         canPost: Boolean(req.currentUser.purdue_linked_at),
@@ -115,19 +121,20 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
   // users, so it is rate-limited to blunt bulk id-enumeration harvesting (#114).
   router.get('/api/marketplace/:id', marketplaceReadRateLimit, requireIdParam('id'), requireAuth, async (req, res) => {
     const userId = req.currentUser.id
+    const viewerIsAdmin = isUserAdmin(req.currentUser) === true
     try {
       const { data, error } = await supabase.from('marketplace_listings').select('*').eq('id', req.params.id).is('deleted_at', null).maybeSingle()
       if (error) throw error
       if (
         !data
-        || (data.hidden && data.user_id !== userId && !isUserAdmin(req.currentUser))
+        || (data.hidden && data.user_id !== userId && !viewerIsAdmin)
         // A block either way reads as a missing listing (#192).
         || isBlockedEither(await loadBlockedIds(supabase, userId), data.user_id)
       ) {
         return res.status(404).json({ error: { message: 'Listing not found.', status: 404 } })
       }
       const { data: seller } = await supabase.from('users').select('display_name, email, purdue_email').eq('id', data.user_id).single()
-      res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.purdue_email || seller?.email }) })
+      res.json({ listing: mapListingRow(data, userId, { name: seller?.display_name, email: seller?.purdue_email || seller?.email }, { viewerIsAdmin }) })
     } catch (e) {
       return respondMarketplaceDbError(res, e)
     }
@@ -144,6 +151,8 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
     if (!profanity.ok) return res.status(400).json({ error: { message: profanity.message, status: 400 } })
     try {
       Object.assign(value, await marketplacePhotos.resolve(req.body || {}, req.currentUser.id))
+      const review = nextPhotoReview({ reviewOn: photoReview, nextUrls: value.image_urls })
+      if (review) value.photos_review = review
       const { data, error } = await supabase
         .from('marketplace_listings')
         .insert({ user_id: req.currentUser.id, ...value })
@@ -172,6 +181,10 @@ export function createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, ma
       const current = await findOwnedMarketplaceListing(supabase, req.params.id, userId)
       if (!current) return res.status(404).json({ error: { message: 'Listing not found or not yours.', status: 404 } })
       Object.assign(value, await marketplacePhotos.resolve(req.body || {}, userId, req.params.id, current.image_url, current.image_urls))
+      // A photo the listing did not have waits for an admin while the switch
+      // is on; a reorder, a removal or a text edit leaves the state alone.
+      const review = nextPhotoReview({ reviewOn: photoReview, current, nextUrls: value.image_urls })
+      if (review) value.photos_review = review
       const { data, error } = await supabase
         .from('marketplace_listings')
         .update({ ...value, updated_at: new Date().toISOString() })

@@ -49,12 +49,17 @@ function fakePhotos() {
     async resolve(body, userId, ...rest) {
       calls.push(['resolve', userId, ...rest])
       if (body.failPhoto) throw new PhotoError('Select the photo again.', 400)
+      // The ordered gallery (#177): links kept as sent, a receipt as its bucket URL.
+      if (Array.isArray(body.photos)) {
+        const urls = body.photos.map((photo) => photo.url ?? `https://cdn.example/${photo.receipt}.jpg`)
+        return { image_url: urls[0] || null, image_urls: urls }
+      }
       return body.imageUploadReceipt ? { image_url: 'https://cdn.example/photo.jpg', image_urls: ['https://cdn.example/photo.jpg'] } : {}
     },
   }
 }
 
-async function withApp({ user = STUDENT, handlers = {} } = {}, run) {
+async function withApp({ user = STUDENT, handlers = {}, photoReview } = {}, run) {
   const supabase = fakeSupabase({
     marketplace_listings: () => ({ data: [], error: null }),
     marketplace_reports: () => ({ data: [], error: null }),
@@ -88,6 +93,8 @@ async function withApp({ user = STUDENT, handlers = {} } = {}, run) {
       marketplaceReadRateLimit: limiter('marketplaceReadRateLimit'),
       boardWriteRateLimit: limiter('boardWriteRateLimit'),
       userWriteRateLimit: limiter('userWriteRateLimit'),
+      // Left out unless a test sets it, as server.mjs leaves the switch off by default (#504).
+      ...(photoReview === undefined ? {} : { photoReview }),
     }),
   )
   const server = app.listen(0)
@@ -471,5 +478,197 @@ test('a malformed :id answers the 404 envelope before any query', async () => {
       assert.deepEqual(answer.body, { error: { message: 'Not found.', status: 404 } })
     }
     assert.equal(supabase.queries.length, 0)
+  })
+})
+
+// ---- Photo review (#504) ------------------------------------------------------
+// New photos wait for an admin before other students see them, behind
+// MARKETPLACE_PHOTO_REVIEW. Every read path that returns a listing (the list,
+// the detail, the owner's own list, the create and edit answers) leaves the
+// photo URLs out for anyone but the owner and admins until they are approved.
+
+const PHOTO = 'https://cdn.example/photo.jpg'
+const PHOTO_2 = 'https://cdn.example/second.jpg'
+const OTHER_STUDENT = { id: '44444444-4444-4444-8444-444444444444', email: 'other@example.com', purdue_linked_at: LINKED_AT }
+
+// A listing by STUDENT as step 46 stores it: rejected photos were cleared.
+function reviewedRow(photosReview, overrides = {}) {
+  const photos = photosReview === 'rejected' ? { image_url: null, image_urls: [] } : { image_url: PHOTO, image_urls: [PHOTO, PHOTO_2] }
+  return listingRow({ ...photos, photos_review: photosReview, ...overrides })
+}
+
+// What each viewer gets from every read: the list, the detail and, for the owner, /mine.
+async function readsAs(user, row) {
+  const handlers = { marketplace_listings: (chain) => (hasCall(chain, 'maybeSingle') ? { data: row, error: null } : { data: [row], error: null }) }
+  const shown = []
+  await withApp({ user, handlers }, async ({ call }) => {
+    shown.push((await call('GET', '/api/marketplace')).body.listings[0])
+    shown.push((await call('GET', `/api/marketplace/${LISTING}`)).body.listing)
+    if (user === STUDENT) shown.push((await call('GET', '/api/marketplace/mine')).body.listings[0])
+  })
+  return shown
+}
+
+test('pending photos reach only the owner and admins on the list, the detail and /mine, and the flag reaches everyone', async () => {
+  const row = reviewedRow('pending')
+  for (const listing of await readsAs(OTHER_STUDENT, row)) {
+    assert.deepEqual(listing.images, [])
+    assert.equal(listing.imageUrl, null)
+    assert.equal(listing.photosPending, true)
+    assert.ok(!('photosReview' in listing), 'the state itself is for the owner and admins')
+    assert.equal(listing.title, 'Calculus textbook', 'the listing stays up without its photos')
+  }
+  const owner = await readsAs(STUDENT, row)
+  assert.equal(owner.length, 3)
+  for (const listing of [...owner, ...(await readsAs(ADMIN, row))]) {
+    assert.deepEqual(listing.images, [PHOTO, PHOTO_2])
+    assert.equal(listing.imageUrl, PHOTO)
+    assert.equal(listing.photosPending, true)
+    assert.equal(listing.photosReview, 'pending')
+  }
+})
+
+test('approved photos, and every listing from before step 46, reach every student with nothing flagged', async () => {
+  const beforeStep46 = listingRow({ image_url: PHOTO, image_urls: [PHOTO, PHOTO_2] })
+  assert.ok(!('photos_review' in beforeStep46))
+  for (const row of [reviewedRow('approved'), beforeStep46]) {
+    for (const listing of await readsAs(OTHER_STUDENT, row)) {
+      assert.deepEqual(listing.images, [PHOTO, PHOTO_2])
+      assert.equal(listing.imageUrl, PHOTO)
+      assert.equal(listing.photosPending, false)
+      assert.ok(!('photosReview' in listing))
+    }
+    for (const listing of await readsAs(STUDENT, row)) assert.equal(listing.photosReview, 'approved')
+  }
+})
+
+test('rejected photos are gone for everyone, and only the owner and admins are told why', async () => {
+  const row = reviewedRow('rejected')
+  for (const listing of await readsAs(OTHER_STUDENT, row)) {
+    assert.deepEqual(listing.images, [])
+    assert.equal(listing.photosPending, false, 'nothing is waiting: a placeholder would mislead')
+    assert.ok(!('photosReview' in listing))
+  }
+  for (const listing of [...(await readsAs(STUDENT, row)), ...(await readsAs(ADMIN, row))]) {
+    assert.deepEqual(listing.images, [])
+    assert.equal(listing.photosPending, false)
+    assert.equal(listing.photosReview, 'rejected')
+  }
+  // Photos a database edit left on a rejected row are still withheld from other students.
+  const stale = reviewedRow('rejected', { image_url: PHOTO, image_urls: [PHOTO] })
+  for (const listing of await readsAs(OTHER_STUDENT, stale)) assert.deepEqual(listing.images, [])
+  for (const listing of await readsAs(STUDENT, stale)) assert.deepEqual(listing.images, [PHOTO])
+})
+
+// The listing a write stored: the fake echoes the inserted or updated values
+// over `current`, the row the edit read first.
+function echoHandlers(state) {
+  return {
+    marketplace_listings: (chain) => {
+      const op = operation(chain)
+      if (op === 'insert') return { data: { ...listingRow(), ...chain.find((c) => c.method === 'insert').args[0] }, error: null }
+      if (op === 'update') return { data: [{ ...state.current, ...chain.find((c) => c.method === 'update').args[0] }], error: null }
+      return { data: state.current, error: null }
+    },
+  }
+}
+
+const written = (supabase, op) => supabase.queriesOf('marketplace_listings').filter((q) => operation(q.chain) === op).map((q) => q.chain.find((c) => c.method === op).args[0])
+
+test('with the switch off, the default, no write names photos_review and new photos show at once', async () => {
+  const state = { current: listingRow({ image_url: PHOTO, image_urls: [PHOTO] }) }
+  for (const photoReview of [undefined, false]) {
+    await withApp({ handlers: echoHandlers(state), photoReview }, async ({ call, supabase }) => {
+      const created = await call('POST', '/api/marketplace', { ...NEW_LISTING, photos: [{ url: PHOTO }] })
+      assert.equal(created.status, 201)
+      const edited = await call('PATCH', `/api/marketplace/${LISTING}`, { photos: [{ url: PHOTO }, { url: PHOTO_2 }] })
+      assert.equal(edited.status, 200)
+      const [insert] = written(supabase, 'insert')
+      const [update] = written(supabase, 'update')
+      assert.deepEqual(insert.image_urls, [PHOTO])
+      assert.deepEqual(update.image_urls, [PHOTO, PHOTO_2])
+      assert.ok(!('photos_review' in insert) && !('photos_review' in update), 'the release behaves as before until the switch is on')
+      assert.equal(created.body.listing.photosPending, false)
+      assert.equal(edited.body.listing.photosPending, false)
+    })
+  }
+})
+
+test('with the switch on, a create with photos and an edit that adds one wait for an admin; other edits leave the state alone', async () => {
+  const state = { current: reviewedRow('approved', { image_url: PHOTO, image_urls: [PHOTO] }) }
+  await withApp({ handlers: echoHandlers(state), photoReview: true }, async ({ call, supabase }) => {
+    // A create with photos waits, and its answer tells the seller so.
+    const created = await call('POST', '/api/marketplace', { ...NEW_LISTING, photos: [{ receipt: 'receipt-1' }] })
+    assert.equal(created.status, 201)
+    assert.equal(written(supabase, 'insert')[0].photos_review, 'pending')
+    assert.deepEqual(created.body.listing.images, ['https://cdn.example/receipt-1.jpg'], 'the seller still sees their photo')
+    assert.equal(created.body.listing.photosPending, true)
+    assert.equal(created.body.listing.photosReview, 'pending')
+    // A create without photos has nothing to wait for.
+    assert.equal((await call('POST', '/api/marketplace', NEW_LISTING)).status, 201)
+    assert.ok(!('photos_review' in written(supabase, 'insert')[1]))
+
+    // Adding a photo to an approved listing holds the new set.
+    const added = await call('PATCH', `/api/marketplace/${LISTING}`, { photos: [{ url: PHOTO }, { url: PHOTO_2 }] })
+    assert.equal(added.status, 200)
+    assert.equal(written(supabase, 'update')[0].photos_review, 'pending')
+    assert.equal(added.body.listing.photosPending, true)
+    // Keeping only photos it already had, or editing the text, does not.
+    assert.equal((await call('PATCH', `/api/marketplace/${LISTING}`, { photos: [{ url: PHOTO }] })).status, 200)
+    assert.equal((await call('PATCH', `/api/marketplace/${LISTING}`, { title: 'Calculus, 9th edition', status: 'sold' })).status, 200)
+    const [, kept, text] = written(supabase, 'update')
+    assert.ok(!('photos_review' in kept) && !('photos_review' in text))
+
+    // Removing every photo from a pending listing takes it off the queue.
+    state.current = reviewedRow('pending')
+    assert.equal((await call('PATCH', `/api/marketplace/${LISTING}`, { photos: [] })).status, 200)
+    assert.equal(written(supabase, 'update')[3].photos_review, 'approved')
+    // New photos on a rejected listing go back to the queue.
+    state.current = reviewedRow('rejected')
+    assert.equal((await call('PATCH', `/api/marketplace/${LISTING}`, { photos: [{ url: PHOTO_2 }] })).status, 200)
+    assert.equal(written(supabase, 'update')[4].photos_review, 'pending')
+  })
+})
+
+test('without step 46, reads keep working and add no photo review filter; with the switch on, a write that holds photos answers 503 photo_review_schema_missing', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {})
+  // Reads select whole rows, so a database without the columns reads every listing as approved.
+  const beforeStep46 = listingRow({ user_id: SELLER, image_url: PHOTO, image_urls: [PHOTO] })
+  const readHandlers = { marketplace_listings: (chain) => (hasCall(chain, 'maybeSingle') ? { data: beforeStep46, error: null } : { data: [beforeStep46], error: null }) }
+  await withApp({ handlers: readHandlers, photoReview: true }, async ({ call, supabase }) => {
+    assert.deepEqual((await call('GET', '/api/marketplace')).body.listings[0].images, [PHOTO])
+    assert.deepEqual((await call('GET', `/api/marketplace/${LISTING}`)).body.listing.images, [PHOTO])
+    assert.equal((await call('GET', '/api/marketplace/mine')).status, 200)
+    for (const { chain } of supabase.queriesOf('marketplace_listings')) {
+      assert.ok(!chain.some((c) => c.args.some((arg) => typeof arg === 'string' && arg.startsWith('photos_review'))), 'no read names the column')
+    }
+  })
+
+  // PostgREST refuses a write that names a column it does not know (PGRST204).
+  const missing = { code: 'PGRST204', message: "Could not find the 'photos_review' column of 'marketplace_listings' in the schema cache" }
+  const handlers = {
+    marketplace_listings: (chain) => {
+      const values = chain.find((c) => c.method === 'insert' || c.method === 'update')?.args[0] || {}
+      if ('photos_review' in values) return { data: null, error: missing }
+      if (operation(chain) === 'insert') return { data: listingRow(values), error: null }
+      if (operation(chain) === 'update') return { data: [listingRow(values)], error: null }
+      return { data: listingRow({ image_url: PHOTO, image_urls: [PHOTO] }), error: null }
+    },
+  }
+  const schemaMissing = { error: { message: 'Photo review is not set up yet. Please try again later.', code: 'photo_review_schema_missing', status: 503 } }
+  await withApp({ handlers, photoReview: true }, async ({ call }) => {
+    const created = await call('POST', '/api/marketplace', { ...NEW_LISTING, photos: [{ url: PHOTO }] })
+    assert.equal(created.status, 503)
+    assert.deepEqual(created.body, schemaMissing)
+    const edited = await call('PATCH', `/api/marketplace/${LISTING}`, { photos: [{ url: PHOTO }, { url: PHOTO_2 }] })
+    assert.deepEqual(edited.body, schemaMissing)
+    // A listing without photos, and an edit that adds none, still save.
+    assert.equal((await call('POST', '/api/marketplace', NEW_LISTING)).status, 201)
+    assert.equal((await call('PATCH', `/api/marketplace/${LISTING}`, { status: 'sold' })).status, 200)
+  })
+  assert.ok(logged.mock.calls.some((c) => /photo_review\] schema missing: run db\/supabase-marketplace-photo-review\.sql/.test(String(c.arguments[0]))))
+  // With the switch off nothing names the column, so the same database takes photos as before.
+  await withApp({ handlers }, async ({ call }) => {
+    assert.equal((await call('POST', '/api/marketplace', { ...NEW_LISTING, photos: [{ url: PHOTO }] })).status, 201)
   })
 })

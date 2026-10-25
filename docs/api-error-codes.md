@@ -27,7 +27,8 @@ Not every route has moved to this envelope yet, so a client should read
 | `guide_schema_missing` | 503 | `/api/guide*` | Neighborhood Guide tables, or their `deleted_at` column, are missing. | Same "coming soon" state for the guide. |
 | `study_groups_schema_missing` | 503 | `/api/study-groups*`, `/api/me/study-groups*` | Study group tables are missing, or (on `DELETE /api/study-groups/:id`) the soft-delete migration has not run. | "Coming soon" for study groups; on delete, show the message and keep the group. |
 | `deals_schema_missing` | 503 | `/api/deals*` | Campus Perks tables, or their `deleted_at` column, are missing. | "Coming soon" for perks. |
-| `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below) | Marketplace tables, their `deleted_at` column, or the gallery and pricing columns (`image_urls`, `price_mode`) are missing. | "Coming soon" for the marketplace. |
+| `marketplace_schema_missing` | 503 | `/api/marketplace*` (not `/api/marketplace/capabilities`, see below), `/api/admin/hidden/marketplace*`, `/api/admin/photo-review*` | Marketplace tables, their `deleted_at` column, or the gallery and pricing columns (`image_urls`, `price_mode`) are missing. The photo review columns answer `photo_review_schema_missing` instead (next row). | "Coming soon" for the marketplace. |
+| `photo_review_schema_missing` | 503 | `/api/admin/photo-review*`; `POST /api/marketplace` and `PATCH /api/marketplace/:id` only while `MARKETPLACE_PHOTO_REVIEW` is on and the write adds a photo | The photo review columns on `marketplace_listings` (`photos_review`, `photos_reviewed_at`, `photos_reviewed_by`) are missing: README step 46, `db/supabase-marketplace-photo-review.sql`, has not run (issue #504, see [moderation.md](moderation.md#photo-review)). No marketplace read needs them: without them every listing reads as approved, and `/api/admin/overview` sends `pendingPhotos: null`. | The admin Photo review page shows the message. A student posting or editing photos sees the message and keeps the draft; a listing without photos still posts. |
 | `friends_schema_missing` | 503 | `/api/me/profile-card`, `/api/me/matches`, `/api/connections*`, `/api/me/connections` | Friend matching tables are missing. | "Coming soon" for friend matching. |
 | `content_reports_schema_missing` | 503 | `POST /api/reports` (not for a marketplace listing, which is still counted through `marketplace_reports`), `/api/admin/reports*` | `content_reports` is missing: README step 38, `db/supabase-report-and-block.sql`, has not run (see [moderation.md](moderation.md)). | Tell the student reporting is not available yet; the admin queue shows the message. |
 | `blocked_users_schema_missing` | 503 | `/api/me/blocks*` | `blocked_users` is missing: README step 38, `db/supabase-report-and-block.sql`, has not run (see [moderation.md](moderation.md)). The lists that hide blocked users keep working and hide nobody. | Tell the student blocking is not available yet. |
@@ -81,7 +82,10 @@ wrappers over `respondDbError`.
   `db/supabase-soft-delete.sql`, the migration that adds it. Study groups do the
   same with `db/supabase-study-groups-soft-delete.sql`, and a missing marketplace
   `image_urls` or `price_mode` column names
-  `db/supabase-marketplace-gallery-pricing.sql`.
+  `db/supabase-marketplace-gallery-pricing.sql`. A missing photo review column
+  (`photos_review`, `photos_reviewed_at`, `photos_reviewed_by`) answers its own
+  code, `photo_review_schema_missing`, and names
+  `db/supabase-marketplace-photo-review.sql`.
 - The admin moderation routes follow the same rule, so the Deleted content page
   shows `<Type> moderation is not set up yet.` without the file name. The files
   are listed in the `moderation_schema_missing` row above.

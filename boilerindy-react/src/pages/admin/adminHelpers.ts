@@ -36,6 +36,21 @@ export function formatDateTime(value: string | null | undefined): string {
   }
 }
 
+/** "just now", "12 min ago", "3 h ago", "2 days ago": how long a queue item has waited. */
+export function ageLabel(iso: string, now: number): string {
+  const ms = now - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 60_000) return 'just now'
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+/** The report and photo queues promise a review within a day (docs/moderation.md). */
+export const REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000
+
 export function generateTempPassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$'
   const bytes = crypto.getRandomValues(new Uint8Array(16))

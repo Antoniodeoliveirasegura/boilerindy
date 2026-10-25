@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import { useMatch } from 'react-router-dom'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
-import { startServerWarmup, useServerWarmup } from '../lib/serverWarmup'
+import { SERVER_WAKE_DETAIL, SERVER_WAKE_LEAD, startServerWarmup, useServerWarmup } from '../lib/serverWarmup'
 
 // Explains the Render cold start instead of leaving a blank-looking page
 // (issue #164). Sends the warm-up ping as soon as the app mounts and shows a
@@ -8,17 +9,20 @@ import { startServerWarmup, useServerWarmup } from '../lib/serverWarmup'
 // ('slow'). The pill goes away the moment the server answers, and also when
 // the ping fails outright, where each page's own error handling takes over.
 // Renders nothing otherwise, so it costs nothing while the server is warm.
+// The sign-in page still sends the ping but shows no pill: it says the same
+// thing in its own status line, where the student is waiting (issue #389).
 
 export default function ServerWakeNotice() {
   const { status } = useServerWarmup()
   const reducedMotion = usePrefersReducedMotion()
+  const onSignIn = useMatch('/login') != null
 
   useEffect(() => {
     // Idempotent, so StrictMode's double mount still sends a single request.
     void startServerWarmup()
   }, [])
 
-  if (status !== 'slow') return null
+  if (status !== 'slow' || onSignIn) return null
 
   // Layering: above the fixed app header (z-[1100]) and the mobile bottom nav
   // (z-40), below menu backdrops (z-[1500]) and dialogs (z-[2000]). The wrapper
@@ -36,7 +40,7 @@ export default function ServerWakeNotice() {
           className={`h-4 w-4 shrink-0 rounded-full border-2 border-[var(--color-ink-signal)] border-t-transparent ${reducedMotion ? '' : 'animate-spin'}`}
         />
         <p>
-          <span className="font-display font-extrabold text-[var(--color-ink-txt)]">Waking up the server.</span> The first visit after a quiet spell can take up to 30 seconds.
+          <span className="font-display font-extrabold text-[var(--color-ink-txt)]">{SERVER_WAKE_LEAD}</span> {SERVER_WAKE_DETAIL}
         </p>
       </div>
     </div>
