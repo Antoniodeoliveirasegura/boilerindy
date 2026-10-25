@@ -11,6 +11,7 @@ import {
   parseSettingsPatch,
   runDeadlineReminders,
   settingsFromRow,
+  withLocalRemindersColumn,
 } from '../pushReminders.mjs'
 import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 
@@ -29,7 +30,9 @@ import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 // (db/supabase-push-devices.sql). They live here rather than in the /api/me
 // router because they share this router's tables, limiter and answers, as the
 // other /api/me/<feature> routes live with their feature. The settings,
-// the test send and the reminders cover both kinds of device.
+// the test send and the reminders cover both kinds of device, except that a
+// phone registered with localReminders: true gets no deadline reminders
+// (Antoniodeoliveirasegura/boilerindy-app#55, see src/pushReminders.mjs).
 
 const PUSH_MAX_SUBSCRIPTIONS_PER_USER = 10
 const PUSH_MAX_DEVICES_PER_USER = 10
@@ -62,6 +65,7 @@ function summarizePushSubscription(row) {
 }
 
 // Never the token: like a push endpoint, it lets anyone notify the phone.
+// localReminders is false for a row read before README step 47 added it.
 function summarizePushDevice(row) {
   return {
     id: row.id,
@@ -69,6 +73,7 @@ function summarizePushDevice(row) {
     deviceName: row.device_name || null,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at || null,
+    localReminders: row.local_reminders === true,
   }
 }
 
@@ -152,15 +157,18 @@ export function createPushRouter({
           .select('id, created_at, user_agent, last_used_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: true }),
-        supabase
-          .from('push_devices')
-          .select('id, platform, device_name, created_at, last_seen_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: true }),
+        withLocalRemindersColumn((withFlag) =>
+          supabase
+            .from('push_devices')
+            .select(`id, platform, device_name, created_at, last_seen_at${withFlag ? ', local_reminders' : ''}`)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true }),
+        ),
       ])
       if (subsRes.error) throw subsRes.error
       // Before db/supabase-push-devices.sql runs the student simply has no
-      // phones yet; the browser settings keep working.
+      // phones yet; the browser settings keep working. Before README step 47
+      // the phones are listed without the column, as localReminders false.
       if (devicesRes.error && !isMissingTableError(devicesRes.error)) throw devicesRes.error
       res.set('Cache-Control', 'no-store')
       res.json({
@@ -284,12 +292,20 @@ export function createPushRouter({
     }
   })
 
-  // The native app (issue #194). Body { token, platform, deviceName? }, the
-  // token an ExponentPushToken[...]. Upserts by token, so registering again
-  // refreshes last_seen_at and clears the strikes, and a phone that signs in
-  // to another account moves to that student. It also makes sure the student
-  // has a push_settings row (the defaults, never overwriting a saved choice):
-  // the reminder runner only reads students who have one.
+  // The native app (issue #194). Body { token, platform, deviceName?,
+  // localReminders? }, the token an ExponentPushToken[...]. Upserts by token,
+  // so registering again refreshes last_seen_at, clears the strikes and
+  // replaces localReminders, and a phone that signs in to another account
+  // moves to that student. It also makes sure the student has a push_settings
+  // row (the defaults, never overwriting a saved choice): the reminder runner
+  // only reads students who have one.
+  //
+  // localReminders (Antoniodeoliveirasegura/boilerindy-app#55): true while the
+  // app schedules the student's reminders on the phone, so the reminder run
+  // sends it no deadline reminders; a body without it stores false. Before
+  // README step 47 adds the column the phone registers without it, the log
+  // names the file once, and the answer's localReminders says false, which is
+  // how the reminder run treats the phone until then.
   router.post('/api/me/push-token', pushWriteRateLimit, requireAuth, async (req, res) => {
     if (!vapidKeys) return pushDisabledResponse(res)
     const userId = req.currentUser.id
@@ -318,24 +334,24 @@ export function createPushRouter({
           },
         })
       }
-      const { data, error } = await supabase
-        .from('push_devices')
-        .upsert(
-          {
-            user_id: userId,
-            kind: 'expo',
-            token: parsed.token,
-            platform: parsed.platform,
-            device_name: parsed.deviceName,
-            last_seen_at: new Date().toISOString(),
-            failure_count: 0,
-          },
-          { onConflict: 'token' },
-        )
-        .select('id, created_at')
-        .single()
+      const device = {
+        user_id: userId,
+        kind: 'expo',
+        token: parsed.token,
+        platform: parsed.platform,
+        device_name: parsed.deviceName,
+        last_seen_at: new Date().toISOString(),
+        failure_count: 0,
+      }
+      const { data, error } = await withLocalRemindersColumn((withFlag) =>
+        supabase
+          .from('push_devices')
+          .upsert(withFlag ? { ...device, local_reminders: parsed.localReminders } : device, { onConflict: 'token' })
+          .select(withFlag ? 'id, created_at, local_reminders' : 'id, created_at')
+          .single(),
+      )
       if (error) throw error
-      res.status(201).json({ device: { id: data.id, createdAt: data.created_at } })
+      res.status(201).json({ device: { id: data.id, createdAt: data.created_at, localReminders: data.local_reminders === true } })
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res, PUSH_DEVICES_SQL_FILE)
       console.error('POST /api/me/push-token:', error?.message || error)
@@ -372,7 +388,8 @@ export function createPushRouter({
       .eq('user_id', userId)
     if (error) throw error
     // The student's phones (issue #194), read before anything is sent so a
-    // database error fails the request cleanly.
+    // database error fails the request cleanly. Every one of them, local
+    // reminders or not: only the deadline reminders leave those phones out.
     const loaded = await loadPushDevices(supabase, [userId])
     const outcome = { sent: 0, failed: 0, removed: loaded.removed }
     for (const row of data || []) {

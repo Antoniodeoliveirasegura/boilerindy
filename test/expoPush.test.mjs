@@ -43,12 +43,13 @@ test('isExpoToken takes both Expo spellings and nothing else', () => {
 })
 
 test('parsePushTokenBody validates the token and platform and tidies the device name', () => {
-  assert.deepEqual(parsePushTokenBody({ token: token(1), platform: 'ios' }), { ok: true, token: token(1), platform: 'ios', deviceName: null })
+  assert.deepEqual(parsePushTokenBody({ token: token(1), platform: 'ios' }), { ok: true, token: token(1), platform: 'ios', deviceName: null, localReminders: false })
   assert.deepEqual(parsePushTokenBody({ token: token(1), platform: ' Android ', deviceName: '  Pixel 9  ' }), {
     ok: true,
     token: token(1),
     platform: 'android',
     deviceName: 'Pixel 9',
+    localReminders: false,
   })
   assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios', deviceName: 'x'.repeat(300) }).deviceName.length, 120)
   assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios', deviceName: '   ' }).deviceName, null)
@@ -58,6 +59,23 @@ test('parsePushTokenBody validates the token and platform and tidies the device 
   assert.deepEqual(parsePushTokenBody({ token: token(1), platform: 'web' }), { ok: false, error: 'platform must be ios or android.' })
   assert.equal(parsePushTokenBody({ token: token(1) }).ok, false)
   assert.equal(parsePushTokenBody(null).ok, false)
+})
+
+// Antoniodeoliveirasegura/boilerindy-app#55: a phone whose app schedules the
+// reminders itself says so, and the deadline run leaves it out.
+test('parsePushTokenBody takes localReminders as a boolean, false when it is left out', () => {
+  assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios', localReminders: true }).localReminders, true)
+  assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios', localReminders: false }).localReminders, false)
+  assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios' }).localReminders, false)
+  for (const bad of ['true', 'yes', 1, 0, null, {}, []]) {
+    assert.deepEqual(
+      parsePushTokenBody({ token: token(1), platform: 'ios', localReminders: bad }),
+      { ok: false, error: 'localReminders must be true or false.' },
+      JSON.stringify(bad),
+    )
+  }
+  // The token and platform are checked first, as before.
+  assert.deepEqual(parsePushTokenBody({ token: 'not-a-token', platform: 'ios', localReminders: 'yes' }), { ok: false, error: 'token must be an Expo push token, ExponentPushToken[...].' })
 })
 
 test('chunk splits in order, at most size per piece', () => {
