@@ -48,6 +48,8 @@ import {
   normalizeListing,
   normalizeLiveWhaleEvent,
   normalizeLocalistEvent,
+  organizationKeyFor,
+  parseOrganizationKey,
   planCampusEvents,
   seriesKeyFor,
   sourceByKey,
@@ -85,6 +87,8 @@ const COLUMNS = [
   'title', 'description', 'starts_at', 'ends_at', 'location', 'all_day',
   'source_key', 'source_url', 'external_uid', 'dedupe_key',
   'category', 'free_food', 'venue_kind', 'open_to_all', 'series_key', 'content_hash',
+  // README step 48 (db/supabase-club-follows.sql), issue #16.
+  'organization_key',
 ].sort()
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
@@ -304,6 +308,58 @@ test('an Engage row links its event page and carries the Free Food benefit, the 
   const hidden = normalizeEngageEvent({ ...engage(BOILERLINK, '12884656'), visibility: 'Private' }, BOILERLINK_SOURCE)
   assert.equal(hidden, null)
   assert.equal(normalizeEngageEvent({ ...engage(BOILERLINK, '12884656'), status: 'Pending' }, BOILERLINK_SOURCE), null)
+})
+
+// Issue #16: following a club reads which organization listed each event.
+// Before this the id only went into the series hash, which cannot be read back.
+test('an Engage row names the organization that listed it, the key a student follows; the calendars name none', () => {
+  const shpe = normalizeEngageEvent(engage(BOILERLINK, '12884656'), BOILERLINK_SOURCE, { isIndianapolisOrg }).row
+  assert.equal(engage(BOILERLINK, '12884656').organizationId, 383441) // SHPE at Purdue University in Indianapolis
+  assert.equal(shpe.organization_key, 'boilerlink:383441')
+  assert.equal(normalizeEngageEvent(engage(THESPOT, '12827272'), THESPOT_SOURCE).row.organization_key, 'thespot:135000') // Club Tennis
+  // The club directory keys the same organization by its Id, a string.
+  assert.equal(organizationKeyFor('boilerlink', '401442'), 'boilerlink:401442')
+  // Localist and LiveWhale listings carry no organization.
+  assert.equal(one(normalizeLocalistEvent(localist(54099974347398), PURDUE)).row.organization_key, null)
+  assert.equal(normalizeLiveWhaleEvent(LIVEWHALE[0], IU).row.organization_key, null)
+  // A listing without a usable id stores none rather than a key nothing can follow.
+  for (const organizationId of [undefined, null, '', 0, -5, 1.5, '12a', '007', ' ', {}, [398688], true, 1234567890123]) {
+    const row = normalizeEngageEvent({ ...engage(BOILERLINK, '12884656'), organizationId }, BOILERLINK_SOURCE).row
+    assert.equal(row.organization_key, null, JSON.stringify(organizationId))
+  }
+  assert.equal(organizationKeyFor('purdue_events', 383441), null)
+  assert.equal(organizationKeyFor('iu_events', 383441), null)
+})
+
+test('parseOrganizationKey reads `<engage source>:<Id>` and nothing else', () => {
+  assert.deepEqual(parseOrganizationKey('boilerlink:401442'), { key: 'boilerlink:401442', sourceKey: 'boilerlink', id: '401442' })
+  assert.deepEqual(parseOrganizationKey('thespot:135000'), { key: 'thespot:135000', sourceKey: 'thespot', id: '135000' })
+  assert.deepEqual(parseOrganizationKey('boilerlink:999999999999'), { key: 'boilerlink:999999999999', sourceKey: 'boilerlink', id: '999999999999' })
+  for (const value of [
+    undefined, null, 401442, '', 'boilerlink', 'boilerlink:', ':401442', '401442', 'BoilerLink:401442', 'boilerlink:0',
+    'boilerlink:0401442', 'boilerlink:-1', 'boilerlink:40.1', 'boilerlink:401442 ', ' boilerlink:401442', 'boilerlink:401442:1',
+    'boilerlink:1234567890123', 'purdue_events:401442', 'iu_events:1', 'boilerlink:abc', 'boilerlink%3A401442',
+  ]) {
+    assert.equal(parseOrganizationKey(value), null, String(value))
+  }
+})
+
+test('the organization key survives the collapse: the source kept takes it from a copy when it has none', () => {
+  const badminton = normalizeEngageEvent(engage(BOILERLINK, '12728673'), BOILERLINK_SOURCE, { isIndianapolisOrg }).row
+  const crossPost = normalizeEngageEvent(engage(THESPOT, '12728562'), THESPOT_SOURCE).row
+  assert.equal(badminton.organization_key, 'boilerlink:400129') // Purdue Badminton Club Indianapolis
+  // BoilerLink wins over TheSpot and keeps its own key.
+  assert.equal(collapseCrossSource([crossPost, badminton]).rows[0].organization_key, 'boilerlink:400129')
+  // Purdue's calendar wins over BoilerLink and takes the club's key, so a
+  // student who follows the club still sees the event.
+  const onPurdueCalendar = { ...badminton, source_key: 'purdue_events', dedupe_key: 'purdue_events:1', external_uid: '1', organization_key: null }
+  const { rows, collapsed } = collapseCrossSource([badminton, onPurdueCalendar])
+  assert.deepEqual(collapsed.map((c) => [c.kept, c.dropped]), [['purdue_events:1', 'boilerlink:12728673']])
+  assert.equal(rows[0].source_key, 'purdue_events')
+  assert.equal(rows[0].organization_key, 'boilerlink:400129')
+  // Neither has one: still null, never undefined.
+  const plain = collapseCrossSource([{ ...onPurdueCalendar }, { ...badminton, organization_key: null }]).rows[0]
+  assert.equal(plain.organization_key, null)
 })
 
 test('CAMPUS_EVENTS_ENGAGE names the Engage sources to read: on for both, a list for some, else none', () => {
@@ -625,12 +681,22 @@ test('the plan names the rows whose free food the source states, and a collapsed
   assert.equal(handed.rows.find((row) => row.dedupe_key === 'boilerlink:12728673').free_food, true)
 })
 
-test('the vocabularies and columns match db/supabase-campus-events.sql', () => {
+test('the vocabularies and columns match db/supabase-campus-events.sql and db/supabase-club-follows.sql', () => {
   const sql = readFileSync(new URL('../db/supabase-campus-events.sql', import.meta.url), 'utf8').replace(/--[^\n]*/g, '')
   const start = sql.indexOf('CREATE TABLE IF NOT EXISTS campus_events')
   const table = sql.slice(start, sql.indexOf(');', start))
-  for (const column of [...COLUMNS, 'last_seen_at', 'classifier']) {
+  // organization_key is README step 48's, added by its own file.
+  for (const column of [...COLUMNS.filter((column) => column !== 'organization_key'), 'last_seen_at', 'classifier']) {
     assert.match(table, new RegExp(`^\\s+${column}\\s`, 'm'), `campus_events has no ${column} column`)
+  }
+  const follows = readFileSync(new URL('../db/supabase-club-follows.sql', import.meta.url), 'utf8').replace(/--[^\n]*/g, '')
+  assert.match(follows, /ALTER TABLE campus_events ADD COLUMN IF NOT EXISTS organization_key TEXT;/)
+  // The CHECK on club_follows repeats parseOrganizationKey's rule.
+  const check = /CHECK \(organization_key ~ '([^']+)'\)/.exec(follows)
+  assert.ok(check, 'club_follows.organization_key has no CHECK')
+  const rule = new RegExp(check[1])
+  for (const key of ['boilerlink:401442', 'thespot:135000', 'boilerlink:0', 'boilerlink:0401442', 'iu_events:1', 'boilerlink:1234567890123']) {
+    assert.equal(rule.test(key), parseOrganizationKey(key) !== null, key)
   }
   const checked = (column) => {
     const at = table.indexOf(`CHECK (${column} IN (`)

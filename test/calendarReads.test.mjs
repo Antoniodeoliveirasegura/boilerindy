@@ -226,6 +226,7 @@ test('listCalendarItems: with the feed on, shared rows join in start order, the 
   const supabase = fakeSupabase({
     calendar_items: (chain) => ({ data: hasCall(chain, 'order', 'start_time', { ascending: false }) ? [...own].reverse() : own, error: null }),
     campus_events: () => ({ data: shared, error: null }),
+    club_follows: () => ({ data: [], error: null }),
   })
   const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
 
@@ -252,6 +253,7 @@ test('listCalendarItems: a missing campus_events table leaves the student\'s row
   const supabase = fakeSupabase({
     calendar_items: () => ({ data: rows, error: null }),
     campus_events: () => ({ data: null, error: { code: '42P01', message: 'relation "public.campus_events" does not exist (calendar test)' } }),
+    club_follows: () => ({ data: [], error: null }),
   })
   const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
   const items = await listCalendarItems(USER, { throwOnError: true, sharedCategories: ['campus_event', 'deadline'] })
@@ -259,11 +261,43 @@ test('listCalendarItems: a missing campus_events table leaves the student\'s row
   assert.equal(supabase.queriesOf('campus_events').length, 1)
 })
 
+// Issue #16: the shared rows of a club the student follows say so, for the
+// "Clubs I follow" pill on Events and Free Food. The student's own rows and
+// every field the native app reads stay as they were.
+test('listCalendarItems: a shared row of a club the student follows says so, read from their own follows', async () => {
+  const supabase = fakeSupabase({
+    calendar_items: () => ({ data: [calendarRow({ category: 'event', start_time: fromNow(4 * HOUR_MS), end_time: null })], error: null }),
+    campus_events: () => ({
+      data: [
+        campusRow('club', HOUR_MS, { source_key: 'boilerlink', organization_key: 'boilerlink:401442' }),
+        campusRow('other-club', 2 * HOUR_MS, { source_key: 'boilerlink', organization_key: 'boilerlink:420527' }),
+        campusRow('calendar', 3 * HOUR_MS, { organization_key: null }),
+      ],
+      error: null,
+    }),
+    club_follows: () => ({ data: [{ organization_key: 'boilerlink:401442' }], error: null }),
+  })
+  const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
+  const items = await listCalendarItems(USER, { sharedCategories: ['campus_event', 'deadline'] })
+  assert.deepEqual(items.map((item) => [item.id, item.followed, item.organizationKey]), [
+    ['campus:club', true, 'boilerlink:401442'],
+    ['campus:other-club', false, 'boilerlink:420527'],
+    ['campus:calendar', false, null],
+    ['c1', undefined, undefined],
+  ])
+  const [follows] = supabase.queriesOf('club_follows')
+  assert.ok(hasCall(follows.chain, 'eq', 'user_id', USER))
+  // A read that asks for no shared rows reads no follows either.
+  await listCalendarItems(USER)
+  assert.equal(supabase.queriesOf('club_follows').length, 1)
+})
+
 test('listCalendarItems: the student\'s own read failing still throws with throwOnError, shared rows or not', async () => {
   const error = { code: '57014', message: 'canceling statement due to statement timeout' }
   const supabase = fakeSupabase({
     calendar_items: () => ({ data: null, error }),
     campus_events: () => ({ data: [campusRow('s1', HOUR_MS)], error: null }),
+    club_follows: () => ({ data: [], error: null }),
   })
   const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
   await assert.rejects(listCalendarItems(USER, { throwOnError: true, sharedCategories: ['campus_event'] }), (thrown) => thrown === error)

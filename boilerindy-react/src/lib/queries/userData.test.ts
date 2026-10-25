@@ -4,6 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { authRequest } from '../authApi'
 import { isPersistedQueryKey, shouldDehydrateQuery } from '../queryClient'
+import type { Club, ClubFollows } from '../clubs'
 import {
   CAMPUS_EVENTS_CALENDAR,
   applyToggleToMeta,
@@ -13,11 +14,14 @@ import {
   fetchTaskMeta,
   invalidateUserQueries,
   myBlocksQuery,
+  myClubFollowsQuery,
   normalizePurdueEmailStatus,
   purdueEmailStatusQuery,
+  retryUnlessSchemaMissing,
   startOfLocalDayIso,
   taskMetaQuery,
   useMyBlocks,
+  useToggleClubFollow,
   useToggleTaskCompletion,
   userKeys,
   type TaskMeta,
@@ -281,5 +285,87 @@ describe('useToggleTaskCompletion', () => {
     request.mockRejectedValue(failure)
     await expect(result.current.mutateAsync({ id: 'm1', isManual: true, completed: true })).rejects.toBe(failure)
     expect(client.getQueryData<TaskMeta>(key)).toEqual(serverMeta)
+  })
+})
+
+// Issue #16: the clubs a student follows, read once for /clubs and written by
+// its Follow toggles. A follow changes which shared rows the Events and Free
+// Food window marks as followed, so every calendar window is refetched.
+describe('club follows', () => {
+  const key = userKeys.clubFollows('u1')
+  const club = (id: string, name: string): Club => ({
+    id,
+    name,
+    shortName: null,
+    slug: `club${id}`,
+    url: `https://boilerlink.purdue.edu/organization/club${id}`,
+    imageUrl: null,
+    blurb: '',
+    categories: [],
+    indianapolis: true,
+  })
+  const CHESS = club('404807', 'Chess Club Purdue Indianapolis')
+  const TAEKWONDO = club('401442', 'Taekwondo Club of Purdue Indianapolis')
+  const server: ClubFollows = { follows: ['boilerlink:404807'], clubs: [{ ...CHESS, organizationKey: 'boilerlink:404807' }] }
+
+  test('reads GET /api/me/club-follows into a full answer, keyed by the user and never persisted', async () => {
+    expect(key).toEqual(['me', 'u1', 'club-follows'])
+    expect(isPersistedQueryKey(key)).toBe(false)
+    expect(myClubFollowsQuery(null).enabled).toBe(false)
+    request.mockResolvedValueOnce({ follows: ['boilerlink:404807', 7], clubs: [server.clubs[0], { id: 'no-key' }] })
+    const client = new QueryClient()
+    await expect(client.fetchQuery(myClubFollowsQuery('u1'))).resolves.toEqual(server)
+    expect(request).toHaveBeenCalledWith('/api/me/club-follows', expect.objectContaining({ signal: expect.anything() }))
+  })
+
+  test('a "not set up yet" answer is never retried; other failures are, like every read', () => {
+    const notSetUp = Object.assign(httpError(503, 'Following clubs is not set up yet. Please try again later.'), { code: 'club_follows_schema_missing' })
+    expect(retryUnlessSchemaMissing(0, notSetUp)).toBe(false)
+    expect(retryUnlessSchemaMissing(0, httpError(503))).toBe(true)
+    expect(retryUnlessSchemaMissing(0, new TypeError('Failed to fetch'))).toBe(true)
+    expect(retryUnlessSchemaMissing(0, httpError(404))).toBe(false)
+    expect(retryUnlessSchemaMissing(3, httpError(503))).toBe(false)
+  })
+
+  function setup() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } })
+    client.setQueryData(key, server)
+    client.setQueryData(userKeys.calendar('u1', CAMPUS_EVENTS_CALENDAR), { items: [] })
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
+    const { result } = renderHook(
+      () => {
+        useQuery(myClubFollowsQuery('u1'))
+        return useToggleClubFollow('u1')
+      },
+      { wrapper },
+    )
+    return { client, result }
+  }
+
+  test('a follow lands at once with PUT, then the follows and the calendar windows are refetched', async () => {
+    const { client, result } = setup()
+    let resolveWrite: (v: unknown) => void = () => {}
+    request.mockImplementation((_url, options) => {
+      if (options?.method === 'PUT') return new Promise((resolve) => (resolveWrite = resolve))
+      return Promise.resolve({ follows: ['boilerlink:404807', 'boilerlink:401442'], clubs: [] })
+    })
+    const pending = result.current.mutateAsync({ club: TAEKWONDO, following: true })
+    await waitFor(() => expect(client.getQueryData<ClubFollows>(key)?.follows).toEqual(['boilerlink:404807', 'boilerlink:401442']))
+    // Sorted by name, as the server lists them.
+    expect(client.getQueryData<ClubFollows>(key)?.clubs.map((c) => c.organizationKey)).toEqual(['boilerlink:404807', 'boilerlink:401442'])
+    expect(request).toHaveBeenCalledWith('/api/me/club-follows/boilerlink%3A401442', { method: 'PUT' })
+    resolveWrite({ ok: true, organizationKey: 'boilerlink:401442', following: true })
+    await pending
+    await waitFor(() => expect(client.getQueryState(userKeys.calendar('u1', CAMPUS_EVENTS_CALENDAR))?.isInvalidated).toBe(true))
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/api/me/club-follows', expect.anything()))
+  })
+
+  test('an unfollow sends DELETE; a refusal puts the club back and rejects with the error', async () => {
+    const { client, result } = setup()
+    const refusal = httpError(429, 'You are making changes too quickly. Please wait a moment and try again.')
+    request.mockImplementation((_url, options) => (options?.method ? Promise.reject(refusal) : Promise.resolve(server)))
+    await expect(result.current.mutateAsync({ club: CHESS, following: false })).rejects.toBe(refusal)
+    expect(request).toHaveBeenCalledWith('/api/me/club-follows/boilerlink%3A404807', { method: 'DELETE' })
+    await waitFor(() => expect(client.getQueryData<ClubFollows>(key)).toEqual(server))
   })
 })

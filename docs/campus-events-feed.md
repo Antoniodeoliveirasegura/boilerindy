@@ -60,14 +60,17 @@ State Park's listings, "Downtown". IU Indianapolis's
 own listings are open to Purdue Indianapolis students (the owner's call on #30,
 2026-10-18) and keep the "IU event" label to say where they come from. A shared
 row's id is `campus:` and the table's id, so
-it can never be taken for one of the student's `calendar_items`:
+it can never be taken for one of the student's `calendar_items`. Since issue
+#16 a row also says which club listed it (`organizationKey`, `null` for the
+Purdue and IU calendars) and, on a student's read, whether the student follows
+that club (`followed`, see [Clubs I follow](#clubs-i-follow)):
 
 ```json
 { "id": "campus:5b8c...", "sourceId": null, "title": "United Way Chili and Dessert Cook-off",
   "description": "...", "startTime": "2026-10-19T15:00:00.000Z", "endTime": "2026-10-19T17:00:00.000Z",
   "location": "Campus Center 450", "category": "campus_event", "externalUid": null, "sourceType": "campus",
   "allDay": false, "freeFood": false, "shared": true, "sourceKey": "iu_events", "sourceLabel": "IU event",
-  "sourceUrl": "https://events.iu.edu/event/..." }
+  "sourceUrl": "https://events.iu.edu/event/...", "organizationKey": null, "followed": false }
 ```
 
 On the 2026-10-17 fixtures (`test/campusEventsFeed.test.mjs`) the 31 rows the
@@ -82,6 +85,31 @@ TheSpot) and My calendar (the student's own rows), each pill with its count, by
 `sourceKey` (`components/EventSourceFilter.tsx`, `lib/campusEvents.ts`). Events
 counts over every row, as its category pills do; Free Food over its free-food
 list. A pick whose source runs out of rows falls back to All sources.
+
+## Clubs I follow
+
+Issue #16: a student follows clubs on `/clubs` ([clubs.md](clubs.md#following-a-club)),
+and both pages then offer "Clubs I follow (n)" after the source pills, the
+events of those clubs alone. The server marks them:
+`listSharedCalendarItems` reads the student's `club_follows` alongside the
+shared rows, and every row says `followed: true` or `false` by its
+`organizationKey`. Marking never changes which rows are listed.
+
+- The pill shows whenever the shared rows carry `followed`, even at 0, since
+  its empty state links to `/clubs` ("Find clubs to follow"). The source pills
+  keep their own rule (two sources or more), so a page with one source shows
+  All sources and Clubs I follow alone.
+- `followed` is left out, and so is the pill, when the follows cannot be read:
+  before README step 48, or when the read fails (logged as `club_follows read:`
+  on every read, or the step 48 file once when the table is missing). The
+  signed-out read never carries it, and the signed-out Free Food page never
+  shows the pill.
+- Following or unfollowing on `/clubs` refetches the calendar windows, so the
+  pill is current the next time either page opens.
+- Cost: one more query per Events or Free Food load, of the student's
+  follows by the primary key, at most 100 rows. The shared rows' read asks for
+  `organization_key` too, and asks again without it while step 48 has not
+  added the column.
 
 ## Signed out
 

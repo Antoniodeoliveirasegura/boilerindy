@@ -19,6 +19,9 @@
 //   - the signals each row carries: free_food (the source's own tag first, then
 //     the keyword matcher in src/freeFood.mjs), category, venue_kind and
 //     open_to_all, all from rules;
+//   - organization_key, the Engage organization that listed the event
+//     (`boilerlink:<Id>`, `thespot:<Id>`), which following a club reads
+//     (issue #16, db/supabase-club-follows.sql); null for the other sources;
 //   - the merge of one source's repeated ids, and the collapse of the same event
 //     listed by two sources.
 //
@@ -338,6 +341,38 @@ export function seriesKeyFor(sourceKey, group, title) {
   return `${sourceKey}:${sha256Hex(`${group}|${foldText(title)}`).slice(0, 16)}`
 }
 
+// An Engage organization: `<source_key>:<Id>`, the Id a positive integer as
+// Engage numbers them (BoilerLink's event search sends 401442, its
+// organizations list "401442"). The CHECK on club_follows.organization_key in
+// db/supabase-club-follows.sql repeats this rule.
+const ORGANIZATION_KEY_RE = /^(boilerlink|thespot):([1-9][0-9]{0,11})$/
+
+/**
+ * campus_events.organization_key for an Engage listing: `<source_key>:<Id>`,
+ * or null for a source that is not Engage or an id that is not a positive
+ * integer, so one odd listing never stores a key nothing can follow.
+ * @param {string} sourceKey
+ * @param {unknown} organizationId
+ * @returns {string | null}
+ */
+export function organizationKeyFor(sourceKey, organizationId) {
+  if (organizationId == null || typeof organizationId === 'object') return null
+  return parseOrganizationKey(`${sourceKey}:${String(organizationId).trim()}`)?.key ?? null
+}
+
+/**
+ * A club key as a client sends it (GET, PUT and DELETE
+ * /api/me/club-follows/:organizationKey) to its parts, or null when it is not
+ * one: `boilerlink:401442` is `{ key, sourceKey: 'boilerlink', id: '401442' }`.
+ * @param {unknown} value
+ * @returns {{ key: string, sourceKey: string, id: string } | null}
+ */
+export function parseOrganizationKey(value) {
+  if (typeof value !== 'string') return null
+  const match = ORGANIZATION_KEY_RE.exec(value)
+  return match ? { key: value, sourceKey: match[1], id: match[2] } : null
+}
+
 // ── Normalization ───────────────────────────────────────────────────────────
 
 const clean = (value) => decodeEntities(String(value ?? '')).replace(/\s+/g, ' ').trim()
@@ -419,6 +454,9 @@ function buildEvent(source, listing) {
     open_to_all: listing.openToAll ?? null,
     series_key: seriesKeyFor(source.key, listing.seriesGroup ?? '', title),
     content_hash: contentHashFor({ title, description, location }),
+    // On every row, null included: supabase-js writes NULL for a key one row
+    // of a batch lacks anyway, and the dry run then shows it too.
+    organization_key: listing.organizationKey ?? null,
   }
   return { row, indianapolis, sourceFreeFood: Boolean(listing.sourceFreeFood) }
 }
@@ -509,7 +547,9 @@ export function normalizeLiveWhaleEvent(raw, source = sourceByKey('iu_events')) 
 /**
  * An Anthology Engage event (`value[]` of /api/discovery/event/search) to a
  * row. `isIndianapolisOrg(raw)` says whether its organization is an
- * Indianapolis one (engageOrgLookup); on TheSpot every organization is.
+ * Indianapolis one (engageOrgLookup); on TheSpot every organization is. The
+ * organization also keys the row's series and gives organization_key, the
+ * club a student can follow (organizationKeyFor).
  */
 export function normalizeEngageEvent(raw, source, { isIndianapolisOrg = () => false } = {}) {
   if (!raw || typeof raw !== 'object' || !source) return null
@@ -535,6 +575,7 @@ export function normalizeEngageEvent(raw, source, { isIndianapolisOrg = () => fa
     sourceFreeFood,
     openToAll: MEMBERS_ONLY_RE.test(title) ? false : null,
     seriesGroup: `org:${raw.organizationId ?? ''}`,
+    organizationKey: organizationKeyFor(source.key, raw.organizationId),
     org: source.everyOrgIsIndianapolis ? true : Boolean(isIndianapolisOrg(raw)),
   })
 }
@@ -725,7 +766,9 @@ export function mergeRepeatedIds(rows) {
  * (Purdue Indy Badminton's weekly hours are on BoilerLink and TheSpot). Rows of
  * different sources with the same folded title and start minute collapse into
  * the one from the source listed first in SOURCES, which takes what it lacks
- * from the others. Rows of the same source are never collapsed here.
+ * from the others. Rows of the same source are never collapsed here. The
+ * organization_key it takes keeps a club's event on the list of a student who
+ * follows the club when Purdue's calendar lists the same event.
  */
 export function collapseCrossSource(rows, order = SOURCES.map((source) => source.key)) {
   const rank = (row) => {
@@ -762,6 +805,7 @@ export function collapseCrossSource(rows, order = SOURCES.map((source) => source
         free_food: winner.free_food || other.free_food,
         open_to_all: winner.open_to_all ?? other.open_to_all,
         venue_kind: winner.venue_kind === 'unknown' ? other.venue_kind : winner.venue_kind,
+        organization_key: winner.organization_key ?? other.organization_key ?? null,
       }
     }
     out.push({ ...winner, content_hash: contentHashFor(winner) })

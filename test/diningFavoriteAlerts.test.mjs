@@ -120,9 +120,14 @@ function makeClient(respond) {
 }
 
 // Three students opted in: u1 likes the stroganoff, u2 likes nothing on today's
-// menu, u3 was already sent today's alert.
-function alertsClient({ deliveryConflict = false, settingsError = null } = {}) {
+// menu, u3 was already sent today's alert. `devices` are u1's phones;
+// `flagColumnMissing` answers a select that names local_reminders the way
+// Postgres does before README step 47 adds it.
+function alertsClient({ deliveryConflict = false, settingsError = null, devices = [], flagColumnMissing = false } = {}) {
   return makeClient((op) => {
+    if (op.table === 'push_devices' && op.kind === 'select' && flagColumnMissing && String(op.payload).includes('local_reminders')) {
+      return { data: null, error: { code: '42703', message: 'column push_devices.local_reminders does not exist' } }
+    }
     if (op.table === 'push_settings') return settingsError ? { data: null, error: settingsError } : { data: [{ user_id: 'u1' }, { user_id: 'u2' }, { user_id: 'u3' }], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'select') return { data: [{ user_id: 'u3' }], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'insert') {
@@ -134,7 +139,7 @@ function alertsClient({ deliveryConflict = false, settingsError = null } = {}) {
     if (op.table === 'push_subscriptions' && op.kind === 'select') {
       return { data: [{ id: 's1', user_id: 'u1', endpoint: 'https://push.example/1', p256dh: 'k1', auth: 'a1' }], error: null }
     }
-    if (op.table === 'push_devices' && op.kind === 'select') return { data: [], error: null }
+    if (op.table === 'push_devices' && op.kind === 'select') return { data: devices, error: null }
     throw new Error(`unexpected query ${op.table} ${op.kind}`)
   })
 }
@@ -167,6 +172,44 @@ test('the run claims and sends one alert to each student whose favorite is on th
   const favorites = client.calls.find((c) => c.table === 'user_dining_favorites')
   assert.deepEqual(favorites.filters, [['in', 'user_id', ['u1', 'u2']]])
   assert.equal(snapshots.length, 1)
+})
+
+// Antoniodeoliveirasegura/boilerindy-app#55: a phone with local reminders gets
+// no deadline reminders from the server, but the phone cannot know the day's
+// menu ahead of time, so the favorite-dish alert still reaches it.
+const PHONE = 'ExponentPushToken[phone000000000000000001]'
+
+async function runWithPhones(client) {
+  const expo = []
+  const summary = await runDiningFavoriteAlerts({
+    client,
+    keys: KEYS,
+    getSnapshot: async () => SNAPSHOT,
+    now: at('08:05'),
+    send: async () => ({ ok: true, status: 201 }),
+    sendExpo: async ({ messages }) => {
+      expo.push(...messages.map((m) => [m.to, m.data.kind]))
+      return messages.map((m) => ({ token: m.to, ok: true, ticketId: 't' }))
+    },
+    log: { warn() {} },
+  })
+  return { expo, summary }
+}
+
+test('a phone with local reminders still gets the favorite-dish alert', async () => {
+  const { expo, summary } = await runWithPhones(alertsClient({ devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0, local_reminders: true }] }))
+  assert.deepEqual(expo, [[PHONE, 'dining-favorites']])
+  assert.equal(summary.sent, 2, 'the browser and the phone')
+})
+
+test('before README step 47 runs, the favorite-dish alert still reaches the phones', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const client = alertsClient({ devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0 }], flagColumnMissing: true })
+  const { expo, summary } = await runWithPhones(client)
+  assert.deepEqual(expo, [[PHONE, 'dining-favorites']])
+  assert.equal(summary.sent, 2)
+  const selects = client.calls.filter((c) => c.table === 'push_devices' && c.kind === 'select').map((c) => c.payload)
+  assert.deepEqual(selects, ['id, user_id, token, failure_count, local_reminders', 'id, user_id, token, failure_count'])
 })
 
 test('a claim that already exists is skipped: two overlapping runs send once', async () => {
