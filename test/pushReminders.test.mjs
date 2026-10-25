@@ -267,10 +267,16 @@ const HW_DUE = { id: 'a', title: 'HW 3', start_time: '2026-09-08T14:45:00Z', cat
 
 // One student with reminders on, one HW due in 45 minutes, nothing delivered
 // yet; `subs` and `devices` are what the push tables hold for them.
-function reminderClient({ subs = [], devices = [], devicesError = null } = {}) {
+// `flagColumnMissing` answers a select that names local_reminders the way
+// Postgres does before README step 47 adds it.
+const FLAG_COLUMN_MISSING = { code: '42703', message: 'column push_devices.local_reminders does not exist' }
+function reminderClient({ subs = [], devices = [], devicesError = null, flagColumnMissing = false } = {}) {
   return makeClient((op) => {
     if (op.table === 'push_settings') return { data: [{ user_id: 'u1', lead_minutes: 60 }], error: null }
     if (op.table === 'push_subscriptions' && op.kind === 'select') return { data: subs, error: null }
+    if (op.table === 'push_devices' && op.kind === 'select' && flagColumnMissing && String(op.payload).includes('local_reminders')) {
+      return { data: null, error: FLAG_COLUMN_MISSING }
+    }
     if (op.table === 'push_devices' && op.kind === 'select') return devicesError ? { data: null, error: devicesError } : { data: devices, error: null }
     if (op.table === 'push_devices') return { data: null, error: null }
     if (op.table === 'calendar_items') return { data: [HW_DUE], error: null }
@@ -359,6 +365,95 @@ test('before db/supabase-push-devices.sql runs, Web Push reminders carry on', as
   assert.equal(summary.ok, true)
   assert.equal(summary.sent, 1)
   assert.equal(expoCalls, 0)
+})
+
+// ── Phones with local reminders (Antoniodeoliveirasegura/boilerindy-app#55) ─
+
+const BROWSER = { id: 's1', user_id: 'u1', endpoint: 'https://push.example/1', p256dh: 'k1', auth: 'a1' }
+
+test('a phone with local reminders gets no deadline reminder, while the browser and the other phone do', async () => {
+  const client = reminderClient({
+    subs: [BROWSER],
+    devices: [
+      { id: 'd-local', user_id: 'u1', token: 'ExponentPushToken[local]', failure_count: 0, local_reminders: true },
+      { id: 'd-remote', user_id: 'u1', token: 'ExponentPushToken[remote]', failure_count: 0, local_reminders: false },
+    ],
+  })
+  const webSends = []
+  const expoSends = []
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    send: async ({ subscription }) => {
+      webSends.push(subscription.endpoint)
+      return { ok: true, status: 201 }
+    },
+    sendExpo: async ({ messages }) => {
+      expoSends.push(messages.map((m) => m.to))
+      return ok(messages)
+    },
+    log: { warn() {} },
+  })
+  assert.deepEqual(webSends, ['https://push.example/1'])
+  assert.deepEqual(expoSends, [['ExponentPushToken[remote]']], 'only the phone without local reminders')
+  assert.equal(client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert').length, 1, 'claimed once, as before')
+  assert.deepEqual(summary, { ok: true, ranAt: NOW.toISOString(), users: 1, checked: 1, sent: 2, failed: 0, removed: 0, skipped: 0 })
+  const deviceQuery = client.calls.find((c) => c.table === 'push_devices' && c.kind === 'select')
+  assert.equal(deviceQuery.payload, 'id, user_id, token, failure_count, local_reminders')
+})
+
+test('a student whose only phone has local reminders is skipped, and nothing is claimed', async () => {
+  const client = reminderClient({ devices: [{ id: 'd-local', user_id: 'u1', token: PHONE, failure_count: 0, local_reminders: true }] })
+  let sends = 0
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    send: async () => {
+      sends += 1
+      return { ok: true }
+    },
+    sendExpo: async ({ messages }) => {
+      sends += messages.length
+      return ok(messages)
+    },
+  })
+  assert.equal(sends, 0)
+  assert.deepEqual(summary, { ok: true, ranAt: NOW.toISOString(), users: 0, checked: 0, sent: 0, failed: 0, removed: 0, skipped: 1 })
+  assert.equal(
+    client.calls.filter((c) => c.table === 'push_deliveries').length,
+    0,
+    'unclaimed, so the item still gets its reminder if local reminders are turned off while it is due',
+  )
+})
+
+test('before README step 47 runs, every phone gets its deadline reminder, and the log names the file once', async (t) => {
+  const log = t.mock.method(console, 'error', () => {})
+  const run = async () => {
+    const client = reminderClient({ subs: [BROWSER], devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0 }], flagColumnMissing: true })
+    const expoSends = []
+    const summary = await runDeadlineReminders({
+      client,
+      keys: { publicKey: 'x' },
+      now: NOW,
+      send: async () => ({ ok: true, status: 201 }),
+      sendExpo: async ({ messages }) => {
+        expoSends.push(...messages.map((m) => m.to))
+        return ok(messages)
+      },
+    })
+    return { client, expoSends, summary }
+  }
+  const first = await run()
+  assert.deepEqual(first.expoSends, [PHONE], 'the phone is not read as gone')
+  assert.equal(first.summary.sent, 2)
+  const selects = first.client.calls.filter((c) => c.table === 'push_devices' && c.kind === 'select').map((c) => c.payload)
+  assert.deepEqual(selects, ['id, user_id, token, failure_count, local_reminders', 'id, user_id, token, failure_count'])
+  const second = await run()
+  assert.deepEqual(second.expoSends, [PHONE])
+  assert.equal(log.mock.callCount(), 1, 'the next tick does not log it again')
+  assert.match(String(log.mock.calls[0].arguments[0]), /^\[push_local_reminders\] schema missing: run db\/supabase-push-local-reminders\.sql/)
 })
 
 test('any other push_devices error stops the run with the status kept, for the cron retry', async () => {
