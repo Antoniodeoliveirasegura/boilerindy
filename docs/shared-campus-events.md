@@ -5,6 +5,9 @@ table is `db/supabase-campus-events.sql`, and the ingest, with its dry run, is
 `POST /api/internal/campus-events/ingest` ([campus-events-ingest.md](campus-events-ingest.md)).
 The read path (step 4) lists the table on `/events` and `/free-food` behind
 `CAMPUS_EVENTS_FEED`, off by default ([campus-events-feed.md](campus-events-feed.md)).
+The first source beyond campus, White River State Park's events calendar
+(below), is built behind `CAMPUS_EVENTS_DOWNTOWN`, also off by default, with
+README step 49 ([campus-events-ingest.md](campus-events-ingest.md#downtown-events)).
 
 ## The problem
 
@@ -135,10 +138,64 @@ publishing schedule of its own to follow.
   Indianapolis's own instance, so every organization on it counts as an
   Indianapolis one.
 
-Not chosen yet, each a later change: the city sources for #30 (the
-Ticketmaster Discovery API needs a key; White River State Park publishes an
-Events Calendar feed) and IU Indy Jaguars athletics (an ICS feed with a
-30-second crawl delay).
+### White River State Park's events calendar (The Events Calendar): off by default
+
+The first downtown source (issue #30): the park's museums, zoo and lawns are a
+walk from campus, but they are not the campus, so its rows say so (venue
+`downtown`, label "Downtown") and the source is read only with
+`CAMPUS_EVENTS_DOWNTOWN` on.
+
+- URL: `https://whiteriverstatepark.org/wp-json/tribe/events/v1/events`, The
+  Events Calendar's REST list, with no query string at all.
+- robots.txt, checked 2026-10-24: every user agent gets `Disallow: /*?` (any
+  URL with a query string) and `Crawl-delay: 3`; `/wp-json/` is allowed. So
+  the ingest does not send `start_date`, `end_date`, `per_page` or `page`.
+  Without them the site answers its defaults, which its `rest_url` echoes:
+  `page=1`, `per_page=50`, from yesterday to two years out, published only.
+  That is one request a run, so the crawl delay never comes up, and the
+  ingest keeps its own window from it: not over before today on the campus
+  calendar, starting within 60 days (`inTribeWindow` in
+  `src/campusEventsIngest.mjs`). Should the list outgrow 50 listings, the run
+  reads the first page, reports the source incomplete and does not sweep it,
+  since a second page needs `?page=`.
+- Terms, checked 2026-10-24: no key, and no terms of use. The site's page
+  sitemap lists none, and its footer links only a privacy policy, which is
+  WordPress's default text (comments, cookies, embedded content) and says
+  nothing about automated access or reuse.
+- Format: `{ events: [...], rest_url, total, total_pages }`.
+- Volume on 2026-10-24 (17:30 in Indianapolis): 27 listings in all, through
+  August 2027, and 19 between that day and December 23, at the Indiana State
+  Museum and its IMAX, the Indianapolis Zoo, the Eiteljorg, the NCAA Hall of
+  Champions, Military Park and the Canal Walk. (A query string asking for 60
+  days had answered 17 on 2026-10-23.)
+- Time zone: the site sets the calendar's zone to "UTC+0". Every listing says
+  `timezone: "UTC+0"` and repeats its `start_date` as `utc_start_date` (Día de
+  Muertos at the Eiteljorg reads 10:00 in both), so the times are the
+  Indianapolis wall clock. The adapter reads `start_date` and `end_date` in
+  `America/Indiana/Indianapolis`, on either side of a daylight saving change,
+  and ignores the "UTC" fields (`campusWallClockToIso`, pinned by a fixture
+  test).
+- Ids: the listing's WordPress post id, one per occurrence. A series is one
+  title at one venue (the two Twilight Tales nights at the Indiana State
+  Museum).
+- Filter: the park's own calendar (`indianapolisScope`), so a listing with
+  Indianapolis in its venue's address is kept as `place`, one with nothing to
+  place it (the Canal Walk) as `scope`, and one naming another city drops as
+  `away`. Every listing kept is `venue_kind` `downtown`, unless it is online.
+- Free food: never from free entry, the park's "Free Event" category or a
+  cost of "Free", with or without food in the listing. On 2026-10-24 the
+  Localist rule (free entry together with food in the text) would have marked
+  three: the Book Fair ("Sweet treats" from its vendors, drinks for purchase),
+  the MLK Day free admission (it collects for Gleaners Food Bank) and Trail &
+  Treat (treats for children along the canal). Only the keyword matcher, or
+  Jev with `CAMPUS_EVENTS_CLASSIFY` on, counts: none of the 19 had free food.
+
+Not chosen yet, each a later change: the other city sources for #30 (the
+Ticketmaster Discovery API needs a key, set aside by the owner's call of
+2026-10-18; the Indianapolis Public Library's iCal feed waits on a permission
+email; Visit Indy and Do317 ban scraping in their terms and need a feed
+agreement) and IU Indy Jaguars athletics (an ICS feed with a 30-second crawl
+delay).
 
 ## Schema sketch
 
@@ -237,8 +294,9 @@ shared row cannot reach a list that offers "mark done". The rows carry both
 markers, `shared: true` and `sourceType: 'campus'`, plus a source label and the
 listing's link. A missing table, or any failed read of it, leaves the
 student's own rows alone. West Lafayette and other-city rows and members-only
-sessions are left out, a series is listed once as its next occurrence, and a
-row the ingest has not written for 26 hours counts as gone. Signed out,
+sessions are left out, downtown rows are listed (labeled "Downtown") only while
+`CAMPUS_EVENTS_DOWNTOWN` is on, a series is listed once as its next
+occurrence, and a row the ingest has not written for 26 hours counts as gone. Signed out,
 `/free-food` reads the rows with free food alone through
 `GET /api/campus-events/free-food` (issue #366), which never sees a session
 and so never a student's rows.

@@ -270,6 +270,53 @@ describe('shared campus events', () => {
     expect(screen.queryByRole('group', { name: 'Event source' })).not.toBeInTheDocument()
   })
 
+  // Issue #30: White River State Park's rows, which the server sends while
+  // CAMPUS_EVENTS_DOWNTOWN is on, labeled "Downtown".
+  it('gives downtown rows a Downtown label, an Event badge and a Downtown pill of their own', async () => {
+    const park = (id: string, title: string, fromNowMs: number) =>
+      shared(id, title, fromNowMs, {
+        location: 'Indiana State Museum, 650 West Washington Street, Indianapolis',
+        sourceKey: 'wrsp_events',
+        sourceLabel: 'Downtown',
+        sourceUrl: `https://whiteriverstatepark.org/event/${id}/`,
+      })
+    calendar = {
+      items: [
+        event('ev-1', 'Career fair prep workshop', 2 * HOUR),
+        shared('yoga', 'Yoga in the Natatorium', 3 * HOUR),
+        park('twilight', 'Twilight Tales: Beyond the Grave (18+)', 4 * HOUR),
+        park('heroes', 'Heroes from the Heartland', 5 * HOUR),
+      ],
+    }
+    renderPage()
+    const twilight = await screen.findByRole('button', { name: /Twilight Tales/ })
+    expect(within(twilight).getByText('Downtown')).toHaveAttribute('title', 'Listed on whiteriverstatepark.org')
+    // Not a campus event: its category badge, and the category pills, say Event.
+    expect(within(twilight).getByText('Event')).toBeInTheDocument()
+    expect(within(twilight).queryByText('Campus Event')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Campus Event (2)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Event (2)' })).toBeInTheDocument()
+
+    const pills = screen.getByRole('group', { name: 'Event source' })
+    expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual([
+      'All sources', 'IU (1)', 'Downtown (2)', 'My calendar (1)',
+    ])
+    fireEvent.click(within(pills).getByRole('button', { name: 'Downtown (2)' }))
+    expect(within(pills).getByRole('button', { name: 'Downtown (2)' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: /Yoga in the Natatorium/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Career fair prep workshop/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Heroes from the Heartland/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Twilight Tales/ }))
+    const details = detailCard('Twilight Tales: Beyond the Grave (18+)')
+    expect(within(details).getByText('Downtown')).toBeInTheDocument()
+    expect(within(details).getByText('Event')).toBeInTheDocument()
+    expect(within(details).getByRole('link', { name: 'View on whiteriverstatepark.org' })).toHaveAttribute(
+      'href',
+      'https://whiteriverstatepark.org/event/twilight/',
+    )
+  })
+
   it('fills the page for a student with no linked calendar, from the campus calendars', async () => {
     auth.onboarding = { linkedSourceCount: 0 }
     calendar = { items: [shared('chili', 'United Way Chili Cook-off', 5 * HOUR)] }

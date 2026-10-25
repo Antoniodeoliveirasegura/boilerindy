@@ -92,21 +92,25 @@ export function untilLabel(item: Timed, now: Date = new Date()): string {
 // ── Where a row came from: the source pills ─────────────────────────────────
 
 /** A row's school on the source pills of Events and Free Food; `mine` is the student's own calendar. */
-export type EventSource = 'purdue' | 'iu' | 'mine'
+export type EventSource = 'purdue' | 'iu' | 'downtown' | 'mine'
 /** A source pill, or `following`: the "Clubs I follow" pill beside them (issue #16). */
 export type SourceFilter = 'all' | EventSource | 'following'
 export type EventSourceCount = { id: EventSource; label: string; count: number }
 
 // The shared rows' sourceKey (SOURCES in src/sharedEvents.mjs) by school:
 // Purdue's calendar and BoilerLink are Purdue's, IU's calendar and TheSpot IU's.
+// White River State Park's calendar is no school's: its rows are downtown
+// (issue #30), with a pill of their own so a museum night never reads as a
+// campus event.
 const SCHOOL_BY_SOURCE_KEY: Record<string, EventSource> = {
   purdue_events: 'purdue',
   boilerlink: 'purdue',
   iu_events: 'iu',
   thespot: 'iu',
+  wrsp_events: 'downtown',
 }
-const EVENT_SOURCE_ORDER: EventSource[] = ['purdue', 'iu', 'mine']
-export const EVENT_SOURCE_LABEL: Record<EventSource, string> = { purdue: 'Purdue', iu: 'IU', mine: 'My calendar' }
+const EVENT_SOURCE_ORDER: EventSource[] = ['purdue', 'iu', 'downtown', 'mine']
+export const EVENT_SOURCE_LABEL: Record<EventSource, string> = { purdue: 'Purdue', iu: 'IU', downtown: 'Downtown', mine: 'My calendar' }
 
 type Sourced = Pick<CampusEventFields, 'shared' | 'sourceKey' | 'followed'>
 
@@ -114,6 +118,11 @@ type Sourced = Pick<CampusEventFields, 'shared' | 'sourceKey' | 'followed'>
 export function eventSourceOf(item: Sourced): EventSource | null {
   if (!item.shared) return 'mine'
   return SCHOOL_BY_SOURCE_KEY[item.sourceKey ?? ''] ?? null
+}
+
+/** A shared row from a downtown source: the server lists it as a campus_event, but it is not one. */
+export function isDowntownEvent(item: Sourced): boolean {
+  return eventSourceOf(item) === 'downtown'
 }
 
 /** A pill per source the rows come from, in a fixed order; none while no row is shared. */

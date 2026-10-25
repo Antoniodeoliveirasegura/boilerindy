@@ -12,6 +12,7 @@ import {
   followedEventCount,
   hasEnded,
   isOngoing,
+  isDowntownEvent,
   listedTime,
   listingLink,
   matchesSourceFilter,
@@ -56,8 +57,11 @@ const CATEGORY_LABEL: Record<string, string> = {
   resource: 'Resource',
 }
 
-// An item without a category counts, filters and reads as an Event.
+// An item without a category counts, filters and reads as an Event, and so
+// does a downtown listing (issue #30): the server lists it as a campus_event,
+// and its badge beside "Downtown" must not say a museum night is a campus event.
 function categoryOf(item: EventItem) {
+  if (isDowntownEvent(item)) return 'event'
   return item.category || 'event'
 }
 

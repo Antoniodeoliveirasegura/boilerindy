@@ -15,6 +15,7 @@ import {
   SHARED_EVENTS_MAX_ROWS,
   SOURCE_LABELS,
   STALE_AFTER_MS,
+  applyDowntownSwitch,
   listSharedCalendarItems,
   planPublicFreeFoodItems,
   planSharedCalendarItems,
@@ -23,7 +24,8 @@ import {
   sharedCategoriesFor,
   toSharedCalendarItem,
 } from '../src/campusEventsFeed.mjs'
-import { SOURCES, VENUE_KINDS, engageOrgLookup, planCampusEvents } from '../src/sharedEvents.mjs'
+import { inTribeWindow } from '../src/campusEventsIngest.mjs'
+import { DOWNTOWN_VENUE_KIND, SOURCES, VENUE_KINDS, engageOrgLookup, planCampusEvents, sourceByKey } from '../src/sharedEvents.mjs'
 import { fakeSupabase } from './routes/fakeSupabase.mjs'
 
 const NOW = new Date('2026-10-17T12:00:00.000Z')
@@ -203,6 +205,50 @@ test('West Lafayette and other-city rows, and members-only sessions, are never l
     campusRow({ title: 'Club tennis practice', open_to_all: false }),
   ]
   assert.deepEqual(titles(planSharedCalendarItems(audience, { now: NOW })), ['Open to students', 'Nothing said'])
+})
+
+// Issue #30: White River State Park's rows are downtown. The read lists them,
+// says "Downtown", and drops them whenever CAMPUS_EVENTS_DOWNTOWN is off.
+test('downtown rows are listed with the Downtown label, and only while CAMPUS_EVENTS_DOWNTOWN is on', () => {
+  assert.ok(!HIDDEN_VENUE_KINDS.includes(DOWNTOWN_VENUE_KIND))
+  const museum = campusRow({
+    title: 'Twilight Tales',
+    source_key: 'wrsp_events',
+    venue_kind: DOWNTOWN_VENUE_KIND,
+    location: 'Indiana State Museum, 650 West Washington Street, Indianapolis',
+    source_url: 'https://whiteriverstatepark.org/event/twilight-tales/',
+  })
+  const leap = campusRow({ title: 'LEAP Retreat' })
+  const items = planSharedCalendarItems([museum, leap], { now: NOW })
+  assert.deepEqual(titles(items), ['Twilight Tales', 'LEAP Retreat'])
+  assert.deepEqual(items[0], { ...toSharedCalendarItem(museum), sourceLabel: 'Downtown' })
+  assert.equal(SOURCE_LABELS.wrsp_events, 'Downtown')
+  assert.equal(items[0].sourceUrl, 'https://whiteriverstatepark.org/event/twilight-tales/')
+
+  assert.deepEqual(titles(applyDowntownSwitch(items, true)), ['Twilight Tales', 'LEAP Retreat'])
+  assert.deepEqual(titles(applyDowntownSwitch(items, false)), ['LEAP Retreat'])
+  // Off means the source, whatever the venue of one of its rows.
+  const webinar = toSharedCalendarItem(campusRow({ title: 'Webinar', source_key: 'wrsp_events', venue_kind: 'online' }))
+  assert.deepEqual(applyDowntownSwitch([webinar], false), [])
+  assert.deepEqual(applyDowntownSwitch([], false), [])
+})
+
+test("the park's listings of 2026-10-24, fetched and planned by the ingest, list as 17 Downtown rows", () => {
+  const source = sourceByKey('wrsp_events')
+  const fetchedAt = new Date('2026-10-24T21:30:00.000Z')
+  const listings = JSON.parse(readFileSync(new URL('./fixtures/campus-events-wrsp.json', import.meta.url), 'utf8')).events
+  const { rows } = planCampusEvents({ wrsp_events: listings.filter((raw) => inTribeWindow(raw, source, fetchedAt)) })
+  assert.equal(rows.length, 19)
+  const stored = rows.map((row) => ({ ...row, id: row.dedupe_key, last_seen_at: fetchedAt.toISOString() }))
+  const items = planSharedCalendarItems(stored, { now: fetchedAt })
+  // Twilight Tales: Beyond the Grave and the zoo's sensory-friendly evening are on twice, and listed once.
+  assert.equal(items.length, 17)
+  assert.ok(items.every((item) => item.shared && item.sourceLabel === 'Downtown' && item.category === 'campus_event' && !item.freeFood))
+  assert.equal(titles(items).filter((title) => title === 'Twilight Tales: Beyond the Grave (18+)').length, 1)
+  // Still on at 5:30 PM: the Día de Muertos celebration until 7, and the day's IMAX screening.
+  assert.deepEqual(titles(items).slice(0, 3), ['Apocalypse Now Final Cut: The IMAX Experience', 'Día de Muertos Community Celebration (FREE DAY)', 'Trail & Treat on the Canal'])
+  assert.deepEqual(applyDowntownSwitch(items, false), [])
+  assert.deepEqual(planPublicFreeFoodItems(stored, { now: fetchedAt }), [])
 })
 
 test('a series shows once, as its next occurrence; rows with no series key each stand alone', () => {

@@ -10,6 +10,10 @@
 // POST /api/internal/campus-events/ingest (src/routes/campusEvents.mjs) calls
 // it from the pg_cron job in db/supabase-campus-events-ingest.sql. See
 // docs/campus-events-ingest.md.
+//
+// The downtown sources (White River State Park) are read only with
+// CAMPUS_EVENTS_DOWNTOWN on, and a real run before README step 49 leaves them
+// out with one log line (leaveOutDowntownWithoutStep49).
 
 import { queryError, retryOnceIfTransient } from './cronTick.mjs'
 import { DB_FEATURES, logSchemaMissingOnce } from './dbErrors.mjs'
@@ -22,7 +26,8 @@ export const PAGE_SIZE = 100
 export const PAGE_DELAY_MS = 1000
 export const PAGE_TIMEOUT_MS = 20_000
 // Today's volumes are 1, 4 and 13 pages (Localist, LiveWhale, BoilerLink).
-export const MAX_PAGES = Object.freeze({ localist: 10, livewhale: 20, engage: 30 })
+// The Events Calendar is read as its one robots-allowed page (tribePageUrl).
+export const MAX_PAGES = Object.freeze({ localist: 10, livewhale: 20, engage: 30, tribe: 1 })
 export const UPSERT_BATCH_SIZE = 500
 const USER_AGENT = 'BoilerIndy campus app (+https://www.boilerindy.app)'
 const CAMPUS_TIME_ZONE = 'America/Indiana/Indianapolis'
@@ -74,6 +79,32 @@ export function engagePageUrl(source, skip, now) {
   return url.toString()
 }
 
+/**
+ * The Events Calendar's event list, with no query string: White River State
+ * Park's robots.txt disallows every URL with one (`Disallow: /*?`). Without
+ * one the site answers its defaults, every upcoming listing for two years, 50
+ * a page (27 on one page on 2026-10-24), and the ingest keeps its own window
+ * (inTribeWindow).
+ */
+export function tribePageUrl(source) {
+  return new URL('/wp-json/tribe/events/v1/events', source.origin).toString()
+}
+
+/**
+ * Whether a listing of The Events Calendar is in the window a query string
+ * would have asked for (`start_date=<today>&end_date=<today + days>`): not
+ * over before today on the campus calendar, and starting within the source's
+ * `days`. Its dates are campus wall-clock times ("2026-11-21 00:00:00"), so
+ * they compare as text. One without a readable start is kept, for the plan to
+ * count it as skipped.
+ */
+export function inTribeWindow(raw, source, now) {
+  const start = String(raw?.start_date ?? '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return true
+  const end = String(raw?.end_date || start).slice(0, 10)
+  return end >= campusYmd(now) && start <= campusYmd(new Date(now.getTime() + source.days * DAY_MS))
+}
+
 // Per platform: the URL of page `index` (from 0), and what a page body holds.
 // `read` answers null for a body that is not the platform's JSON.
 const PLATFORMS = {
@@ -100,6 +131,17 @@ const PLATFORMS = {
       const total = Number(body['@odata.count'])
       return { items: body.value, more: Number.isFinite(total) && (index + 1) * PAGE_SIZE < total }
     },
+  },
+  // One page only (MAX_PAGES.tribe): a second one would need `?page=`, which
+  // robots.txt disallows, so a list that outgrows it reads as incomplete.
+  tribe: {
+    url: (source) => tribePageUrl(source),
+    read: (body, index) => {
+      if (!Array.isArray(body?.events)) return null
+      const total = Number(body.total_pages)
+      return { items: body.events, more: Number.isFinite(total) && index + 1 < total }
+    },
+    keep: inTribeWindow,
   },
 }
 
@@ -132,10 +174,11 @@ export async function fetchSourceListings(
     const page = platform.read(body, index)
     if (!page) return { listings, pages, complete: false, error: `${source.key} answered something other than its JSON on page ${index + 1}` }
     pages += 1
-    listings.push(...page.items)
+    // A platform asked for no window (The Events Calendar) keeps the listings inside one.
+    listings.push(...(platform.keep ? page.items.filter((raw) => platform.keep(raw, source, now)) : page.items))
     if (!page.more || page.items.length === 0) return { listings, pages, complete: true, error: null }
   }
-  return { listings, pages, complete: false, error: `${source.key} has more than ${maxPages} pages` }
+  return { listings, pages, complete: false, error: `${source.key} has more than ${maxPages} page${maxPages === 1 ? '' : 's'}` }
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
@@ -197,6 +240,54 @@ async function sweepSource(client, sourceKey, runAt, { log }) {
   return { swept: result.count ?? 0 }
 }
 
+// ── Downtown (README step 49) ───────────────────────────────────────────────
+
+// db/supabase-campus-events-downtown.sql, README step 49, widens the CHECK on
+// campus_events.venue_kind to allow 'downtown'.
+export const DOWNTOWN_SQL_FILE = 'db/supabase-campus-events-downtown.sql'
+const DOWNTOWN_KEYS = new Set(SOURCES.filter((source) => source.downtown).map((source) => source.key))
+
+/** Postgres refusing a downtown row: the CHECK on venue_kind, before README step 49. */
+export function isDowntownCheckViolation(error) {
+  return String(error?.code ?? '') === '23514' && /\bcampus_events_venue_kind_check\b/.test(String(error?.message ?? ''))
+}
+
+/**
+ * Before README step 49 a downtown row fails the CHECK on venue_kind, and the
+ * whole batch with it. So one goes up alone first. When the CHECK refuses it,
+ * the run leaves the downtown sources out (none of their rows, no sweep), says
+ * so in one log line and in their entries of the summary, and writes the other
+ * sources as before. Once step 49 has run, that row is simply written, and
+ * again with the rest. Resolves with the rows still to write; any other
+ * failure rejects, as a failed write does.
+ *
+ * A downtown source keeps its listings as venue_kind 'downtown' unless they
+ * are online (sharedEvents.buildEvent), and Jev never changes a known venue,
+ * so its first row that is not online is a downtown one.
+ */
+async function leaveOutDowntownWithoutStep49(client, rows, { summary, fetched, runAt, log, sleep }) {
+  const probe = rows.find((row) => DOWNTOWN_KEYS.has(row.source_key) && row.venue_kind !== 'online')
+  if (!probe) return rows
+  try {
+    await upsertRows(client, [{ ...probe, last_seen_at: runAt }], { log, sleep })
+    return rows
+  } catch (error) {
+    if (!isDowntownCheckViolation(error)) throw error
+  }
+  const reason = `left out: campus_events does not allow venue_kind 'downtown' until ${DOWNTOWN_SQL_FILE} (README step 49) has run`
+  // A downtown source whose fetch already failed keeps its own error.
+  const left = summary.sources.filter((entry) => entry.enabled && entry.ok && DOWNTOWN_KEYS.has(entry.key))
+  for (const entry of left) {
+    Object.assign(entry, { ok: false, error: reason, schemaMissing: DOWNTOWN_SQL_FILE })
+    // Not swept: a failed source never is.
+    fetched.set(entry.key, { ...fetched.get(entry.key), error: reason })
+  }
+  log.warn(`[campus-events] ${left.map((entry) => entry.key).join(', ')} ${reason}: run it in the Supabase SQL Editor.`)
+  const kept = rows.filter((row) => !DOWNTOWN_KEYS.has(row.source_key))
+  summary.totals = summarizeRows(kept)
+  return kept
+}
+
 // ── One run ─────────────────────────────────────────────────────────────────
 
 /**
@@ -220,11 +311,17 @@ async function sweepSource(client, sourceKey, runAt, { log }) {
  * `classifier`, or with `{ rows, summary }`, the summary reported as
  * `classify`. A dry run skips it: it would read the stored verdicts, and a dry
  * run touches no database.
+ *
+ * `downtownEnabled` (CAMPUS_EVENTS_DOWNTOWN) adds the downtown sources, White
+ * River State Park's calendar; off, they are neither fetched nor in the
+ * summary, so the run is the one before they existed. A real run before README
+ * step 49 leaves them out (leaveOutDowntownWithoutStep49).
  */
 export async function runCampusEventsIngest({
   client,
   dryRun = false,
   engageEnabled = false,
+  downtownEnabled = false,
   clubs = [],
   classify = null,
   fetchImpl = globalThis.fetch,
@@ -241,6 +338,7 @@ export async function runCampusEventsIngest({
   const fetched = new Map()
   for (const source of SOURCES) {
     if (source.engage && !engage.has(source.key)) continue
+    if (source.downtown && !downtownEnabled) continue
     fetched.set(source.key, await fetchSourceListings(source, { fetchImpl, now, sleep, pageDelayMs, log }))
   }
   const plan = planCampusEvents(
@@ -261,7 +359,7 @@ export async function runCampusEventsIngest({
   }
 
   const planned = new Map(plan.sources.map((stats) => [stats.key, stats]))
-  const sources = SOURCES.map((source) => {
+  const sources = SOURCES.filter((source) => downtownEnabled || !source.downtown).map((source) => {
     const result = fetched.get(source.key)
     if (!result) return { key: source.key, enabled: false }
     const { key, ...stats } = planned.get(source.key)
@@ -273,6 +371,7 @@ export async function runCampusEventsIngest({
   if (classified) summary.classify = classified
 
   if (dryRun) return { ...summary, rows, durationMs: Date.now() - startedAt }
+  rows = await leaveOutDowntownWithoutStep49(client, rows, { summary, fetched, runAt, log, sleep })
 
   const { upserted, organizationKeys } = await upsertRows(client, rows.map((row) => ({ ...row, last_seen_at: runAt })), { log, sleep })
   for (const entry of sources) {

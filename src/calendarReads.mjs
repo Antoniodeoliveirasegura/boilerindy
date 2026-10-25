@@ -12,7 +12,7 @@
 // turns the feed on and a read asks for them.
 
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './academicTerms.mjs'
-import { listSharedCalendarItems } from './campusEventsFeed.mjs'
+import { applyDowntownSwitch, listSharedCalendarItems } from './campusEventsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './pagedSelect.mjs'
 import { normalizeScheduleOverrides } from './scheduleOverrides.mjs'
@@ -53,10 +53,13 @@ function orderClassItemsForDisplay(items) {
  *   { series: {}, manual: [] } when there is no row or the read fails.
  *
  * @param {object} supabase the Supabase client
- * @param {{ sharedEventsFeed?: boolean }} [options] sharedEventsFeed: CAMPUS_EVENTS_FEED, off by default
+ * @param {{ sharedEventsFeed?: boolean, downtownEnabled?: boolean }} [options]
+ *   sharedEventsFeed: CAMPUS_EVENTS_FEED, off by default; downtownEnabled:
+ *   CAMPUS_EVENTS_DOWNTOWN, off by default, which lists the downtown sources'
+ *   shared rows too (applyDowntownSwitch)
  * @returns {{ listCalendarItems: Function, getClassItemsForUser: Function, readScheduleOverrides: Function }}
  */
-export function createCalendarReads(supabase, { sharedEventsFeed = false } = {}) {
+export function createCalendarReads(supabase, { sharedEventsFeed = false, downtownEnabled = false } = {}) {
   async function listCalendarItems(
     userId,
     { category, categories, limit = 100, order = 'asc', from = null, throwOnError = false, sharedCategories = null } = {},
@@ -119,13 +122,14 @@ export function createCalendarReads(supabase, { sharedEventsFeed = false } = {})
       // only meaningful for event categories but harmless elsewhere.
       freeFood: hasFreeFood(row.title, row.description),
     }))
-    if (!shared.length) return own
+    const listed = applyDowntownSwitch(shared, downtownEnabled)
+    if (!listed.length) return own
     // Both lists are in start order. A stable sort on the start alone keeps
     // the database's id order among the student's rows and puts them ahead of
     // a shared row with the same start; the first rowLimit of the merge are
     // right even when the student's read stopped at rowLimit.
     const sign = ascending ? 1 : -1
-    return [...own, ...(ascending ? shared : [...shared].reverse())]
+    return [...own, ...(ascending ? listed : [...listed].reverse())]
       .sort((a, b) => sign * (Date.parse(a.startTime) - Date.parse(b.startTime)))
       .slice(0, rowLimit)
   }

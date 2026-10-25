@@ -25,8 +25,9 @@ const pizzaSocial = () => ({
   freeFood: true,
 })
 
-// A shared campus event, as the server sends it.
+// A shared campus event, as the server sends it (SOURCE_LABELS in src/campusEventsFeed.mjs).
 const at = (hours: number) => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
+const LABELS: Record<string, string> = { purdue_events: 'Purdue event', iu_events: 'IU event', wrsp_events: 'Downtown' }
 const campus = (id: string, title: string, hours: number, sourceKey: string, freeFood = true) => ({
   id: `campus:${id}`,
   title,
@@ -35,7 +36,7 @@ const campus = (id: string, title: string, hours: number, sourceKey: string, fre
   freeFood,
   shared: true,
   sourceKey,
-  sourceLabel: sourceKey === 'purdue_events' ? 'Purdue event' : 'IU event',
+  sourceLabel: LABELS[sourceKey] ?? 'Campus calendar',
   sourceUrl: `https://example.edu/event/${id}`,
 })
 
@@ -164,6 +165,25 @@ it('lists shared free-food events with their source and a link out, and keeps on
 
   expect(screen.queryByText('Breakfast that ended')).not.toBeInTheDocument()
   expect(screen.getByText(/^2 upcoming events on your calendar and campus calendars that mention free food/)).toBeInTheDocument()
+})
+
+// Issue #30: a downtown row with free food (White River State Park, while the
+// server's CAMPUS_EVENTS_DOWNTOWN is on) says Downtown and has its own pill.
+it('labels a downtown free-food event Downtown and gives it a Downtown pill', async () => {
+  calendar = {
+    items: [pizzaSocial(), campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events'), campus('kwanzaa', 'Kwanzaa Community Festival', 30, 'wrsp_events')],
+  }
+  renderPage()
+  const kwanzaa = (await screen.findByText('Kwanzaa Community Festival')).closest('li') as HTMLElement
+  expect(within(kwanzaa).getByText('Downtown')).toBeInTheDocument()
+  const pills = screen.getByRole('group', { name: 'Event source' })
+  expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual([
+    'All sources', 'Purdue (1)', 'Downtown (1)', 'My calendar (1)',
+  ])
+  fireEvent.click(within(pills).getByRole('button', { name: 'Downtown (1)' }))
+  expect(screen.getByText('Kwanzaa Community Festival')).toBeInTheDocument()
+  expect(screen.queryByText('Boiler Fuel Up')).not.toBeInTheDocument()
+  expect(screen.queryByText('Pizza social')).not.toBeInTheDocument()
 })
 
 // Issue #30: the source pills count the free-food list, not the whole calendar.
@@ -304,6 +324,23 @@ describe('signed out (the public preview)', () => {
     const pills = await screen.findByRole('group', { name: 'Event source' })
     expect(within(pills).queryByRole('button', { name: /My calendar/ })).not.toBeInTheDocument()
     expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual(['All sources', 'Purdue (1)', 'IU (1)'])
+  })
+
+  it('lists a downtown free-food event as Downtown, with a Downtown pill, the same as signed in', async () => {
+    publicFeed = {
+      ok: true,
+      items: [campus('fuel', 'Boiler Fuel Up', 28, 'purdue_events'), campus('kwanzaa', 'Kwanzaa Community Festival', 30, 'wrsp_events')],
+    }
+    renderPage()
+    const kwanzaa = (await screen.findByText('Kwanzaa Community Festival')).closest('li') as HTMLElement
+    expect(within(kwanzaa).getByText('Downtown')).toBeInTheDocument()
+    const pills = screen.getByRole('group', { name: 'Event source' })
+    expect(within(pills).getAllByRole('button').map((pill) => pill.textContent)).toEqual(['All sources', 'Purdue (1)', 'Downtown (1)'])
+    fireEvent.click(within(pills).getByRole('button', { name: 'Downtown (1)' }))
+    expect(screen.queryByText('Boiler Fuel Up')).not.toBeInTheDocument()
+    expect(screen.getByText('Kwanzaa Community Festival')).toBeInTheDocument()
+    expect(authRequest).not.toHaveBeenCalled()
+    expect(fetchedUrls()).toEqual([PUBLIC_FREE_FOOD])
   })
 
   it('with nothing listed: the empty state, with no link to Events, which needs an account', async () => {
