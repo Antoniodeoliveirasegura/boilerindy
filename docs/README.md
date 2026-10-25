@@ -7,27 +7,29 @@ coding conventions live in the root [README.md](../README.md).
 ## Documents
 
 - [advertiser-portal.md](advertiser-portal.md) - scope and architecture of the advertiser portal, with M1 (auth, leads) and M2 (campaigns dashboard) shipped.
-- [analytics.md](analytics.md) - privacy-conscious usage analytics stored in our own Supabase, with no third-party trackers, no pixel and no external script (issue #51).
+- [analytics.md](analytics.md) - privacy-conscious usage analytics stored in our own Supabase, with no third-party trackers, no pixel and no external script (issue #51), and the sign-up source: which marketing link brought each new account.
 - [api-routes.md](api-routes.md) - every route the backend serves, generated from `server.mjs` and `src/routes/` by `pnpm run docs:routes` and kept in step by a test (issue #191).
 - [api-error-codes.md](api-error-codes.md) - the standard JSON error envelope, used by new code and by every code in the table it lists (issue #218).
 - [brand.md](brand.md) - the nominative fair use posture that names Purdue only to describe who the app is for and uses none of the university's identity assets (issue #112).
-- [campus-events-feed.md](campus-events-feed.md) - the shared campus events on `/events` and `/free-food`, for every student including one with no linked calendar, behind `CAMPUS_EVENTS_FEED` (off by default): which reads get them, what is listed and what a student sees (issue #30).
-- [campus-events-ingest.md](campus-events-ingest.md) - the cron route that reads Purdue's and IU's public events calendars into the shared `campus_events` table every 6 hours, with a dry run that writes nothing, and Jev's classification of new listings behind `CAMPUS_EVENTS_CLASSIFY` (issue #30).
+- [campus-events-feed.md](campus-events-feed.md) - the shared campus events on `/events` and `/free-food`, for every student including one with no linked calendar, behind `CAMPUS_EVENTS_FEED` (off by default): which reads get them, what is listed and what a student sees (issue #30), and the free food a signed-out visitor sees (issue #366).
+- [campus-events-ingest.md](campus-events-ingest.md) - the cron route that reads Purdue's and IU's public events calendars into the shared `campus_events` table every 6 hours, with a dry run that writes nothing, Jev's classification of new listings behind `CAMPUS_EVENTS_CLASSIFY`, and the first downtown source, White River State Park, behind `CAMPUS_EVENTS_DOWNTOWN` (issue #30).
 - [campus-news.md](campus-news.md) - the latest headlines from The Circuit, Purdue Indy's student newspaper, behind the "Campus news" dashboard widget and `GET /api/campus-news`: headlines, excerpts and links only (issue #470).
 - [client-cache.md](client-cache.md) - the TanStack Query layer in the React app: the public reads persisted to localStorage so the dashboard paints from the last visit, with their keys, stale times, polling and retry rules (issue #251).
-- [clubs.md](clubs.md) - the searchable directory of Purdue student organizations behind the `/clubs` page and `GET /api/clubs` (issue #16).
+- [clubs.md](clubs.md) - the searchable directory of Purdue student organizations behind the `/clubs` page and `GET /api/clubs` (issue #16), and following a club: the follow routes, and the "Clubs I follow" pill its events get on `/events` and `/free-food`.
 - [dining.md](dining.md) - menus, hours and open/closed status for the two shared dining halls, behind `GET /api/dining` and the `/dining` page (issue #119).
 - [error-tracking.md](error-tracking.md) - Sentry reporting from the Express API and the React app, fully off when no DSN is configured (issue #50).
 - [keep-warm.md](keep-warm.md) - why Render's free tier spins the backend down after about 15 minutes without a request, and what the app does about the cold start (issue #164).
 - [marketplace-photos.md](marketplace-photos.md) - how the app and the website authorize a direct Supabase Storage upload with the student session, up to six ordered photos per listing.
-- [moderation.md](moderation.md) - how students report what other students post and block each other, and how an admin works the one report queue at `/admin/reports` (issue #192).
+- [moderation.md](moderation.md) - how students report what other students post and block each other, and how an admin works the one report queue at `/admin/reports` (issue #192), and the photo queue at `/admin/photos` that holds new marketplace photos for an admin behind `MARKETPLACE_PHOTO_REVIEW` (issue #504).
 - [parking-status.md](parking-status.md) - live garage availability for Purdue Indianapolis students, behind the `/parking` page, the campus map layer and `GET /api/parking/garages` (issue #14).
 - [purdue-email-verification.md](purdue-email-verification.md) - how a student links a `@purdue.edu` address to their BoilerIndy account by typing a six-digit code mailed to it, with no Purdue CAS round trip and no admin or database step (issue #181).
 - [purdue-link.md](purdue-link.md) - the short-lived, single-use token that lets the native app link a Purdue identity without the `pih.sid` session cookie (issue #214).
 - [push-notifications.md](push-notifications.md) - Web Push deadline reminders: the `/settings` card, the `/api/push/` routes behind it, and the reminder runner the Supabase scheduler triggers every 5 minutes (issue #9); the native app's Expo push tokens and their delivery (issue #194).
 - [RATE_LIMITS.md](RATE_LIMITS.md) - the configurable, in-memory rate limiting that protects the backend, keyed by the signed-in user id when a session exists and otherwise by client IP.
 - [schedule-import.md](schedule-import.md) - how a student gets their classes and due dates into BoilerIndy, and why the production path is a pasted link (issue #120).
+- [share-links.md](share-links.md) - the Share buttons on `/transit`, `/dining` and `/free-food` (the list, or one campus event), the link each one sends, and the link preview cards a chat app shows for it.
 - [shared-campus-events.md](shared-campus-events.md) - the design for campus events that are shared rather than owned by one student's feed, and the public sources chosen for it; the table, the ingest and the read path are built, the read path behind a switch (issue #30).
+- [sign-in-with-apple.md](sign-in-with-apple.md) - how deleting the account of a student who signs in with Apple revokes their Sign in with Apple token through Apple's REST API, which Apple asks of every app that offers it, with the token the native app sends, the four Apple settings and how to check them.
 - [source-resync.md](source-resync.md) - the cron job that re-imports every connected calendar feed on a schedule, instead of only when the student presses Sync (issue #12).
 
 ## History

@@ -22,6 +22,7 @@ import {
   startPurdueLink,
   type ApiRequestError,
 } from '../lib/authApi'
+import { clearSignupRef, signupRefField } from '../lib/signupRef'
 
 type AuthUser = {
   name?: string | null
@@ -59,6 +60,13 @@ type AuthContextValue = {
   supabaseUser: SupabaseUser | null
   onboarding: Onboarding
   loading: boolean
+  /**
+   * Whether this browser holds a Supabase session, read once at boot from
+   * local storage before any server call; null until that read settles. The
+   * sign-in page shows its form at once when this is false (issue #389): a
+   * visitor with nothing stored needs no answer from the server to sign in.
+   */
+  hasStoredSession: boolean | null
   /**
    * True while the last session read got no answer: a 5xx, a dropped
    * connection or an unreadable reply. Whether the student is signed in is
@@ -106,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BackendSession | null>(null)
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [hasStoredSession, setHasStoredSession] = useState<boolean | null>(null)
   const [sessionCheckFailed, setSessionCheckFailed] = useState(false)
   const queryClient = useQueryClient()
   const [authConfig, setAuthConfig] = useState<AuthConfig>(DEFAULT_AUTH_CONFIG)
@@ -123,6 +132,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the first kind may be torn down by a SIGNED_OUT. Issue #298.
   const supabaseOwnsSession = useRef(false)
 
+  // Set once anything after boot has decided the session: the sign-in form,
+  // which now shows before boot's own read has answered (issue #389), a sync,
+  // a re-read or a sign-out. Boot's read went out before any of them, so its
+  // answer is older and is dropped rather than applied: on a cold start, a
+  // student who signed in on the form was otherwise signed straight back out
+  // when boot's read, sent before the cookie existed, came back empty.
+  const sessionDecided = useRef(false)
+
+  // The sync creates the account on a first Google sign-in, so it carries the
+  // tab's sign-up source (lib/signupRef). The server saves it only for an
+  // account it creates; after any sync that went through, the account exists
+  // and the source is dropped.
   const postSync = useCallback(
     async (supabaseSession: SupabaseSession): Promise<BackendSession | null> => {
       try {
@@ -140,8 +161,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               supabaseSession.user.email?.split('@')[0],
             avatarUrl: supabaseSession.user.user_metadata?.avatar_url,
             provider: supabaseSession.user.app_metadata?.provider || 'email',
+            ...signupRefField(),
           }),
         })) as { session?: BackendSession | null }
+        clearSignupRef()
         return response.session ?? null
       } catch (error) {
         console.error('Failed to sync user to backend:', error)
@@ -196,6 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshSession = useCallback(async (): Promise<BackendSession | null> => {
     try {
       const next = await readServerSession()
+      sessionDecided.current = true
       setSession(next)
       setSessionCheckFailed(false)
       return next
@@ -225,6 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const backendSession = await syncUserToBackend(supabaseSession)
         if (backendSession) {
           supabaseOwnsSession.current = true
+          sessionDecided.current = true
           setSession(backendSession)
           setSessionCheckFailed(false)
           return backendSession
@@ -233,6 +258,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fall back to regular backend session
       const next = await readServerSession()
+      sessionDecided.current = true
       setSession(next)
       setSessionCheckFailed(false)
       return next
@@ -248,6 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Straight from POST /api/auth/sign-in, so the cookie is authoritative and
     // survives a Supabase SIGNED_OUT. Issue #298.
     supabaseOwnsSession.current = false
+    sessionDecided.current = true
     setSession(next)
     setSessionCheckFailed(false)
   }, [])
@@ -269,6 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } = await supabase.auth.getSession()
 
         if (cancelled) return
+        setHasStoredSession(Boolean(supabaseSession))
 
         let backendSession: BackendSession | null = null
 
@@ -287,7 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (cancelled) return
 
-        setSession(backendSession)
+        if (!sessionDecided.current) setSession(backendSession)
         setAuthConfig(config)
       } catch {
         // No answer, so whether the student is signed in is unknown. Treating
@@ -296,7 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // retry instead.
         const config = await configRead
         if (!cancelled) {
-          setSessionCheckFailed(true)
+          if (!sessionDecided.current) setSessionCheckFailed(true)
           setAuthConfig(config)
         }
       } finally {
@@ -317,6 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const backendSession = await syncUserToBackend(supabaseSession)
         if (backendSession) {
           supabaseOwnsSession.current = true
+          sessionDecided.current = true
           setSession(backendSession)
           setSessionCheckFailed(false)
         }
@@ -334,6 +363,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // client sign-in failed and Login cleared its local session. Issue #298.
         if (supabaseOwnsSession.current) {
           supabaseOwnsSession.current = false
+          sessionDecided.current = true
           setSession(null)
           setSessionCheckFailed(false)
         }
@@ -369,6 +399,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // a failed sign-out never leaves the account open behind the landing
       // page; useSignOutAndRedirect tells them the server may still hold it.
       supabaseOwnsSession.current = false
+      sessionDecided.current = true
       setSession(null)
       // Signed out is a known state: a guarded page sends the visitor to the
       // sign-in form, not to the "cannot reach BoilerIndy" retry.
@@ -397,6 +428,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabaseUser,
       onboarding,
       loading,
+      hasStoredSession,
       sessionCheckFailed,
       authConfig,
       refreshSession,
@@ -414,6 +446,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabaseUser,
       onboarding,
       loading,
+      hasStoredSession,
       sessionCheckFailed,
       authConfig,
       refreshSession,

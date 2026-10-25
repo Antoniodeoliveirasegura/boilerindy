@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom'
 import Dining from './Dining'
 import { authRequest } from '../lib/authApi'
+import { track } from '../lib/usageStats'
 
 // Issue #202: starring a dish past the 300-favorite cap (409) or the
 // user-write limiter (429) rolled the star back with no word of why. The
@@ -76,24 +78,34 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// The page reads the menu through the query cache (issue #251); each test
-// gets its own client so nothing leaks between cases.
-function renderDining() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const view = render(
-    <QueryClientProvider client={client}>
-      <Dining />
-    </QueryClientProvider>,
+// The address the page left, and how it got there.
+function Where() {
+  const { pathname, search } = useLocation()
+  return (
+    <p data-testid="where" data-navigation={useNavigationType()}>
+      {pathname + search}
+    </p>
   )
+}
+
+// The page reads the menu through the query cache (issue #251); each test
+// gets its own client so nothing leaks between cases. The hall and meal on
+// screen live in the address, so it renders in a router at `entry`.
+function renderDining(entry = '/dining') {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const tree = () => (
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[entry]} useTransitions={false}>
+        <Dining />
+        <Where />
+      </MemoryRouter>
+    </QueryClientProvider>
+  )
+  const view = render(tree())
   return {
     ...view,
     /** Re-render after changing auth.value, as a session change would. */
-    rerenderDining: () =>
-      view.rerender(
-        <QueryClientProvider client={client}>
-          <Dining />
-        </QueryClientProvider>,
-      ),
+    rerenderDining: () => view.rerender(tree()),
   }
 }
 
@@ -352,6 +364,113 @@ describe('meal tabs', () => {
     expect(await screen.findByText('Veggie Burger')).toBeVisible()
     expect(screen.queryByRole('group', { name: 'Meal' })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Every day/ })).toBeNull()
+  })
+})
+
+// Share links (docs/share-links.md): the hall and meal were component state,
+// so a link to the page always opened on Tower Dining and the meal being
+// served. They now live in the address, and the Share button sends both.
+describe('the hall and meal in the address', () => {
+  const tower = {
+    ...snapshot.locations[0],
+    menus: [
+      { meal: 'breakfast', stations: [{ name: 'Breakfast Entree Line', everyday: false, items: [{ name: 'Pancakes', calories: 200, icons: [] }] }] },
+      { meal: 'lunch', stations: [{ name: 'Chef Made Soups', everyday: false, items: [{ name: 'Chicken Miso Soup', calories: 90, icons: [] }] }] },
+      { meal: 'dinner', stations: [{ name: 'Homestyle', everyday: false, items: [{ name: 'Beef Stroganoff', calories: 450, icons: [] }] }] },
+    ],
+  }
+  const campusCenter = {
+    ...snapshot.locations[0],
+    id: 'campus-center',
+    slug: 'campus-center',
+    name: 'Campus Center',
+    kind: 'retail',
+    menusPublished: false,
+    menus: [],
+    stations: [],
+    menu_source: null,
+  }
+  const writeText = vi.fn(async (_text: string) => {})
+
+  beforeEach(() => {
+    // 12:30 PM on campus: lunch.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-14T12:30:00-04:00'))
+    vi.mocked(globalThis.fetch).mockImplementation(
+      async () => new Response(JSON.stringify({ ...snapshot, date: '2026-10-14', locations: [tower, campusCenter] })),
+    )
+    writeText.mockClear()
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    vi.mocked(track).mockClear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    Reflect.deleteProperty(navigator, 'clipboard')
+  })
+
+  it('opens on the hall and meal a shared link names, signed out too', async () => {
+    auth.value = { loading: false, user: null }
+    renderDining('/dining?hall=tower-dining&meal=dinner&ref=share-dining')
+
+    expect(await screen.findByRole('button', { name: 'Dinner' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Beef Stroganoff')).toBeVisible()
+    expect(screen.queryByText('Chicken Miso Soup')).toBeNull()
+  })
+
+  it('opens on another hall a shared link names', async () => {
+    renderDining('/dining?hall=campus-center')
+    expect(await screen.findByRole('button', { name: 'Campus Center' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Tower Dining' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('region', { name: 'Campus Center vendors' })).toBeInTheDocument()
+  })
+
+  it('falls back to Tower Dining and the meal being served for a hall or meal not on the feed', async () => {
+    renderDining('/dining?hall=gone-dining&meal=late-night')
+    expect(await screen.findByRole('button', { name: 'Lunch' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Tower Dining' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('leaves a plain /dining as it is until a student picks', async () => {
+    renderDining()
+    expect(await screen.findByRole('button', { name: 'Lunch' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/dining$/)
+  })
+
+  it('a pill writes the hall and meal in place and keeps the ref, and the meal picked survives a look at another hall', async () => {
+    renderDining('/dining?ref=share-dining')
+    const where = screen.getByTestId('where')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Dinner' }))
+    expect(where).toHaveTextContent(/^\/dining\?ref=share-dining&hall=tower-dining&meal=dinner$/)
+    expect(where).toHaveAttribute('data-navigation', 'REPLACE')
+    expect(screen.getByText('Beef Stroganoff')).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Center' }))
+    expect(where).toHaveTextContent(/^\/dining\?ref=share-dining&hall=campus-center&meal=dinner$/)
+    expect(screen.getByRole('region', { name: 'Campus Center vendors' })).toBeInTheDocument()
+
+    // Back on Tower, still on the dinner picked there.
+    fireEvent.click(screen.getByRole('button', { name: 'Tower Dining' }))
+    expect(screen.getByRole('button', { name: 'Dinner' })).toHaveAttribute('aria-pressed', 'true')
+    expect(where).toHaveAttribute('data-navigation', 'REPLACE')
+  })
+
+  it('shares the hall and meal on screen, before they are in the address too', async () => {
+    renderDining()
+    fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/dining?hall=tower-dining&meal=lunch&ref=share-dining`),
+    )
+    expect(track).toHaveBeenCalledWith('share_clicked', { page: 'dining' })
+    expect(await screen.findByRole('button', { name: 'Link copied' })).toBeInTheDocument()
+  })
+
+  it('shares the hall picked, with no meal for a food court', async () => {
+    renderDining('/dining?hall=campus-center&meal=dinner&utm_source=instagram')
+    fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/dining?hall=campus-center&ref=share-dining`))
   })
 })
 

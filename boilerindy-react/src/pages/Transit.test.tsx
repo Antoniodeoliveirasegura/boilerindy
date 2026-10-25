@@ -191,6 +191,62 @@ describe('Transit selected route in the URL', () => {
   })
 })
 
+// Share links (docs/share-links.md): the Share button sends the route on
+// screen, and a signed-out visitor, who gets no bell, is told what signing in
+// adds where the bells would be.
+describe('Transit sharing and the signed-out chime invite', () => {
+  const writeText = vi.fn(async (_text: string) => {})
+
+  beforeEach(() => {
+    writeText.mockClear()
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'clipboard')
+  })
+
+  test('shares the route on screen with the bus ref, and All Routes with none', async () => {
+    renderAt('/transit?route=31&ref=landing')
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/transit?route=31&ref=share-bus`))
+
+    fireEvent.click(screen.getByRole('button', { name: /All Routes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^(Share|Link copied)$/ }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/transit?ref=share-bus`))
+  })
+
+  test('does not pass on a route that is not one', async () => {
+    renderAt('/transit?route=999')
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/transit?ref=share-bus`))
+  })
+
+  test('signed out, invites a sign-in for the chime, back to the same route', () => {
+    auth.value = { loading: false, user: null }
+    renderAt('/transit?route=31&ref=share-bus')
+
+    const invite = screen.getByText(/Get a chime when the bus reaches the stop before yours/)
+    expect(invite).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sign in to set your stop' })).toHaveAttribute(
+      'href',
+      '/login?next=%2Ftransit%3Froute%3D31%26ref%3Dshare-bus',
+    )
+    expect(screen.queryByTitle(/my stop|before/i)).toBeNull()
+  })
+
+  test('says nothing of the kind to a signed-in student, or while the session is still loading', () => {
+    renderAt('/transit?route=31')
+    expect(screen.queryByText(/Get a chime/)).toBeNull()
+    expect(screen.getByText(/Bell = your stop/)).toBeInTheDocument()
+    cleanup()
+
+    auth.value = { loading: true, user: null }
+    renderAt('/transit?route=31')
+    expect(screen.queryByText(/Get a chime/)).toBeNull()
+  })
+})
+
 // The vehicles read was only checked for isPending. A feed that failed (502)
 // or was rate limited (429) with nothing cached left an empty list, so the
 // page claimed "All Routes (0)" and "Not in service" and a visitor read it as

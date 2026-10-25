@@ -59,10 +59,14 @@ export function isExpoToken(token) {
 }
 
 /**
- * Validate a POST /api/me/push-token body: `{ token, platform, deviceName? }`.
- * Returns { ok: true, token, platform, deviceName } or { ok: false, error }.
- * A device name longer than DEVICE_NAME_MAX_LENGTH is cut rather than refused,
- * as the web route does with the user agent.
+ * Validate a POST /api/me/push-token body:
+ * `{ token, platform, deviceName?, localReminders? }`. Returns
+ * { ok: true, token, platform, deviceName, localReminders } or
+ * { ok: false, error }. A device name longer than DEVICE_NAME_MAX_LENGTH is cut
+ * rather than refused, as the web route does with the user agent.
+ * `localReminders` (Antoniodeoliveirasegura/boilerindy-app#55) says the app
+ * schedules the student's reminders on the phone itself; it must be a boolean
+ * when present, and a body without it means false.
  */
 export function parsePushTokenBody(body) {
   const input = body && typeof body === 'object' ? body : {}
@@ -73,8 +77,11 @@ export function parsePushTokenBody(body) {
   if (!PUSH_DEVICE_PLATFORMS.includes(platform)) {
     return { ok: false, error: 'platform must be ios or android.' }
   }
+  if ('localReminders' in input && typeof input.localReminders !== 'boolean') {
+    return { ok: false, error: 'localReminders must be true or false.' }
+  }
   const name = typeof input.deviceName === 'string' ? input.deviceName.trim().slice(0, DEVICE_NAME_MAX_LENGTH) : ''
-  return { ok: true, token: input.token, platform, deviceName: name || null }
+  return { ok: true, token: input.token, platform, deviceName: name || null, localReminders: input.localReminders === true }
 }
 
 /** Split `list` into arrays of at most `size` items, in order. */

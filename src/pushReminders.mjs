@@ -11,17 +11,29 @@
 // One reminder per item, ever: push_deliveries (user_id, item_key) is claimed
 // with an INSERT before sending, so two overlapping runs cannot both notify.
 // If the send then fails there is no retry in v1; the item simply stays quiet.
-// The claim covers every device the student has: the browsers in
-// push_subscriptions and the phones in push_devices. The VAPID keys stay the
-// master switch for both, so unsetting them still pauses everything.
+// The claim covers every device the student gets reminders on: the browsers in
+// push_subscriptions and the phones in push_devices, apart from phones with
+// local reminders (below). The VAPID keys stay the master switch for both, so
+// unsetting them still pauses everything.
 //
 // loadPushDevices and deliverToPushDevices are the Expo half, shared with the
 // test send in src/routes/push.mjs. A missing push_devices table (before
 // db/supabase-push-devices.sql runs) reads as no phones, so Web Push carries on.
+//
+// A phone whose app schedules the student's class and task reminders itself
+// registers with localReminders: true (Antoniodeoliveirasegura/boilerindy-app#55),
+// stored in push_devices.local_reminders by db/supabase-push-local-reminders.sql
+// (README step 47). The deadline run sends such a phone no reminders, or the
+// student would see each one twice, and still sends to their browsers and
+// other phones. The favorite-dish alerts, which the phone cannot know ahead of
+// time, and the test send ignore the flag. Before step 47 the column is
+// missing, and withLocalRemindersColumn reads every phone as having it off.
 
 import { sendWebPush } from './webPush.mjs'
 import { MAX_DEVICE_STRIKES, buildExpoMessages, sendExpoPush } from './expoPush.mjs'
 import { queryError } from './cronTick.mjs'
+import { logSchemaMissingOnce } from './dbErrors.mjs'
+import { isMissingColumnError } from './moderation.mjs'
 
 export const DEADLINE_CATEGORIES = ['assignment', 'quiz', 'exam', 'project', 'deadline']
 export const LEAD_MINUTES_MIN = 5
@@ -217,17 +229,50 @@ export function isMissingTableError(error) {
   return /does not exist|schema cache/i.test(String(error.message || ''))
 }
 
+// README step 47, for the log line that names it while the column is missing.
+const LOCAL_REMINDERS_SCHEMA = { feature: 'push_local_reminders', sqlFile: 'db/supabase-push-local-reminders.sql' }
+
+/**
+ * Run a push_devices query that reads or writes local_reminders, and run it
+ * again without the column while README step 47 has not added it, so that a
+ * missing column never stops a phone from registering or getting its pushes.
+ * `buildQuery(true)` names the column and `buildQuery(false)` must not. Run
+ * this before the missing-table check: isMissingTableError also matches a
+ * missing column's "does not exist" and "schema cache" messages, and would
+ * read every phone as gone. The fallback logs the file to run once per process
+ * (logSchemaMissingOnce), and its rows carry no local_reminders, which every
+ * caller reads as false.
+ * @template R
+ * @param {(withFlag: boolean) => PromiseLike<R>} buildQuery
+ * @returns {Promise<R>}
+ */
+export async function withLocalRemindersColumn(buildQuery) {
+  const result = await buildQuery(true)
+  if (!isMissingColumnError(result?.error, 'local_reminders')) return result
+  logSchemaMissingOnce(LOCAL_REMINDERS_SCHEMA, result.error)
+  return buildQuery(false)
+}
+
 /**
  * The phones to send to for these students: push_devices rows as
- * { id, user_id, token, failure_count }. A device that has reached
- * MAX_DEVICE_STRIKES is deleted here and left out, which is how a device with
- * five strikes is "skipped and deleted on the next run". A missing table reads
- * as no devices; any other database error throws a SupabaseQueryError, so the
- * cron route can tell a Supabase hiccup from a bug. Returns { devices, removed }.
+ * { id, user_id, token, failure_count, local_reminders }, where
+ * local_reminders is missing before README step 47 runs (read as false). A
+ * device that has reached MAX_DEVICE_STRIKES is deleted here and left out,
+ * which is how a device with five strikes is "skipped and deleted on the next
+ * run". A missing table reads as no devices; any other database error throws a
+ * SupabaseQueryError, so the cron route can tell a Supabase hiccup from a bug.
+ * Every phone is returned whatever its local_reminders: the deadline run leaves
+ * out the ones with the flag, the other senders do not. Returns
+ * { devices, removed }.
  */
 export async function loadPushDevices(client, userIds, { log = console } = {}) {
   if (!userIds.length) return { devices: [], removed: 0 }
-  const res = await client.from('push_devices').select('id, user_id, token, failure_count').in('user_id', userIds)
+  const res = await withLocalRemindersColumn((withFlag) =>
+    client
+      .from('push_devices')
+      .select(withFlag ? 'id, user_id, token, failure_count, local_reminders' : 'id, user_id, token, failure_count')
+      .in('user_id', userIds),
+  )
   if (res.error) {
     if (isMissingTableError(res.error)) return { devices: [], removed: 0 }
     throw queryError(res, 'push_devices select')
@@ -396,6 +441,9 @@ export async function runDeadlineReminders({
   summary.removed += loaded.removed
   const devicesByUser = new Map()
   for (const device of loaded.devices) {
+    // The app on this phone schedules the student's reminders itself (local
+    // reminders on), so a deadline push from here would be a second copy.
+    if (device.local_reminders === true) continue
     if (!devicesByUser.has(device.user_id)) devicesByUser.set(device.user_id, [])
     devicesByUser.get(device.user_id).push(device)
   }
@@ -403,6 +451,9 @@ export async function runDeadlineReminders({
   for (const row of settingsRows) {
     let subs = subsByUser.get(row.user_id) || []
     let devices = devicesByUser.get(row.user_id) || []
+    // A student whose only devices are phones with local reminders on is
+    // skipped like one with no devices, and nothing is claimed, so an item
+    // still gets its reminder if they turn local reminders off before it is due.
     if (subs.length === 0 && devices.length === 0) {
       summary.skipped += 1
       continue

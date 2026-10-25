@@ -38,12 +38,12 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `purdue-link-flow` | `GET /auth/purdue/connect`, `POST /auth/purdue/dev/link`, `GET /auth/purdue/callback` (the steps that spend a link attempt, checked before the student is loaded; a blocked caller is redirected, to the app with `reason=rate-limited` or to `/settings?error=purdue-link-throttled`, rather than answered with a JSON 429; issue #293) | 30 | 15 min | handoff token (only a validly signed, unexpired, unspent one), then user, then IP |
 | `board-write` | `POST /api/board/posts`, `POST /api/board/posts/:id/reply`, `POST /api/board/posts/:id/upvote`, `PATCH /api/board/posts/:id`, `POST /api/guide`, `POST /api/guide/:id/upvote`, `POST /api/study-groups`, `POST /api/study-groups/:id/join`, `POST /api/study-groups/:id/leave`, `POST /api/marketplace`, `PATCH /api/marketplace/:id`, `POST /api/marketplace/:id/report`, `PUT /api/me/profile-card`, `POST /api/connections` | 30 | 10 min | user, falls back to IP |
 | `lost-found-write` | `POST /api/lost-found`, `PATCH /api/lost-found/:id` | 30 | 10 min | user, falls back to IP |
-| `user-write` | `POST /api/purdue/mock-link`, `DELETE /api/sources/:sourceId`, `POST /api/me/tasks/calendar/complete`, `POST /api/me/tasks/manual`, `PATCH /api/me/tasks/manual/:id`, `DELETE /api/me/tasks/manual/:id`, `POST /api/me/grades`, `PATCH /api/me/grades/:id`, `DELETE /api/me/grades/:id`, `PUT /api/me/degree`, `PUT /api/me/schedule-overrides`, `POST /api/me/calendar-feed/token`, `DELETE /api/lost-found/:id`, `PUT /api/me/dashboard`, `PUT /api/me/services`, `POST /api/me/dining/favorites`, `DELETE /api/me/dining/favorites`, `DELETE /api/board/posts/:id`, `PATCH /api/guide/:id/pin`, `DELETE /api/guide/:id`, `PATCH /api/me/study-groups/opt-in`, `DELETE /api/study-groups/:id`, `POST /api/deals`, `PATCH /api/deals/:id`, `DELETE /api/deals/:id`, `DELETE /api/marketplace/:id`, `PATCH /api/connections/:requesterId`, `DELETE /api/connections/:otherId`, `POST /api/me/blocks/:userId`, `POST /api/me/blocks/content/:targetType/:targetId`, `DELETE /api/me/blocks/:userId` | 120 | 15 min | user, falls back to IP |
+| `user-write` | `POST /api/purdue/mock-link`, `DELETE /api/sources/:sourceId`, `POST /api/me/tasks/calendar/complete`, `POST /api/me/tasks/manual`, `PATCH /api/me/tasks/manual/:id`, `DELETE /api/me/tasks/manual/:id`, `POST /api/me/grades`, `PATCH /api/me/grades/:id`, `DELETE /api/me/grades/:id`, `PUT /api/me/degree`, `PUT /api/me/schedule-overrides`, `POST /api/me/calendar-feed/token`, `DELETE /api/lost-found/:id`, `PUT /api/me/dashboard`, `PUT /api/me/services`, `POST /api/me/dining/favorites`, `DELETE /api/me/dining/favorites`, `DELETE /api/board/posts/:id`, `PATCH /api/guide/:id/pin`, `DELETE /api/guide/:id`, `PATCH /api/me/study-groups/opt-in`, `DELETE /api/study-groups/:id`, `POST /api/deals`, `PATCH /api/deals/:id`, `DELETE /api/deals/:id`, `DELETE /api/marketplace/:id`, `PATCH /api/connections/:requesterId`, `DELETE /api/connections/:otherId`, `POST /api/me/blocks/:userId`, `POST /api/me/blocks/content/:targetType/:targetId`, `DELETE /api/me/blocks/:userId`, `PUT /api/me/club-follows/:organizationKey`, `DELETE /api/me/club-follows/:organizationKey` | 120 | 15 min | user, falls back to IP |
 | `report` | `POST /api/reports` (every report on student content, see [moderation.md](moderation.md); the marketplace's own report route keeps `board-write`) | 20 | 1 hour | user, falls back to IP |
 | `advertiser-write` | `POST /api/advertiser/campaigns`, `PATCH /api/advertiser/campaigns/:id` | 60 | 15 min | advertiser portal session (`req.session.advertiserId`), falls back to IP |
 | `source-sync` | `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule`, `POST /api/sync/:sourceId` | 30 | 15 min | user, falls back to IP |
-| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news` (session-free upstream proxies, #215; the dish details and look-ahead reads, #468 and #469; campus news, #470; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
-| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
+| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news`, `GET /api/campus-events/free-food` (session-free upstream proxies, #215; the dish details and look-ahead reads, #468 and #469; campus news, #470; the signed-out Free Food page's read of the shared campus events, #366; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
+| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news`, `GET /api/campus-events/free-food` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
 | `transit-vehicles` | `GET /api/transit/vehicles` (polled every 10 to 20 s per open Transit screen; also served with `Cache-Control: public, max-age=10, s-maxage=10, stale-while-revalidate=20` so browsers and the Vercel edge absorb repeats) | 240 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
 | `transit-vehicles-ip` | `GET /api/transit/vehicles` (outer cap so one address cannot mint unlimited cookie buckets) | 2400 | 15 min | IP |
 | `clubs-read` | `GET /api/clubs` (served from an hours-long cache, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
@@ -54,16 +54,16 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `push-test` | `POST /api/push/test` (sends a real notification to every registered browser and phone) | 10 | 1 hour | user, falls back to IP |
 | `ad-event` | `POST /api/spotlight/:campaignId/event` (impression and click beacons from the spotlight rails, one per ad shown) | 200 | 5 min | user, falls back to IP |
 | `analytics` | `POST /api/usage/events` (the first-party usage beacon, batched by the client, #51) | 60 | 5 min | user, falls back to IP |
-| `admin-write` | `PATCH /api/admin/leads/:id`, `PATCH /api/admin/campaigns/:id`, `POST /api/admin/advertisers`, `POST /api/admin/purdue-links/clear`, `POST /api/admin/deleted/:type/:id/restore`, `DELETE /api/admin/deleted/:type/:id`, `POST /api/admin/hidden/marketplace/:id/unhide`, `POST /api/admin/hidden/marketplace/:id/takedown`, `PATCH /api/admin/reports/:id` | 60 | 15 min | user, falls back to IP |
+| `admin-write` | `PATCH /api/admin/leads/:id`, `PATCH /api/admin/campaigns/:id`, `POST /api/admin/advertisers`, `POST /api/admin/purdue-links/clear`, `POST /api/admin/deleted/:type/:id/restore`, `DELETE /api/admin/deleted/:type/:id`, `POST /api/admin/hidden/marketplace/:id/unhide`, `POST /api/admin/hidden/marketplace/:id/takedown`, `PATCH /api/admin/reports/:id`, `POST /api/admin/photo-review/:id/approve`, `POST /api/admin/photo-review/:id/reject` (the marketplace photo queue, see [moderation.md](moderation.md#photo-review)) | 60 | 15 min | user, falls back to IP |
 | `ai-assistant` | `POST /api/assistant` (metered only while a Groq key is configured; the offline router's answers are free. Keeps its pre-envelope 429 body, a string `error`, which the assistant panel renders) | 40 | 1 hour | user, falls back to IP |
 | `ai-board` | `POST /api/board/ai-suggestions` | 30 | 1 hour | user, falls back to IP |
 | `ai-board-tags` (a `createRateWindow`, not a middleware: the auto-tagger inside `POST /api/board/posts` skips its inference call over the limit, and the post is saved untagged) | `POST /api/board/posts` | 30 | 1 hour | user |
 
 Read-only endpoints (`GET /api/...`) are generally not limited: they are
 session-gated, cheap, and limiting them would hurt normal navigation. Two
-exceptions: the session-free upstream proxies (dining, transit, parking) use
-the `public-read` bucket (vehicles have their own) so an anonymous client cannot
-burn the upstream quota,
+exceptions: the session-free upstream proxies (dining, transit, parking) and
+the signed-out free-food read use the `public-read` bucket (vehicles have their
+own) so an anonymous client cannot burn the upstream quota or the database,
 and `GET /api/marketplace/:id`, which returns the seller's contact
 email and is therefore enumeration-sensitive; `marketplace-read` throttles the
 bulk id-sweeps that would harvest every seller's address (#114).
@@ -89,6 +89,7 @@ logs the failure with its HTTP status and goes on to the insert.
 | `POST /api/me/tasks/manual` | 500 manual tasks | user |
 | `POST /api/me/grades` | 500 courses | user |
 | `POST /api/me/dining/favorites` | 300 favorites (re-saving one the user already has still succeeds at the cap) | user |
+| `PUT /api/me/club-follows/:organizationKey` | 100 clubs followed (following one already followed still succeeds at the cap). Its `409` carries the code `club_follows_limit`, and it reads the follows instead of counting them, so a failed read answers its error rather than letting the write through (issue #16, see [clubs.md](clubs.md#following-a-club)) | user |
 | `POST /api/advertiser/campaigns` | 20 campaigns in `draft` (campaigns pending review, active, paused or ended do not count) | advertiser |
 
 The draft cap does not bound the admin review queue. An advertiser who submits
@@ -108,11 +109,12 @@ response's `error.message`, so a `409` cap or a `429` limit reads the same as
 the server wrote it. Only a request that got no response, or a `5xx`, keeps a
 page's offline behaviour: the dashboard and Services layouts and the selected
 major stay in the local cache until the next successful save. A refused layout
-or major save puts back the value the server last accepted. Assignments and the
-grade tracker keep no device-only copy of a write: one that gets no response or
-a `5xx` is undone and reported with a way to try again, because a copy kept only
-on the device looked saved and was lost on the next visit. Assignments uses
-device-only tasks only when the server answers that its task tables are missing.
+or major save puts back the value the server last accepted. The Tasks page and
+the grade tracker keep no device-only copy of a write: one that gets no response
+or a `5xx` is undone and reported with a way to try again, because a copy kept
+only on the device looked saved and was lost on the next visit. The Tasks page
+uses device-only tasks only when the server answers that its task tables are
+missing.
 
 ## Configuration
 

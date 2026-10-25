@@ -39,6 +39,8 @@ type Api = {
   failures: Map<string, unknown[]>
   /** Every calendar read fails, as through a gateway 502. */
   calendarDown: boolean
+  /** The calendar answers with nothing on it. */
+  calendarEmpty: boolean
   /** The server's answer when the task tables are missing. */
   tablesMissing: boolean
 }
@@ -64,6 +66,7 @@ beforeEach(() => {
     manualTasks: [{ id: 'task-1', title: 'Read chapter four', startTime: inTwoDays(), completedAt: null }],
     failures: new Map(),
     calendarDown: false,
+    calendarEmpty: false,
     tablesMissing: false,
   }
   // jsdom has no scrollIntoView; the page calls it to bring a task's details on screen.
@@ -78,6 +81,7 @@ beforeEach(() => {
       const body = options?.body ? JSON.parse(String(options.body)) : {}
       if (path.startsWith('/api/me/calendar?')) {
         if (api.calendarDown) throw httpError(502, '<html><body><h1>502 Bad Gateway</h1></body></html>')
+        if (api.calendarEmpty) return { items: [] }
         return { items: [{ id: 'cal-1', title: 'Lab report', category: 'assignment', startTime: inTwoDays() }] }
       }
       if (path === '/api/me/calendar/categories') return { categories: [{ id: 'assignment', label: 'Assignments', count: 1 }] }
@@ -405,5 +409,42 @@ describe('AI Insights', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
     expect(await screen.findByText('Lab report', { selector: 'li' })).toBeInTheDocument()
     expect(screen.queryByText(/hourly assistant limit/)).not.toBeInTheDocument()
+  })
+})
+
+// Issue #376: the nav calls this page Tasks, so the page does too: its heading,
+// the tab title and the notes it shows. The route is still /assignments, and
+// "Assignments" stays where it names a category of item (the filter pills).
+describe('naming', () => {
+  it('is Tasks in the heading and the tab title, and keeps Assignments as a category filter', async () => {
+    await renderPage()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Tasks')
+    expect(document.title).toBe('Tasks - BoilerIndy')
+    expect(screen.getByRole('button', { name: 'Assignments (1)' })).toBeInTheDocument()
+  })
+
+  it('says tasks while it loads', async () => {
+    vi.mocked(authRequest).mockImplementation(() => new Promise(() => {}))
+    await renderPage('Loading tasks...')
+    expect(screen.queryByText(/Loading assignments/)).not.toBeInTheDocument()
+  })
+
+  it('says tasks when nothing is upcoming', async () => {
+    api.calendarEmpty = true
+    api.manualTasks = []
+    await renderPage('No items found')
+    expect(screen.getByText('No upcoming tasks or events.')).toBeInTheDocument()
+  })
+
+  it('says tasks when no calendar is connected yet', async () => {
+    auth.onboarding.linkedSourceCount = 0
+    try {
+      api.calendarEmpty = true
+      api.manualTasks = []
+      await renderPage('No items found')
+      expect(screen.getByText('Connect your Brightspace calendar to see tasks and events.')).toBeInTheDocument()
+    } finally {
+      auth.onboarding.linkedSourceCount = 1
+    }
   })
 })

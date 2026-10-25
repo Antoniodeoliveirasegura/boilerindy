@@ -1,7 +1,8 @@
 import crypto from 'node:crypto'
 import express from 'express'
+import { createAppleTokenRevoker, readAppleTokenFields } from '../appleTokenRevoke.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from '../casLinkState.mjs'
-import { DB_FEATURES, badRequest, logRouteError, respondDbError } from '../dbErrors.mjs'
+import { DB_FEATURES, badRequest, isSchemaMissingError, logRouteError, logSchemaMissingOnce, respondDbError } from '../dbErrors.mjs'
 import { maskEmail, signInCodeEmail } from '../email.mjs'
 import { onboardingFlags } from '../onboardingFlags.mjs'
 import { verifyPassword } from '../passwordHash.mjs'
@@ -9,6 +10,7 @@ import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
 import { isSessionStale } from '../sessionFreshness.mjs'
+import { sanitizeSignupRef } from '../signupRef.mjs'
 import { applyPasswordChange, applyPasswordSet, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
 import {
   CODE_TTL_MS,
@@ -185,6 +187,9 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', tok
  * @param {Function} [deps.isEmailConfigured]      () => whether Resend is set up; in production a
  *   sign-up is refused before the account exists when it is not
  * @param {boolean}  [deps.isProduction]           an unsent code fails the request; cookies are Secure
+ * @param {{ revoke: Function }} [deps.appleTokenRevoker] server.mjs's createAppleTokenRevoker
+ *   (src/appleTokenRevoke.mjs); delete-account revokes the Sign in with Apple token the app sends
+ *   with it. Defaults to an unconfigured one, which revokes nothing.
  */
 export function createAuthRouter({
   supabase,
@@ -217,6 +222,7 @@ export function createAuthRouter({
   sendEmail,
   isEmailConfigured = () => true,
   isProduction = false,
+  appleTokenRevoker = createAppleTokenRevoker(),
 }) {
   const router = express.Router()
 
@@ -412,6 +418,30 @@ export function createAuthRouter({
     return data
   }
 
+  // The sign-up source (src/signupRef.mjs): the ?ref= a new account arrived
+  // with, saved by the request that created the row and only while signup_ref
+  // is still null, so no later request can overwrite it. Best effort: before
+  // README step 45 adds the column, or on any other failure, the sign-up goes
+  // on without it and the log says why.
+  const SIGNUP_REF_SCHEMA = { feature: 'signup_ref', sqlFile: 'db/supabase-signup-ref.sql' }
+
+  async function saveSignupRef(userId, value) {
+    const signupRef = sanitizeSignupRef(value)
+    if (!signupRef) return
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ signup_ref: signupRef })
+        .eq('id', userId)
+        .is('signup_ref', null)
+      if (!error) return
+      if (isSchemaMissingError(error)) logSchemaMissingOnce(SIGNUP_REF_SCHEMA, error)
+      else logRouteError('[signup-ref] could not save the sign-up source', error)
+    } catch (error) {
+      logRouteError('[signup-ref] could not save the sign-up source', error)
+    }
+  }
+
   async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, providerConfirmed = false }) {
     const user = await getUserById(userId)
     if (!user) throw new Error('User not found.')
@@ -558,11 +588,47 @@ export function createAuthRouter({
     throw new Error('Password is incorrect.')
   }
 
-  async function deleteUserAccount(userRow, { password, confirmation, session }) {
+  // Apple asks an app that offers Sign in with Apple to revoke the user's
+  // tokens when the account is deleted, and Supabase keeps none to revoke, so
+  // the native app sends the token from its fresh Apple confirmation
+  // (docs/sign-in-with-apple.md). Answers null when there is nothing to say
+  // (not an Apple account and no token sent), else { revoked, reason? }. A
+  // missing, unconfigured or failed revoke is logged, without the token, and
+  // never keeps the account.
+  async function revokeAppleSignIn(userRow, fields) {
+    const sent = readAppleTokenFields(fields)
+    if (!sent && userRow.auth_provider !== 'apple') return null
+    let outcome = { revoked: false, reason: !sent ? 'no-token' : 'bad-token' }
+    if (sent && !sent.invalid) {
+      try {
+        outcome = await appleTokenRevoker.revoke(sent)
+      } catch {
+        outcome = { revoked: false, reason: 'error' }
+      }
+    }
+    if (outcome.revoked) {
+      console.log('[deleteUserAccount] Sign in with Apple token revoked')
+      return { revoked: true }
+    }
+    const answered = [outcome.status, outcome.appleError].filter(Boolean).join(' ')
+    console.warn(
+      '[deleteUserAccount] Sign in with Apple token not revoked (%s%s); deleting the account anyway',
+      outcome.reason,
+      answered ? `, Apple answered ${answered}` : '',
+    )
+    return { revoked: false, reason: outcome.reason }
+  }
+
+  async function deleteUserAccount(userRow, { password, confirmation, session, appleToken, appleTokenType }) {
     if (confirmation !== 'DELETE') {
       throw new Error('Type DELETE in the confirmation box to permanently delete your account.')
     }
     await verifyUserPasswordForDeletion(userRow, password, session)
+
+    // First, while a retry is still possible: if the deletion below fails the
+    // student can send the request again, token and all, but once the account
+    // is gone no request can carry it. A failed revoke never stops the deletion.
+    const appleRevocation = await revokeAppleSignIn(userRow, { appleToken, appleTokenType })
 
     const userId = userRow.id
 
@@ -579,6 +645,7 @@ export function createAuthRouter({
     }
 
     onboardingSummaryCache.invalidate(userId)
+    return { appleRevocation }
   }
 
   // Accepts either a userId or an already-loaded user row. Callers that already
@@ -744,6 +811,7 @@ export function createAuthRouter({
           error: { message: 'Could not create your profile.', status: 500 },
         })
       }
+      await saveSignupRef(row.id, req.body.signupRef)
 
       // The first sign-in proves the address is the student's own.
       if (loginTwoFactorEnabled) return await startSignInChallenge(req, res, row, { rememberMe, status: 201, keepOnUnsent: true })
@@ -810,7 +878,9 @@ export function createAuthRouter({
       const { data, error } = await supabase
         .from('users')
         .update({
-          display_name: metadataName || deriveDisplayName(normalizedEmail, user.display_name),
+          // A name the student saved in settings stays. Provider metadata fills
+          // the name only when the row does not have one yet.
+          display_name: user.display_name || metadataName || deriveDisplayName(normalizedEmail, ''),
           auth_provider: user.auth_provider || 'email',
           updated_at: new Date().toISOString(),
         })
@@ -1159,6 +1229,7 @@ export function createAuthRouter({
           .single()
 
         if (error) {
+          // Another request created the account first; the ref is its to save.
           if (error.code === '23505') {
             user = await getUserByEmail(normalizedEmail)
           } else {
@@ -1166,13 +1237,16 @@ export function createAuthRouter({
           }
         } else {
           user = data
+          await saveSignupRef(user.id, req.body.signupRef)
         }
       } else {
         const { data, error } = await supabase
           .from('users')
           .update({
-            // Only columns whose input was sent; the rest keep their stored value.
-            ...(syncName ? { display_name: syncName } : {}),
+            // Google (and other providers) send a name on every sign-in. Writing
+            // it here replaced a display name the student had set in settings.
+            // The provider name is used only when this account has none yet.
+            ...(syncName && !user.display_name ? { display_name: syncName } : {}),
             ...(syncAvatarUrl ? { avatar_url: syncAvatarUrl } : {}),
             auth_provider: user.auth_provider === 'local' ? user.auth_provider : normalizeProvider(provider, user.auth_provider),
             updated_at: new Date().toISOString()
@@ -1447,16 +1521,21 @@ export function createAuthRouter({
     }
   })
 
+  // The native app adds appleToken (and appleTokenType, refresh_token by
+  // default) from an Apple confirmation; the answer then says in
+  // appleRevocation whether Apple took the revoke (docs/sign-in-with-apple.md).
   router.post('/api/me/delete-account', signInRateLimit, requireAuth, async (req, res) => {
     try {
-      await deleteUserAccount(req.currentUser, {
+      const { appleRevocation } = await deleteUserAccount(req.currentUser, {
         password: req.body?.password,
         confirmation: req.body?.confirmation,
         session: req.session,
+        appleToken: req.body?.appleToken,
+        appleTokenType: req.body?.appleTokenType,
       })
       req.session.destroy(() => {
         res.clearCookie(SESSION_COOKIE_NAME)
-        res.json({ ok: true })
+        res.json({ ok: true, ...(appleRevocation ? { appleRevocation } : {}) })
       })
     } catch (error) {
       res.status(400).json({

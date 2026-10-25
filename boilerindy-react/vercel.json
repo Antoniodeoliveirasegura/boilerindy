@@ -2,6 +2,9 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://boilerindy-api.onrender.com/api/:path*" },
     { "source": "/auth/purdue/:path*", "destination": "https://boilerindy-api.onrender.com/auth/purdue/:path*" },
+    { "source": "/transit", "destination": "/transit.html" },
+    { "source": "/dining", "destination": "/dining.html" },
+    { "source": "/free-food", "destination": "/free-food.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

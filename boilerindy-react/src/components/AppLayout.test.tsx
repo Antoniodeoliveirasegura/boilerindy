@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import AppLayout from './AppLayout'
+import { PREVIEW_MESSAGE, previewMessage } from '../lib/publicPreview'
 
 // Issue #369: AppLayout rendered the navbar, bottom tab bar, spotlight rails
 // and assistant while auth was still loading, so a signed-out visitor saw the
@@ -37,8 +38,11 @@ function renderLayout(value: typeof auth.value, path = '/events') {
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/events" element={<p>page outlet</p>} />
+          <Route path="/free-food" element={<p>page outlet</p>} />
+          <Route path="/clubs" element={<p>page outlet</p>} />
           <Route path="/dining" element={<p>page outlet</p>} />
           <Route path="/transit" element={<p>page outlet</p>} />
+          <Route path="/map" element={<p>page outlet</p>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -63,15 +67,25 @@ describe('AppLayout chrome', () => {
   })
 
   test('signed in: navigation, rails and assistant render', () => {
-    renderLayout({ loading: false, user: { id: 'user-1' } })
+    renderLayout({ loading: false, user: { id: 'user-1' } }, '/clubs')
     expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0)
     expect(screen.getAllByTestId('spotlight-rail')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'BoilerIndy' })).toBeInTheDocument()
   })
+
+  // Issue #30: the pages that list the shared campus events carry no sponsor
+  // rails, since Ticketmaster's API terms bar revenue from its listings.
+  test.each(['/events', '/free-food', '/Events/'])('signed in on %s: navigation and assistant, no sponsor rails', (path) => {
+    renderLayout({ loading: false, user: { id: 'user-1' } }, path)
+    expect(screen.getByText('page outlet')).toBeInTheDocument()
+    expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('spotlight-rail')).toBeNull()
+    expect(screen.getByRole('button', { name: 'BoilerIndy' })).toBeInTheDocument()
+  })
 })
 
-// Issue #366: /dining and /transit render for signed-out visitors. They get
-// the preview bar in the navbar's place; nothing else changes.
+// Issue #366: /dining, /transit, /map and /free-food render for signed-out
+// visitors. They get the preview bar in the navbar's place; nothing else changes.
 describe('AppLayout on a preview route', () => {
   test('signed out: the preview bar with its two links, and no app chrome', () => {
     renderLayout({ loading: false, user: null }, '/dining')
@@ -88,6 +102,34 @@ describe('AppLayout on a preview route', () => {
   test('signed out on transit: sign-in comes back to transit', () => {
     renderLayout({ loading: false, user: null }, '/transit')
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login?next=%2Ftransit')
+  })
+
+  test.each(['/map', '/free-food'])('signed out on %s: the bar, its own message and sign-in back to the page, and no app chrome', (path) => {
+    renderLayout({ loading: false, user: null }, path)
+    expect(screen.getByText('page outlet')).toBeInTheDocument()
+    const bar = screen.getByTestId('preview-bar')
+    expect(bar).toHaveTextContent(previewMessage(path))
+    expect(previewMessage(path)).not.toBe(PREVIEW_MESSAGE)
+    // The phone card says the same.
+    expect(screen.getByTestId('preview-note')).toHaveTextContent(previewMessage(path))
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', `/login?next=${encodeURIComponent(path)}`)
+    expect(screen.getByRole('link', { name: 'Create account' })).toHaveAttribute('href', '/login?tab=signup')
+    expect(screen.queryAllByRole('navigation')).toHaveLength(0)
+    expect(screen.queryByTestId('spotlight-rail')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'BoilerIndy' })).toBeNull()
+  })
+
+  // The map fills a phone's screen and stops above the pitch card, whose
+  // height the bar keeps on the root while it shows.
+  test('signed out, the pitch card height is kept on the root for as long as the bar shows', () => {
+    const root = document.documentElement
+    const { unmount } = renderLayout({ loading: false, user: null }, '/map')
+    expect(root.style.getPropertyValue('--preview-note-h')).toMatch(/^\d+px$/)
+    unmount()
+    expect(root.style.getPropertyValue('--preview-note-h')).toBe('')
+
+    renderLayout({ loading: false, user: { id: 'user-1' } }, '/map')
+    expect(root.style.getPropertyValue('--preview-note-h')).toBe('')
   })
 
   test('while auth loads: the navbar slot is held, with no bar and no navbar yet', () => {

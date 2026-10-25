@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { authRequest } from './authApi'
-import { closeReport, getLiveContent, listReports, takeDownContent, type DeletedContentType } from './adminApi'
+import {
+  closeReport,
+  decideListingPhotos,
+  getLiveContent,
+  listPhotoReview,
+  listReports,
+  takeDownContent,
+  type DeletedContentType,
+} from './adminApi'
 
 // Live-content takedown (#195): the admin panel removes an item through its
 // type's public DELETE route, so each type must map to the path server.mjs
@@ -61,6 +69,29 @@ describe('the report queue helpers', () => {
     expect(authRequest).toHaveBeenLastCalledWith('/api/admin/reports/a%2Fb', {
       method: 'PATCH',
       body: JSON.stringify({ status: 'resolved' }),
+    })
+  })
+})
+
+// The photo queue (#504): the three routes src/routes/adminPhotoReview.mjs serves.
+describe('the photo queue helpers', () => {
+  const UPDATED_AT = '2026-10-24T15:04:05.123456+00:00'
+
+  test('listPhotoReview reads the queue', async () => {
+    await listPhotoReview()
+    expect(authRequest).toHaveBeenCalledWith('/api/admin/photo-review')
+  })
+
+  test('decideListingPhotos posts the decision with the version the admin saw, to an encoded id', async () => {
+    await decideListingPhotos(ID, 'approve', UPDATED_AT)
+    expect(authRequest).toHaveBeenCalledWith(`/api/admin/photo-review/${ID}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ updatedAt: UPDATED_AT }),
+    })
+    await decideListingPhotos('a/b', 'reject', UPDATED_AT)
+    expect(authRequest).toHaveBeenLastCalledWith('/api/admin/photo-review/a%2Fb/reject', {
+      method: 'POST',
+      body: JSON.stringify({ updatedAt: UPDATED_AT }),
     })
   })
 })

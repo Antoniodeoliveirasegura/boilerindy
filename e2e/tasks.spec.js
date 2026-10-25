@@ -1,15 +1,16 @@
 import { test, expect } from './fixtures/mock-backend.js'
 
-// Assignment workflow: add a manual task, see it listed, then mark it complete.
+// Task workflow: add a manual task, see it listed, then mark it complete.
 // Exercises POST /api/me/tasks/manual, GET /api/me/tasks/meta, and
-// PATCH /api/me/tasks/manual/:id through the real Assignments UI.
+// PATCH /api/me/tasks/manual/:id through the real Tasks page (still served at
+// /assignments, issue #376).
 
-test.describe('Assignment workflow', () => {
+test.describe('Task workflow', () => {
   test('adds a manual task and marks it complete', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/assignments')
 
-    await expect(page.getByRole('heading', { name: 'Assignments' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible()
 
     const title = 'E2E finish lab write-up'
     await page.getByLabel('Title').fill(title)
@@ -72,7 +73,7 @@ test.describe('Assignment workflow', () => {
     mockApi.login()
     await page.goto('/assignments')
 
-    await expect(page.getByRole('heading', { name: 'Assignments' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible()
     await expect(page.getByText('No items found')).toBeVisible()
   })
 })
@@ -83,7 +84,7 @@ test.describe('Assignment workflow', () => {
 // hid it the moment it was added. Pinning the browser to Seoul just after
 // midnight exercises that window on every run instead of only when the suite
 // happens to execute during it.
-test.describe('Assignment workflow east of UTC', () => {
+test.describe('Task workflow east of UTC', () => {
   test.use({ timezoneId: 'Asia/Seoul' })
 
   test('defaults the due date to the local calendar day just after midnight', async ({ page, mockApi }) => {
@@ -92,7 +93,7 @@ test.describe('Assignment workflow east of UTC', () => {
     await page.clock.setFixedTime(new Date('2026-09-09T00:30:00+09:00'))
     await page.goto('/assignments')
 
-    await expect(page.getByRole('heading', { name: 'Assignments' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible()
     await expect(page.getByLabel('Due date')).toHaveValue('2026-09-09')
 
     const title = 'E2E read chapter three'

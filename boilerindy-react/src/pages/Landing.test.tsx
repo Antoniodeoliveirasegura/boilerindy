@@ -49,3 +49,32 @@ describe('Landing sign-up and sign-in links', () => {
     expect(within(screen.getByRole('navigation')).getByRole('link', { name: 'Sign in' })).toBeInTheDocument()
   })
 })
+
+// Issue #376: the student profile menu no longer links to the advertiser portal
+// (advertisers have their own accounts), so this page is where advertisers find
+// it: a link in the nav from sm up, and one in the footer at every width.
+describe('Landing advertiser entry points', () => {
+  test('the nav and the footer both open the advertiser portal', () => {
+    render(
+      <MemoryRouter useTransitions={false}>
+        <Landing />
+      </MemoryRouter>,
+    )
+    expect(within(screen.getByRole('navigation')).getByRole('link', { name: 'Advertise' })).toHaveAttribute('href', '/advertise')
+    expect(within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Advertise with us' })).toHaveAttribute('href', '/advertise')
+  })
+})
+
+// Issue #376: the nav and the app call the Tasks page Tasks, so the landing
+// page's list of what is inside does too.
+describe('Landing feature names', () => {
+  test('the Tasks page is listed as the Task Tracker', () => {
+    render(
+      <MemoryRouter useTransitions={false}>
+        <Landing />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Task Tracker')).toBeInTheDocument()
+    expect(screen.queryByText('Assignment Tracker')).toBeNull()
+  })
+})

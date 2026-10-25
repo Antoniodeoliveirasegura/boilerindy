@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery, useQuery, type QueryClient } from '@tanstack/react-query'
 import { QUERY_CACHE_MAX_AGE_MS } from '../queryClient'
 import { buildClubsQuery, CLUBS_PAGE_SIZE, type ClubSearchParams, type ClubSearchResult } from '../clubs'
+import type { CampusEventFields } from '../campusEvents'
 import type { CampusNews } from '../campusNews'
 import type { DiningSnapshot, DiningUpcoming, DishDetail } from '../dining'
 import type { ParkingSnapshot } from '../parking'
@@ -157,6 +158,32 @@ export const campusNewsQuery = queryOptions({
   gcTime: PUBLIC_GC_TIME_MS,
 })
 
+// The free food on campus calendars for a signed-out visitor (issue #366):
+// the shared campus events with free food, from the session-free
+// GET /api/campus-events/free-food. A signed-in student's Free Food page reads
+// the same rows in its own calendar window instead (CAMPUS_EVENTS_CALENDAR in
+// userData.ts), beside their own events. The server reads the table at most
+// once a minute, and the page drops a row once it is over.
+export const FREE_FOOD_STALE_MS = 60_000
+
+/** One row as the server sends it: toSharedCalendarItem in src/campusEventsFeed.mjs. */
+export type PublicFreeFoodItem = CampusEventFields & {
+  id: string
+  title?: string
+  description?: string | null
+  location?: string | null
+  category?: string
+  freeFood?: boolean
+}
+export type PublicFreeFood = { ok?: boolean; items?: PublicFreeFoodItem[] }
+
+export const freeFoodQuery = queryOptions({
+  queryKey: ['events', 'free-food'] as const,
+  queryFn: ({ signal }) => fetchJson<PublicFreeFood>('/api/campus-events/free-food', { signal }),
+  staleTime: FREE_FOOD_STALE_MS,
+  gcTime: PUBLIC_GC_TIME_MS,
+})
+
 export const parkingQuery = queryOptions({
   queryKey: ['parking'] as const,
   queryFn: ({ signal }) => fetchJson<ParkingSnapshot>('/api/parking/garages', { signal }),
@@ -214,6 +241,8 @@ export const useDiningFood = (id: number | null | undefined, date: string | null
   useQuery({ ...diningFoodQuery(id ?? 0, date ?? ''), enabled: id != null && Boolean(date) })
 export const useCampusNews = () => useQuery(campusNewsQuery)
 export const useParking = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...parkingQuery, enabled })
+/** The signed-out Free Food list; the page enables it only once auth has settled with no user. */
+export const usePublicFreeFood = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...freeFoodQuery, enabled })
 export const useClubSearch = (params: Omit<ClubSearchParams, 'page'>) => useInfiniteQuery(clubSearchQuery(params))
 
 /**

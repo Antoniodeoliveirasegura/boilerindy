@@ -155,6 +155,31 @@ export function locationMenus(loc: Pick<DiningLocation, 'menus' | 'stations'>): 
   return loc.stations && loc.stations.length ? [{ meal: ALL_MEALS, stations: loc.stations }] : []
 }
 
+/**
+ * The hall (a location's slug) and meal on screen, which the page keeps in its
+ * address (/dining?hall=tower-dining&meal=dinner) so a shared link opens the
+ * same menu. Null where the address names none.
+ */
+export type DiningView = { hall: string | null; meal: string | null }
+
+const VIEW_KEYS = ['hall', 'meal'] as const
+
+/** The hall and meal a /dining address asks for. */
+export function readDiningView(params: URLSearchParams): DiningView {
+  return { hall: params.get('hall') || null, meal: params.get('meal') || null }
+}
+
+/** A copy of `params` showing `view`: a null hall or meal is taken out, and anything else (a ref, say) is kept. */
+export function writeDiningView(params: URLSearchParams, view: DiningView): URLSearchParams {
+  const next = new URLSearchParams(params)
+  for (const key of VIEW_KEYS) {
+    const value = view[key]
+    if (value) next.set(key, value)
+    else next.delete(key)
+  }
+  return next
+}
+
 /** A meal's stations split into the ones that change day to day and the every-day ones, each in feed order. */
 export function splitStations(stations: Station[]): { specials: Station[]; everyday: Station[] } {
   return { specials: stations.filter((s) => !s.everyday), everyday: stations.filter((s) => s.everyday) }

@@ -64,6 +64,18 @@ describe('Privacy service providers', () => {
   })
 })
 
+// Issue #16 - following a club stores the clubs with the account, so the
+// policy says where they are kept and that deleting the account deletes them.
+describe('Privacy followed clubs', () => {
+  test('say the clubs a student follows are stored with the account and deleted with it', () => {
+    renderAt('/privacy')
+    expect(screen.getByRole('heading', { name: 'Clubs you follow' })).toBeInTheDocument()
+    const body = screen.getByText(/The clubs you follow on the Clubs page/).textContent || ''
+    expect(body).toMatch(/are stored with your account/)
+    expect(body).toMatch(/they are deleted with your account/)
+  })
+})
+
 // Issue #193 - Contact points at the public deletion page the Play Data Safety
 // form links to.
 describe('Privacy contact', () => {
@@ -124,5 +136,33 @@ describe('Privacy title', () => {
     } finally {
       fallback.remove()
     }
+  })
+})
+
+// The sign-up source (docs/analytics.md): a tagged link's ?ref= is kept in the
+// tab and saved with an account created there, so the policy says what is
+// kept, where, for how long, and that it is not a tracker.
+describe('Privacy sign-up links', () => {
+  test('say what the tag is, where it is kept and when it is saved', () => {
+    renderAt('/privacy')
+    expect(screen.getByRole('heading', { name: 'Sign-up links' })).toBeInTheDocument()
+    const body = screen.getByText(/share links that end in a short tag/).textContent || ''
+    expect(body).toMatch(/\?ref=flyer-a/)
+    expect(body).toMatch(/this browser tab keeps the tag until you close the tab/)
+    expect(body).toMatch(/we save the tag with your new account, once/)
+    expect(body).toMatch(/signing in to an account you already\s+have saves nothing/)
+    expect(body).toMatch(/It is not a cookie/)
+    expect(body).toMatch(/never shared or used for advertising/)
+    expect(body).toMatch(/deleted with your account/)
+  })
+})
+
+// Issue #504 - new marketplace photos wait for an admin before other students
+// see them, so the policy says a person looks at them first.
+describe('Privacy marketplace photos', () => {
+  test('say an admin reviews listing photos before other students see them', () => {
+    renderAt('/privacy')
+    const body = screen.getByText(/Content you create/).textContent || ''
+    expect(body).toMatch(/Photos you add to a\s+marketplace listing are reviewed by an admin before other students see them\./)
   })
 })

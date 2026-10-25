@@ -1,7 +1,9 @@
 # Shared campus events ingest
 
 Issue #30. The cron route that reads Purdue's and IU's public events calendars
-into the shared `campus_events` table every 6 hours, with a dry run that writes
+(and, with `CAMPUS_EVENTS_DOWNTOWN` on, White River State Park's: [Downtown
+events](#downtown-events)) into the shared `campus_events` table every 6 hours,
+with a dry run that writes
 nothing. `/events` and `/free-food` list the table behind `CAMPUS_EVENTS_FEED`,
 off by default: [campus-events-feed.md](campus-events-feed.md) is that read
 path. The sources, and why they were chosen, are in
@@ -30,6 +32,10 @@ exist.
      a run, public events only, each linked back to its BoilerLink page), so
      production runs `CAMPUS_EVENTS_ENGAGE=boilerlink`. TheSpot's admins have
      not been asked.
+   - White River State Park's events calendar (The Events Calendar):
+     `wrsp_events`, only with `CAMPUS_EVENTS_DOWNTOWN` on. One request with no
+     query string, since its robots.txt disallows every URL with one
+     ([Downtown events](#downtown-events)).
 2. **Plan** (`src/sharedEvents.mjs`, pure). Each listing becomes a row, the
    Indianapolis filter keeps or drops it, one source's repeated ids merge, and
    the same event listed by two sources collapses into one row.
@@ -54,14 +60,15 @@ of them (see [Jev classification](#jev-classification)).
 
 | Column | Rule |
 |---|---|
-| `dedupe_key` | `<source_key>:<id>`: Localist's event instance id (one per occurrence), LiveWhale's event id, the Engage event id. Without an id, the design doc's sha256 of the trimmed, lowercased title, the start and the trimmed, lowercased location. |
-| `series_key` | `<source_key>:` and a hash of the organizer or group (the Localist event, the LiveWhale group, the Engage organization) and the folded title, so a weekly practice is one series. |
+| `dedupe_key` | `<source_key>:<id>`: Localist's event instance id (one per occurrence), LiveWhale's event id, the Engage event id, the park's post id (one per occurrence). Without an id, the design doc's sha256 of the trimmed, lowercased title, the start and the trimmed, lowercased location. |
+| `series_key` | `<source_key>:` and a hash of the organizer or group (the Localist event, the LiveWhale group, the Engage organization, the park's venue) and the folded title, so a weekly practice is one series. |
 | `content_hash` | sha256 of the title, description and location: the text Jev reads. A stored verdict is reused while it is unchanged. |
-| `free_food` | The source's own word: its tag (LiveWhale's "Free food", Engage's "Free Food" benefit), a LiveWhale cost that names free food, or free entry (Localist's `free`, a LiveWhale cost that starts with "Free") together with food in the listing or its tags. Else the keyword matcher in `src/freeFood.mjs`, which Jev's answer replaces when it has one. Free entry alone is not free food: Purdue's hockey games carry `free`. |
-| `category` | From the source's types (Localist event types, LiveWhale event types and fitness tags, the Engage theme), with the keys of Jev's category question plus `deadline` for Purdue's "Dates and Deadlines". NULL when the source gives nothing usable. Jev may fill or replace it, never a deadline. |
-| `venue_kind` | `online` (Localist's `virtual`, LiveWhale's online only, "Online" or "Zoom" as the location, "online only" in the title), `indy_campus` (a campus building or room in the title or location, or within 2.5 km of campus), `west_lafayette` (a West Lafayette place in the location, or coordinates near that campus), `elsewhere` (another city in the location, or coordinates farther out), else `unknown`. Jev may turn `unknown` into `online` or `elsewhere`. |
+| `free_food` | The source's own word: its tag (LiveWhale's "Free food", Engage's "Free Food" benefit), a LiveWhale cost that names free food, or free entry (Localist's `free`, a LiveWhale cost that starts with "Free") together with food in the listing or its tags. Else the keyword matcher in `src/freeFood.mjs`, which Jev's answer replaces when it has one. Free entry alone is not free food: Purdue's hockey games carry `free`. The park's free entry ("Free Event", a cost of "Free") never counts, even with food in the listing ([Downtown events](#downtown-events)). |
+| `category` | From the source's types (Localist event types, LiveWhale event types and fitness tags, the Engage theme, the park's categories that name a kind), with the keys of Jev's category question plus `deadline` for Purdue's "Dates and Deadlines". NULL when the source gives nothing usable. Jev may fill or replace it, never a deadline. |
+| `venue_kind` | `online` (Localist's `virtual`, LiveWhale's online only, "Online" or "Zoom" as the location, "online only" in the title, the park's `is_virtual`), `downtown` (any other listing a downtown source keeps, README step 49), `indy_campus` (a campus building or room in the title or location, or within 2.5 km of campus), `west_lafayette` (a West Lafayette place in the location, or coordinates near that campus), `elsewhere` (another city in the location, or coordinates farther out), else `unknown`. Jev may turn `unknown` into `online` or `elsewhere`; `downtown` is not one of its answers. |
 | `open_to_all` | `false` for a practice, rehearsal, officer or committee meeting, tryout or members-only session (by title); `true` when the source lists students or the public as the audience; NULL otherwise. Jev may close one (a staff luncheon) or open one. |
 | `classifier` | Jev's stored verdict: the model, the question version, every answer with its probabilities, and `classified_at`. Written only with `CAMPUS_EVENTS_CLASSIFY` on or `shadow`; NULL otherwise, and again after the text changes. |
+| `organization_key` | README step 48 (`db/supabase-club-follows.sql`, issue #16): the Engage organization that listed the event, `boilerlink:<organizationId>` or `thespot:<organizationId>`, which following a club reads ([clubs.md](clubs.md#following-a-club)). NULL for Localist and LiveWhale, and for an Engage listing whose `organizationId` is not a positive integer. A row that absorbs another source's copy of the event takes the copy's key when it has none. Written on every row of every run, so the first run after step 48 fills the stored rows. |
 
 The Indianapolis filter decides in this order, and the summary counts each
 reason:
@@ -79,9 +86,10 @@ reason:
    Kept, so an Indianapolis club's away game is kept too, with `venue_kind`
    `elsewhere`.
 5. `scope`: the source's own query is about Indianapolis (Purdue's "Purdue in
-   Indianapolis" group, IU's "IU Indianapolis" category within a mile) and the
-   listing has no coordinates to check: a deadline, a virtual event, a room
-   named only by its building. Kept.
+   Indianapolis" group, IU's "IU Indianapolis" category within a mile, White
+   River State Park's own calendar) and the listing has no coordinates to
+   check: a deadline, a virtual event, a room named only by its building, the
+   park's Canal Walk. Kept.
 6. Otherwise dropped: `far` when the coordinates are more than 2.5 km out (the
    State Fairgrounds, Mackey Arena), `unplaced` when nothing places it.
 
@@ -146,10 +154,18 @@ The 14 Purdue listings dropped were the State Fairgrounds hockey games and the
 World Food Championships, the Carmel Christmas show, a West Lafayette workshop
 and the four Winter Commencement listings at Mackey Arena. The 62 IU merges are
 multi-day exhibits listed once a day. A real run answers the same summary
-without `rows`, plus `upserted` and, per swept source, `swept`, and with
-classification on, `classify` ([Jev classification](#jev-classification)). A
-dry run never asks Jev: its rows are the rules' answers, and with
-classification on it says `"classify": { "skipped": "dry run" }`.
+without `rows`, plus `upserted`, `organizationKeys` and, per swept source,
+`swept`, and with classification on, `classify` ([Jev
+classification](#jev-classification)). A dry run never asks Jev: its rows are
+the rules' answers, and with classification on it says
+`"classify": { "skipped": "dry run" }`.
+
+`organizationKeys` is `"written"`, or `"column_missing"` before README step 48
+has added `campus_events.organization_key`: the first batch that names the
+column fails on it, the log says once
+`[club_follows] schema missing: run db/supabase-club-follows.sql in the
+Supabase SQL Editor, then retry.`, and that batch and every later one go up
+without it. The run otherwise writes and sweeps as before.
 
 ## Turning it on (owner)
 
@@ -169,17 +185,105 @@ classification on it says `"classify": { "skipped": "dry run" }`.
 5. Then turn on the read path, `CAMPUS_EVENTS_FEED`:
    [campus-events-feed.md](campus-events-feed.md#turning-it-on-owner).
 6. Optionally, Jev: [Jev classification](#turning-jev-on-owner).
+7. Optionally, the downtown source: [Turning downtown on](#turning-downtown-on-owner).
 
 ## Answers
 
 | Status | When |
 |---|---|
-| 200 | The summary above. A source that failed is in it with `ok: false` and its `error`. |
+| 200 | The summary above. A source that failed is in it with `ok: false` and its `error`, and so is a downtown source left out before README step 49, with `schemaMissing` ([Before README step 49](#before-readme-step-49)). |
 | 401 | `Invalid cron secret.` |
 | 404 | `PUSH_CRON_SECRET` is unset: the route does not exist. |
 | 409 | A run is already in flight. |
 | 503 | `campus_events_schema_missing`: the migration has not run (a dry run still works). Otherwise a database 5xx or timeout that survived its retry, logged as a warning; the next run retries. |
 | 500 | Any other database failure, logged as an error. |
+
+## Downtown events
+
+Issue #30's first source beyond campus is White River State Park's events
+calendar (its section in [shared-campus-events.md](shared-campus-events.md)
+has the URL, robots.txt and terms): the Indiana State Museum and its IMAX, the
+Indianapolis Zoo, the Eiteljorg, the NCAA Hall of Champions, Military Park and
+the Canal Walk. Its rows are `venue_kind` `downtown` with `source_key`
+`wrsp_events`, so the read labels them "Downtown" and gives them a pill of
+their own ([campus-events-feed.md](campus-events-feed.md#downtown-events)).
+
+`CAMPUS_EVENTS_DOWNTOWN` (`on`, `1` or `true`; off by default) turns it on.
+With it off the ingest neither fetches the park nor names it in its summary,
+and every read leaves its rows out, so a run and its answer are what they were
+before the source existed.
+
+### What a downtown row says
+
+| Column | Rule |
+|---|---|
+| `dedupe_key` | `wrsp_events:<post id>`, one per occurrence. |
+| `series_key` | `wrsp_events:` and a hash of the venue and the folded title: the two Twilight Tales nights at the Indiana State Museum are one series, listed once. |
+| `starts_at`, `ends_at` | `start_date` and `end_date` read as Indianapolis wall-clock times. The site's zone is set to "UTC+0" and every listing repeats its local time as `utc_start_date`, so the "UTC" fields are ignored: Día de Muertos at the Eiteljorg, "2026-10-24 10:00:00", starts at `2026-10-24T14:00:00.000Z`. An all-day listing runs from local midnight to the last second of its last day. |
+| `location` | The venue, its street address and its city ("Indiana State Museum, 650 West Washington Street, Indianapolis"), or the venue alone without an address (the Canal Walk). |
+| `description` | The organizer's text alone: the page's empty date line, its RSVP and ticket buttons, and the venue, price and "Add to calendar" blocks are dropped. |
+| `venue_kind` | `downtown`, unless the listing is online (`is_virtual`). |
+| `free_food` | Never from free entry, the "Free Event" category or a cost of "Free", even with food in the listing: on 2026-10-24 that rule would have marked the Book Fair (sweet treats from its vendors), the MLK Day free admission (it collects for Gleaners Food Bank) and Trail & Treat. Only the keyword matcher counts, or Jev's answer with classification on. |
+| `category` | From the park's categories that name a kind, in this order: Charity (`service`), Run and Indianapolis Indians (`sports_fitness`), Concert, IMAX, Eiteljorg and Indiana State Museum (`arts_culture`), Community Event (`social`). The zoo, the NCAA Hall of Champions and "Free Event" give none. |
+| `open_to_all` | `false` for a members-only title, as on every source; NULL otherwise. |
+
+The fetch keeps the listings from today on the campus calendar to 60 days out
+(`days` in `SOURCES`, `src/sharedEvents.mjs`), the window a query string would
+have asked for. The Indianapolis filter then keeps a listing with Indianapolis
+in its venue's address (`place`) or nothing to place it (`scope`), and drops
+one naming another city (`away`).
+
+### The downtown dry run
+
+With the switch on, the dry run above reads the park too and names it last in
+`sources`. On the listings of 2026-10-24 (`test/fixtures/campus-events-wrsp.json`),
+read at 17:30 in Indianapolis:
+
+```json
+{ "key": "wrsp_events", "enabled": true, "ok": true, "complete": true, "pages": 1, "error": null,
+  "listings": 19, "skipped": 0, "keptBy": { "place": 18, "scope": 1 }, "droppedBy": {}, "merged": 0, "rows": 19 }
+```
+
+`totals.venueKinds.downtown` is 19, and none has free food. `complete: false`
+with "wrsp_events has more than 1 page" means the park's list outgrew the 50
+listings of its one robots-allowed page: a real run writes those and does not
+sweep the source.
+
+### Before README step 49
+
+Step 49 (`db/supabase-campus-events-downtown.sql`) widens the `CHECK` on
+`venue_kind`. Until it has run, every downtown row fails that check, and the
+batch it is in with it. So with the switch on, a real run first upserts one
+downtown row on its own:
+
+- When `campus_events_venue_kind_check` refuses it (Postgres 23514), the run
+  leaves the downtown source out: none of its rows are written and it is not
+  swept; its summary entry has `ok: false`, its `error` and `schemaMissing:
+  "db/supabase-campus-events-downtown.sql"`; the totals count what is written;
+  the route's log line says `wrsp_events=skipped`; and the server logs one
+  warning (not sent to Sentry):
+  `[campus-events] wrsp_events left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run: run it in the Supabase SQL Editor.`
+  Every other source is written and swept as before, and the run answers 200.
+- When it is written, the run writes every row, that one again.
+- Any other refusal fails the run, as a failed write always does.
+
+A dry run touches no database, so it plans the downtown rows either way.
+
+### Turning downtown on (owner)
+
+1. Run `db/supabase-campus-events-downtown.sql` in the Supabase SQL Editor
+   (README step 49). It writes no rows and is safe to rerun.
+2. Set `CAMPUS_EVENTS_DOWNTOWN=on` on Render and redeploy.
+3. Run the dry run above and read the `wrsp_events` entry and its rows.
+4. Start a real run with the same curl without `?dryRun=1`, or wait for the
+   next cron tick. Its summary should show `wrsp_events` with `ok: true` and
+   `swept`. Then open `/events`: the park's events read "Downtown", under a
+   Downtown pill.
+
+Back to `off`, the next deploy stops the fetch and hides the rows from every
+read. They stay in the table, since a source that is not fetched is not
+swept; `delete from campus_events where source_key = 'wrsp_events';` removes
+them.
 
 ## Jev classification
 
@@ -328,14 +432,23 @@ of two versions are never mixed.
   owner's call on #30, 2026-10-18); the rows carry `source_key = 'iu_events'`,
   and the read path labels them "IU event" to say where they come from.
 - Each source is ingested in full every run. At today's volumes that is 5 page
-  requests with Engage off and about 24 with it on.
+  requests with Engage off and about 24 with it on, and one more for the park
+  with `CAMPUS_EVENTS_DOWNTOWN` on.
+- White River State Park is read as its one robots-allowed page, the 50
+  soonest listings over two years (27 on 2026-10-24). A longer list reads as
+  incomplete and is not swept; reading past it would take the park's leave
+  for a query string.
+- The park's free admission days (MLK Day, the NCAA Hall of Champions' Free
+  Day) are listed as events, without free food.
 
 ## Tuning
 
 Constants at the top of `src/campusEventsIngest.mjs` (`PAGE_DELAY_MS`,
 `PAGE_TIMEOUT_MS`, `MAX_PAGES`, `UPSERT_BATCH_SIZE`) and the source table in
 `src/sharedEvents.mjs` (`SOURCES`: the Localist window of 120 days, the LiveWhale
-window of 31 days and distance of 1 mile). `complete: false` with "more than N
+window of 31 days and distance of 1 mile, the park's window of 60 days).
+`MAX_PAGES.tribe` stays 1: a second page needs the query string the park's
+robots.txt disallows. `complete: false` with "more than N
 pages" means a source outgrew its page cap. The cron's `pg_net` timeout is 180
 seconds. A run with Engage off took 14 s on 2026-10-17; with it on a run reads
 about 24 pages a second apart, so it should still finish well inside that.

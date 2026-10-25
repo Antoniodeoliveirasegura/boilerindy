@@ -34,6 +34,7 @@ answer stays on screen.
 | `['parking']` | `GET /api/parking/garages` | 60 s | every 60 s while the parking page or the map's garage layer is open and the tab is visible |
 | `['clubs', filters]` | `GET /api/clubs?...` | 30 min | none; one entry per set of filters holds every page fetched so far, and "Show more" appends the next |
 | `['news', 'circuit']` | `GET /api/campus-news` | 30 min, or none for an answer with `ok: false` | none; read by the Campus news widget and the Clubs page (issue #470, [campus-news.md](campus-news.md)) |
+| `['events', 'free-food']` | `GET /api/campus-events/free-food` | 60 s | none; the signed-out Free Food page's list, read only once auth has settled with no user (issue #366, [campus-events-feed.md](campus-events-feed.md#signed-out)). A signed-in student's page reads the calendar window below instead |
 
 `refetchIntervalInBackground` is off for the two polls, so a hidden tab stops
 them (and stops spending the `transit-vehicles` budget); TanStack resumes them
@@ -56,13 +57,14 @@ rows, and the 30 s default stale time applies.
 
 | Key | Route | Read by |
 |---|---|---|
-| `['me', userId, 'calendar', { categories, limit, from, shared }]` | `GET /api/me/calendar?...` | Home (its own window), Assignments (`from` rounded to local midnight 14 days back, so the key is stable within a day), Events and Free Food (one shared window, the only one with `shared`, which adds the shared campus events while the server's feed is on: [campus-events-feed.md](campus-events-feed.md)) |
+| `['me', userId, 'calendar', { categories, limit, from, shared }]` | `GET /api/me/calendar?...` | Home (its own window), Tasks (`from` rounded to local midnight 14 days back, so the key is stable within a day), Events and Free Food (one shared window, the only one with `shared`, which adds the shared campus events while the server's feed is on: [campus-events-feed.md](campus-events-feed.md)) |
 | `['me', userId, 'classes', { limit, mode }]` | `GET /api/me/classes?...` | Home (display mode), Schedule (chronological) |
-| `['me', userId, 'calendar-categories']` | `GET /api/me/calendar/categories` | Assignments |
-| `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Assignments |
+| `['me', userId, 'calendar-categories']` | `GET /api/me/calendar/categories` | Tasks |
+| `['me', userId, 'tasks', 'meta']` | `GET /api/me/tasks/meta` | Tasks |
 | `['me', userId, 'blocks']` | `GET /api/me/blocks` | Settings, Blocked users (issue #192) |
 | `['me', userId, 'purdue-email']` | `GET /api/me/purdue-email/status` | The Purdue email card on Settings and setup (issue #181); no retries |
 | `['me', userId, 'dining-favorites']` | `GET /api/me/dining/favorites` | Home's favorite dish alert (issue #469); no retries. The Dining page reads the same route itself for its stars |
+| `['me', userId, 'club-follows']` | `GET /api/me/club-follows` | Clubs, for its Follow toggles and Following view (issue #16); never retried on `club_follows_schema_missing`. A follow or unfollow (`useToggleClubFollow`) flips it at once, undoes only that club on a failure, then refetches it and every `['me', userId, 'calendar']` window, whose shared rows say which clubs are followed |
 
 Ticking a task is an optimistic mutation (`useToggleTaskCompletion`): the tick
 lands in the cached metadata at once, after cancelling any metadata fetch in

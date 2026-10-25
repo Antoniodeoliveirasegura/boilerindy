@@ -36,7 +36,7 @@ real, served ads.
 | Advertiser sign-in | `boilerindy-react/src/pages/AdvertiserLogin.jsx` | **UI only** - `handleSubmit` is stubbed (validates + shows invite-only notice). No auth, no session. |
 | `/demo` | `App.jsx` | Redirects to `/advertise` |
 | "Request advertiser access" | `AdvertiserLogin.jsx` | `mailto:` link - not stored anywhere |
-| Profile dropdown entry | `components/Navbar.jsx` | "Advertiser portal" → `/advertise` |
+| Entry points | `pages/Landing.tsx` (nav "Advertise", footer "Advertise with us"), `pages/Login.tsx` ("Advertiser sign in") | All link to `/advertise`. The student profile menu in `components/Navbar.tsx` has no advertiser entry (issue #376): advertisers have their own accounts, so a student account has no use for it. |
 
 The student app's auth is the template to mirror (but **not** entangle):
 - Express session cookie `pih.sid`; `req.session.userId` identifies the principal.
@@ -158,6 +158,12 @@ and looks up the `advertisers` row; returns 401 otherwise.
 - Student side: a `sponsored` entry in the `widgetRegistry` in `pages/Home.jsx`
   that fetches `/api/spotlight/active?placement=home-widget`, renders a labeled
   "Sponsored" card, fires an impression on mount and a tap on click.
+- Side rails (`components/spotlight/SideSpotlightRail.tsx`, placement
+  `side-rail`, xl screens and up): AppLayout renders them on every signed-in
+  page except `/events` and `/free-food` (`lib/adFreeRoutes.ts`), the pages
+  that list the shared campus events. Ticketmaster's API terms bar deriving
+  revenue from the use of its API, so the pages its listings can reach carry no
+  ads.
 
 ---
 

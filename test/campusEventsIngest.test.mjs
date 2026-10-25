@@ -9,15 +9,19 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import {
+  DOWNTOWN_SQL_FILE,
   MAX_PAGES,
   PAGE_DELAY_MS,
   UPSERT_BATCH_SIZE,
   campusYmd,
   engagePageUrl,
   fetchSourceListings,
+  inTribeWindow,
+  isDowntownCheckViolation,
   liveWhalePageUrl,
   localistPageUrl,
   runCampusEventsIngest,
+  tribePageUrl,
 } from '../src/campusEventsIngest.mjs'
 import { sourceByKey } from '../src/sharedEvents.mjs'
 import { fakeSupabase, hasCall, operation } from './routes/fakeSupabase.mjs'
@@ -27,6 +31,9 @@ const LOCALIST = fixture('campus-events-localist.json')
 const LIVEWHALE = fixture('campus-events-livewhale.json')
 const BOILERLINK = fixture('campus-events-boilerlink.json')
 const THESPOT = fixture('campus-events-thespot.json')
+// White River State Park's list as fetched at 17:30 in Indianapolis on 2026-10-24.
+const WRSP = fixture('campus-events-wrsp.json')
+const WRSP_NOW = new Date('2026-10-24T21:30:00.000Z')
 
 const NOW = new Date('2026-10-17T12:00:00.000Z')
 const RUN_AT = NOW.toISOString()
@@ -50,6 +57,7 @@ const bySource = (overrides = {}) => (url) => {
     'events.iu.edu': () => json(LIVEWHALE),
     'boilerlink.purdue.edu': () => json(BOILERLINK),
     'thespot.indianapolis.iu.edu': () => json(THESPOT),
+    'whiteriverstatepark.org': () => json(WRSP),
     ...overrides,
   }
   const route = routes[url.hostname]
@@ -277,6 +285,55 @@ test('an upsert that fails transiently is retried once; a second failure, or a m
   await assert.rejects(runCampusEventsIngest({ fetchImpl, now: NOW, sleep: noSleep, log: quiet }), /needs a client/)
 })
 
+// Issue #16: each row says which Engage organization listed it, and a run
+// writes that on every row, so the first run after README step 48 fills the
+// rows already stored. Until step 48 adds the column the run must still work.
+test('a run writes organization_key on every row: the club on BoilerLink rows, null on the calendars', async () => {
+  const { fetchImpl } = fakeFetch(bySource())
+  const supabase = database()
+  const summary = await runCampusEventsIngest({ client: supabase, engageEnabled: ['boilerlink'], fetchImpl, now: NOW, sleep: noSleep, log: quiet })
+  const rows = upsertedRows(supabase)
+  assert.ok(rows.every((row) => 'organization_key' in row))
+  const keyed = rows.filter((row) => row.source_key === 'boilerlink')
+  assert.equal(keyed.length, 9)
+  assert.ok(keyed.every((row) => /^boilerlink:[1-9][0-9]*$/.test(row.organization_key)), keyed.map((row) => row.organization_key).join())
+  assert.ok(keyed.some((row) => row.organization_key === 'boilerlink:383441')) // SHPE
+  assert.ok(rows.filter((row) => row.source_key !== 'boilerlink').every((row) => row.organization_key === null))
+  assert.equal(summary.organizationKeys, 'written')
+})
+
+test('before README step 48 the run writes its rows without organization_key, names the file once and says so', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {})
+  const { fetchImpl } = fakeFetch(bySource())
+  const missingColumn = {
+    code: 'PGRST204',
+    message: "Could not find the 'organization_key' column of 'campus_events' in the schema cache",
+  }
+  const attempts = []
+  const supabase = database({
+    upsert: (chain) => {
+      const batch = chain.find((call) => call.method === 'upsert').args[0]
+      const named = batch.some((row) => 'organization_key' in row)
+      attempts.push(named)
+      return named ? { data: null, error: missingColumn, status: 400 } : { error: null }
+    },
+  })
+  const classify = async (rows) => rows.map((row, i) => (i === 0 ? { ...row, classifier: { model: 'jev-test' } } : row))
+  const summary = await runCampusEventsIngest({ client: supabase, engageEnabled: ['boilerlink'], fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify })
+  // The first batch is tried once with the column, then every batch goes up without it.
+  assert.deepEqual(attempts, [true, false, false])
+  assert.equal(summary.ok, true)
+  assert.equal(summary.upserted, 26)
+  assert.equal(summary.organizationKeys, 'column_missing')
+  assert.equal(sweeps(supabase).length, 3, 'the sweep still runs')
+  assert.equal(logged.mock.callCount(), 1)
+  assert.match(logged.mock.calls[0].arguments[0], /^\[club_follows\] schema missing: run db\/supabase-club-follows\.sql/)
+
+  // Another missing column is not this one: the run fails as before.
+  const other = database({ upsert: () => ({ data: null, error: { code: 'PGRST204', message: "Could not find the 'classifier' column of 'campus_events' in the schema cache" }, status: 400 }) })
+  await assert.rejects(runCampusEventsIngest({ client: other, fetchImpl, now: NOW, sleep: noSleep, log: quiet }), { code: 'PGRST204' })
+})
+
 test('the classify hook sees the planned rows; rows it answered are written apart from rows it did not', async () => {
   const { fetchImpl } = fakeFetch(bySource())
   const supabase = database()
@@ -343,4 +400,148 @@ test('more rows than one batch holds go up in batches', async () => {
   const sizes = supabase.queriesOf('campus_events').filter((q) => operation(q.chain) === 'upsert').map((q) => q.chain[0].args[0].length)
   assert.deepEqual(sizes, [UPSERT_BATCH_SIZE, 3])
   assert.equal(summary.upserted, UPSERT_BATCH_SIZE + 3)
+})
+
+// ── Downtown: White River State Park, behind CAMPUS_EVENTS_DOWNTOWN (#30) ────
+
+const PARK_URL = 'https://whiteriverstatepark.org/wp-json/tribe/events/v1/events'
+const parkCalls = (calls) => calls.filter((c) => new URL(c.url).hostname === 'whiteriverstatepark.org')
+const upsertBatches = (supabase) =>
+  supabase.queriesOf('campus_events').filter((q) => operation(q.chain) === 'upsert').map((q) => q.chain.find((c) => c.method === 'upsert').args[0])
+const sweptKeys = (supabase) => sweeps(supabase).map((q) => q.chain.find((c) => c.method === 'eq').args[1])
+// Postgres refusing a downtown row before README step 49, as PostgREST hands it on.
+const STEP_49_MISSING = {
+  code: '23514',
+  message: 'new row for relation "campus_events" violates check constraint "campus_events_venue_kind_check"',
+  details: 'Failing row contains (...).',
+  hint: null,
+}
+
+test("the park's list is one page with no query string, which its robots.txt disallows", () => {
+  assert.equal(tribePageUrl(sourceByKey('wrsp_events')), PARK_URL)
+  assert.equal(MAX_PAGES.tribe, 1)
+})
+
+test("the park's listings are kept from today on the campus calendar to 60 days out", async () => {
+  const source = sourceByKey('wrsp_events')
+  const kept = WRSP.events.filter((raw) => inTribeWindow(raw, source, WRSP_NOW))
+  assert.equal(kept.length, 19)
+  // Over before today (Thursday's Book Fair and Twilight Tales), or starting after
+  // December 23 (Kwanzaa, New Year's Eve, MLK Day and next year's games and concerts).
+  assert.deepEqual(
+    WRSP.events.filter((raw) => !kept.includes(raw)).map((raw) => raw.id),
+    [6886, 2847, 5989, 5993, 4865, 2981, 6946, 6933],
+  )
+  const at = (start, end) => inTribeWindow({ start_date: start, end_date: end }, source, WRSP_NOW)
+  assert.equal(at('2026-10-01 00:00:00', '2026-10-24 23:59:59'), true) // on since the 1st, ends today
+  assert.equal(at('2026-12-23 19:00:00', '2026-12-23 21:00:00'), true)
+  assert.equal(at('2026-12-24 10:00:00', '2026-12-24 12:00:00'), false)
+  assert.equal(at('TBA', null), true) // left to the plan, which skips it
+  // Today is the campus date: 9:30 PM on the 24th is the 25th in UTC.
+  const apocalypseNow = WRSP.events.find((raw) => raw.id === 6909) // all day on the 24th
+  assert.equal(inTribeWindow(apocalypseNow, source, new Date('2026-10-25T01:30:00.000Z')), true)
+  assert.equal(inTribeWindow(apocalypseNow, source, new Date('2026-10-25T05:00:00.000Z')), false)
+
+  const { fetchImpl, calls } = fakeFetch(() => json(WRSP))
+  const result = await fetchSourceListings(source, { fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual(calls.map((c) => c.url), [PARK_URL])
+  assert.equal(calls[0].headers['user-agent'], 'BoilerIndy campus app (+https://www.boilerindy.app)')
+  assert.deepEqual(result, { listings: kept, pages: 1, complete: true, error: null })
+
+  // A list that outgrows its one page reads as incomplete: page 2 would need `?page=`.
+  const longer = fakeFetch(() => json({ ...WRSP, total_pages: 2 }))
+  const cut = await fetchSourceListings(source, { fetchImpl: longer.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.equal(longer.calls.length, 1)
+  assert.deepEqual([cut.complete, cut.error, cut.listings.length], [false, 'wrsp_events has more than 1 page', 19])
+})
+
+test('with CAMPUS_EVENTS_DOWNTOWN off the park is never fetched, and the run and its summary are what they were', async () => {
+  const { fetchImpl, calls } = fakeFetch(bySource())
+  const supabase = database()
+  const summary = await runCampusEventsIngest({ client: supabase, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual(parkCalls(calls), [])
+  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot'])
+  assert.deepEqual(upsertBatches(supabase).map((batch) => batch.length), [17])
+  assert.equal(summary.upserted, 17)
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events'])
+  const dry = await runCampusEventsIngest({ dryRun: true, downtownEnabled: false, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.equal(dry.rows.length, 17)
+  assert.ok(dry.rows.every((row) => row.source_key !== 'wrsp_events'))
+})
+
+test('with it on, a dry run reads the park once and plans its listings as downtown rows, with no database', async () => {
+  const { fetchImpl, calls } = fakeFetch(bySource())
+  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual(parkCalls(calls).map((c) => c.url), [PARK_URL])
+  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'wrsp_events'])
+  assert.deepEqual(summary.sources.at(-1), {
+    key: 'wrsp_events', enabled: true, ok: true, complete: true, pages: 1, error: null,
+    listings: 19, skipped: 0, keptBy: { place: 18, scope: 1 }, droppedBy: {}, merged: 0, rows: 19,
+  })
+  const park = summary.rows.filter((row) => row.source_key === 'wrsp_events')
+  assert.equal(park.length, 19)
+  assert.ok(park.every((row) => row.venue_kind === 'downtown' && row.free_food === false))
+  assert.equal(summary.rows.length, 17 + 19)
+  assert.equal(summary.totals.venueKinds.downtown, 19)
+})
+
+test('with it on and README step 49 run, one downtown row goes up first, then every row, and the park is swept', async () => {
+  const { fetchImpl } = fakeFetch(bySource())
+  const supabase = database()
+  const warnings = []
+  const log = { ...quiet, warn: (line) => warnings.push(line) }
+  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
+  const batches = upsertBatches(supabase)
+  assert.deepEqual(batches.map((batch) => batch.length), [1, 36])
+  assert.deepEqual(batches[0].map((row) => [row.dedupe_key, row.venue_kind, row.last_seen_at]), [['wrsp_events:6909', 'downtown', WRSP_NOW.toISOString()]])
+  assert.equal(batches[1].filter((row) => row.source_key === 'wrsp_events').length, 19)
+  assert.equal(summary.upserted, 36)
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'wrsp_events'])
+  assert.equal(summary.sources.at(-1).swept, 2)
+  assert.deepEqual(warnings, [])
+})
+
+test('before README step 49 a run leaves the park out with one log line, and writes and sweeps the rest as before', async () => {
+  const { fetchImpl } = fakeFetch(bySource())
+  const supabase = database({
+    upsert: (chain) => {
+      const batch = chain.find((c) => c.method === 'upsert').args[0]
+      return batch.some((row) => row.venue_kind === 'downtown') ? { data: null, error: STEP_49_MISSING, status: 400 } : { error: null }
+    },
+  })
+  const warnings = []
+  const log = { ...quiet, warn: (line) => warnings.push(line) }
+  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
+  assert.equal(summary.ok, true)
+  // The one row it tried alone, then the campus rows by themselves.
+  const batches = upsertBatches(supabase)
+  assert.deepEqual(batches.map((batch) => batch.length), [1, 17])
+  assert.ok(batches[1].every((row) => row.source_key !== 'wrsp_events'))
+  assert.equal(summary.upserted, 17)
+  assert.equal(summary.totals.rows, 17)
+  assert.equal(summary.totals.venueKinds.downtown, undefined)
+  // Its entry says why, and a source that was left out is not swept.
+  const park = summary.sources.at(-1)
+  assert.deepEqual([park.key, park.ok, park.schemaMissing, park.rows, park.swept], ['wrsp_events', false, DOWNTOWN_SQL_FILE, 19, undefined])
+  assert.equal(park.error, "left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run")
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events'])
+  assert.deepEqual(warnings, [
+    "[campus-events] wrsp_events left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run: run it in the Supabase SQL Editor.",
+  ])
+
+  // Any other refusal of that first row fails the run, as a failed write always has.
+  const otherCheck = { ...STEP_49_MISSING, message: 'new row for relation "campus_events" violates check constraint "campus_events_category_check"' }
+  const refusing = database({ upsert: () => ({ data: null, error: otherCheck, status: 400 }) })
+  await assert.rejects(runCampusEventsIngest({ client: refusing, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet }), { code: '23514' })
+  assert.equal(sweeps(refusing).length, 0)
+})
+
+test('isDowntownCheckViolation names only the venue_kind CHECK', () => {
+  assert.equal(isDowntownCheckViolation(STEP_49_MISSING), true)
+  // As upsertRows rethrows it (queryError), with the query named and the status after.
+  assert.equal(isDowntownCheckViolation({ code: '23514', message: `campus_events upsert: ${STEP_49_MISSING.message} (HTTP 400)` }), true)
+  assert.equal(isDowntownCheckViolation({ ...STEP_49_MISSING, code: '23505' }), false)
+  assert.equal(isDowntownCheckViolation({ code: '23514', message: 'violates check constraint "campus_events_category_check"' }), false)
+  assert.equal(isDowntownCheckViolation({ code: '23514', message: 'violates check constraint "campus_events_venue_kind_check_old"' }), false)
+  assert.equal(isDowntownCheckViolation(null), false)
 })

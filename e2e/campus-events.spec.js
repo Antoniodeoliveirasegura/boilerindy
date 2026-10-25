@@ -4,7 +4,7 @@ import { test, expect } from './fixtures/mock-backend.js'
 // server adds them to the Events and Free Food read (GET /api/me/calendar
 // ?shared=1), so a student with no linked calendar still finds campus events
 // and free food. Each says where it came from and links out to its listing,
-// and none reaches Assignments or Home, where a row can be marked done.
+// and none reaches Tasks or Home, where a row can be marked done.
 
 const HOUR = 60 * 60 * 1000
 const inHours = (hours) => new Date(Date.now() + hours * HOUR).toISOString()
@@ -83,7 +83,7 @@ test.describe('Shared campus events', () => {
     )
   })
 
-  test('they never reach Assignments or Home, where a row can be marked done', async ({ page, mockApi }) => {
+  test('they never reach Tasks or Home, where a row can be marked done', async ({ page, mockApi }) => {
     mockApi.login()
     mockApi.seedSharedEvents([LEAP, CHILI])
     mockApi.seedCalendarItems([

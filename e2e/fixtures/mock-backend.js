@@ -27,6 +27,31 @@ const DEFAULT_USER = {
 const DEFAULT_CREDENTIALS = { email: 'student@purdue.edu', password: 'correct-horse-battery' }
 export const LOGIN_CODE = '246810'
 
+// The Google round trip (enableGoogleSignIn): the code the mocked /authorize
+// sends back to /auth/callback, and the access token its PKCE exchange answers,
+// which supabase-sync then accepts for the Google account.
+const GOOGLE_CODE = 'e2e-google-code'
+const GOOGLE_ACCESS_TOKEN = 'e2e-google-access-token'
+
+function googleSession(googleUser) {
+  return {
+    access_token: GOOGLE_ACCESS_TOKEN,
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    refresh_token: 'e2e-google-refresh-token',
+    user: {
+      id: googleUser.id,
+      aud: 'authenticated',
+      role: 'authenticated',
+      email: googleUser.email,
+      app_metadata: { provider: 'google', providers: ['google'] },
+      user_metadata: { full_name: googleUser.name },
+      created_at: new Date().toISOString(),
+    },
+  }
+}
+
 function defaultOnboarding(overrides = {}) {
   return {
     linkedSourceCount: 1,
@@ -248,6 +273,41 @@ function defaultMarketplace() {
     failNextUpload: false,
     // Every create / edit body the page sent, for assertions on the wire shape.
     bodies: [],
+    // Photo review (#504): every approve or reject the admin page sent, as
+    // { id, decision, updatedAt }. A listing waits while its photosReview is
+    // 'pending' (seedPhotoReview).
+    photoDecisions: [],
+  }
+}
+
+// Same rule as mapListingRow on the server (#504): photos that wait for an
+// admin, or that an admin rejected, reach only their owner and admins, and
+// photosPending tells everyone they wait. A listing seeded without a
+// photosReview is passed through untouched, as before the feature.
+function viewListing(listing, user) {
+  if (!listing.photosReview) return listing
+  const shown = { ...listing, photosPending: listing.photosReview === 'pending' }
+  // The queue's version and the state itself, which other students never get.
+  for (const key of ['updatedAt', 'photosReview']) delete shown[key]
+  if (listing.isMine || user.isAdmin === true) shown.photosReview = listing.photosReview
+  else if (listing.photosReview !== 'approved') Object.assign(shown, { images: [], imageUrl: null })
+  return shown
+}
+
+// One row of GET /api/admin/photo-review, as mapPhotoReviewRow shapes it.
+function photoReviewRow(listing) {
+  return {
+    id: listing.id,
+    title: listing.title,
+    description: listing.description || '',
+    category: listing.category,
+    status: listing.status,
+    hidden: Boolean(listing.hidden),
+    createdAt: listing.createdAt,
+    updatedAt: listing.updatedAt,
+    images: listing.images?.length ? listing.images : listing.imageUrl ? [listing.imageUrl] : [],
+    // The same seller the listing detail names.
+    seller: listing.isMine ? { id: DEFAULT_USER.id, displayName: DEFAULT_USER.name } : { id: 'e2e-user-riley', displayName: 'Riley Boilermaker' },
   }
 }
 
@@ -621,6 +681,11 @@ export const test = base.extend({
       parking: null,
       // Club directory (#16): { clubs, degraded }. null === the built-in sample list.
       clubs: null,
+      // Following a club (#16): the organization keys the test user follows,
+      // oldest first. null === a server before README step 48, whose follow
+      // routes answer 503 club_follows_schema_missing and whose calendar read
+      // marks no shared row; seedClubFollows turns following on.
+      clubFollows: null,
       // Marketplace (#32) + listing photos (#171): see defaultMarketplace / seedMarketplace.
       marketplace: defaultMarketplace(),
       // Dining (#119): { snapshot, unavailable }. null === the built-in sample snapshot.
@@ -645,6 +710,16 @@ export const test = base.extend({
       // Purdue email-code verification (#181): the one live code, whose value
       // is always 123456, as { email, expiresAt, attempts, consumed }.
       purdueChallenge: null,
+      // Every body sent to the two routes that create an account, POST
+      // /api/auth/register-supabase and /api/auth/supabase-sync, oldest first,
+      // as { path, body }. The sign-up source rides on them (docs/analytics.md).
+      authBodies: [],
+      // The Google account for the OAuth round trip; null keeps Supabase Auth
+      // disabled, as every other spec expects.
+      googleUser: null,
+      // When the pretend Render instance is up (coldStart): an /api call made
+      // before then waits for it. 0 is a warm server.
+      awakeAt: 0,
     }
 
     // A block by the test user, kept once like the blocked_users primary key.
@@ -659,11 +734,23 @@ export const test = base.extend({
     // Supabase JS SDK token/refresh calls - kept offline so getSession() and the
     // non-blocking signInWithEmail() in Login.jsx resolve fast and predictably.
     // /recover (resetPasswordForEmail) succeeds so the forgot-password flow is
-    // testable; everything else stays disabled.
+    // testable; everything else stays disabled, unless enableGoogleSignIn()
+    // turned on the Google round trip: /authorize stands in for Google and
+    // sends the browser straight back to /auth/callback with a code, and the
+    // PKCE exchange answers a session for the Google account.
     await context.route('**/auth/v1/**', (route) => {
-      const { pathname } = new URL(route.request().url())
+      const url = new URL(route.request().url())
+      const { pathname } = url
       if (pathname.endsWith('/auth/v1/recover')) {
         return json(route, 200, {})
+      }
+      if (state.googleUser && pathname.endsWith('/auth/v1/authorize')) {
+        const back = new URL(url.searchParams.get('redirect_to'))
+        back.searchParams.set('code', GOOGLE_CODE)
+        return route.fulfill({ status: 302, headers: { location: back.toString() } })
+      }
+      if (state.googleUser && pathname.endsWith('/auth/v1/token') && url.searchParams.get('grant_type') === 'pkce') {
+        return json(route, 200, googleSession(state.googleUser))
       }
       return json(route, 400, { error: 'supabase-disabled-in-e2e' })
     })
@@ -727,13 +814,23 @@ export const test = base.extend({
       }
 
       if (pathname === '/api/auth/register-supabase' && method === 'POST') {
-        const { email, name } = bodyOf()
+        const body = bodyOf()
+        state.authBodies.push({ path: pathname, body })
+        const { email, name } = body
         state.user = { ...state.user, email: email || state.user.email, name: name || state.user.name }
         state.loggedIn = true
         return json(route, 200, { session: sessionPayload(state) })
       }
 
       if (pathname === '/api/auth/supabase-sync') {
+        state.authBodies.push({ path: pathname, body: bodyOf() })
+        // The Google round trip's token signs its account in, as the server
+        // does for a first Google sign-in.
+        if (state.googleUser && req.headers().authorization === `Bearer ${GOOGLE_ACCESS_TOKEN}`) {
+          const { id, email, name } = state.googleUser
+          state.user = { ...state.user, id, email, name, authProvider: 'google', purdueEmail: null, hasPurdueLinked: false }
+          state.loggedIn = true
+        }
         return json(route, 200, { session: state.loggedIn ? sessionPayload(state) : null })
       }
 
@@ -760,7 +857,12 @@ export const test = base.extend({
       if (pathname === '/api/me/calendar') {
         // As listCalendarItems: the shared rows join only a read that asks.
         if (searchParams.get('shared') !== '1') return json(route, 200, { items: state.calendarItems })
-        const merged = [...state.calendarItems, ...state.sharedEvents]
+        // With following on (#16), every shared row says whether the student
+        // follows the club that listed it, as toSharedCalendarItem does.
+        const shared = Array.isArray(state.clubFollows)
+          ? state.sharedEvents.map((item) => ({ ...item, followed: Boolean(item.organizationKey) && state.clubFollows.includes(item.organizationKey) }))
+          : state.sharedEvents
+        const merged = [...state.calendarItems, ...shared]
         return json(route, 200, { items: merged.sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime)) })
       }
 
@@ -897,6 +999,15 @@ export const test = base.extend({
         return json(route, 200, { feedUrl: state.feedUrl })
       }
 
+      // The signed-out Free Food page's read (#366): the shared campus events
+      // with free food, soonest first, with or without a session, as the
+      // server answers while CAMPUS_EVENTS_FEED is on.
+      if (pathname === '/api/campus-events/free-food') {
+        const items = state.sharedEvents
+          .filter((item) => item.freeFood === true)
+          .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime))
+        return json(route, 200, { ok: true, items })
+      }
       // Dining (#119): the public snapshot, plus the favorites routes (#49) so
       // starring an item persists across a reload the way the DB does.
       // Campus news (#470): The Circuit's headlines, as src/circuitNews.mjs shapes them.
@@ -925,6 +1036,42 @@ export const test = base.extend({
         if (method === 'POST' && name && !state.diningFavorites.includes(name)) state.diningFavorites.push(name)
         if (method === 'DELETE') state.diningFavorites = state.diningFavorites.filter((n) => n !== name)
         return json(route, 200, { ok: true, favorites: [...state.diningFavorites] })
+      }
+
+      // Following a club (#16), as src/routes/clubFollows.mjs answers: the
+      // keys oldest first and the followed clubs the directory lists by name;
+      // a follow checks the key and the directory, an unfollow only the key.
+      const clubFollowMatch = /^\/api\/me\/club-follows(?:\/([^/]+))?$/.exec(pathname)
+      if (clubFollowMatch) {
+        if (!Array.isArray(state.clubFollows)) {
+          return json(route, 503, {
+            error: { message: 'Following clubs is not set up yet. Please try again later.', code: 'club_follows_schema_missing', status: 503 },
+          })
+        }
+        const directory = state.clubs?.clubs || sampleClubs()
+        const keyOf = (club) => `boilerlink:${club.id}`
+        if (!clubFollowMatch[1] && method === 'GET') {
+          const clubs = directory
+            .filter((club) => state.clubFollows.includes(keyOf(club)))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((club) => ({ ...club, organizationKey: keyOf(club) }))
+          return json(route, 200, { follows: [...state.clubFollows], clubs })
+        }
+        const key = decodeURIComponent(clubFollowMatch[1] || '')
+        if (!/^(boilerlink|thespot):[1-9][0-9]{0,11}$/.test(key)) {
+          return json(route, 400, { error: { message: 'That is not a club the app knows.', code: 'club_follows_bad_key', status: 400 } })
+        }
+        if (method === 'PUT') {
+          if (!directory.some((club) => keyOf(club) === key)) {
+            return json(route, 404, { error: { message: 'That club is not in the club directory.', code: 'club_follows_unknown_club', status: 404 } })
+          }
+          if (!state.clubFollows.includes(key)) state.clubFollows.push(key)
+          return json(route, 200, { ok: true, organizationKey: key, following: true })
+        }
+        if (method === 'DELETE') {
+          state.clubFollows = state.clubFollows.filter((k) => k !== key)
+          return json(route, 200, { ok: true, organizationKey: key, following: false })
+        }
       }
 
       // Marketplace (#32) and listing photos (#171): shapes mirror mapListingRow
@@ -960,10 +1107,15 @@ export const test = base.extend({
           (l) => l.status === 'active' && (!category || l.category === category) && (!q || l.title.toLowerCase().includes(q)),
         )
         const slice = visible.slice(page * 24, page * 24 + 24)
-        return json(route, 200, { listings: slice, page, hasMore: slice.length === 24, canPost: Boolean(state.onboarding.hasPurdueLinked) })
+        return json(route, 200, {
+          listings: slice.map((l) => viewListing(l, state.user)),
+          page,
+          hasMore: slice.length === 24,
+          canPost: Boolean(state.onboarding.hasPurdueLinked),
+        })
       }
       if (pathname === '/api/marketplace/mine' && method === 'GET') {
-        return json(route, 200, { listings: state.marketplace.listings.filter((l) => l.isMine) })
+        return json(route, 200, { listings: state.marketplace.listings.filter((l) => l.isMine).map((l) => viewListing(l, state.user)) })
       }
       if (pathname === '/api/marketplace/capabilities' && method === 'GET') {
         return json(route, 200, { gallery: true, pricing: true, maxPhotos: 6 })
@@ -1004,7 +1156,7 @@ export const test = base.extend({
           const seller = listing.isMine
             ? { sellerName: DEFAULT_USER.name, sellerEmail: DEFAULT_USER.email }
             : { sellerName: 'Riley Boilermaker', sellerEmail: 'riley@purdue.edu' }
-          return json(route, 200, { listing: { ...listing, ...seller } })
+          return json(route, 200, { listing: { ...viewListing(listing, state.user), ...seller } })
         }
         if (method === 'PATCH') {
           const b = bodyOf()
@@ -1025,6 +1177,46 @@ export const test = base.extend({
           m.listings = m.listings.filter((l) => l.id !== listing.id)
           return route.fulfill({ status: 204, body: '' })
         }
+      }
+
+      // The admin photo queue (#504), as src/routes/adminPhotoReview.mjs
+      // serves it: waiting listings oldest first, and approve or reject only
+      // for the version the queue showed (409 after an edit, 404 once decided).
+      // The overview counts the queue. Admins only, like requireAdmin.
+      if (pathname === '/api/admin/overview' || pathname.startsWith('/api/admin/photo-review')) {
+        if (!state.loggedIn) return json(route, 401, { error: { message: 'You must sign in to access this resource.', status: 401 } })
+        if (state.user.isAdmin !== true) return json(route, 403, { error: { message: 'Admin access required.', status: 403 } })
+      }
+      if (pathname === '/api/admin/overview' && method === 'GET') {
+        const pendingPhotos = state.marketplace.listings.filter((l) => l.photosReview === 'pending').length
+        return json(route, 200, { overview: { newLeads: 0, pendingCampaigns: 0, activeCampaigns: 0, advertisers: 0, pendingPhotos } })
+      }
+      if (pathname === '/api/admin/photo-review' && method === 'GET') {
+        const waiting = state.marketplace.listings
+          .filter((l) => l.photosReview === 'pending')
+          .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
+        return json(route, 200, { listings: waiting.map(photoReviewRow) })
+      }
+      const photoDecision = pathname.match(/^\/api\/admin\/photo-review\/([^/]+)\/(approve|reject)$/)
+      if (photoDecision && method === 'POST') {
+        const [, id, decision] = photoDecision
+        const { updatedAt } = bodyOf()
+        if (typeof updatedAt !== 'string' || !updatedAt) {
+          return json(route, 400, { error: { message: 'Reload the photo queue and try again.', status: 400 } })
+        }
+        const listing = state.marketplace.listings.find((l) => l.id === id)
+        if (!listing || listing.photosReview !== 'pending') {
+          return json(route, 404, { error: { message: 'No listing with photos waiting for review.', status: 404 } })
+        }
+        if (listing.updatedAt !== updatedAt) {
+          return json(route, 409, {
+            error: { message: 'The seller changed this listing after the queue loaded. Reload to see the latest photos.', status: 409 },
+          })
+        }
+        state.marketplace.photoDecisions.push({ id, decision, updatedAt })
+        listing.photosReview = decision === 'approve' ? 'approved' : 'rejected'
+        if (decision === 'reject') Object.assign(listing, { images: [], imageUrl: null })
+        return json(route, 200, { ok: true, photosReview: listing.photosReview })
       }
 
       // Club directory (#16): the payload shape mirrors searchClubDirectory()
@@ -1213,6 +1405,20 @@ export const test = base.extend({
       return json(route, 200, { items: [], ok: true })
     })
 
+    // A cold start (coldStart below): every /api call made before the pretend
+    // instance is up waits for it, then the handler above answers, so calls
+    // come back in the order they left. Registered after that handler, so
+    // Playwright tries this one first.
+    await context.route('**/api/**', async (route) => {
+      const wait = state.awakeAt - Date.now()
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+      try {
+        await route.fallback()
+      } catch {
+        // The test ended, and closed the page, while this call was waiting.
+      }
+    })
+
     // Supabase Storage (#171): the browser PUTs a listing photo straight to the
     // signed upload URL and later reads it back from the public bucket URL.
     // The PUT body is kept (the JPEG is cut out of it whether the client sent
@@ -1254,6 +1460,17 @@ export const test = base.extend({
       },
       requireLoginCode(required = true) {
         state.requireLoginCode = required
+      },
+      // Turns on the Google round trip: Continue with Google leaves for the
+      // mocked /authorize, comes back to /auth/callback with a code, and the
+      // code exchange and supabase-sync sign this new Google account in.
+      enableGoogleSignIn(overrides = {}) {
+        state.googleUser = { id: 'e2e-google-user', email: 'new.student@gmail.com', name: 'New Student', ...overrides }
+      },
+      // A Render cold start from now (issue #389): the free instance sleeps
+      // when idle and takes up to about 30 s to boot, and every call waits.
+      coldStart(ms = 20_000) {
+        state.awakeAt = Date.now() + ms
       },
       timeOutLoginCode() {
         state.loginCodeTimedOut = true
@@ -1297,6 +1514,11 @@ export const test = base.extend({
       seedClubs({ clubs = null, degraded = false } = {}) {
         state.clubs = { clubs, degraded }
       },
+      // Turns following on (#16) with these organization keys followed, e.g.
+      // ['boilerlink:1'] for the sample Chess Club.
+      seedClubFollows(keys = []) {
+        state.clubFollows = [...keys]
+      },
       seedDining({ snapshot = null, unavailable = false } = {}) {
         state.dining = { snapshot, unavailable }
       },
@@ -1309,6 +1531,16 @@ export const test = base.extend({
       },
       failNextPhotoUpload() {
         state.marketplace.failNextUpload = true
+      },
+      // Photo review (#504): these listings' photos wait for an admin, each
+      // since `hoursAgo` (default 2), which is also the version the queue sends.
+      seedPhotoReview(waiting = []) {
+        for (const { id, hoursAgo = 2 } of waiting) {
+          const listing = state.marketplace.listings.find((l) => l.id === id)
+          if (!listing) throw new Error(`seedPhotoReview: no listing ${id}`)
+          listing.photosReview = 'pending'
+          listing.updatedAt = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString()
+        }
       },
       seedPush(overrides = {}) {
         state.push = defaultPush(overrides)

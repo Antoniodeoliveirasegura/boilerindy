@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
+import ShareButton from '../components/ShareButton'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { track } from '../lib/usageStats'
+import { shareUrl } from '../lib/shareLinks'
+import { PAGE_PREVIEWS } from '../lib/pagePreviews'
+import { previewSignInHref } from '../lib/publicPreview'
 import {
   routes,
   TRANLOC_ROUTE_ALIASES,
@@ -770,6 +774,7 @@ export default function Transit() {
   // preview bar's Sign in link carries the search, so the route also
   // survives signing in from the signed-out preview.
   const [searchParams, setSearchParams] = useSearchParams()
+  const { pathname, search } = useLocation()
   const routeParam = searchParams.get('route')
   const selectedRoute = useMemo<TransitRoute | null>(
     () => routes.find((r) => String(r.id) === routeParam) ?? null,
@@ -995,10 +1000,20 @@ export default function Transit() {
             )}
           </p>
         </div>
-        <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary">
-          <Icon name="refresh" size={15} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* The view on screen, for a friend signed in or not: the route
+              picked, or All Routes (docs/share-links.md). */}
+          <ShareButton
+            page="transit"
+            getUrl={() => shareUrl('transit', window.location.href, { route: selectedRoute ? String(selectedRoute.id) : null })}
+            title={PAGE_PREVIEWS.transit.title}
+            text={selectedRoute ? `The ${selectedRoute.shortName} route, live on BoilerIndy` : 'Every JAGLINE bus, live on BoilerIndy'}
+          />
+          <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary">
+            <Icon name="refresh" size={15} />
+            Refresh
+          </button>
+        </div>
       </header>
 
       {/* Route filter pills - horizontal scroll on mobile. A scroller clips
@@ -1122,6 +1137,22 @@ export default function Transit() {
               )}
             </p>
           </div>
+
+          {/* Signed out there are no bells: the chime and the stop it is for
+              are kept for students with an account. Say what signing in gets,
+              above the stops where the bells would be, and come back to this
+              route after. */}
+          {!authLoading && !user && (
+            <p className="flex items-start gap-2 mb-3 text-[12.5px] leading-snug text-[var(--color-txt-2)]" data-transit-chime-invite>
+              <Icon name="bell" size={14} className="shrink-0 mt-[2px] text-[var(--color-txt-3)]" />
+              <span>
+                Get a chime when the bus reaches the stop before yours.{' '}
+                <Link to={previewSignInHref(pathname, search)} className="prose-link">
+                  Sign in to set your stop
+                </Link>
+              </span>
+            </p>
+          )}
 
           {myStopId && stopBeforeMyStop && (
             <p className="text-[12.5px] text-[var(--color-txt-2)] mb-2">

@@ -113,7 +113,7 @@ const integrations = [
   ['mapPin', 'Campus Map', 'r-map'],
   ['sparkles', 'Groq AI', 'r-ai'],
   ['book', 'University Library', 'r-ink'],
-  ['document', 'Assignment Tracker', 'r-tsk'],
+  ['document', 'Task Tracker', 'r-tsk'],
   ['message', 'Community Board', 'r-ink'],
   ['bell', 'Smart Alerts', 'r-ink'],
 ]

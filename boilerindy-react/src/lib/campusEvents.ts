@@ -8,7 +8,12 @@
 // one still running from an earlier day is listed under today instead of
 // under a date already gone.
 
-/** What the two pages read off a calendar row for its timing and its source. */
+/**
+ * What the two pages read off a calendar row for its timing and its source.
+ * `organizationKey` is the club that listed a shared row (issue #16), and
+ * `followed` says whether the student follows that club; the server leaves
+ * `followed` out when it could not read the student's follows.
+ */
 export type CampusEventFields = {
   startTime: string
   endTime?: string | null
@@ -17,6 +22,8 @@ export type CampusEventFields = {
   sourceKey?: string
   sourceLabel?: string
   sourceUrl?: string | null
+  organizationKey?: string | null
+  followed?: boolean
 }
 
 type Timed = Pick<CampusEventFields, 'startTime' | 'endTime' | 'allDay'>
@@ -85,27 +92,37 @@ export function untilLabel(item: Timed, now: Date = new Date()): string {
 // ── Where a row came from: the source pills ─────────────────────────────────
 
 /** A row's school on the source pills of Events and Free Food; `mine` is the student's own calendar. */
-export type EventSource = 'purdue' | 'iu' | 'mine'
-export type SourceFilter = 'all' | EventSource
+export type EventSource = 'purdue' | 'iu' | 'downtown' | 'mine'
+/** A source pill, or `following`: the "Clubs I follow" pill beside them (issue #16). */
+export type SourceFilter = 'all' | EventSource | 'following'
 export type EventSourceCount = { id: EventSource; label: string; count: number }
 
 // The shared rows' sourceKey (SOURCES in src/sharedEvents.mjs) by school:
 // Purdue's calendar and BoilerLink are Purdue's, IU's calendar and TheSpot IU's.
+// White River State Park's calendar is no school's: its rows are downtown
+// (issue #30), with a pill of their own so a museum night never reads as a
+// campus event.
 const SCHOOL_BY_SOURCE_KEY: Record<string, EventSource> = {
   purdue_events: 'purdue',
   boilerlink: 'purdue',
   iu_events: 'iu',
   thespot: 'iu',
+  wrsp_events: 'downtown',
 }
-const EVENT_SOURCE_ORDER: EventSource[] = ['purdue', 'iu', 'mine']
-export const EVENT_SOURCE_LABEL: Record<EventSource, string> = { purdue: 'Purdue', iu: 'IU', mine: 'My calendar' }
+const EVENT_SOURCE_ORDER: EventSource[] = ['purdue', 'iu', 'downtown', 'mine']
+export const EVENT_SOURCE_LABEL: Record<EventSource, string> = { purdue: 'Purdue', iu: 'IU', downtown: 'Downtown', mine: 'My calendar' }
 
-type Sourced = Pick<CampusEventFields, 'shared' | 'sourceKey'>
+type Sourced = Pick<CampusEventFields, 'shared' | 'sourceKey' | 'followed'>
 
 /** The row's school; null for a shared row from a source not listed above, which only "All sources" shows. */
 export function eventSourceOf(item: Sourced): EventSource | null {
   if (!item.shared) return 'mine'
   return SCHOOL_BY_SOURCE_KEY[item.sourceKey ?? ''] ?? null
+}
+
+/** A shared row from a downtown source: the server lists it as a campus_event, but it is not one. */
+export function isDowntownEvent(item: Sourced): boolean {
+  return eventSourceOf(item) === 'downtown'
 }
 
 /** A pill per source the rows come from, in a fixed order; none while no row is shared. */
@@ -120,14 +137,28 @@ export function eventSourceCounts(items: Sourced[]): EventSourceCount[] {
 }
 
 /**
- * The filter in force. The pills show only for two sources or more, so a pick
- * whose source has no rows left, or a single source, reads as all: the page
- * never strands on an empty list with no pill to undo it.
+ * How many rows the "Clubs I follow" pill counts: the shared rows of clubs the
+ * student follows. Null, and no pill, when no shared row says either way: the
+ * signed-out read, a server before README step 48, or no shared rows at all.
  */
-export function activeSourceFilter(filter: SourceFilter, counts: EventSourceCount[]): SourceFilter {
+export function followedEventCount(items: Sourced[]): number | null {
+  if (!items.some((item) => item.shared && typeof item.followed === 'boolean')) return null
+  return items.filter((item) => item.shared && item.followed === true).length
+}
+
+/**
+ * The filter in force. The source pills show only for two sources or more, so
+ * a pick whose source has no rows left, or a single source, reads as all: the
+ * page never strands on an empty list with no pill to undo it. "Clubs I
+ * follow" stays picked while its pill shows (`followedCount` is a number),
+ * even with nothing to list: its empty state says where to follow clubs.
+ */
+export function activeSourceFilter(filter: SourceFilter, counts: EventSourceCount[], followedCount: number | null = null): SourceFilter {
+  if (filter === 'following') return followedCount === null ? 'all' : 'following'
   return filter !== 'all' && counts.length > 1 && counts.some((source) => source.id === filter) ? filter : 'all'
 }
 
 export function matchesSourceFilter(item: Sourced, filter: SourceFilter): boolean {
+  if (filter === 'following') return Boolean(item.shared && item.followed === true)
   return filter === 'all' || eventSourceOf(item) === filter
 }

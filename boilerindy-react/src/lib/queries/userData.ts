@@ -1,6 +1,8 @@
 import { queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
-import { authRequest } from '../authApi'
+import { authRequest, type ApiRequestError } from '../authApi'
+import { applyFollow, normalizeClubFollows, organizationKeyOf, type Club, type ClubFollows } from '../clubs'
+import { shouldRetry } from '../queryClient'
 
 // The signed-in reads that several pages repeat, through the query cache
 // (issue #327): the calendar window, the class list, the calendar categories,
@@ -94,6 +96,9 @@ export const userKeys = {
   blocks: (userId: string) => ['me', userId, 'blocks'] as const,
   purdueEmail: (userId: string) => ['me', userId, 'purdue-email'] as const,
   diningFavorites: (userId: string) => ['me', userId, 'dining-favorites'] as const,
+  clubFollows: (userId: string) => ['me', userId, 'club-follows'] as const,
+  /** Every calendar window, whatever its params: the prefix a follow invalidates. */
+  calendars: (userId: string) => ['me', userId, 'calendar'] as const,
 }
 
 export function myCalendarQuery<T>(userId: string | null, params: CalendarParams) {
@@ -215,6 +220,64 @@ export function myDiningFavoritesQuery(userId: string | null) {
   })
 }
 
+/** A `*_schema_missing` answer is the server saying the feature is not set up yet: retrying cannot fix it. */
+export function retryUnlessSchemaMissing(failureCount: number, error: unknown): boolean {
+  const code = (error as ApiRequestError | null)?.code
+  if (typeof code === 'string' && code.endsWith('_schema_missing')) return false
+  return shouldRetry(failureCount, error)
+}
+
+/**
+ * GET /api/me/club-follows (issue #16): the clubs the student follows, for
+ * the Follow toggles and the Following view on /clubs. Before README step 48
+ * it fails at once with `club_follows_schema_missing`, and the page then
+ * offers no follow UI at all.
+ */
+export function myClubFollowsQuery(userId: string | null) {
+  return queryOptions({
+    queryKey: userKeys.clubFollows(userId ?? ''),
+    queryFn: async ({ signal }) => normalizeClubFollows(await authRequest('/api/me/club-follows', { signal })),
+    enabled: Boolean(userId),
+    retry: retryUnlessSchemaMissing,
+  })
+}
+
+/** What one Follow toggle asks for: the club, and whether it should be followed after. */
+export type ClubFollowInput = { club: Club; following: boolean }
+
+/**
+ * Follow or unfollow one club. The toggle flips in the cached follows at once
+ * (after cancelling a follows fetch in flight), then PUT or DELETE
+ * /api/me/club-follows/:organizationKey runs; a failure flips that club back
+ * alone, so a second toggle that landed meanwhile keeps its own change. Either
+ * way the follows are refetched, and so is every calendar window, whose
+ * shared rows say which clubs are followed (the Events and Free Food pill).
+ */
+export function useToggleClubFollow(userId: string | null) {
+  const queryClient = useQueryClient()
+  const queryKey = userKeys.clubFollows(userId ?? '')
+  return useMutation({
+    mutationFn: async ({ club, following }: ClubFollowInput) => {
+      await authRequest(`/api/me/club-follows/${encodeURIComponent(organizationKeyOf(club))}`, { method: following ? 'PUT' : 'DELETE' })
+    },
+    onMutate: async ({ club, following }) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<ClubFollows>(queryKey)
+      if (previous) queryClient.setQueryData<ClubFollows>(queryKey, applyFollow(previous, club, following))
+      return { previous }
+    },
+    onError: (_error, { club, following }, context) => {
+      if (!context?.previous) return
+      queryClient.setQueryData<ClubFollows>(queryKey, (current) => (current ? applyFollow(current, club, !following) : current))
+    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.invalidateQueries({ queryKey: userKeys.calendars(userId ?? '') }),
+      ]),
+  })
+}
+
 /** Mark every per-user row stale after a write that changes them elsewhere (a feed link, a sync, a source deletion, a block, a Purdue link). */
 export function invalidateUserQueries(queryClient: QueryClient): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['me'] })
@@ -236,8 +299,15 @@ export function useUserId(): string | null {
   return (user?.id as string | undefined) ?? null
 }
 
-export function useMyCalendar<T = Record<string, unknown>>(params: CalendarParams) {
-  return useQuery(myCalendarQuery<T>(useUserId(), params))
+/**
+ * `enabled: false` holds the read even with a user, for a page signed-out
+ * visitors can open (lib/publicPreview.ts): it waits until auth has settled,
+ * since a read while a cold load re-mints the cookie would 401 and send a
+ * signed-in student to /login.
+ */
+export function useMyCalendar<T = Record<string, unknown>>(params: CalendarParams, { enabled = true }: { enabled?: boolean } = {}) {
+  const userId = useUserId()
+  return useQuery({ ...myCalendarQuery<T>(userId, params), enabled: enabled && Boolean(userId) })
 }
 
 export function useMyClasses<T = Record<string, unknown>, M = { totalInTerm?: number; selectedTermLabel?: string }>(
@@ -264,6 +334,10 @@ export function usePurdueEmailStatus() {
 
 export function useMyDiningFavorites() {
   return useQuery(myDiningFavoritesQuery(useUserId()))
+}
+
+export function useMyClubFollows() {
+  return useQuery(myClubFollowsQuery(useUserId()))
 }
 
 /** The task metadata with one toggle applied, the way the server will store it. */

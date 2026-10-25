@@ -265,6 +265,17 @@ it('says the calendar could not load, with Try again, instead of "Nothing due ri
   expect(within(tasksDueCard()).queryByRole('alert')).toBeNull()
 })
 
+// Issue #376: the page behind View all is named Tasks, so the empty card says
+// so too. Both links still go to the /assignments route.
+it('points an empty Tasks due card at the Tasks page', async () => {
+  renderHome()
+
+  const card = within(tasksDueCard())
+  expect(await card.findByText(/Nothing due right now/)).toHaveTextContent('Nothing due right now. Add tasks on the Tasks page.')
+  expect(card.getByRole('link', { name: 'Tasks page' })).toHaveAttribute('href', '/assignments')
+  expect(card.getByRole('link', { name: /view all/i })).toHaveAttribute('href', '/assignments')
+})
+
 // Home expanded classes added by hand for today alone: the week strip showed
 // them on today only, and the next-class board skipped tomorrow's.
 it('counts a class added by hand on the days it meets and shows tomorrow\'s on the next-class board', async () => {

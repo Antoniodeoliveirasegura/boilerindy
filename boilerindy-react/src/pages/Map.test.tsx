@@ -132,3 +132,21 @@ describe('Map phone search sheet', () => {
     expect(searchButton()).toHaveFocus()
   })
 })
+
+// Issue #366: the map is open to signed-out visitors. Nothing on it needs a
+// session: these tests render it with no AuthProvider at all (useAuth would
+// throw), and the only request it makes is Purdue's public building layer,
+// straight from ArcGIS, never the API.
+describe('Map for a signed-out visitor', () => {
+  test('renders from the public building layer alone, with no API request', async () => {
+    answerBuildings({ ok: true, json: async () => BUILDINGS })
+    renderMap()
+
+    fireEvent.click(await within(sheet()).findByRole('button', { name: /Science Building/ }))
+    expect(screen.getByRole('heading', { level: 3, name: 'Science Building' })).toBeInTheDocument()
+    const urls = vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url)))
+    expect(urls.map((url) => url.host)).toEqual(['services1.arcgis.com'])
+    expect(urls[0].pathname).toContain('/Indianapolis_Building_Shapes/FeatureServer/')
+    expect(screen.getByRole('button', { name: 'Show my location' })).toBeInTheDocument()
+  })
+})

@@ -249,6 +249,22 @@ test('the chat sends the system prompt with the student\'s context and their his
   )
 })
 
+// Issue #376: the nav calls /assignments "Tasks", so the model is told the
+// student is on the Tasks page and can name it the way the app does.
+test('the screen hint names /assignments the Tasks page', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const ai = scriptedAi()
+  await withApp({ ai }, async ({ call }) => {
+    await call('POST', '/api/assistant', ask('what is due?', { page: '/assignments' }))
+  })
+  const [asked] = ai.calls
+  assert.match(
+    asked.system,
+    /=== WHERE THEY ARE ===\nThe student is on the Tasks page \(their synced assignments and their own to-dos\)\. Prefer answers/,
+  )
+  assert.ok(!asked.system.includes('assignments and tasks page'))
+})
+
 test('the context replays schedule edits, says when there is no calendar, and adds study help only when it is wanted', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const hiddenClass = calendarRow({ id: 'chem', title: 'CHEM 11100', description: 'General Chemistry', location: 'LE 101', start_time: at(3 * HOUR), end_time: at(4 * HOUR) })

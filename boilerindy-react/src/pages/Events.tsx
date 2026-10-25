@@ -9,8 +9,10 @@ import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
 import {
   activeSourceFilter,
   eventSourceCounts,
+  followedEventCount,
   hasEnded,
   isOngoing,
+  isDowntownEvent,
   listedTime,
   listingLink,
   matchesSourceFilter,
@@ -55,8 +57,11 @@ const CATEGORY_LABEL: Record<string, string> = {
   resource: 'Resource',
 }
 
-// An item without a category counts, filters and reads as an Event.
+// An item without a category counts, filters and reads as an Event, and so
+// does a downtown listing (issue #30): the server lists it as a campus_event,
+// and its badge beside "Downtown" must not say a museum night is a campus event.
 function categoryOf(item: EventItem) {
+  if (isDowntownEvent(item)) return 'event'
   return item.category || 'event'
 }
 
@@ -248,9 +253,11 @@ export default function Events() {
   }
 
   // Purdue's calendars, IU's or the student's own, counted like the category
-  // pills over every row.
+  // pills over every row, and the events of the clubs the student follows on
+  // /clubs (issue #16), marked by the server.
   const sourceCounts = useMemo(() => eventSourceCounts(items), [items])
-  const source = activeSourceFilter(sourceFilter, sourceCounts)
+  const followedCount = useMemo(() => followedEventCount(items), [items])
+  const source = activeSourceFilter(sourceFilter, sourceCounts, followedCount)
 
   const filteredItems = useMemo(() => {
     let filtered = items
@@ -375,7 +382,7 @@ export default function Events() {
         </section>
       )}
 
-      <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} />
+      <EventSourceFilter counts={sourceCounts} value={source} onChange={setSourceFilter} followedCount={followedCount} />
 
       {categoryCounts.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-5">
@@ -463,6 +470,24 @@ export default function Events() {
               >
                 {calendarQuery.isFetching ? 'Trying again…' : 'Try again'}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : filteredItems.length === 0 && source === 'following' ? (
+        <div className="card card-pad" data-following-empty>
+          <div className="empty row">
+            <span className="ico">
+              <Icon name="users" size={18} />
+            </span>
+            <div>
+              <div className="font-display font-bold text-[15px] text-[var(--color-txt-0)]">No events from clubs you follow</div>
+              <p className="text-[13px] mt-0.5">
+                When a club you follow lists an event on BoilerLink, it shows up here.{' '}
+                <Link to="/clubs" className="font-display font-bold text-[var(--color-accent)] hover:underline underline-offset-[3px]">
+                  Find clubs to follow
+                </Link>
+                .
+              </p>
             </div>
           </div>
         </div>

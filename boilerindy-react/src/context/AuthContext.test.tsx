@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth, useSignOutAndRedirect } from './AuthContext'
+import { captureSignupRef, readSignupRef } from '../lib/signupRef'
 
 // Issue #111 - /api/auth/supabase-sync fired twice per login: once from the
 // SIGNED_IN listener and once from an explicit establishSession(). Each POST
@@ -631,5 +632,135 @@ describe('a session read that gets no answer keeps the session', () => {
 
     expect(result.current.session).toBeNull()
     expect(result.current.sessionCheckFailed).toBe(false)
+  })
+})
+
+// The sign-up source (docs/analytics.md): a first Google sign-in creates the
+// account through supabase-sync, so the sync carries the ref the tab kept from
+// the landing page through the redirect to Google and back, and drops it once
+// the server has answered.
+describe('supabase-sync carries the sign-up source', () => {
+  const syncBodies = () =>
+    mocks.authRequest.mock.calls
+      .filter(([path]) => path === SYNC)
+      .map(([, init]) => JSON.parse((init as RequestInit).body as string))
+
+  beforeEach(() => sessionStorage.clear())
+
+  test('the sync on return from Google sends the ref held since the landing page, then forgets it', async () => {
+    captureSignupRef('?ref=flyer-a')
+    // The OAuth callback page loads with the new Supabase session in place.
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(syncBodies()).toHaveLength(1)
+    expect(syncBodies()[0]).toMatchObject({ supabaseUserId: 'user-1', signupRef: 'flyer-a' })
+    expect(readSignupRef()).toBeNull()
+    expect(result.current.session).toEqual(backendSession)
+  })
+
+  test('a SIGNED_IN sync sends it too, and a later sync sends none', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    await mountAuth()
+    captureSignupRef('?utm_source=instagram')
+    await act(async () => {
+      await emitAuthEvent('SIGNED_IN', makeSupabaseSession('tok-2'))
+    })
+    await act(async () => {
+      await emitAuthEvent('SIGNED_IN', makeSupabaseSession('tok-3'))
+    })
+    const [first, second] = syncBodies()
+    expect(first.signupRef).toBe('instagram')
+    expect(second).not.toHaveProperty('signupRef')
+  })
+
+  test('a failed sync keeps the ref for the next one', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    await mountAuth()
+    captureSignupRef('?ref=amb-jane')
+    mocks.authRequest.mockImplementationOnce(async () => {
+      throw new Error('backend down')
+    })
+    await act(async () => {
+      await emitAuthEvent('SIGNED_IN', makeSupabaseSession('tok-4'))
+    })
+    expect(readSignupRef()).toBe('amb-jane')
+    await act(async () => {
+      await emitAuthEvent('SIGNED_IN', makeSupabaseSession('tok-5'))
+    })
+    expect(syncBodies().map((body) => body.signupRef)).toEqual(['amb-jane', 'amb-jane'])
+    expect(readSignupRef()).toBeNull()
+  })
+
+  test('a sync with no ref held sends no ref field', async () => {
+    await mountAuth()
+    await act(async () => {
+      await emitAuthEvent('SIGNED_IN', makeSupabaseSession('tok-6'))
+    })
+    expect(syncBodies()[0]).not.toHaveProperty('signupRef')
+  })
+})
+
+// Issue #389. The sign-in page shows its form at once when this browser holds
+// no Supabase session, and a skeleton while a stored one is restored, so boot
+// says which before any server read answers. A Render cold start makes those
+// reads take up to 30 s.
+describe('the stored-session read at boot', () => {
+  function deferred() {
+    let resolve: (value: unknown) => void = () => {}
+    let reject: (error: unknown) => void = () => {}
+    const promise = new Promise((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  test('says a session is stored before the server has answered', async () => {
+    mocks.authRequest.mockImplementation(() => new Promise(() => {}))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    expect(result.current.hasStoredSession).toBeNull()
+    await waitFor(() => expect(result.current.hasStoredSession).toBe(true))
+    expect(result.current.loading).toBe(true)
+  })
+
+  test('says none is stored before the server has answered', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    mocks.authRequest.mockImplementation(() => new Promise(() => {}))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.hasStoredSession).toBe(false))
+    expect(result.current.loading).toBe(true)
+  })
+
+  // The form can now sign a student in while boot's session read is still
+  // out. That read left first, so its answer is older than the sign-in, and
+  // applying it signed the student straight back out.
+  describe('a sign-in on the form while boot reads the session', () => {
+    async function signInDuringBoot() {
+      mocks.getSession.mockResolvedValue({ data: { session: null } })
+      const bootRead = deferred()
+      mocks.authRequest.mockImplementation((path: string) =>
+        path === SESSION ? bootRead.promise : Promise.resolve({ authProvider: 'local', purdueAuthMode: 'mock' }),
+      )
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      await waitFor(() => expect(calledWith(SESSION)).toBe(true))
+      act(() => result.current.applySession(backendSession))
+      return { result, bootRead }
+    }
+
+    test('stands when boot is told nobody is signed in', async () => {
+      const { result, bootRead } = await signInDuringBoot()
+      await act(async () => bootRead.resolve({ authenticated: false, session: null }))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(result.current.session).toEqual(backendSession)
+      expect(result.current.sessionCheckFailed).toBe(false)
+    })
+
+    test('stands when boot gets no answer', async () => {
+      const { result, bootRead } = await signInDuringBoot()
+      await act(async () => bootRead.reject(Object.assign(new Error('Service unavailable'), { status: 503 })))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(result.current.session).toEqual(backendSession)
+      expect(result.current.sessionCheckFailed).toBe(false)
+    })
   })
 })

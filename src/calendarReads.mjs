@@ -12,7 +12,7 @@
 // turns the feed on and a read asks for them.
 
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './academicTerms.mjs'
-import { listSharedCalendarItems } from './campusEventsFeed.mjs'
+import { applyDowntownSwitch, listSharedCalendarItems } from './campusEventsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './pagedSelect.mjs'
 import { normalizeScheduleOverrides } from './scheduleOverrides.mjs'
@@ -38,10 +38,11 @@ function orderClassItemsForDisplay(items) {
  *   thrown when throwOnError is set. With the shared events feed on and
  *   sharedCategories naming 'campus_event' or 'deadline', the upcoming shared
  *   campus events of those categories (listSharedCalendarItems, marked
- *   `shared: true`) join them in start order, the student's own row first on a
- *   tie, and `limit` counts both. Those rows never fail the read: without them
- *   (a missing campus_events table, a failed read) it answers the student's
- *   rows alone.
+ *   `shared: true`, and `followed` saying whether the student follows the club
+ *   that listed one, issue #16) join them in start order, the student's own
+ *   row first on a tie, and `limit` counts both. Those rows never fail the
+ *   read: without them (a missing campus_events table, a failed read) it
+ *   answers the student's rows alone.
  * - getClassItemsForUser(userId, { limit, term, mode }): the class meetings
  *   of one term ('auto' picks it, 'all' keeps every term, or a key such as
  *   '2026-fall'), read from classScanFrom(term) on. Mode 'display' keeps the
@@ -52,10 +53,13 @@ function orderClassItemsForDisplay(items) {
  *   { series: {}, manual: [] } when there is no row or the read fails.
  *
  * @param {object} supabase the Supabase client
- * @param {{ sharedEventsFeed?: boolean }} [options] sharedEventsFeed: CAMPUS_EVENTS_FEED, off by default
+ * @param {{ sharedEventsFeed?: boolean, downtownEnabled?: boolean }} [options]
+ *   sharedEventsFeed: CAMPUS_EVENTS_FEED, off by default; downtownEnabled:
+ *   CAMPUS_EVENTS_DOWNTOWN, off by default, which lists the downtown sources'
+ *   shared rows too (applyDowntownSwitch)
  * @returns {{ listCalendarItems: Function, getClassItemsForUser: Function, readScheduleOverrides: Function }}
  */
-export function createCalendarReads(supabase, { sharedEventsFeed = false } = {}) {
+export function createCalendarReads(supabase, { sharedEventsFeed = false, downtownEnabled = false } = {}) {
   async function listCalendarItems(
     userId,
     { category, categories, limit = 100, order = 'asc', from = null, throwOnError = false, sharedCategories = null } = {},
@@ -89,7 +93,7 @@ export function createCalendarReads(supabase, { sharedEventsFeed = false } = {})
     // start_time from repeating or vanishing across page boundaries.
     const [{ data, error }, shared] = await Promise.all([
       selectUpTo(() => buildQuery().order('id', { ascending }), rowLimit),
-      withShared ? listSharedCalendarItems(supabase, { categories: sharedCategories, from }) : [],
+      withShared ? listSharedCalendarItems(supabase, { categories: sharedCategories, from, userId }) : [],
     ])
 
     // The readers that only add context (the assistant, study groups, friends)
@@ -118,13 +122,14 @@ export function createCalendarReads(supabase, { sharedEventsFeed = false } = {})
       // only meaningful for event categories but harmless elsewhere.
       freeFood: hasFreeFood(row.title, row.description),
     }))
-    if (!shared.length) return own
+    const listed = applyDowntownSwitch(shared, downtownEnabled)
+    if (!listed.length) return own
     // Both lists are in start order. A stable sort on the start alone keeps
     // the database's id order among the student's rows and puts them ahead of
     // a shared row with the same start; the first rowLimit of the merge are
     // right even when the student's read stopped at rowLimit.
     const sign = ascending ? 1 : -1
-    return [...own, ...(ascending ? shared : [...shared].reverse())]
+    return [...own, ...(ascending ? listed : [...listed].reverse())]
       .sort((a, b) => sign * (Date.parse(a.startTime) - Date.parse(b.startTime)))
       .slice(0, rowLimit)
   }

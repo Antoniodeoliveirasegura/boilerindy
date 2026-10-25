@@ -41,6 +41,10 @@ export type ServerWarmupOptions = {
   path?: string
 }
 
+/** What the UI says while the status is 'slow', split so the lead can be bold. */
+export const SERVER_WAKE_LEAD = 'Waking up the server.'
+export const SERVER_WAKE_DETAIL = 'The first visit after a quiet spell can take up to 30 seconds.'
+
 export const DEFAULT_SLOW_AFTER_MS = 2500
 export const DEFAULT_TIMEOUT_MS = 90_000
 export const DEFAULT_WARMUP_PATH = '/api/health'
