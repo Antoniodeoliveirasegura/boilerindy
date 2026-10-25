@@ -304,7 +304,7 @@ test('POST ?dryRun=1 with CAMPUS_EVENTS_DOWNTOWN on reads the park once, answers
     assert.equal(res.body.totals.venueKinds.downtown, 19)
     assert.equal(supabase.queries.length, 0)
     // One request to the park, with no query string (robots.txt disallows /*?).
-    assert.deepEqual(fetchedUrls.filter((url) => url.includes('whiteriverstatepark.org')), ['https://whiteriverstatepark.org/wp-json/tribe/events/v1/events'])
+    assert.deepEqual(fetchedUrls.filter((url) => new URL(url).hostname === 'whiteriverstatepark.org'), ['https://whiteriverstatepark.org/wp-json/tribe/events/v1/events'])
     assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'whiteriverstatepark.org'])
   })
   assert.match(lines.at(-1), /^\[campus-events\] dry run: purdue_events=9 iu_events=8 wrsp_events=19, 36 rows in \d+ ms$/)
@@ -313,7 +313,7 @@ test('POST ?dryRun=1 with CAMPUS_EVENTS_DOWNTOWN on reads the park once, answers
   await withApp({ now: WRSP_NOW }, async ({ call, fetched }) => {
     const res = await call(`${PATH}?dryRun=1`)
     assert.deepEqual(res.body.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot'])
-    assert.ok(!fetched.includes('whiteriverstatepark.org'))
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu'])
   })
 })
 
