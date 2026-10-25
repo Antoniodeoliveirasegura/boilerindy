@@ -47,7 +47,7 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 |---|---|
 | Not over | Its end, or for an all-day row with no end the end of its day, or else its start, is now or later. A row still running from an earlier day (a gallery exhibit) is listed under Today, its clock line saying until when, and the details card "On now · until ...". Both pages now treat the student's own rows the same way, so an event in progress stays listed until it ends. |
 | Fresh | Written by the ingest within the last 26 hours: four missed 6-hourly runs and two hours' grace. An older row belongs to a source that has been failing for a day, and may have been cancelled or moved since. |
-| Reachable | `venue_kind` is not `west_lafayette` or `elsewhere` (Mackey Arena, an Indianapolis club's away game). `online` and `unknown` are listed. |
+| Reachable | `venue_kind` is not `west_lafayette` or `elsewhere` (Mackey Arena, an Indianapolis club's away game). `online` and `unknown` are listed, and `downtown` too while `CAMPUS_EVENTS_DOWNTOWN` is on ([Downtown events](#downtown-events)). |
 | Open | `open_to_all` is not `false` (a practice, a rehearsal, an officer meeting, and with Jev on an event for staff or instructors). `NULL` is listed. |
 | Once per series | One row per `series_key`, its next occurrence, so a weekly class is listed once. |
 | Category | `deadline` (Purdue's "Dates and Deadlines") reads as Deadline, every other row as Campus Event. |
@@ -55,7 +55,8 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 
 Each listed row carries `shared: true`, a source label and the listing's link,
 http(s) only. The labels are `SOURCE_LABELS` in `src/campusEventsFeed.mjs`:
-"Purdue event", "IU event", "BoilerLink" and "TheSpot (IU)". IU Indianapolis's
+"Purdue event", "IU event", "BoilerLink", "TheSpot (IU)" and, for White River
+State Park's listings, "Downtown". IU Indianapolis's
 own listings are open to Purdue Indianapolis students (the owner's call on #30,
 2026-10-18) and keep the "IU event" label to say where they come from. A shared
 row's id is `campus:` and the table's id, so
@@ -113,8 +114,8 @@ same rules, narrowed to the ones with free food.
 - With `CAMPUS_EVENTS_FEED` off it answers `{ "ok": true, "items": [] }` and
   reads nothing, as the signed-in pages then list no shared rows either.
 
-The signed-out page shows the All sources, Purdue and IU pills (never My
-calendar), and nothing that needs an account: no "Connect a calendar source"
+The signed-out page shows the All sources, Purdue, IU and Downtown pills (never
+My calendar), and nothing that needs an account: no "Connect a calendar source"
 card and no link to `/events`. The per-user calendar read waits until the
 session is known, and the public one runs only once it is known to be absent,
 so neither a visitor nor a signed-in student on a cold load is sent to
@@ -125,6 +126,31 @@ Neither page shows the sponsor side rails (`lib/adFreeRoutes.ts`, read by
 API, and these are the pages its listings would reach. Home's sponsored widget
 and featured deal never show shared rows, since Home's calendar read leaves out
 `shared=1`.
+
+## Downtown events
+
+Issue #30: White River State Park's events calendar, the first source beyond
+campus, behind `CAMPUS_EVENTS_DOWNTOWN` (off by default; the ingest side and
+README step 49 are in [campus-events-ingest.md](campus-events-ingest.md#downtown-events)).
+Its rows are `venue_kind` `downtown` and `source_key` `wrsp_events`.
+
+- The read rule: while the switch is on, a downtown row is listed by every
+  rule above, like a campus row, with `sourceKey: "wrsp_events"` and
+  `sourceLabel: "Downtown"`. While it is off, both calendar reads and the
+  signed-out free-food read leave every row of a downtown source out
+  (`applyDowntownSwitch` in `src/campusEventsFeed.mjs`, after the plan), so
+  their answers are what they were before the source existed, rows written
+  while it was on included. The database query is the same either way.
+- The API's `category` for a downtown row stays `campus_event` (or `deadline`),
+  as for every shared row, so a read asks for it the same way. The website
+  shows its category as Event (`isDowntownEvent` in `lib/campusEvents.ts`, read
+  by the Events page's badges and category pills), so a museum night never
+  reads as a campus event; its source label says Downtown.
+- Both pages give the downtown rows a Downtown pill, after Purdue and IU and
+  before My calendar, once the rows come from two sources or more; signed out,
+  `/free-food` shows it too, beside All sources, Purdue and IU.
+- A client that does not know `wrsp_events` (the native app until it maps the
+  key) lists the rows under All sources only, as it does any unknown source.
 
 ## When the read fails
 

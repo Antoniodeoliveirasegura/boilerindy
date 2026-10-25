@@ -533,11 +533,12 @@ try {
 // (issue #191), and what they are handed is built above this block: a const
 // or let declared further down would not be initialized yet when these lines
 // run. The campus events one is the signed-out /free-food's read (issue #366),
-// behind the same CAMPUS_EVENTS_FEED switch as the signed-in calendar read.
+// behind the same CAMPUS_EVENTS_FEED switch as the signed-in calendar read, and
+// lists the downtown rows only with CAMPUS_EVENTS_DOWNTOWN on, as that read does.
 app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
-app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED') }))
+app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN') }))
 
 // Everything below runs behind the cookie session.
 app.use(
@@ -606,8 +607,10 @@ function requireAdmin(req, res, next) {
 // CAMPUS_EVENTS_FEED (off by default) lets the Events and Free Food read and
 // GET /api/me/events add the shared campus events (issue #30,
 // docs/campus-events-feed.md); with README step 43 not run they read as none.
+// CAMPUS_EVENTS_DOWNTOWN (off by default) lists the downtown ones among them.
 const { listCalendarItems, getClassItemsForUser, readScheduleOverrides } = createCalendarReads(supabase, {
   sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'),
+  downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN'),
 })
 
 // Linking a Purdue identity onto a student, and clearing one: the auth and
@@ -670,11 +673,14 @@ app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinking
 // (docs/campus-events-ingest.md). CAMPUS_EVENTS_ENGAGE (off by default) adds
 // the Engage event searches it names, `boilerlink`, `thespot`, or `on` for both,
 // and the club directory cache built above says which BoilerLink organizations
-// are Indianapolis ones. CAMPUS_EVENTS_CLASSIFY (off by default; `shadow` stores
-// the verdicts without using them) with TYPESAFE_API_KEY asks Jev about each new
-// or edited listing (src/campusEventsClassify.mjs).
+// are Indianapolis ones. CAMPUS_EVENTS_DOWNTOWN (off by default) adds White
+// River State Park's calendar, the first downtown source; until README step 49
+// has run a real run leaves it out with one log line. CAMPUS_EVENTS_CLASSIFY
+// (off by default; `shadow` stores the verdicts without using them) with
+// TYPESAFE_API_KEY asks Jev about each new or edited listing
+// (src/campusEventsClassify.mjs).
 const classifyCampusEvents = createCampusEventsClassifier({ apiKey: process.env.TYPESAFE_API_KEY, setting: process.env.CAMPUS_EVENTS_CLASSIFY })
-app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE), classify: classifyCampusEvents }))
+app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN'), classify: classifyCampusEvents }))
 
 // ── The student's calendar, classes, tasks, grades, degree and schedule edits ──
 // GET /api/me/calendar, /calendar/categories, /classes and /events, the task

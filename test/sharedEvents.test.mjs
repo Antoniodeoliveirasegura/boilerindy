@@ -9,6 +9,13 @@
 //                                 "Free food" from the same category without the distance filter
 //   campus-events-boilerlink.json BoilerLink's event search
 //   campus-events-thespot.json    TheSpot's event search
+//   campus-events-wrsp.json       White River State Park's event list, fetched once on
+//                                 2026-10-24 at 17:30 in Indianapolis (21:30 UTC) without a
+//                                 query string, as the ingest reads it: all 27 listings, the
+//                                 descriptions cut at the first tribe-block div (the venue,
+//                                 price and "Add to calendar" blocks the adapter drops anyway)
+//                                 except for the Book Fair, Trail & Treat and the MLK Day
+//                                 listing, which are whole
 //
 // The club directory flags below are what the live directory said about these
 // organizations on 2026-10-17.
@@ -21,10 +28,13 @@ import { readFileSync } from 'node:fs'
 import {
   CAMPUS,
   CATEGORIES,
+  DOWNTOWN_SOURCE_KEYS,
+  DOWNTOWN_VENUE_KIND,
   NEAR_CAMPUS_KM,
   LIVEWHALE_EXCLUDED_GROUPS,
   SOURCES,
   VENUE_KINDS,
+  campusWallClockToIso,
   collapseCrossSource,
   contentHashFor,
   dedupeKeyFor,
@@ -48,11 +58,13 @@ const LOCALIST = fixture('campus-events-localist.json').events.map((wrapper) => 
 const LIVEWHALE = fixture('campus-events-livewhale.json').data
 const BOILERLINK = fixture('campus-events-boilerlink.json').value
 const THESPOT = fixture('campus-events-thespot.json').value
+const WRSP = fixture('campus-events-wrsp.json').events
 
 const PURDUE = sourceByKey('purdue_events')
 const IU = sourceByKey('iu_events')
 const BOILERLINK_SOURCE = sourceByKey('boilerlink')
 const THESPOT_SOURCE = sourceByKey('thespot')
+const WRSP_SOURCE = sourceByKey('wrsp_events')
 
 const CLUBS = [
   { id: '407268', indianapolis: true }, // LCMS-U of Purdue University-Indianapolis Chapter
@@ -338,6 +350,160 @@ test('on TheSpot every organization is an Indianapolis one, and wrong coordinate
   assert.deepEqual(unplaced.indianapolis, { keep: true, by: 'org' })
 })
 
+// ── White River State Park (The Events Calendar), issue #30 ─────────────────
+
+const wrsp = (id) => WRSP.find((raw) => raw.id === id)
+const downtown = (raw) => one(normalizeListing(WRSP_SOURCE, raw))
+const park = (id) => downtown(wrsp(id))
+
+test("the park's times are Indianapolis wall-clock times, whatever its UTC+0 says", () => {
+  // Día de Muertos at the Eiteljorg opens at 10 AM. The site says UTC+0 and
+  // repeats the same clock time as "UTC", which would put it at 6 AM here.
+  const raw = wrsp(3849)
+  assert.equal(raw.timezone, 'UTC+0')
+  assert.equal(raw.start_date, '2026-10-24 10:00:00')
+  assert.equal(raw.utc_start_date, raw.start_date)
+  assert.equal(park(3849).row.starts_at, '2026-10-24T14:00:00.000Z') // 10:00 EDT
+  assert.equal(park(3849).row.ends_at, '2026-10-24T23:00:00.000Z') // 19:00 EDT
+  for (const listing of WRSP) assert.equal(listing.utc_start_date, listing.start_date, String(listing.id))
+
+  // After the clocks go back on November 1, 10 AM is 15:00 UTC.
+  assert.equal(park(5986).row.starts_at, '2026-11-08T15:00:00.000Z') // Heroes from the Heartland
+  // All day, from local midnight to the last second of the last day.
+  const zoo = park(2958).row // Christmas at the Zoo, November 21 to January 3
+  assert.equal(zoo.all_day, true)
+  assert.equal(zoo.starts_at, '2026-11-21T05:00:00.000Z')
+  assert.equal(zoo.ends_at, '2027-01-04T04:59:59.000Z')
+
+  // Around the change itself: the first 1:30 AM is still daylight time.
+  assert.equal(campusWallClockToIso('2026-11-01 01:30:00'), '2026-11-01T05:30:00.000Z')
+  assert.equal(campusWallClockToIso('2026-11-01 03:00:00'), '2026-11-01T08:00:00.000Z')
+  assert.equal(campusWallClockToIso('2027-03-14 03:30'), '2027-03-14T07:30:00.000Z')
+  for (const value of [undefined, null, '', '2026-10-24', '10:00:00', '2026-13-01 10:00:00', '2026-10-24 24:00:00', 'Saturday at 10']) {
+    assert.equal(campusWallClockToIso(value), null, String(value))
+  }
+  // A listing without a usable start gives no row.
+  assert.deepEqual(normalizeListing(WRSP_SOURCE, { ...wrsp(3849), start_date: 'TBA' }), [])
+})
+
+test('a park listing is a downtown row keyed by its post id, with the venue and its address as the location', () => {
+  const { row, indianapolis, sourceFreeFood } = park(6886) // Book Fair in the Park
+  assert.deepEqual(indianapolis, { keep: true, by: 'place' })
+  assert.deepEqual(Object.keys(row).sort(), COLUMNS)
+  assert.equal(row.title, 'Book Fair in the Park')
+  assert.equal(row.source_key, 'wrsp_events')
+  assert.equal(row.external_uid, '6886')
+  assert.equal(row.dedupe_key, 'wrsp_events:6886')
+  assert.equal(row.venue_kind, DOWNTOWN_VENUE_KIND)
+  assert.equal(row.location, 'Military Park at White River State Park, 601 West New York Street, Indianapolis')
+  assert.equal(row.source_url, 'https://whiteriverstatepark.org/event/book-fair-in-the-park/')
+  assert.equal(row.category, 'social') // "Community Event"
+  assert.equal(row.open_to_all, null)
+  assert.equal(sourceFreeFood, false)
+  assert.equal(row.content_hash, contentHashFor(row))
+  assert.match(row.series_key, /^wrsp_events:[0-9a-f]{16}$/)
+  // The organizer's text alone: no empty date line, no RSVP button, no "Add to calendar" block.
+  assert.ok(row.description.startsWith('Join us for a cozy, book filled day at Book Fair in the Park!'), row.description)
+  assert.ok(row.description.endsWith('Guests are welcome to bring their own food and non-alcoholic beverages.'), row.description)
+  assert.doesNotMatch(row.description, /Add to calendar|Google Calendar|Outlook/)
+  // A concert listing that is only a "Buy Tickets" button has no description.
+  assert.equal(park(6946).row.description, null)
+  // Entities decoded: "Trail &amp; Treat", "Dune: Part Three &#8211; ...".
+  assert.equal(park(5886).row.title, 'Trail & Treat on the Canal')
+  assert.equal(park(6916).row.title, 'Dune: Part Three \u2013 The IMAX 70mm Experience')
+
+  // Every listing of the day is in Indianapolis, the Canal Walk on the park's word.
+  assert.deepEqual(park(5886).indianapolis, { keep: true, by: 'scope' })
+  assert.equal(park(5886).row.location, 'Canal Walk')
+  assert.equal(park(5886).row.venue_kind, DOWNTOWN_VENUE_KIND)
+  // An online one stays online; one in another city drops and is not downtown.
+  assert.equal(downtown({ ...wrsp(5986), is_virtual: true }).row.venue_kind, 'online')
+  const carmel = downtown({ ...wrsp(5986), venue: { id: 9, venue: 'The Palladium', address: '1 Center Green', city: 'Carmel' } })
+  assert.deepEqual(carmel.indianapolis, { keep: false, by: 'away' })
+  assert.equal(carmel.row.venue_kind, 'elsewhere')
+  // A draft, or a listing the site hides from its own lists, gives none.
+  assert.deepEqual(normalizeListing(WRSP_SOURCE, { ...wrsp(6886), status: 'draft' }), [])
+  assert.deepEqual(normalizeListing(WRSP_SOURCE, { ...wrsp(6886), hide_from_listings: true }), [])
+  assert.deepEqual(normalizeListing(WRSP_SOURCE, { ...wrsp(6886), title: ' ' }), [])
+})
+
+test("the park's free entry is never free food, even with food in the listing; the keyword matcher still counts", () => {
+  // The Book Fair is a "Free Event" with "Sweet treats" from its vendors and drinks for purchase.
+  assert.ok(wrsp(6886).categories.some((term) => term.name === 'Free Event'))
+  assert.match(park(6886).row.description, /Sweet treats/)
+  assert.equal(park(6886).row.free_food, false)
+  // Free admission on MLK Day raises money for Gleaners Food Bank.
+  assert.equal(park(4865).row.title, 'FREE ADMISSION \u2013 Martin Luther King Jr. Day')
+  assert.equal(park(4865).row.free_food, false)
+  // Trail & Treat is free and hands children treats along the canal.
+  assert.equal(park(5886).row.free_food, false)
+  // A cost of "Free" says no more than the category does.
+  assert.equal(downtown({ ...wrsp(6886), cost: 'Free', cost_details: { ...wrsp(6886).cost_details, values: ['0'] } }).row.free_food, false)
+  assert.equal(WRSP.filter((raw) => park(raw.id).row.free_food).length, 0)
+
+  // The matcher's words count here as on every source, and never as the source's own word.
+  const pizza = downtown({ ...wrsp(3849), description: '<p>Free pizza in the Great Hall.</p>' })
+  assert.equal(pizza.row.free_food, true)
+  assert.equal(pizza.sourceFreeFood, false)
+})
+
+test('two nights of one title at one venue are one series; another title there is its own', () => {
+  const [first, second] = [2843, 2834].map((id) => park(id).row) // Twilight Tales: Beyond the Grave (18+), Oct 28 and 30
+  assert.deepEqual([first.dedupe_key, second.dedupe_key], ['wrsp_events:2843', 'wrsp_events:2834'])
+  assert.equal(first.series_key, second.series_key)
+  assert.equal(first.series_key, seriesKeyFor('wrsp_events', 'venue:771', 'Twilight Tales: Beyond the Grave (18+)'))
+  assert.notEqual(park(2847).row.series_key, first.series_key) // Strange Encounters, same museum
+  const [december2, december16] = [6818, 6819].map((id) => park(id).row) // the zoo's two sensory-friendly evenings
+  assert.equal(december2.series_key, december16.series_key)
+})
+
+test("the park's categories give a kind only where they name one", () => {
+  const category = (id) => park(id).row.category
+  assert.equal(category(6931), 'service') // Charity and Run: a charity 5k
+  assert.equal(category(4865), 'service') // every category, Charity first
+  assert.equal(category(2981), 'sports_fitness') // Indianapolis Indians: Banana Ball
+  assert.equal(category(6946), 'arts_culture') // Concert
+  assert.equal(category(6909), 'arts_culture') // IMAX
+  assert.equal(category(3849), 'arts_culture') // Eiteljorg
+  assert.equal(category(5886), 'social') // Community Event
+  assert.equal(category(6811), null) // Zoo
+  assert.equal(category(4548), null) // Free Event and NCAA HoC
+})
+
+test('planned with the campus sources, the park comes last: its rows are added, and a campus copy wins', () => {
+  const alone = planCampusEvents({ wrsp_events: WRSP })
+  assert.deepEqual(alone.sources, [
+    { key: 'wrsp_events', listings: 27, skipped: 0, keptBy: { place: 26, scope: 1 }, droppedBy: {}, merged: 0, rows: 27 },
+  ])
+  assert.deepEqual(alone.totals.venueKinds, { downtown: 27 })
+  assert.equal(alone.totals.freeFood, 0)
+  assert.equal(alone.sourceFreeFood.size, 0)
+  for (const row of alone.rows) {
+    assert.deepEqual(Object.keys(row).sort(), COLUMNS)
+    assert.ok(row.category === null || CATEGORIES.includes(row.category), row.category)
+  }
+
+  const campus = planCampusEvents({ purdue_events: LOCALIST, iu_events: LIVEWHALE, boilerlink: BOILERLINK, thespot: THESPOT }, { isIndianapolisOrg })
+  const both = planCampusEvents(
+    { purdue_events: LOCALIST, iu_events: LIVEWHALE, boilerlink: BOILERLINK, thespot: THESPOT, wrsp_events: WRSP },
+    { isIndianapolisOrg },
+  )
+  assert.deepEqual(both.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'wrsp_events'])
+  assert.equal(both.rows.length, campus.rows.length + 27)
+  assert.deepEqual(
+    both.rows.filter((row) => row.source_key !== 'wrsp_events'),
+    campus.rows,
+  )
+
+  // The same event on a campus calendar and the park's: the campus row is kept.
+  const fair = park(6886).row
+  const onCampus = { ...fair, source_key: 'iu_events', dedupe_key: 'iu_events:1', external_uid: '1', venue_kind: 'indy_campus' }
+  const { rows, collapsed } = collapseCrossSource([fair, onCampus])
+  assert.deepEqual(rows.map((row) => row.dedupe_key), ['iu_events:1'])
+  assert.deepEqual(collapsed.map((c) => [c.kept, c.dropped]), [['iu_events:1', 'wrsp_events:6886']])
+  assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events'])
+})
+
 // ── Rules and keys ──────────────────────────────────────────────────────────
 
 test('indianapolisDecision: place, then 2.5 km, then another city named, then the organizer, then the scope', () => {
@@ -473,6 +639,21 @@ test('the vocabularies and columns match db/supabase-campus-events.sql', () => {
   }
   assert.deepEqual(checked('category'), [...CATEGORIES])
   assert.deepEqual(checked('venue_kind'), [...VENUE_KINDS])
-  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot'])
+  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'wrsp_events'])
   assert.deepEqual(SOURCES.filter((source) => source.engage).map((source) => source.key), ['boilerlink', 'thespot'])
+  assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events'])
+})
+
+// Issue #30: README step 49 is its own file, and leaves Jev's questions alone.
+test('db/supabase-campus-events-downtown.sql adds downtown to the venue_kind CHECK, under the name step 43 gave it', () => {
+  const sql = readFileSync(new URL('../db/supabase-campus-events-downtown.sql', import.meta.url), 'utf8').replace(/--[^\n]*/g, '')
+  // Step 43's CHECK is unnamed, so Postgres calls it <table>_<column>_check.
+  assert.match(sql, /BEGIN;\s+ALTER TABLE campus_events DROP CONSTRAINT IF EXISTS campus_events_venue_kind_check;/)
+  const at = sql.indexOf('ADD CONSTRAINT campus_events_venue_kind_check CHECK (venue_kind IN (')
+  assert.ok(at >= 0, 'step 49 must add the CHECK back under the same name')
+  const kinds = [...sql.slice(at, sql.indexOf('))', at)).matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
+  assert.deepEqual(kinds, [...VENUE_KINDS, DOWNTOWN_VENUE_KIND])
+  assert.match(sql, /\)\);\s+COMMIT;\s*$/)
+  // Not a Jev answer, so the `where` question, and every stored verdict, stay as they were.
+  assert.ok(!VENUE_KINDS.includes(DOWNTOWN_VENUE_KIND))
 })

@@ -270,6 +270,32 @@ test('listCalendarItems: the student\'s own read failing still throws with throw
   assert.deepEqual(await listCalendarItems(USER, { sharedCategories: ['campus_event'] }), [])
 })
 
+// Issue #30: White River State Park's rows are listed only with
+// CAMPUS_EVENTS_DOWNTOWN on; off, the read is the one before the source existed.
+test('listCalendarItems: downtown rows join only with the downtown switch on, labeled Downtown', async () => {
+  const own = [calendarRow({ id: 'own-1', category: 'event', start_time: fromNow(HOUR_MS), end_time: null })]
+  const shared = [
+    campusRow('s1', 2 * HOUR_MS),
+    campusRow('zoo', 3 * HOUR_MS, { source_key: 'wrsp_events', venue_kind: 'downtown', source_url: 'https://whiteriverstatepark.org/event/zooboo/' }),
+    campusRow('s3', 4 * HOUR_MS),
+  ]
+  const supabase = fakeSupabase({
+    calendar_items: () => ({ data: own, error: null }),
+    campus_events: () => ({ data: shared, error: null }),
+  })
+  const read = (options, limit = 100) =>
+    createCalendarReads(supabase, { sharedEventsFeed: true, ...options }).listCalendarItems(USER, { limit, sharedCategories: ['campus_event', 'deadline'] })
+
+  const on = await read({ downtownEnabled: true })
+  assert.deepEqual(on.map((item) => item.id), ['own-1', 'campus:s1', 'campus:zoo', 'campus:s3'])
+  assert.deepEqual([on[2].shared, on[2].sourceKey, on[2].sourceLabel], [true, 'wrsp_events', 'Downtown'])
+  for (const off of [await read({ downtownEnabled: false }), await read({})]) {
+    assert.deepEqual(off.map((item) => item.id), ['own-1', 'campus:s1', 'campus:s3'])
+  }
+  // The limit counts what is listed, so a left-out row frees its place.
+  assert.deepEqual((await read({}, 3)).map((item) => item.id), ['own-1', 'campus:s1', 'campus:s3'])
+})
+
 // Class meetings, built in local time the way getAcademicTerm reads them back,
 // so the term pick is the same in any time zone. "Now" is pinned to the
 // afternoon of 2026-10-04, in the fall 2026 term.

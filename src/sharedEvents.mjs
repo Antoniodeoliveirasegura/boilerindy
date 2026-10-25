@@ -2,8 +2,10 @@
 //
 // docs/shared-campus-events.md settled the sources: Purdue's events calendar
 // (Localist, group "Purdue in Indianapolis"), IU's events calendar (LiveWhale,
-// category "IU Indianapolis") and, behind CAMPUS_EVENTS_ENGAGE, the Anthology
-// Engage event search on BoilerLink and TheSpot. This module turns their raw
+// category "IU Indianapolis"), behind CAMPUS_EVENTS_ENGAGE the Anthology
+// Engage event search on BoilerLink and TheSpot, and behind
+// CAMPUS_EVENTS_DOWNTOWN the first source beyond campus, White River State
+// Park's events calendar (The Events Calendar). This module turns their raw
 // JSON listings into rows for campus_events (db/supabase-campus-events.sql):
 //
 //   - one adapter per platform, each producing the same normalized row;
@@ -13,6 +15,7 @@
 //     isIndianapolisOrganization), a campus place named in the title or the
 //     location, or coordinates within 2.5 km of campus; LiveWhale groups that
 //     are not for Purdue students (LIVEWHALE_EXCLUDED_GROUPS) drop as `group`;
+//     a downtown source's rows are venue_kind `downtown` (README step 49);
 //   - the signals each row carries: free_food (the source's own tag first, then
 //     the keyword matcher in src/freeFood.mjs), category, venue_kind and
 //     open_to_all, all from rules;
@@ -48,12 +51,20 @@ export const CATEGORIES = Object.freeze([
 // The keys of Jev's `where` question, so its verdict can stand in for the
 // rule's answer.
 export const VENUE_KINDS = Object.freeze(['indy_campus', 'west_lafayette', 'online', 'elsewhere', 'unknown'])
+// Where a downtown source's listings are (issue #30): the museums, the zoo and
+// the parks a walk from campus, which are not the campus. A source's own word,
+// never one of Jev's answers, so adding it changed none of Jev's questions.
+// db/supabase-campus-events-downtown.sql (README step 49) adds it to the
+// column's CHECK.
+export const DOWNTOWN_VENUE_KIND = 'downtown'
 
 /**
  * Every source the ingest knows, in the order a cross-source duplicate is
  * resolved: the first one listing an event keeps it. `indianapolisScope` means
  * the source's own query is about Indianapolis, so a listing with nothing to
- * place it is taken at the source's word.
+ * place it is taken at the source's word. `downtown` marks a source beyond
+ * campus: every listing it keeps is venue_kind `downtown`, and only
+ * CAMPUS_EVENTS_DOWNTOWN reads it.
  */
 export const SOURCES = Object.freeze([
   Object.freeze({
@@ -99,7 +110,22 @@ export const SOURCES = Object.freeze([
     indianapolisScope: true,
     everyOrgIsIndianapolis: true,
   }),
+  Object.freeze({
+    key: 'wrsp_events',
+    platform: 'tribe',
+    label: "White River State Park's events calendar (The Events Calendar)",
+    origin: 'https://whiteriverstatepark.org',
+    days: 60,
+    engage: false,
+    downtown: true,
+    // The park's own calendar: a listing with nothing to place it (the Canal
+    // Walk has no address) is taken at its word.
+    indianapolisScope: true,
+  }),
 ])
+
+/** The keys of the downtown sources, which CAMPUS_EVENTS_DOWNTOWN turns on. */
+export const DOWNTOWN_SOURCE_KEYS = Object.freeze(SOURCES.filter((source) => source.downtown).map((source) => source.key))
 
 export function sourceByKey(key) {
   return SOURCES.find((source) => source.key === key) || null
@@ -372,6 +398,8 @@ function buildEvent(source, listing) {
   // An excluded group drops a listing the place rules would keep; one they
   // drop already keeps its own reason (far, away).
   const indianapolis = decision.keep && listing.exclude ? { keep: false, by: listing.exclude } : decision
+  // What a downtown source keeps is downtown, not on campus, unless it is online.
+  if (source.downtown && indianapolis.keep && venueKind !== 'online') venueKind = DOWNTOWN_VENUE_KIND
 
   const externalUid = String(listing.externalUid ?? '').trim() || null
   const row = {
@@ -529,6 +557,126 @@ export function engageOrgLookup(clubs) {
   }
 }
 
+// ── The Events Calendar (White River State Park) ────────────────────────────
+
+// The park's site sets The Events Calendar's time zone to "UTC+0", and every
+// listing's utc_start_date repeats its start_date (a museum opening reads
+// 10:00 in both). Its times are the wall clock in Indianapolis, so they are
+// read in the campus zone and the "UTC" fields are ignored.
+const CAMPUS_TIME_ZONE = 'America/Indiana/Indianapolis'
+const WALL_CLOCK_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
+const CAMPUS_CLOCK = new Intl.DateTimeFormat('en-US', {
+  timeZone: CAMPUS_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+})
+
+// The campus clock minus UTC at an instant: -4 hours in summer, -5 in winter.
+function campusOffsetMs(utcMs) {
+  const part = Object.fromEntries(CAMPUS_CLOCK.formatToParts(new Date(utcMs)).map(({ type, value }) => [type, value]))
+  return Date.UTC(+part.year, +part.month - 1, +part.day, +part.hour, +part.minute, +part.second) - utcMs
+}
+
+/**
+ * A campus wall-clock time ("2026-10-24 10:00:00", as The Events Calendar
+ * writes it) to ISO UTC, on either side of a daylight saving change; null for
+ * anything else.
+ */
+export function campusWallClockToIso(text) {
+  const match = WALL_CLOCK_RE.exec(String(text ?? '').trim())
+  if (!match) return null
+  const [year, month, day, hour, minute, second] = match.slice(1).map((value) => Number(value ?? 0))
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return null
+  const asUtc = Date.UTC(year, month - 1, day, hour, minute, second)
+  // The offset at the wall time read as UTC is right except within hours of a
+  // change, where the offset at that first answer settles it.
+  const first = asUtc - campusOffsetMs(asUtc)
+  return new Date(asUtc - campusOffsetMs(first)).toISOString()
+}
+
+// The Events Calendar renders the whole event page into `description`: an
+// empty date line, the organizer's text with its buttons (RSVP, Buy Tickets),
+// then its own blocks (venue, price, the "Add to calendar" links). Only the
+// text is the listing's.
+const TRIBE_SCHEDULE_RE = /^\s*<div\b[^>]*\bclass="tribe-events-schedule\b[\s\S]*?<\/div>/
+const TRIBE_BLOCK_RE = /<div\b[^>]*\bclass="tribe-block\b/
+const BUTTONS_RE = /<section\b[^>]*\bclass="wp-block-buttons\b[\s\S]*?<\/section>/g
+
+function tribeText(html) {
+  const page = String(html ?? '')
+  const blocks = page.search(TRIBE_BLOCK_RE)
+  return htmlToText((blocks >= 0 ? page.slice(0, blocks) : page).replace(TRIBE_SCHEDULE_RE, ' ').replace(BUTTONS_RE, ' '))
+}
+
+// The park's categories mostly name its attractions. These say what kind of
+// event it is, in this order: a charity 5k is service before it is a run, as
+// Jev's category question has it. The zoo, the NCAA Hall of Champions and
+// "Free Event" (a price) say nothing about the kind.
+const TRIBE_CATEGORY = [
+  ['charity', 'service'],
+  ['run', 'sports_fitness'],
+  ['indianapolis indians', 'sports_fitness'],
+  ['concert', 'arts_culture'],
+  ['imax', 'arts_culture'],
+  ['eiteljorg', 'arts_culture'],
+  ['indiana state museum', 'arts_culture'],
+  ['community event', 'social'],
+]
+
+function tribeCategory(names) {
+  const folded = new Set(names.map(foldText))
+  for (const [name, category] of TRIBE_CATEGORY) {
+    if (folded.has(name)) return category
+  }
+  return null
+}
+
+/**
+ * A listing of The Events Calendar's REST API (`events[]` of
+ * /wp-json/tribe/events/v1/events) to a row: White River State Park's
+ * calendar, keyed by the listing's post id, one per occurrence. Its times are
+ * campus wall-clock times (campusWallClockToIso). A series is one title at one
+ * venue (the two Twilight Tales nights at the Indiana State Museum).
+ *
+ * Free entry is never free food here, alone or with food in the text: the
+ * park's "Free Event" category and a cost of "Free" mean admission, and its
+ * listings name food that is sold or collected (the Book Fair's "Sweet treats"
+ * from its vendors, the free admission day that raises money for Gleaners
+ * Food Bank, both on 2026-10-24). Only the keyword matcher counts, which Jev's
+ * answer replaces with CAMPUS_EVENTS_CLASSIFY on. Null for a draft, a listing
+ * the site hides from its own lists, or one without a title or a start.
+ */
+export function normalizeTribeEvent(raw, source = sourceByKey('wrsp_events')) {
+  if (!raw || typeof raw !== 'object' || !source) return null
+  if (String(raw.status ?? 'publish').toLowerCase() !== 'publish' || raw.hide_from_listings === true) return null
+  const venue = raw.venue && typeof raw.venue === 'object' && !Array.isArray(raw.venue) ? raw.venue : {}
+  const title = clean(raw.title)
+  const description = tribeText(raw.description)
+  return buildEvent(source, {
+    externalUid: raw.id,
+    title,
+    description,
+    location: [venue.venue, venue.address, venue.city].map(clean).filter(Boolean).join(', '),
+    startsAt: campusWallClockToIso(raw.start_date),
+    endsAt: campusWallClockToIso(raw.end_date),
+    allDay: raw.all_day === true,
+    lat: venue.geo_lat,
+    lon: venue.geo_lng,
+    online: raw.is_virtual === true,
+    sourceUrl: raw.url,
+    category: tribeCategory(toArray(raw.categories).map((term) => clean(term?.name))),
+    freeFood: hasFreeFood(title, description),
+    sourceFreeFood: false,
+    openToAll: MEMBERS_ONLY_RE.test(title) ? false : null,
+    seriesGroup: `venue:${venue.id ?? ''}`,
+  })
+}
+
 /** One raw listing from a source to its rows (Localist gives one per occurrence). */
 export function normalizeListing(source, raw, { isIndianapolisOrg } = {}) {
   if (source.platform === 'localist') return normalizeLocalistEvent(raw, source)
@@ -537,7 +685,9 @@ export function normalizeListing(source, raw, { isIndianapolisOrg } = {}) {
       ? normalizeLiveWhaleEvent(raw, source)
       : source.platform === 'engage'
         ? normalizeEngageEvent(raw, source, { isIndianapolisOrg })
-        : null
+        : source.platform === 'tribe'
+          ? normalizeTribeEvent(raw, source)
+          : null
   return built ? [built] : []
 }
 

@@ -24,7 +24,10 @@ const BODIES = {
   'events.iu.edu': fixture('campus-events-livewhale.json'),
   'boilerlink.purdue.edu': fixture('campus-events-boilerlink.json'),
   'thespot.indianapolis.iu.edu': fixture('campus-events-thespot.json'),
+  // Fetched at 17:30 in Indianapolis on 2026-10-24 (WRSP_NOW).
+  'whiteriverstatepark.org': fixture('campus-events-wrsp.json'),
 }
+const WRSP_NOW = new Date('2026-10-24T21:30:00.000Z')
 
 function campusEventsTable({ upsert = () => ({ error: null }) } = {}) {
   return (chain) => {
@@ -35,14 +38,19 @@ function campusEventsTable({ upsert = () => ({ error: null }) } = {}) {
   }
 }
 
-async function withApp({ cronSecret = CRON_SECRET, engageEnabled = false, classify = null, table = campusEventsTable(), directory = { ok: true, clubs: [] }, gate } = {}, run) {
+async function withApp(
+  { cronSecret = CRON_SECRET, engageEnabled = false, downtownEnabled = false, classify = null, table = campusEventsTable(), directory = { ok: true, clubs: [] }, gate, now = NOW } = {},
+  run,
+) {
   const supabase = fakeSupabase({ campus_events: table })
   const fetched = []
+  const fetchedUrls = []
   const cronWarnings = []
   let directoryReads = 0
   const fetchImpl = async (url) => {
     const { hostname } = new URL(String(url))
     fetched.push(hostname)
+    fetchedUrls.push(String(url))
     if (gate) await gate(hostname)
     if (!BODIES[hostname]) throw new Error(`unexpected fetch of ${url}`)
     return new Response(BODIES[hostname], { status: 200, headers: { 'content-type': 'application/json' } })
@@ -62,8 +70,9 @@ async function withApp({ cronSecret = CRON_SECRET, engageEnabled = false, classi
         },
       },
       engageEnabled,
+      downtownEnabled,
       classify,
-      ingestOptions: { fetchImpl, now: NOW, sleep: async () => {}, log: { log() {}, error() {}, warn() {} } },
+      ingestOptions: { fetchImpl, now, sleep: async () => {}, log: { log() {}, error() {}, warn() {} } },
     }),
   )
   // Stands in for apiNotFound: where the route falls through to.
@@ -82,7 +91,7 @@ async function withApp({ cronSecret = CRON_SECRET, engageEnabled = false, classi
     return { status: response.status, body: text ? JSON.parse(text) : null }
   }
   try {
-    await run({ call, supabase, fetched, cronWarnings, directoryReads: () => directoryReads })
+    await run({ call, supabase, fetched, fetchedUrls, cronWarnings, directoryReads: () => directoryReads })
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
@@ -275,6 +284,60 @@ test('a missing table answers campus_events_schema_missing; a transient failure 
   })
 })
 
+// ── Downtown: White River State Park, behind CAMPUS_EVENTS_DOWNTOWN (#30) ────
+
+test('POST ?dryRun=1 with CAMPUS_EVENTS_DOWNTOWN on reads the park once, answers its downtown rows and writes nothing', async (t) => {
+  const lines = []
+  t.mock.method(console, 'log', (line) => lines.push(line))
+  await withApp({ downtownEnabled: true, now: WRSP_NOW }, async ({ call, supabase, fetched, fetchedUrls }) => {
+    const res = await call(`${PATH}?dryRun=1`)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.dryRun, true)
+    assert.deepEqual(res.body.sources.map((s) => [s.key, s.enabled]), [
+      ['purdue_events', true], ['iu_events', true], ['boilerlink', false], ['thespot', false], ['wrsp_events', true],
+    ])
+    const park = res.body.sources.at(-1)
+    assert.deepEqual([park.ok, park.complete, park.pages, park.listings, park.rows], [true, true, 1, 19, 19])
+    const downtown = res.body.rows.filter((row) => row.source_key === 'wrsp_events')
+    assert.equal(downtown.length, 19)
+    assert.ok(downtown.every((row) => row.venue_kind === 'downtown' && row.free_food === false))
+    assert.equal(res.body.totals.venueKinds.downtown, 19)
+    assert.equal(supabase.queries.length, 0)
+    // One request to the park, with no query string (robots.txt disallows /*?).
+    assert.deepEqual(fetchedUrls.filter((url) => url.includes('whiteriverstatepark.org')), ['https://whiteriverstatepark.org/wp-json/tribe/events/v1/events'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'whiteriverstatepark.org'])
+  })
+  assert.match(lines.at(-1), /^\[campus-events\] dry run: purdue_events=9 iu_events=8 wrsp_events=19, 36 rows in \d+ ms$/)
+
+  // Off, the default, the park is neither read nor in the answer.
+  await withApp({ now: WRSP_NOW }, async ({ call, fetched }) => {
+    const res = await call(`${PATH}?dryRun=1`)
+    assert.deepEqual(res.body.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot'])
+    assert.ok(!fetched.includes('whiteriverstatepark.org'))
+  })
+})
+
+test('a run with CAMPUS_EVENTS_DOWNTOWN on before README step 49 skips the park and answers 200 for the rest', async (t) => {
+  const lines = []
+  t.mock.method(console, 'log', (line) => lines.push(line))
+  const step49Missing = campusEventsTable({
+    upsert: (chain) =>
+      chain[0].args[0].some((row) => row.venue_kind === 'downtown')
+        ? { data: null, error: { code: '23514', message: 'new row for relation "campus_events" violates check constraint "campus_events_venue_kind_check"' }, status: 400 }
+        : { error: null },
+  })
+  await withApp({ downtownEnabled: true, now: WRSP_NOW, table: step49Missing }, async ({ call, supabase }) => {
+    const res = await call(PATH)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.upserted, 17)
+    const park = res.body.sources.at(-1)
+    assert.deepEqual([park.key, park.ok, park.schemaMissing], ['wrsp_events', false, 'db/supabase-campus-events-downtown.sql'])
+    // The one row it tried, the campus rows, and the two campus sweeps.
+    assert.deepEqual(supabase.queriesOf('campus_events').map((q) => operation(q.chain)), ['upsert', 'upsert', 'delete', 'delete'])
+  })
+  assert.match(lines.at(-1), /^\[campus-events\] run: purdue_events=9 iu_events=8 wrsp_events=skipped, 17 rows, 17 upserted in \d+ ms$/)
+})
+
 // ── GET /api/campus-events/free-food (issue #366) ───────────────────────────
 // The signed-out Free Food page's read, booted on a small app the way
 // server.mjs mounts it: ahead of any session, with recording limiters, the
@@ -313,7 +376,7 @@ function campusRow(overrides = {}) {
 
 const titlesOf = (body) => body.items.map((item) => item.title)
 
-async function withPublicApp({ rows = [], table, sharedEventsFeed = true, cache = createStaleCache({ log: { warn() {} } }) } = {}, run) {
+async function withPublicApp({ rows = [], table, sharedEventsFeed = true, downtownEnabled = false, cache = createStaleCache({ log: { warn() {} } }) } = {}, run) {
   const supabase = fakeSupabase({ campus_events: table ?? (() => ({ data: rows, error: null })) })
   const limiterHits = []
   const limiter = (name) => (req, _res, next) => {
@@ -328,6 +391,7 @@ async function withPublicApp({ rows = [], table, sharedEventsFeed = true, cache 
       publicReadRateLimit: limiter('public-read'),
       getCached: (key, ttlMs, producer) => cache.get(key, ttlMs, producer),
       sharedEventsFeed,
+      downtownEnabled,
     }),
   )
   app.use((_req, res) => res.status(404).json(NOT_FOUND))
@@ -496,5 +560,38 @@ test('free food: once a read has worked, a failed refresh serves the last good r
     assert.equal(res.status, 200)
     assert.deepEqual(titlesOf(res.body), ['Pizza social'])
     assert.equal(supabase.queriesOf('campus_events').length, 2)
+  })
+})
+
+// Issue #30: signed out, a downtown row with free food is listed, as Downtown,
+// only while CAMPUS_EVENTS_DOWNTOWN is on, the same rule as the signed-in read.
+test('free food: a downtown row is listed as Downtown with CAMPUS_EVENTS_DOWNTOWN on, and left out with it off', async () => {
+  const rows = [
+    campusRow({ title: 'Pizza social' }),
+    campusRow({
+      title: 'Free pizza at the museum',
+      source_key: 'wrsp_events',
+      venue_kind: 'downtown',
+      source_url: 'https://whiteriverstatepark.org/event/pizza/',
+      starts_at: inHours(30),
+      ends_at: inHours(32),
+    }),
+  ]
+  await withPublicApp({ rows, downtownEnabled: true }, async ({ get }) => {
+    const res = await get()
+    assert.equal(res.status, 200)
+    assert.deepEqual(titlesOf(res.body), ['Pizza social', 'Free pizza at the museum'])
+    assert.deepEqual(
+      [res.body.items[1].sourceKey, res.body.items[1].sourceLabel, res.body.items[1].sourceUrl],
+      ['wrsp_events', 'Downtown', 'https://whiteriverstatepark.org/event/pizza/'],
+    )
+  })
+  await withPublicApp({ rows }, async ({ get, supabase }) => {
+    const res = await get()
+    assert.equal(res.status, 200)
+    assert.deepEqual(titlesOf(res.body), ['Pizza social'])
+    assert.equal(res.headers.get('cache-control'), PUBLIC_CACHE)
+    // The same one read as before the source existed.
+    assert.deepEqual(supabase.queries.map((query) => query.table), ['campus_events'])
   })
 })

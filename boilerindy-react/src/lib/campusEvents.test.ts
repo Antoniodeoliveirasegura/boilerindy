@@ -5,6 +5,7 @@ import {
   eventSourceOf,
   hasEnded,
   isOngoing,
+  isDowntownEvent,
   listedTime,
   listingLink,
   matchesSourceFilter,
@@ -81,6 +82,7 @@ describe('the source pills', () => {
   const boilerlink = { shared: true, sourceKey: 'boilerlink' }
   const iu = { shared: true, sourceKey: 'iu_events' }
   const thespot = { shared: true, sourceKey: 'thespot' }
+  const park = { shared: true, sourceKey: 'wrsp_events' }
   const mine = {}
 
   it("sorts each row by school: Purdue's calendars, IU's, or the student's own", () => {
@@ -98,6 +100,25 @@ describe('the source pills', () => {
     expect(eventSourceCounts([iu, { shared: true, sourceKey: 'somewhere_else' }])).toEqual([{ id: 'iu', label: 'IU', count: 1 }])
     expect(eventSourceCounts([mine, mine])).toEqual([])
     expect(eventSourceCounts([])).toEqual([])
+  })
+
+  // Issue #30: White River State Park's rows are no school's; they get a
+  // Downtown pill, after the schools and before the student's own calendar.
+  it('gives the downtown rows their own pill, and a downtown row reads as downtown alone', () => {
+    expect(eventSourceOf(park)).toBe('downtown')
+    expect(eventSourceCounts([mine, park, iu, park, purdue])).toEqual([
+      { id: 'purdue', label: 'Purdue', count: 1 },
+      { id: 'iu', label: 'IU', count: 1 },
+      { id: 'downtown', label: 'Downtown', count: 2 },
+      { id: 'mine', label: 'My calendar', count: 1 },
+    ])
+    const counts = eventSourceCounts([purdue, park])
+    expect(activeSourceFilter('downtown', counts)).toBe('downtown')
+    expect(activeSourceFilter('downtown', eventSourceCounts([purdue, iu]))).toBe('all')
+    expect(matchesSourceFilter(park, 'downtown')).toBe(true)
+    expect(matchesSourceFilter(purdue, 'downtown')).toBe(false)
+    expect(matchesSourceFilter(park, 'purdue')).toBe(false)
+    expect([park, purdue, iu, mine, { sourceKey: 'wrsp_events' }].map(isDowntownEvent)).toEqual([true, false, false, false, false])
   })
 
   it('keeps a pick only while its source has rows and there is a second source to switch to', () => {

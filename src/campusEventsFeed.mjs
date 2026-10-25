@@ -3,7 +3,9 @@
 // The read side of the shared campus events (issue #30, rollout step 4 in
 // docs/shared-campus-events.md): which campus_events rows a student's calendar
 // read lists, and in what shape. The ingest (src/campusEventsIngest.mjs) fills
-// the table every 6 hours from Purdue's and IU's public events calendars;
+// the table every 6 hours from Purdue's and IU's public events calendars, and
+// with CAMPUS_EVENTS_DOWNTOWN on from White River State Park's, whose rows are
+// labeled Downtown and listed only while that switch is on (applyDowntownSwitch);
 // listCalendarItems (src/calendarReads.mjs) merges what this module reads with
 // the student's own calendar_items rows. The signed-out Free Food page reads
 // the free-food rows alone through GET /api/campus-events/free-food
@@ -14,7 +16,7 @@
 
 import { DB_FEATURES, isSchemaMissingError, logRouteError, logSchemaMissingOnce } from './dbErrors.mjs'
 import { selectUpTo } from './pagedSelect.mjs'
-import { httpUrlOrNull } from './sharedEvents.mjs'
+import { DOWNTOWN_SOURCE_KEYS, httpUrlOrNull } from './sharedEvents.mjs'
 
 /** The calendar categories a shared row is listed under: Purdue's official dates are deadlines, the rest campus events. */
 export const SHARED_CALENDAR_CATEGORIES = Object.freeze(['campus_event', 'deadline'])
@@ -41,13 +43,28 @@ export const PUBLIC_FREE_FOOD_MAX_ROWS = 500
 
 // Where a row comes from, in the words the page shows. IU Indianapolis's own
 // listings say so: whether they are open to Purdue students is the owner's
-// call on #30, so they read as IU events until it is made.
+// call on #30, so they read as IU events until it is made. White River State
+// Park's read as Downtown, so a museum night never reads as a campus event.
 export const SOURCE_LABELS = Object.freeze({
   purdue_events: 'Purdue event',
   iu_events: 'IU event',
   boilerlink: 'BoilerLink',
   thespot: 'TheSpot (IU)',
+  wrsp_events: 'Downtown',
 })
+
+/**
+ * The shared items a read lists under CAMPUS_EVENTS_DOWNTOWN: all of them
+ * while it is on; with it off none from a downtown source, so every read
+ * answers what it did before that source existed, rows a run wrote while the
+ * switch was on included. Pure.
+ * @param {object[]} items shared calendar items (toSharedCalendarItem)
+ * @param {boolean} downtownEnabled
+ * @returns {object[]}
+ */
+export function applyDowntownSwitch(items, downtownEnabled) {
+  return downtownEnabled ? items : items.filter((item) => !DOWNTOWN_SOURCE_KEYS.includes(item.sourceKey))
+}
 
 const COLUMNS =
   'id, title, description, starts_at, ends_at, location, all_day, source_key, source_url, category, free_food, venue_kind, open_to_all, series_key, last_seen_at'
