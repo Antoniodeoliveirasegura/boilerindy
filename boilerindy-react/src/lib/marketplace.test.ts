@@ -7,8 +7,10 @@ import {
   listingImage,
   listingImages,
   MARKETPLACE_CATEGORIES,
+  ownerPhotoNote,
   parseImageLinks,
   parsePriceInput,
+  photosAwaitReview,
   priceModeOf,
 } from './marketplace'
 
@@ -99,5 +101,34 @@ describe('listingImages and listingImage', () => {
     expect(listingImage({ imageUrl: 'https://x.test/a.jpg' })).toBe('https://x.test/a.jpg')
     expect(listingImage({ imageUrl: '' })).toBeNull()
     expect(listingImage({ imageUrl: null })).toBeNull()
+  })
+})
+
+// Photo review (#504): the API leaves waiting photos out for other students
+// and flags the listing; their owner and admins still get the photos.
+describe('photosAwaitReview', () => {
+  test('is true only for a waiting listing that came without photos', () => {
+    expect(photosAwaitReview({ photosPending: true, images: [], imageUrl: null })).toBe(true)
+    expect(photosAwaitReview({ photosPending: true })).toBe(true)
+    // The owner's or an admin's view: the photos are there, so they show.
+    expect(photosAwaitReview({ photosPending: true, images: ['https://x.test/a.jpg'] })).toBe(false)
+    expect(photosAwaitReview({ photosPending: false, images: [] })).toBe(false)
+    // An older server sends no flag at all.
+    expect(photosAwaitReview({ images: [] })).toBe(false)
+  })
+})
+
+describe('ownerPhotoNote', () => {
+  test('tells the owner their photos wait, or that an admin removed them, and nobody else anything', () => {
+    expect(ownerPhotoNote({ isMine: true, photosPending: true, photosReview: 'pending' })).toBe(
+      'Your photos are waiting for review. Until then other students see the listing without them.',
+    )
+    expect(ownerPhotoNote({ isMine: true, photosPending: false, photosReview: 'rejected' })).toBe(
+      "An admin removed this listing's photos. You can add new ones.",
+    )
+    expect(ownerPhotoNote({ isMine: true, photosPending: false, photosReview: 'approved' })).toBeNull()
+    expect(ownerPhotoNote({ isMine: true })).toBeNull()
+    expect(ownerPhotoNote({ isMine: false, photosPending: true })).toBeNull()
+    expect(ownerPhotoNote({ photosPending: true, photosReview: 'pending' })).toBeNull()
   })
 })
