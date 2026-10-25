@@ -2,8 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { format } from 'node:util'
+import crypto from 'node:crypto'
 import express from 'express'
 import session from 'express-session'
+import { createAppleTokenRevoker } from '../../src/appleTokenRevoke.mjs'
 import { createAuthRouter } from '../../src/routes/auth.mjs'
 import { createOnboardingSummaryCache } from '../../src/onboardingSummaryCache.mjs'
 import { hashPassword } from '../../src/passwordHash.mjs'
@@ -161,6 +163,10 @@ async function withApp(options, run) {
     // statement does, which is what makes a compare-and-swap hold. A function
     // (table, chain) => ms slows one kind of query more than the rest.
     dbDelayMs = 0,
+    // The Sign in with Apple revoker delete-account calls; the real one with
+    // no settings, as on a server without the APPLE_* variables, unless a test
+    // hands in another.
+    appleTokenRevoker = createAppleTokenRevoker(),
   } = options
   const purdueLinkingEnabled = purdueAuthMode !== 'off'
   const db = Object.fromEntries(TABLES.map((name) => [name, structuredClone(seed[name] ?? [])]))
@@ -370,6 +376,7 @@ async function withApp(options, run) {
       sendEmail,
       isEmailConfigured: () => emailConfigured,
       isProduction: production,
+      appleTokenRevoker,
     }),
   )
   const server = app.listen(0, '127.0.0.1')
@@ -1568,6 +1575,163 @@ test('delete-account accepts a legacy password, tolerates an Auth user already g
     assert.equal(db.users.length, 1)
     assert.deepEqual(invalidated, [])
     assert.equal((await sessions()).length, 1)
+  })
+})
+
+// Apple asks an app with Sign in with Apple to revoke the user's tokens when the
+// account is deleted. The native app sends the token from its fresh Apple
+// confirmation; the route revokes it first and deletes the account whatever
+// Apple, or a missing configuration, says.
+const APPLE_TOKEN = 'r1a2b3c4d5.0.sxyz.apple-refresh-token-from-the-confirmation'
+const APPLE_STUDENT = { ...STUDENT, auth_provider: 'apple' }
+
+/** A revoker that records what it was asked and answers `outcome` (or throws it). */
+function fakeRevoker(outcome = { revoked: true }, events = []) {
+  const calls = []
+  return {
+    calls,
+    configured: true,
+    problem: null,
+    async revoke(request) {
+      calls.push(request)
+      events.push('revoke')
+      if (outcome instanceof Error) throw outcome
+      return outcome
+    },
+  }
+}
+
+test('delete-account revokes the Apple token the app sends, before it deletes the account, and says so', async () => {
+  const events = []
+  const revoker = fakeRevoker({ revoked: true }, events)
+  await withApp({ seed: { users: [APPLE_STUDENT, OTHER] }, appleTokenRevoker: revoker }, async ({ call, sessionFor, db, supabase }) => {
+    const deleteUser = supabase.auth.admin.deleteUser
+    supabase.auth.admin.deleteUser = async (id) => {
+      events.push('deleteUser')
+      return deleteUser(id)
+    }
+    // A fresh Confirm with Apple stands in for the password, as for Google.
+    const cookie = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() - 30 * 1000 })
+    let res
+    const lines = await quietly(async () => {
+      res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE', appleToken: APPLE_TOKEN } })
+    })
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { ok: true, appleRevocation: { revoked: true } })
+    assert.ok(res.cleared)
+    assert.deepEqual(revoker.calls, [{ token: APPLE_TOKEN, tokenType: 'refresh_token' }])
+    assert.deepEqual(events, ['revoke', 'deleteUser'])
+    assert.deepEqual(db.users.map((u) => u.id), [U2])
+    assert.deepEqual(lines, ['[deleteUserAccount] Sign in with Apple token revoked'])
+
+    // An access token is passed on with its type.
+    db.users.push(structuredClone(APPLE_STUDENT))
+    const again = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() })
+    await quietly(() =>
+      call('POST', '/api/me/delete-account', { cookie: again, body: { confirmation: 'DELETE', appleToken: 'an-access-token', appleTokenType: 'access_token' } }),
+    )
+    assert.deepEqual(revoker.calls[1], { token: 'an-access-token', tokenType: 'access_token' })
+  })
+})
+
+test('an unconfigured, refused, stalled or broken revoke still deletes the account, and the answer and the log say so without the token', async () => {
+  const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const settings = {
+    teamId: 'TEAM123456',
+    keyId: 'KEYID12345',
+    privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    servicesId: 'com.example.app.web',
+  }
+  // Never answers but honours the abort signal, like real fetch.
+  const stalled = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason))
+    })
+  const cases = [
+    // The real revoker with no APPLE_* settings, the default.
+    [undefined, 'not-configured', ''],
+    [fakeRevoker({ revoked: false, reason: 'rejected', status: 400, appleError: 'invalid_client' }), 'rejected', ', Apple answered 400 invalid_client'],
+    // The real revoker, configured with a throwaway key, against an Apple that never answers.
+    [createAppleTokenRevoker(settings, { fetchImpl: stalled, timeoutMs: 30 }), 'timeout', ''],
+    [fakeRevoker(new Error('revoker bug')), 'error', ''],
+  ]
+  for (const [appleTokenRevoker, reason, answered] of cases) {
+    await withApp({ seed: { users: [APPLE_STUDENT] }, appleTokenRevoker }, async ({ call, sessionFor, db, authCalls, sessions }) => {
+      const cookie = await sessionFor({ userId: U1, providerConfirmedAt: Date.now() })
+      // AbortSignal.timeout's timer is unref'd and the stalled fake holds no
+      // socket, so keep the event loop alive until the deadline fires.
+      const keepAlive = setTimeout(() => {}, 5000)
+      let res
+      const lines = await quietly(async () => {
+        res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE', appleToken: APPLE_TOKEN } })
+      }).finally(() => clearTimeout(keepAlive))
+      assert.equal(res.status, 200, reason)
+      assert.deepEqual(res.body, { ok: true, appleRevocation: { revoked: false, reason } })
+      assert.deepEqual(authCalls, [['deleteUser', U1]])
+      assert.deepEqual(db.users, [])
+      assert.deepEqual(await sessions(), [])
+      assert.deepEqual(lines, [
+        `[deleteUserAccount] Sign in with Apple token not revoked (${reason}${answered}); deleting the account anyway`,
+      ])
+      assert.ok(!lines.join('\n').includes(APPLE_TOKEN), 'the token is never logged')
+    })
+  }
+})
+
+test('an Apple account deleted with its password and no token is reported as not revoked; a Google or email account answer is unchanged', async () => {
+  const gotrue = { 'pete@example.com': { id: U1, password: PASSWORD } }
+  const revoker = fakeRevoker()
+  await withApp({ seed: { users: [APPLE_STUDENT] }, gotrue, appleTokenRevoker: revoker }, async ({ call, sessionFor, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    let res
+    const lines = await quietly(async () => {
+      res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE', password: PASSWORD } })
+    })
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { ok: true, appleRevocation: { revoked: false, reason: 'no-token' } })
+    assert.deepEqual(revoker.calls, [])
+    assert.deepEqual(db.users, [])
+    assert.deepEqual(lines, ['[deleteUserAccount] Sign in with Apple token not revoked (no-token); deleting the account anyway'])
+  })
+  for (const authProvider of ['google', 'email']) {
+    await withApp({ seed: { users: [{ ...STUDENT, auth_provider: authProvider }] }, gotrue, appleTokenRevoker: revoker }, async ({ call, sessionFor }) => {
+      const cookie = await sessionFor({ userId: U1 })
+      const lines = await quietly(async () => {
+        const res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE', password: PASSWORD } })
+        assert.deepEqual(res.body, { ok: true })
+      })
+      assert.deepEqual(lines, [])
+    })
+  }
+  assert.deepEqual(revoker.calls, [])
+})
+
+test('a refused delete never reaches Apple, and a malformed token is not sent but does not keep the account', async () => {
+  const gotrue = { 'pete@example.com': { id: U1, password: PASSWORD } }
+  const revoker = fakeRevoker()
+  await withApp({ seed: { users: [APPLE_STUDENT] }, gotrue, appleTokenRevoker: revoker }, async ({ call, sessionFor, db, authCalls }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    for (const body of [
+      { confirmation: 'delete', password: PASSWORD, appleToken: APPLE_TOKEN },
+      { confirmation: 'DELETE', appleToken: APPLE_TOKEN },
+      { confirmation: 'DELETE', password: 'wrong password', appleToken: APPLE_TOKEN },
+    ]) {
+      assert.equal((await call('POST', '/api/me/delete-account', { cookie, body })).status, 400)
+    }
+    assert.equal((await call('POST', '/api/me/delete-account', { body: { confirmation: 'DELETE', appleToken: APPLE_TOKEN } })).status, 401)
+    assert.deepEqual(revoker.calls, [])
+    assert.deepEqual(authCalls, [])
+    assert.equal(db.users.length, 1)
+
+    let res
+    const lines = await quietly(async () => {
+      res = await call('POST', '/api/me/delete-account', { cookie, body: { confirmation: 'DELETE', password: PASSWORD, appleToken: 42 } })
+    })
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { ok: true, appleRevocation: { revoked: false, reason: 'bad-token' } })
+    assert.deepEqual(revoker.calls, [])
+    assert.deepEqual(db.users, [])
+    assert.deepEqual(lines, ['[deleteUserAccount] Sign in with Apple token not revoked (bad-token); deleting the account anyway'])
   })
 })
 

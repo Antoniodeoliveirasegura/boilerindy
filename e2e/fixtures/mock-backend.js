@@ -712,6 +712,9 @@ export const test = base.extend({
       // The Google account for the OAuth round trip; null keeps Supabase Auth
       // disabled, as every other spec expects.
       googleUser: null,
+      // When the pretend Render instance is up (coldStart): an /api call made
+      // before then waits for it. 0 is a warm server.
+      awakeAt: 0,
     }
 
     // A block by the test user, kept once like the blocked_users primary key.
@@ -1356,6 +1359,20 @@ export const test = base.extend({
       return json(route, 200, { items: [], ok: true })
     })
 
+    // A cold start (coldStart below): every /api call made before the pretend
+    // instance is up waits for it, then the handler above answers, so calls
+    // come back in the order they left. Registered after that handler, so
+    // Playwright tries this one first.
+    await context.route('**/api/**', async (route) => {
+      const wait = state.awakeAt - Date.now()
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+      try {
+        await route.fallback()
+      } catch {
+        // The test ended, and closed the page, while this call was waiting.
+      }
+    })
+
     // Supabase Storage (#171): the browser PUTs a listing photo straight to the
     // signed upload URL and later reads it back from the public bucket URL.
     // The PUT body is kept (the JPEG is cut out of it whether the client sent
@@ -1403,6 +1420,11 @@ export const test = base.extend({
       // code exchange and supabase-sync sign this new Google account in.
       enableGoogleSignIn(overrides = {}) {
         state.googleUser = { id: 'e2e-google-user', email: 'new.student@gmail.com', name: 'New Student', ...overrides }
+      },
+      // A Render cold start from now (issue #389): the free instance sleeps
+      // when idle and takes up to about 30 s to boot, and every call waits.
+      coldStart(ms = 20_000) {
+        state.awakeAt = Date.now() + ms
       },
       timeOutLoginCode() {
         state.loginCodeTimedOut = true

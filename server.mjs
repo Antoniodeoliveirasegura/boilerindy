@@ -75,6 +75,7 @@ import { createPurdueEmailRouter } from './src/routes/purdueEmail.mjs'
 import { createAdminRouter } from './src/routes/admin.mjs'
 import { createAdvertiserRouter, createSpotlightRouter } from './src/routes/advertiser.mjs'
 import { createAuthRouter } from './src/routes/auth.mjs'
+import { createAppleTokenRevoker } from './src/appleTokenRevoke.mjs'
 import { createPurdueIdentity } from './src/purdueIdentity.mjs'
 import { DB_FEATURES, isSchemaMissingError } from './src/dbErrors.mjs'
 import { createMarketplacePhotos } from './src/marketplacePhotos.mjs'
@@ -654,12 +655,27 @@ async function verifySupabasePassword(email, password) {
   return data?.user ?? null
 }
 
+// Sign in with Apple token revocation for account deletion
+// (src/appleTokenRevoke.mjs, docs/sign-in-with-apple.md): the Team ID, the
+// Sign in with Apple key's ID and .p8 contents, and the Services ID that
+// Supabase's Apple OAuth flow uses. Without all four, deletion still works and
+// its answer says the Apple token was not revoked.
+const appleTokenRevoker = createAppleTokenRevoker({
+  teamId: process.env.APPLE_TEAM_ID,
+  keyId: process.env.APPLE_SIGN_IN_KEY_ID,
+  privateKey: process.env.APPLE_SIGN_IN_PRIVATE_KEY,
+  servicesId: process.env.APPLE_SIGN_IN_SERVICES_ID,
+})
+if (!appleTokenRevoker.configured) {
+  console.warn(`[apple] ${appleTokenRevoker.problem}: deleting an account will not revoke its Sign in with Apple token.`)
+}
+
 // ── Student auth, the profile and the Purdue link ──
 // Sign-up, sign-in, sign-out, the session reads and sync, the profile, account
 // deletion and the Purdue link (CAS, mock, native handoff) are in
 // src/routes/auth.mjs (issue #191); the session core and
 // verifySupabasePassword stay here and are handed in.
-app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction }))
+app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction, appleTokenRevoker }))
 
 // ── Linked calendar sources (issues #12 and #120) ───────────────────────────
 // Connecting, syncing and deleting Brightspace and Purdue feeds, the dev-only
