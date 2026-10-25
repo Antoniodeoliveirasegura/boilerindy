@@ -24,8 +24,30 @@ export type Listing = {
   hidden?: boolean
   /** Reports against the listing, sent to its owner only and only while it is hidden (#204). */
   reportCount?: number
+  /**
+   * The photos wait for an admin (#504, MARKETPLACE_PHOTO_REVIEW). Other
+   * students then get no photos (`images` empty), the owner and admins still do.
+   */
+  photosPending?: boolean
+  /** Where the photos stand, sent to the owner and admins only (#504). */
+  photosReview?: PhotoReviewState
   sellerName?: string
   sellerEmail?: string | null
+}
+
+export type PhotoReviewState = 'pending' | 'approved' | 'rejected'
+
+/** Other students' view of a listing whose photos wait: no photos, so a placeholder stands in. */
+export function photosAwaitReview(listing: Pick<Listing, 'imageUrl' | 'images' | 'photosPending'>): boolean {
+  return listing.photosPending === true && listingImages(listing).length === 0
+}
+
+/** The note the owner gets about their own listing's photos, if any (#504). */
+export function ownerPhotoNote(listing: Pick<Listing, 'isMine' | 'photosPending' | 'photosReview'>): string | null {
+  if (!listing.isMine) return null
+  if (listing.photosPending) return 'Your photos are waiting for review. Until then other students see the listing without them.'
+  if (listing.photosReview === 'rejected') return "An admin removed this listing's photos. You can add new ones."
+  return null
 }
 
 // One of the four colour groups the design tokens already define (see the

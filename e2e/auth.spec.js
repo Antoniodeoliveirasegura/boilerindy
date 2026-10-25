@@ -186,6 +186,96 @@ test.describe('Authentication', () => {
   })
 })
 
+// Issue #389 - the sign-in page showed a bare "Loading…" until the server
+// answered, and a Render cold start takes up to about 30 s. A first-time
+// visitor waited all of it for a form that needs nothing from the server.
+test.describe('Sign-in on a cold start', () => {
+  test('a visitor with nothing stored gets the form at once and signs in while the server wakes', async ({ page, mockApi }) => {
+    mockApi.logout()
+    mockApi.coldStart(6_000)
+    await page.goto('/login')
+    await expect(page.getByLabel('Email address')).toBeVisible({ timeout: 2_000 })
+
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+
+    // The wait now lands on the submit, which says why. The floating pill
+    // stays off this page.
+    await expect(page.locator('form').getByRole('status')).toContainText('Waking up the server.')
+    await expect(page.getByTestId('server-wake-notice')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 })
+  })
+
+  // Boot's session read left before the student signed in, so its "nobody is
+  // signed in" is older than the sign-in, and applying it signed them out again.
+  test('a sign-in on the form outlasts the session check that was already out', async ({ page, mockApi }) => {
+    mockApi.logout()
+    let releaseBootRead
+    const bootRead = new Promise((resolve) => {
+      releaseBootRead = resolve
+    })
+    let held = false
+    await page.route('**/api/session', async (route) => {
+      if (held) return route.fallback()
+      held = true
+      await bootRead
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ authenticated: false, session: null }) })
+    })
+    await page.goto('/login')
+    await page.getByLabel('Email address').fill('student@purdue.edu')
+    await page.getByLabel('Password', { exact: true }).fill('correct-horse-battery')
+    await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+    await expect(page).toHaveURL(/\/dashboard$/)
+
+    const answered = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/session')
+    releaseBootRead()
+    await answered
+    await expect(page.getByRole('button', { name: 'Customize' })).toBeVisible()
+    await expect(page).toHaveURL(/\/dashboard$/)
+  })
+
+  test('a returning student sees the skeleton while the server wakes, then lands in the app', async ({ page, mockApi }) => {
+    // A Google sign-in first, so this browser holds a Supabase session the
+    // way a returning student's does.
+    mockApi.enableGoogleSignIn()
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Continue with Google' }).click()
+    await expect(page).toHaveURL(/\/(dashboard|setup)$/)
+
+    mockApi.coldStart(5_000)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto('/login')
+    const status = page.locator('main').getByRole('status')
+    await expect(status).toHaveText('Signing you in')
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible()
+    await expect(page.getByLabel('Email address')).toHaveCount(0)
+    // Held still for reduced motion.
+    expect(await page.locator('main .skeleton').first().evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
+
+    // Once the wake-up ping drags on, the status line says why, in place of the pill.
+    await expect(status).toContainText('Waking up the server.')
+    await expect(page.getByTestId('server-wake-notice')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/(dashboard|setup)$/, { timeout: 10_000 })
+  })
+
+  // index.html paints the sign-in page's shape before the app has loaded.
+  // Every route is served that same file, so only /login may show it.
+  test('the sign-in page paints its shape before the app loads, and no other page does', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.route('**/assets/*.js', (route) => route.abort())
+    await page.goto('/login')
+    await expect(page.locator('.login-shell')).toBeVisible()
+    await page.goto('/')
+    await expect(page.locator('.login-shell')).toBeHidden()
+
+    await page.unroute('**/assets/*.js')
+    await page.goto('/login')
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible()
+    await expect(page.locator('.login-shell')).toHaveCount(0)
+  })
+})
+
 // Issue #221 - the sign-in page has no navbar, but its brand panel comes first
 // in the DOM, so the skip link still saves a keyboard user a stop.
 test.describe('Skip link', () => {

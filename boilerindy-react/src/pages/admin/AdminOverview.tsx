@@ -12,6 +12,8 @@ type Overview = {
   pendingCampaigns?: number
   activeCampaigns?: number
   advertisers?: number
+  /** Listings whose photos wait in the photo queue (#504); null until README step 46 has run. */
+  pendingPhotos?: number | null
 }
 
 // A quick-action row: 1px rules between rows and a small square marker in the
@@ -107,7 +109,7 @@ export default function AdminOverview() {
       {confirmDialog}
       <PageHeader
         title="Overview"
-        description="Monitor advertiser onboarding, campaign approvals, and platform health at a glance."
+        description="Monitor marketplace photos waiting for review, advertiser onboarding, campaign approvals, and platform health at a glance."
       />
       <AlertBanner message={error} onDismiss={() => setError('')} />
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
@@ -117,6 +119,16 @@ export default function AdminOverview() {
       ) : (
         <>
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4">
+            {/* Student moderation on a row of its own, so the four portal cards keep their layout. */}
+            <div className="col-span-2 xl:col-span-4">
+              <StatCard
+                label="Photos to review"
+                value={typeof overview?.pendingPhotos === 'number' ? overview.pendingPhotos : '-'}
+                hint={typeof overview?.pendingPhotos === 'number' ? 'Marketplace listings waiting for an admin' : 'Photo review is not set up yet'}
+                to="/admin/photos"
+                urgent={(overview?.pendingPhotos ?? 0) > 0}
+              />
+            </div>
             <StatCard
               label="New access requests"
               value={overview?.newLeads ?? 0}

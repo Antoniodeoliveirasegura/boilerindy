@@ -156,3 +156,32 @@ export function closeReport(id: string, status: 'resolved' | 'dismissed'): Promi
     body: JSON.stringify({ status }),
   })
 }
+
+// The photo queue (#504): marketplace listings whose photos wait for an admin
+// before other students see them, from src/routes/adminPhotoReview.mjs.
+// Approve and reject send back the listing's updatedAt from the queue, so a
+// listing the seller edited since answers 409 instead of being decided on
+// photos the admin did not see.
+export type PhotoReviewListing = {
+  id: string
+  title: string
+  description: string
+  category: string
+  status: string
+  hidden: boolean
+  createdAt: string
+  updatedAt: string
+  images: string[]
+  seller: { id: string; displayName: string | null }
+}
+
+export function listPhotoReview(): Promise<unknown> {
+  return authRequest('/api/admin/photo-review')
+}
+
+export function decideListingPhotos(id: string, decision: 'approve' | 'reject', updatedAt: string): Promise<unknown> {
+  return authRequest(`/api/admin/photo-review/${encodeURIComponent(id)}/${decision}`, {
+    method: 'POST',
+    body: JSON.stringify({ updatedAt }),
+  })
+}

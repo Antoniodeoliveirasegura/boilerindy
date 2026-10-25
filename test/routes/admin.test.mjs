@@ -170,17 +170,18 @@ test('a malformed :id answers 404 Not found. before auth on all seven :id routes
 
 const HEAD_COUNT = { method: 'select', args: ['*', { count: 'exact', head: true }] }
 
-test('the overview counts new leads, pending and active campaigns and advertisers', async () => {
+test('the overview counts new leads, pending and active campaigns, advertisers and listings with photos to review', async () => {
   const handlers = {
     advertiser_leads: () => ({ count: 3, error: null }),
     campaigns: (chain) => ({ count: hasCall(chain, 'eq', 'status', 'active') ? 5 : 2, error: null }),
     // No rows reads as 0.
     advertisers: () => ({ count: null, error: null }),
+    marketplace_listings: () => ({ data: [{ id: LISTING }], count: 4, error: null }),
   }
   await withApp({ handlers }, async ({ call, supabase }) => {
     const answer = await call('GET', '/api/admin/overview')
     assert.equal(answer.status, 200)
-    assert.deepEqual(answer.body, { overview: { newLeads: 3, pendingCampaigns: 2, activeCampaigns: 5, advertisers: 0 } })
+    assert.deepEqual(answer.body, { overview: { newLeads: 3, pendingCampaigns: 2, activeCampaigns: 5, advertisers: 0, pendingPhotos: 4 } })
     const [leads] = supabase.queriesOf('advertiser_leads')
     assert.deepEqual(leads.chain, [HEAD_COUNT, { method: 'eq', args: ['status', 'new'] }])
     const [pending, active] = supabase.queriesOf('campaigns')
@@ -188,6 +189,42 @@ test('the overview counts new leads, pending and active campaigns and advertiser
     assert.deepEqual(active.chain, [HEAD_COUNT, { method: 'eq', args: ['status', 'active'] }])
     const [advertisers] = supabase.queriesOf('advertisers')
     assert.deepEqual(advertisers.chain, [HEAD_COUNT])
+    // A counted GET rather than a HEAD, so a missing column keeps its error code (#504).
+    const [photos] = supabase.queriesOf('marketplace_listings')
+    assert.deepEqual(photos.chain, [
+      { method: 'select', args: ['id', { count: 'exact' }] },
+      { method: 'eq', args: ['photos_review', 'pending'] },
+      { method: 'is', args: ['deleted_at', null] },
+      { method: 'limit', args: [1] },
+    ])
+  })
+})
+
+test('the pending photo count reads null, never a failure, while README step 46 has not run or the read fails (#504)', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {})
+  let photosError = { code: '42703', message: 'column marketplace_listings.photos_review does not exist' }
+  const handlers = {
+    advertiser_leads: () => ({ count: 1, error: null }),
+    campaigns: () => ({ count: 0, error: null }),
+    advertisers: () => ({ count: 2, error: null }),
+    marketplace_listings: () => ({ data: null, count: null, error: photosError }),
+  }
+  await withApp({ handlers }, async ({ call }) => {
+    for (let i = 0; i < 2; i += 1) {
+      const answer = await call('GET', '/api/admin/overview')
+      assert.equal(answer.status, 200)
+      assert.deepEqual(answer.body, { overview: { newLeads: 1, pendingCampaigns: 0, activeCampaigns: 0, advertisers: 2, pendingPhotos: null } })
+    }
+    // The SQL file to run is logged once per process, not on every visit.
+    const schemaLines = logged.mock.calls.filter((c) => /photo_review\] schema missing/.test(String(c.arguments[0])))
+    assert.equal(schemaLines.length, 1)
+    assert.match(schemaLines[0].arguments[0], /run db\/supabase-marketplace-photo-review\.sql/)
+
+    photosError = { code: '57014', message: 'canceling statement due to statement timeout' }
+    const answer = await call('GET', '/api/admin/overview')
+    assert.equal(answer.status, 200)
+    assert.equal(answer.body.overview.pendingPhotos, null)
+    assert.ok(logged.mock.calls.some((c) => c.arguments.includes('GET /api/admin/overview pending photos') && c.arguments.includes('57014')))
   })
 })
 
@@ -198,6 +235,7 @@ test('a missing advertiser table answers 503 advertiser_schema_missing; another 
     advertiser_leads: () => ({ count: null, error: missing }),
     campaigns: () => ({ count: 0, error: null }),
     advertisers: () => ({ count: 0, error: null }),
+    marketplace_listings: () => ({ data: [], count: 0, error: null }),
   }
   await withApp({ handlers }, async ({ call }) => {
     const answer = await call('GET', '/api/admin/overview')

@@ -69,14 +69,17 @@ import { engageSourcesFromSetting } from './src/sharedEvents.mjs'
 import { createCampusEventsClassifier } from './src/campusEventsClassify.mjs'
 import { createReportsRouter } from './src/routes/reports.mjs'
 import { createAdminReportsRouter } from './src/routes/adminReports.mjs'
+import { createAdminPhotoReviewRouter } from './src/routes/adminPhotoReview.mjs'
 import { createBlocksRouter } from './src/routes/blocks.mjs'
 import { createPurdueEmailRouter } from './src/routes/purdueEmail.mjs'
 import { createAdminRouter } from './src/routes/admin.mjs'
 import { createAdvertiserRouter, createSpotlightRouter } from './src/routes/advertiser.mjs'
 import { createAuthRouter } from './src/routes/auth.mjs'
+import { createAppleTokenRevoker } from './src/appleTokenRevoke.mjs'
 import { createPurdueIdentity } from './src/purdueIdentity.mjs'
 import { DB_FEATURES, isSchemaMissingError } from './src/dbErrors.mjs'
 import { createMarketplacePhotos } from './src/marketplacePhotos.mjs'
+import { PHOTO_REVIEW_SQL_FILE } from './src/marketplacePhotoReview.mjs'
 import { createPurdueLinkHandoff } from './src/purdueLinkHandoff.mjs'
 import { createPurdueLinkFlowRateLimit } from './src/purdueLinkThrottle.mjs'
 import { normalizeEmail } from './src/userFields.mjs'
@@ -123,6 +126,10 @@ const loginTwoFactorEnabled = envSwitch('LOGIN_TWO_FACTOR')
 // through supabase-sync, which the gate refuses. Without it, a password-only
 // Supabase token still skips the code, so turn it on as soon as the app ships.
 const loginTwoFactorSyncGate = envSwitch('LOGIN_TWO_FACTOR_SYNC_GATE')
+// Marketplace photo review (issue #504): new listing photos wait for an admin
+// before other students see them. Off until the owner turns it on, after README
+// step 46; the admin photo queue works either way.
+const marketplacePhotoReview = envSwitch('MARKETPLACE_PHOTO_REVIEW')
 const adminEmails = new Set(
   (process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -651,12 +658,27 @@ async function verifySupabasePassword(email, password) {
   return data?.user ?? null
 }
 
+// Sign in with Apple token revocation for account deletion
+// (src/appleTokenRevoke.mjs, docs/sign-in-with-apple.md): the Team ID, the
+// Sign in with Apple key's ID and .p8 contents, and the Services ID that
+// Supabase's Apple OAuth flow uses. Without all four, deletion still works and
+// its answer says the Apple token was not revoked.
+const appleTokenRevoker = createAppleTokenRevoker({
+  teamId: process.env.APPLE_TEAM_ID,
+  keyId: process.env.APPLE_SIGN_IN_KEY_ID,
+  privateKey: process.env.APPLE_SIGN_IN_PRIVATE_KEY,
+  servicesId: process.env.APPLE_SIGN_IN_SERVICES_ID,
+})
+if (!appleTokenRevoker.configured) {
+  console.warn(`[apple] ${appleTokenRevoker.problem}: deleting an account will not revoke its Sign in with Apple token.`)
+}
+
 // ── Student auth, the profile and the Purdue link ──
 // Sign-up, sign-in, sign-out, the session reads and sync, the profile, account
 // deletion and the Purdue link (CAS, mock, native handoff) are in
 // src/routes/auth.mjs (issue #191); the session core and
 // verifySupabasePassword stay here and are handed in.
-app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction }))
+app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction, appleTokenRevoker }))
 
 // ── Linked calendar sources (issues #12 and #120) ───────────────────────────
 // Connecting, syncing and deleting Brightspace and Purdue feeds, the dev-only
@@ -932,10 +954,11 @@ app.use(createDealsRouter({ supabase, requireAuth, requireAdmin, isUserAdmin, us
 // ============================================================
 // Student Marketplace (issue #32, Phase 1) - listings and reports, in
 // src/routes/marketplace.mjs (issue #191). The photo helper is built here so
-// the router never sees the session secret.
+// the router never sees the session secret. photoReview is
+// MARKETPLACE_PHOTO_REVIEW (issue #504).
 // ============================================================
 const marketplacePhotos = createMarketplacePhotos({ supabase, secret: sessionSecret })
-app.use(createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, marketplacePhotos, marketplacePhotoRateLimit, marketplaceReadRateLimit, boardWriteRateLimit, userWriteRateLimit }))
+app.use(createMarketplaceRouter({ supabase, requireAuth, isUserAdmin, marketplacePhotos, marketplacePhotoRateLimit, marketplaceReadRateLimit, boardWriteRateLimit, userWriteRateLimit, photoReview: marketplacePhotoReview }))
 
 // ============================================================
 // Friend Matching (issue #17) - students who share courses, in
@@ -972,6 +995,12 @@ app.use(createAdminRouter({ supabase, requireAuth, requireAdmin, adminWriteRateL
 // src/routes/adminReports.mjs; taking reported content down stays with each
 // type's own DELETE route and the hidden-listing takedown in src/routes/admin.mjs.
 app.use(createAdminReportsRouter({ supabase, requireAuth, requireAdmin, adminWriteRateLimit }))
+
+// ── Marketplace photo queue (admin, issue #504) ─────────────────────────────
+// GET /api/admin/photo-review and the approve and reject writes live in
+// src/routes/adminPhotoReview.mjs. Photos only wait for it while
+// MARKETPLACE_PHOTO_REVIEW is on (createMarketplaceRouter above).
+app.use(createAdminPhotoReviewRouter({ supabase, requireAuth, requireAdmin, adminWriteRateLimit }))
 
 // ── First-party product analytics (issue #51) ───────────────────────────────
 // POST /api/usage/events, the signed-in usage beacon, is in
@@ -1040,6 +1069,16 @@ app.listen(port, host, async (err) => {
     console.warn(
       '\n[BoilerIndy] Analytics: table analytics_events not found. Run db/supabase-analytics.sql in Supabase SQL Editor, then restart the server.\n',
     )
+  }
+  // With the switch on, a listing posted or edited with photos answers 503
+  // until README step 46 has run (issue #504), so say so at boot.
+  if (marketplacePhotoReview) {
+    const reviewProbe = await supabase.from('marketplace_listings').select('photos_review').limit(1)
+    if (reviewProbe.error && isSchemaMissingError(reviewProbe.error)) {
+      console.warn(
+        `\n[BoilerIndy] Marketplace photo review: MARKETPLACE_PHOTO_REVIEW is on but marketplace_listings.photos_review is missing, so a listing posted or edited with photos answers 503. Run ${PHOTO_REVIEW_SQL_FILE} in Supabase SQL Editor.\n`,
+      )
+    }
   }
   // Club directory (#16): fill the cache now so the first /clubs visit after a
   // deploy does not wait on BoilerLink's paged fetch. The keep-warm pinger
