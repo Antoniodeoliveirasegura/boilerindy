@@ -1,6 +1,12 @@
 // Apply the saved theme before first paint to avoid a flash.
 // Mirrors getInitialTheme() in src/context/ThemeContext.jsx.
 // Extracted from an inline <script> so the CSP can use script-src 'self'.
+
+// The sign-in page's first paint in index.html (issue #389) shows only on
+// /login: every route is served the same index.html, and CSS cannot read the
+// address, so this marks it before the body is drawn.
+if (/^\/login\/?$/.test(location.pathname)) document.documentElement.setAttribute('data-shell', 'login')
+
 try {
   var t = localStorage.getItem('pih-theme')
   if (t !== 'light' && t !== 'dark') {

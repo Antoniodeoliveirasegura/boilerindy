@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { getServerWarmupState, resetServerWarmupForTests, startServerWarmup } from '../lib/serverWarmup'
 import Login from './Login'
 
 // One object for every render, as the real context's memoized value is.
 const auth = vi.hoisted(() => ({
   user: null,
   loading: false,
+  hasStoredSession: false as boolean | null,
   onboarding: null,
   establishSession: () => Promise.resolve(null),
   applySession: () => {},
@@ -64,11 +66,90 @@ function formSubmit() {
   return document.querySelector('form button[type="submit"]') as HTMLButtonElement
 }
 
+// The wake-up ping that never answers, past the point where it counts as slow.
+async function serverWaking() {
+  void startServerWarmup({ fetchImpl: () => new Promise<Response>(() => {}), slowAfterMs: 0 })
+  await waitFor(() => expect(getServerWarmupState().status).toBe('slow'))
+}
+
 beforeEach(() => stubSignInApi())
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  resetServerWarmupForTests()
+  Object.assign(auth, { user: null, loading: false, hasStoredSession: false })
+})
+
+// Issue #389. The page showed a bare "Loading…" until the server answered
+// the session check, and a Render cold start makes that up to 30 s.
+describe('Login: while the session check is out', () => {
+  test('with nothing stored, the form shows at once', () => {
+    Object.assign(auth, { loading: true, hasStoredSession: false })
+    renderLogin()
+    expect(emailField()).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  test('a stored session shows the skeleton under the heading, signing the student in', () => {
+    Object.assign(auth, { loading: true, hasStoredSession: true })
+    renderLogin()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back')
+    expect(screen.getByRole('status')).toHaveTextContent('Signing you in')
+    expect(emailField()).toBeNull()
+  })
+
+  // The local read takes a moment, and until it settles the page cannot tell.
+  test('the skeleton also covers the moment before the local read settles', () => {
+    Object.assign(auth, { loading: true, hasStoredSession: null })
+    renderLogin()
+    expect(screen.getByRole('status')).toHaveTextContent('Signing you in')
+    expect(emailField()).toBeNull()
+  })
+
+  // A backend cookie with no Supabase session behind it (rare) shows up only
+  // when the server answers, so the form is already on screen by then.
+  test('a cookie session found while the form is up sends the student on', async () => {
+    Object.assign(auth, { loading: true, hasStoredSession: false })
+    const page = () => (
+      <MemoryRouter initialEntries={['/login?next=%2Fdashboard']} useTransitions={false}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/dashboard" element={<p>Dashboard</p>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    const { rerender } = render(page())
+    expect(emailField()).toBeInTheDocument()
+
+    Object.assign(auth, { loading: false, user: { name: 'Test Student' } })
+    rerender(page())
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+  })
+
+  test('on a cold start the skeleton says the server is waking up', async () => {
+    Object.assign(auth, { loading: true, hasStoredSession: true })
+    await serverWaking()
+    renderLogin()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Waking up the server. The first visit after a quiet spell can take up to 30 seconds.',
+    )
+  })
+
+  // The form is up before the server is, so a cold start's wait lands on the
+  // submit, and the floating pill does not show on this page.
+  test('a sign-in sent while the server wakes says why it is slow', async () => {
+    Object.assign(auth, { loading: true, hasStoredSession: false })
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
+    await serverWaking()
+    renderLogin()
+    fireEvent.change(emailField(), { target: { value: 'student@purdue.edu' } })
+    fireEvent.change(passwordField(), { target: { value: 'correct-horse-battery' } })
+    fireEvent.click(formSubmit())
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Waking up the server.')
+    expect(formSubmit()).toHaveTextContent('Please wait…')
+  })
 })
 
 // Students sign in on shared lab and library computers. "Use a different

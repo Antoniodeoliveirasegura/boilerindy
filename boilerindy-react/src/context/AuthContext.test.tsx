@@ -699,3 +699,68 @@ describe('supabase-sync carries the sign-up source', () => {
     expect(syncBodies()[0]).not.toHaveProperty('signupRef')
   })
 })
+
+// Issue #389. The sign-in page shows its form at once when this browser holds
+// no Supabase session, and a skeleton while a stored one is restored, so boot
+// says which before any server read answers. A Render cold start makes those
+// reads take up to 30 s.
+describe('the stored-session read at boot', () => {
+  function deferred() {
+    let resolve: (value: unknown) => void = () => {}
+    let reject: (error: unknown) => void = () => {}
+    const promise = new Promise((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  test('says a session is stored before the server has answered', async () => {
+    mocks.authRequest.mockImplementation(() => new Promise(() => {}))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    expect(result.current.hasStoredSession).toBeNull()
+    await waitFor(() => expect(result.current.hasStoredSession).toBe(true))
+    expect(result.current.loading).toBe(true)
+  })
+
+  test('says none is stored before the server has answered', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
+    mocks.authRequest.mockImplementation(() => new Promise(() => {}))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.hasStoredSession).toBe(false))
+    expect(result.current.loading).toBe(true)
+  })
+
+  // The form can now sign a student in while boot's session read is still
+  // out. That read left first, so its answer is older than the sign-in, and
+  // applying it signed the student straight back out.
+  describe('a sign-in on the form while boot reads the session', () => {
+    async function signInDuringBoot() {
+      mocks.getSession.mockResolvedValue({ data: { session: null } })
+      const bootRead = deferred()
+      mocks.authRequest.mockImplementation((path: string) =>
+        path === SESSION ? bootRead.promise : Promise.resolve({ authProvider: 'local', purdueAuthMode: 'mock' }),
+      )
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      await waitFor(() => expect(calledWith(SESSION)).toBe(true))
+      act(() => result.current.applySession(backendSession))
+      return { result, bootRead }
+    }
+
+    test('stands when boot is told nobody is signed in', async () => {
+      const { result, bootRead } = await signInDuringBoot()
+      await act(async () => bootRead.resolve({ authenticated: false, session: null }))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(result.current.session).toEqual(backendSession)
+      expect(result.current.sessionCheckFailed).toBe(false)
+    })
+
+    test('stands when boot gets no answer', async () => {
+      const { result, bootRead } = await signInDuringBoot()
+      await act(async () => bootRead.reject(Object.assign(new Error('Service unavailable'), { status: 503 })))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(result.current.session).toEqual(backendSession)
+      expect(result.current.sessionCheckFailed).toBe(false)
+    })
+  })
+})
