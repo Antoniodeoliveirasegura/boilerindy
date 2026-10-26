@@ -142,9 +142,7 @@ const BYDAY = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
 // Days in week order, Indianapolis wall-clock times. A room is a building
 // code on the app's campus map and a room number, which is what its
 // Directions search finds: Purdue's code where the map has one, IU's for
-// Lecture Hall and Cavanaugh Hall. Keep every start before 7 PM:
-// expandRecurringEvents (src/scheduleSync.mjs) dates a weekly meeting by its
-// UTC day, the next day from 7 PM in winter and 8 PM in summer.
+// Lecture Hall and Cavanaugh Hall.
 const SECTIONS = [
   { id: 'ma16600-lecture', course: MA, kind: 'Lecture', days: ['MO', 'WE', 'FR'], start: [9, 30], end: [10, 20], room: 'LDPI 108' },
   { id: 'ma16600-recitation', course: MA, kind: 'Recitation', days: ['MO', 'FR'], start: [15, 30], end: [16, 20], room: 'LDPI 129' },
