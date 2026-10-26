@@ -145,6 +145,25 @@ publishing schedule of its own to follow.
   Indianapolis's own instance, so every organization on it counts as an
   Indianapolis one.
 
+### IU Indy athletics' schedule (a Sidearm calendar file): on
+
+Added 2026-10-26 (issue #30): the Jaguars' games, which neither campus
+calendar placed (LiveWhale's athletics group had no coordinates, and its away
+games passed the place rule by the team name, so that group is excluded).
+
+- URL: `https://iuindyjags.com/calendar.ashx/calendar.ics?sport_id=0`, every
+  sport's whole season in one file.
+- Format: iCalendar, parsed with `node-ical` as a student's own feed is.
+- Terms: no key. robots.txt allows every path and asks for 30 seconds between
+  requests; a run makes one.
+- Volume on 2026-10-26: 207 events in the file, 62 in the next 60 days, 23 of
+  them home games on campus (James T. Morris Arena, the IU Natatorium,
+  Michael A. Carroll Stadium).
+- Ids: the UID, `vcal_<game id>-iuindyjags.com`, one per game.
+- Filter: by location alone, since every title names IU Indy: a home game says
+  "Indianapolis, Ind." and its venue, an away game another city. The rows read
+  "Jaguars (IU)" under the IU pill.
+
 ### White River State Park's events calendar (The Events Calendar): off by default
 
 The first downtown source (issue #30): the park's museums, zoo and lawns are a

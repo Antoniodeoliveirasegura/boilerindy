@@ -2,7 +2,8 @@
 //
 // docs/shared-campus-events.md settled the sources: Purdue's events calendar
 // (Localist, group "Purdue in Indianapolis"), IU's events calendar (LiveWhale,
-// category "IU Indianapolis"), behind CAMPUS_EVENTS_ENGAGE the Anthology
+// category "IU Indianapolis"), IU Indy athletics' schedule (a calendar file,
+// its home games), behind CAMPUS_EVENTS_ENGAGE the Anthology
 // Engage event search on BoilerLink and TheSpot, and behind
 // CAMPUS_EVENTS_DOWNTOWN the first source beyond campus, White River State
 // Park's events calendar (The Events Calendar). This module turns their raw
@@ -111,6 +112,21 @@ export const SOURCES = Object.freeze([
     // Indianapolis one.
     indianapolisScope: true,
     everyOrgIsIndianapolis: true,
+  }),
+  Object.freeze({
+    key: 'iu_athletics',
+    platform: 'ics',
+    label: "IU Indy athletics' schedule (Sidearm calendar file)",
+    origin: 'https://iuindyjags.com',
+    path: '/calendar.ashx/calendar.ics?sport_id=0',
+    days: 60,
+    engage: false,
+    category: 'sports_fitness',
+    // Every game's title names IU Indy wherever it is played, so the location
+    // alone places it: "Indianapolis, Ind., James T. Morris Arena" is a home
+    // game, "Clarksville, Tenn." an away one, dropped as unplaced.
+    placeFromLocation: true,
+    indianapolisScope: false,
   }),
   Object.freeze({
     key: 'wrsp_events',
@@ -433,7 +449,9 @@ function buildEvent(source, listing) {
   const location = clean(listing.location) || null
   const point = coordinates(listing.lat, listing.lon)
 
-  const placeText = `${title} ${location ?? ''}`
+  // A source whose titles name the campus wherever the event is (a team's
+  // away games) is placed by its location alone.
+  const placeText = source.placeFromLocation ? (location ?? '') : `${title} ${location ?? ''}`
   const place = INDY_ROOM_RE.test(placeText) || INDY_PLACE_RE.test(placeText)
   const near = point != null && kmBetween(point, CAMPUS) <= NEAR_CAMPUS_KM
   const westLafayetteText = Boolean(location && WEST_LAFAYETTE_RE.test(location))
@@ -743,6 +761,46 @@ export function normalizeTribeEvent(raw, source = sourceByKey('wrsp_events')) {
   })
 }
 
+// ── Calendar files (IU Indy athletics) ──────────────────────────────────────
+
+// The result Sidearm puts in front of a game once it is played: "[W] IU Indy
+// Volleyball vs Robert Morris" ([W], [L], [T], or [N] for a meet with none).
+const ICS_RESULT_RE = /^\s*\[[A-Z]\]\s*/
+
+/**
+ * One event of a calendar file, as src/campusEventsIngest.mjs reads it out of
+ * the parsed file (icsListings: `uid`, `summary`, `description`, `location`,
+ * `url`, `start` and `end` as ISO, `allDay`, `status`), to a row keyed by its
+ * UID. The game's result leaves the title, so a played game keeps its row and
+ * its content hash; the description drops its first line when that line
+ * repeats the title (Sidearm's does), keeping the TV, streaming and ticket
+ * lines. The source's own category (`sports_fitness` for athletics). Null for
+ * a cancelled event or one without a title or a start.
+ */
+export function normalizeIcsEvent(raw, source) {
+  if (!raw || typeof raw !== 'object' || !source) return null
+  if (/^cancell?ed$/i.test(String(raw.status ?? ''))) return null
+  const title = clean(String(raw.summary ?? '').replace(ICS_RESULT_RE, ''))
+  const lines = String(raw.description ?? '').split(/\r?\n/).map((line) => line.trim())
+  if (lines.length && clean(lines[0].replace(ICS_RESULT_RE, '')) === title) lines.shift()
+  const description = lines.filter(Boolean).join('\n')
+  return buildEvent(source, {
+    externalUid: raw.uid,
+    title,
+    description,
+    location: raw.location,
+    startsAt: raw.start,
+    endsAt: raw.end,
+    allDay: raw.allDay === true,
+    sourceUrl: decodeEntities(String(raw.url ?? '')),
+    category: source.category ?? null,
+    freeFood: hasFreeFood(title, description),
+    sourceFreeFood: false,
+    openToAll: MEMBERS_ONLY_RE.test(title) ? false : null,
+    seriesGroup: '',
+  })
+}
+
 /** One raw listing from a source to its rows (Localist gives one per occurrence). */
 export function normalizeListing(source, raw, { isIndianapolisOrg } = {}) {
   if (source.platform === 'localist') return normalizeLocalistEvent(raw, source)
@@ -753,7 +811,9 @@ export function normalizeListing(source, raw, { isIndianapolisOrg } = {}) {
         ? normalizeEngageEvent(raw, source, { isIndianapolisOrg })
         : source.platform === 'tribe'
           ? normalizeTribeEvent(raw, source)
-          : null
+          : source.platform === 'ics'
+            ? normalizeIcsEvent(raw, source)
+            : null
   return built ? [built] : []
 }
 

@@ -50,13 +50,15 @@ export const PUBLIC_FREE_FOOD_MAX_ROWS = 500
 
 // Where a row comes from, in the words the page shows. IU Indianapolis's own
 // listings say so: whether they are open to Purdue students is the owner's
-// call on #30, so they read as IU events until it is made. White River State
-// Park's read as Downtown, so a museum night never reads as a campus event.
+// call on #30, so they read as IU events until it is made. IU Indy athletics'
+// home games read as the Jaguars'. White River State Park's read as Downtown,
+// so a museum night never reads as a campus event.
 export const SOURCE_LABELS = Object.freeze({
   purdue_events: 'Purdue event',
   iu_events: 'IU event',
   boilerlink: 'BoilerLink',
   thespot: 'TheSpot (IU)',
+  iu_athletics: 'Jaguars (IU)',
   wrsp_events: 'Downtown',
 })
 

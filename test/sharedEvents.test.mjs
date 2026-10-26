@@ -46,6 +46,7 @@ import {
   kmFromCampus,
   mergeRepeatedIds,
   normalizeEngageEvent,
+  normalizeIcsEvent,
   normalizeListing,
   normalizeLiveWhaleEvent,
   normalizeLocalistEvent,
@@ -58,6 +59,7 @@ import {
   titleMatch,
   titleWords,
 } from '../src/sharedEvents.mjs'
+import { icsListings } from '../src/campusEventsIngest.mjs'
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
 const LOCALIST = fixture('campus-events-localist.json').events.map((wrapper) => wrapper.event)
@@ -597,6 +599,39 @@ test('planned with the campus sources, the park comes last: its rows are added, 
   assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events'])
 })
 
+// ── Calendar files: IU Indy athletics ───────────────────────────────────────
+
+// Nine events of the Jaguars' calendar file, fetched on 2026-10-26 and read as
+// the ingest reads them (icsListings).
+const JAGUARS = icsListings(readFileSync(new URL('./fixtures/campus-events-iuindyjags.ics', import.meta.url), 'utf8'))
+const ATHLETICS = sourceByKey('iu_athletics')
+const game = (uid) => normalizeIcsEvent(JAGUARS.find((raw) => raw.uid === `vcal_${uid}-iuindyjags.com`), ATHLETICS)
+
+test("the Jaguars' home games are kept by their location; an away game is not, though its title names IU Indy", () => {
+  const played = game(17421) // [W] Volleyball vs Robert Morris, The Jungle
+  assert.deepEqual(played.indianapolis, { keep: true, by: 'place' })
+  assert.equal(played.row.title, 'IU Indy Volleyball vs Robert Morris')
+  assert.equal(played.row.description.startsWith('W 3-2 TV: ESPN+'), true)
+  assert.deepEqual(
+    [played.row.dedupe_key, played.row.category, played.row.venue_kind, played.row.source_url, played.row.all_day],
+    ['iu_athletics:vcal_17421-iuindyjags.com', 'sports_fitness', 'indy_campus', 'https://iuindyjags.com/calendar.aspx?game_id=17421&sport_id=14', false],
+  )
+  assert.deepEqual(game(17430).indianapolis, { keep: true, by: 'place' }) // James T. Morris Arena
+  assert.deepEqual(game(17374).indianapolis, { keep: true, by: 'place' }) // Michael A. Carroll Stadium
+  const swim = game(17560) // all day at the IU Natatorium
+  assert.deepEqual([swim.indianapolis.keep, swim.row.all_day, swim.row.starts_at], [true, true, '2026-11-19T05:00:00.000Z'])
+
+  // Away: Clarksville and DeKalb name nothing in Indianapolis, Muncie is another city.
+  assert.deepEqual(game(17640).indianapolis, { keep: false, by: 'unplaced' })
+  assert.deepEqual(game(17608).indianapolis, { keep: false, by: 'unplaced' })
+  assert.deepEqual(game(17604).indianapolis, { keep: false, by: 'away' })
+  // Read by title and location, as the other sources are, the team name would keep it.
+  const away = JAGUARS.find((raw) => raw.uid === 'vcal_17640-iuindyjags.com')
+  assert.deepEqual(normalizeIcsEvent(away, { ...ATHLETICS, placeFromLocation: false }).indianapolis, { keep: true, by: 'place' })
+  assert.equal(normalizeIcsEvent({ ...away, status: 'CANCELLED' }, ATHLETICS), null)
+  assert.equal(normalizeIcsEvent({ ...away, summary: '' }, ATHLETICS), null)
+})
+
 // ── Rules and keys ──────────────────────────────────────────────────────────
 
 test('indianapolisDecision: place, then 2.5 km, then another city named, then the organizer, then the scope', () => {
@@ -850,7 +885,7 @@ test('the vocabularies and columns match db/supabase-campus-events.sql and db/su
   }
   assert.deepEqual(checked('category'), [...CATEGORIES])
   assert.deepEqual(checked('venue_kind'), [...VENUE_KINDS])
-  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'wrsp_events'])
+  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'iu_athletics', 'wrsp_events'])
   assert.deepEqual(SOURCES.filter((source) => source.engage).map((source) => source.key), ['boilerlink', 'thespot'])
   assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events'])
 })
