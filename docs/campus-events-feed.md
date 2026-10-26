@@ -52,6 +52,7 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 | Once per series | One row per `series_key`, its next occurrence, so a weekly class is listed once. |
 | Category | `deadline` (Purdue's "Dates and Deadlines") reads as Deadline, every other row as Campus Event. |
 | Free food | The stored `free_food`: the source's own tag, free entry with food in the listing, or the keyword matcher, which Jev's answer replaces with `CAMPUS_EVENTS_CLASSIFY` on ([campus-events-ingest.md](campus-events-ingest.md#jev-classification)). |
+| Not the student's own | On a student's read, a shared row that is one event with one of the student's own rows (a club feed they imported) is left out, by the rule the ingest collapses its sources by ([Duplicates](campus-events-ingest.md#duplicates)); the student's row stays and takes the shared row's free food (`withoutOwnDuplicates` in `src/campusEventsFeed.mjs`). |
 
 Each listed row carries `shared: true`, a source label and the listing's link,
 http(s) only. The labels are `SOURCE_LABELS` in `src/campusEventsFeed.mjs`:

@@ -22,8 +22,8 @@
 //   - organization_key, the Engage organization that listed the event
 //     (`boilerlink:<Id>`, `thespot:<Id>`), which following a club reads
 //     (issue #16, db/supabase-club-follows.sql); null for the other sources;
-//   - the merge of one source's repeated ids, and the collapse of the same event
-//     listed by two sources.
+//   - the merge of one source's repeated ids, and the collapse of one event
+//     listed twice, by two sources or by one (duplicateReason).
 //
 // No I/O: src/campusEventsIngest.mjs fetches the pages and writes the rows, and
 // docs/campus-events-ingest.md is the operator's view. `classifier` is never
@@ -786,41 +786,228 @@ export function mergeRepeatedIds(rows) {
   return { rows: [...byKey.values()], merged }
 }
 
+// ── Duplicates ──────────────────────────────────────────────────────────────
+//
+// The same event reaches the table under several ids: Purdue Indy Badminton's
+// weekly hours are on BoilerLink and TheSpot, PurdueME's graduate school panel
+// is "What's Next? A Graduate School Preparation Panel" on Purdue's calendar,
+// and Purdue's calendar itself lists one Philharmonic concert at Hilbert Circle
+// Theatre twice. duplicateReason decides whether two listings are one event, on
+// the start, the title and the place; collapseDuplicates keeps one row per
+// event, and the calendar read uses the same rule to leave out a shared row the
+// student's own calendar already has (src/campusEventsFeed.mjs).
+
+// Dates and times some sources put in front of a title ("11/2 11:00 AM ...").
+const TITLE_DATE_RE = /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g
+const TITLE_TIME_RE = /\b\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?(?![a-z])/gi
+// Words that say nothing about which event a title is.
+const TITLE_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'of', 'for', 'with', 'to', 'in', 'on', 'at', 'by', 'from', 'into', 'about',
+  's', 'st', 'vs', 'v', 'w', 'presents', 'present', 'featuring', 'feat', 'hosted', 'host',
+  'purdue', 'iu', 'indy', 'indianapolis', 'university', 'campus', 'event', 'events',
+  'day', 'night', 'session', 'sessions', 'meeting', 'program', 'info', 'information',
+])
+// Two titles whose meaningful words mostly match: "Grad School Prep Panel"
+// shares all four of its words with "What's Next? A Graduate School Preparation
+// Panel".
+export const SIMILAR_TITLE_SHARE = 0.75
+
+/** The words a title is matched on: folded, without leading dates and times or the words in TITLE_STOPWORDS. */
+export function titleWords(title) {
+  const text = String(title ?? '').replace(TITLE_DATE_RE, ' ').replace(TITLE_TIME_RE, ' ')
+  return [...new Set(foldText(text).split(' ').filter((word) => word && !TITLE_STOPWORDS.has(word)))]
+}
+
+// One word is the other, or the start of it with four letters or more:
+// grad and graduate, prep and preparation, orchestra and orchestras.
+function wordsMatch(a, b) {
+  if (a === b) return true
+  return Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a))
+}
+
 /**
- * The same event listed by two sources has two ids and so two dedupe keys
- * (Purdue Indy Badminton's weekly hours are on BoilerLink and TheSpot). Rows of
- * different sources with the same folded title and start minute collapse into
- * the one from the source listed first in SOURCES, which takes what it lacks
- * from the others. Rows of the same source are never collapsed here. The
- * organization_key it takes keeps a club's event on the list of a student who
- * follows the club when Purdue's calendar lists the same event.
+ * How two titles compare: `same` when they fold to one text, spaces aside
+ * ("RealTalk" and "Real Talk"), `similar` when at least two words and
+ * SIMILAR_TITLE_SHARE of the shorter title's words match the other's, else
+ * null; `shared` counts the shorter title's words that match.
  */
-export function collapseCrossSource(rows, order = SOURCES.map((source) => source.key)) {
+export function titleMatch(a, b) {
+  const foldedA = foldText(a)
+  const foldedB = foldText(b)
+  if (!foldedA || !foldedB) return { level: null, shared: 0 }
+  const wordsA = titleWords(a)
+  const wordsB = titleWords(b)
+  const [fewer, more] = wordsA.length <= wordsB.length ? [wordsA, wordsB] : [wordsB, wordsA]
+  const shared = fewer.filter((word) => more.some((other) => wordsMatch(word, other))).length
+  if (foldedA === foldedB || foldedA.replaceAll(' ', '') === foldedB.replaceAll(' ', '')) return { level: 'same', shared }
+  const similar = shared >= 2 && shared / fewer.length >= SIMILAR_TITLE_SHARE
+  return { level: similar ? 'similar' : null, shared }
+}
+
+// Course and year numbers tell apart two titles that are otherwise alike
+// ("ME 323 Exam Review" and "ME 270 Exam Review" at the same hour).
+function numbersConflict(a, b) {
+  const numbers = (title) => titleWords(title).filter((word) => /^\d+$/.test(word))
+  const numbersA = numbers(a)
+  const numbersB = numbers(b)
+  return numbersA.length > 0 && numbersB.length > 0 && !numbersA.some((number) => numbersB.includes(number))
+}
+
+// A campus room ("ET 002", "SL 165", "ET Atrium") or a campus building code on
+// its own (PurdueME's "EL", or "UL" before Lilly Auditorium), as INDY_ROOM_RE
+// reads them.
+const ROOM_CODE_RE = /\b(ET|SL|IO|CE|PE|EL|LD|CA|UL)\s?(\d{2,4}[A-Z]?|Atrium|ATRIUM)\b/
+const BARE_CODE_RE = /^(ET|SL|IO|CE|PE|EL|LD|CA|UL)$/
+// Campus buildings by name, which several events share at once.
+const CAMPUS_BUILDING_RE =
+  /\b(?:campus center|university library|university hall|university tower|cavanaugh hall|taylor hall|inlow hall|hine hall|innovation hall|natatorium|the jungle|boiler park|eskenazi (?:hall|fine art center)|herron|madam walker|walther hall|fesler hall|van ?nuys|michael a\.? carroll|engineering (?:and|&) technology|science and engineering laboratory|purdue student center)\b/i
+// A location's parts: split at a comma, a bar, an at sign, or a hyphen or an
+// en dash with spaces around it (PurdueME writes the en dash).
+const LOCATION_PARTS_RE = new RegExp(`\\s*(?:,|\\||@|\\s[-${String.fromCharCode(0x2013)}]\\s)\\s*`)
+// The first part of a location that names no place of its own.
+const NO_VENUE_RE = /^(?:indianapolis(?: in(?:diana)?)?|online|virtual|zoom|microsoft teams|teams|webex|google meet|tba|tbd|room \S+|\d+)$/
+
+/**
+ * Where a listing is, for telling events apart: a campus `room` ("ET002"), a
+ * building `code`, a campus `building` by name, or a named `venue` off those
+ * buildings ("hilbert circle theater"; the first part of the location, so
+ * "Hilbert Circle Theatre, 45 Monument Circle" agrees). Sources write one
+ * building several ways ("ET 103", "Engineering and Technology Building"), so
+ * only two answers of the same kind are compared.
+ */
+export function placeOf(location) {
+  const text = String(location ?? '').trim()
+  const place = { room: null, code: null, building: null, venue: null }
+  if (!text) return place
+  const room = ROOM_CODE_RE.exec(text)
+  if (room) {
+    place.room = `${room[1]}${room[2].toUpperCase()}`
+    place.code = room[1]
+  }
+  const building = CAMPUS_BUILDING_RE.exec(text)
+  if (building) place.building = foldText(building[0])
+  const first = text.split(LOCATION_PARTS_RE)[0].trim()
+  if (BARE_CODE_RE.test(first)) {
+    place.code = place.code ?? first
+  } else if (!room && !CAMPUS_BUILDING_RE.test(first)) {
+    const venue = foldText(first).replace(/\btheatre\b/g, 'theater').replace(/^the /, '')
+    if (venue && !NO_VENUE_RE.test(venue)) place.venue = venue
+  }
+  return place
+}
+
+function placesConflict(a, b) {
+  return ['room', 'code', 'building', 'venue'].some((kind) => a[kind] && b[kind] && a[kind] !== b[kind])
+}
+
+/** One room, or one named venue off campus: never a building shared by many events at once. */
+function samePlace(a, b) {
+  return Boolean((a.room && a.room === b.room) || (a.venue && a.venue === b.venue))
+}
+
+const CAMPUS_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: CAMPUS_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' })
+
+/** YYYY-MM-DD on the campus calendar, where an all-day listing starts at local midnight. */
+export function campusDay(iso) {
+  return CAMPUS_DAY.format(new Date(iso))
+}
+
+/**
+ * Why two listings are one event, or null. Each is `{ title, startsAt, allDay,
+ * location, deadline }`. They must start in the same minute, or fall on the
+ * same campus day when one of them is all-day (PurdueME's all-day Halloween
+ * Crawl and Purdue's 10:00 "CoE Halloween Crawl"). Never one event: a deadline
+ * and something else (Purdue's Martin Luther King Jr. Day and the park's free
+ * admission that day), two places of one kind that disagree, or titles with
+ * different numbers. Then:
+ *
+ *   - `title`: the same title in the same minute;
+ *   - `similar title`: a similar title (titleMatch) in the same minute;
+ *   - `day`: the same or a similar title on the all-day's day;
+ *   - `place`: the same minute in the same room or named venue, with a word of
+ *     the title in common: Hilbert Circle Theater's "A Partners in Music
+ *     Education Program Concert" and Purdue's "...Symphony Orchestra Concert".
+ *
+ * Two listings of one source are one event only by place, and with two words
+ * of the title in common (`sameSource`): a source may list two events with one
+ * title at once, in different rooms.
+ */
+export function duplicateReason(a, b, { sameSource = false } = {}) {
+  if (Boolean(a.deadline) !== Boolean(b.deadline)) return null
+  const sameMinute = String(a.startsAt).slice(0, 16) === String(b.startsAt).slice(0, 16)
+  const sameDay = !sameMinute && Boolean(a.allDay || b.allDay) && campusDay(a.startsAt) === campusDay(b.startsAt)
+  if (!sameMinute && !sameDay) return null
+  const placeA = placeOf(a.location)
+  const placeB = placeOf(b.location)
+  if (placesConflict(placeA, placeB) || numbersConflict(a.title, b.title)) return null
+  const title = titleMatch(a.title, b.title)
+  if (sameSource) {
+    return sameMinute && samePlace(placeA, placeB) && (title.level === 'same' || title.shared >= 2) ? 'place' : null
+  }
+  if (title.level === 'same') return sameMinute ? 'title' : 'day'
+  if (title.level === 'similar') return sameMinute ? 'similar title' : 'day'
+  if (sameMinute && samePlace(placeA, placeB) && title.shared >= 1) return 'place'
+  return null
+}
+
+/** A campus_events row as duplicateReason reads it. */
+export function duplicateView(row) {
+  return { title: row.title, startsAt: row.starts_at, allDay: row.all_day, location: row.location, deadline: row.category === 'deadline' }
+}
+
+/**
+ * One row per event (duplicateReason): the rows of an event collapse into the
+ * one from the source listed first in SOURCES, which takes what it lacks from
+ * the others. A row joins an event when it is a duplicate of any row already
+ * in it, so the third listing of Purdue's concert joins by the copy it
+ * resembles. The organization_key it takes keeps a club's event on the list
+ * of a student who follows the club when Purdue's calendar lists the same
+ * event. `collapsed` says which row each one went into, and why.
+ */
+export function collapseDuplicates(rows, order = SOURCES.map((source) => source.key)) {
   const rank = (row) => {
     const index = order.indexOf(row.source_key)
     return index < 0 ? order.length : index
   }
-  const groups = new Map()
-  for (const row of rows) {
-    const key = `${foldText(row.title)}|${row.starts_at.slice(0, 16)}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(row)
+  const sorted = [...rows].sort(
+    (a, b) => rank(a) - rank(b) || a.starts_at.localeCompare(b.starts_at) || a.dedupe_key.localeCompare(b.dedupe_key),
+  )
+  // Only rows of one campus day can be one event, so each row is compared
+  // within its day.
+  const eventsByDay = new Map()
+  const events = []
+  for (const row of sorted) {
+    const day = campusDay(row.starts_at)
+    if (!eventsByDay.has(day)) eventsByDay.set(day, [])
+    const view = duplicateView(row)
+    let joined = false
+    for (const event of eventsByDay.get(day)) {
+      const why = event.rows
+        .map((member) => duplicateReason(duplicateView(member), view, { sameSource: member.source_key === row.source_key }))
+        .find(Boolean)
+      if (why) {
+        event.rows.push(row)
+        event.reasons.push(why)
+        joined = true
+        break
+      }
+    }
+    if (!joined) {
+      const event = { rows: [row], reasons: [] }
+      eventsByDay.get(day).push(event)
+      events.push(event)
+    }
   }
   const out = []
   const collapsed = []
-  for (const group of groups.values()) {
-    if (group.length === 1) {
-      out.push(group[0])
+  for (const { rows: copies, reasons } of events) {
+    let winner = copies[0]
+    if (copies.length === 1) {
+      out.push(winner)
       continue
     }
-    const sorted = [...group].sort((a, b) => rank(a) - rank(b))
-    let winner = sorted[0]
-    for (const other of sorted.slice(1)) {
-      if (other.source_key === winner.source_key) {
-        out.push(other)
-        continue
-      }
-      collapsed.push({ kept: winner.dedupe_key, dropped: other.dedupe_key, title: winner.title })
+    copies.slice(1).forEach((other, index) => {
+      collapsed.push({ kept: copies[0].dedupe_key, dropped: other.dedupe_key, title: copies[0].title, why: reasons[index] })
       winner = {
         ...winner,
         description: winner.description ?? other.description,
@@ -832,7 +1019,7 @@ export function collapseCrossSource(rows, order = SOURCES.map((source) => source
         venue_kind: winner.venue_kind === 'unknown' ? other.venue_kind : winner.venue_kind,
         organization_key: winner.organization_key ?? other.organization_key ?? null,
       }
-    }
+    })
     out.push({ ...winner, content_hash: contentHashFor(winner) })
   }
   return { rows: out, collapsed }
@@ -860,8 +1047,9 @@ export function summarizeRows(rows) {
 /**
  * Raw listings per source key in, the rows to upsert out, plus what a dry run
  * reports: per source, how many listings came in, how many rows each
- * Indianapolis signal kept or dropped (keptBy, droppedBy), and the merges; the cross-source
- * collapses; a sample of what was dropped and why; totals. Sources absent from
+ * Indianapolis signal kept or dropped (keptBy, droppedBy), and the merges; the
+ * duplicates collapsed, with the reason for each (collapseDuplicates); a sample
+ * of what was dropped and why; totals. Sources absent from
  * `listingsBySource` are skipped. Rows are sorted by start.
  *
  * `sourceFreeFood` is the set of dedupe keys whose free food the source itself
@@ -900,7 +1088,7 @@ export function planCampusEvents(listingsBySource, { isIndianapolisOrg } = {}) {
     kept.push(...merged.rows)
     sources.push(stats)
   }
-  const { rows, collapsed } = collapseCrossSource(kept)
+  const { rows, collapsed } = collapseDuplicates(kept)
   rows.sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.dedupe_key.localeCompare(b.dedupe_key))
   for (const { kept: winner, dropped: copy } of collapsed) {
     if (statedFreeFood.has(copy)) statedFreeFood.add(winner)

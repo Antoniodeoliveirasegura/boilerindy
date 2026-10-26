@@ -38,7 +38,7 @@ exist.
      ([Downtown events](#downtown-events)).
 2. **Plan** (`src/sharedEvents.mjs`, pure). Each listing becomes a row, the
    Indianapolis filter keeps or drops it, one source's repeated ids merge, and
-   the same event listed by two sources collapses into one row.
+   one event listed twice collapses into one row ([Duplicates](#duplicates)).
 3. **Classify**, only with `CAMPUS_EVENTS_CLASSIFY` on (or `shadow`) and never
    in a dry run: Jev answers four questions about each new or edited listing
    and refines the rows ([Jev classification](#jev-classification)).
@@ -127,6 +127,42 @@ A listing the place rules already drop keeps its own reason (`away`, `far`).
 Rows a run no longer plans are swept, so the first run after a change removes
 the stored rows of a newly excluded group.
 
+## Duplicates
+
+One event can reach the plan under several ids: on two sources (Purdue Indy
+Badminton's weekly hours on BoilerLink and TheSpot), under two titles
+("What's Next? A Graduate School Preparation Panel" on Purdue's calendar is
+PurdueME's "Grad School Prep Panel"), or twice on one source (Purdue's calendar
+lists one Philharmonic concert at Hilbert Circle Theatre as two events).
+`duplicateReason` in `src/sharedEvents.mjs` decides whether two rows are one
+event, and `collapseDuplicates` keeps one row per event: the row of the source
+listed first in `SOURCES`, which takes what it lacks (a place, an end, a
+category, free food, a club) from the copies it absorbs. A row joins an event
+when it is a duplicate of any row already in it.
+
+Two rows must start in the same minute, or fall on the same campus day when one
+of them is all-day. They are never one event when one is a deadline and the
+other is not (Purdue's Martin Luther King Jr. Day and the park's free admission
+that day), when two places of one kind disagree (rooms "ET 103" and "SL 165",
+two campus buildings, two named venues), or when their titles carry different
+numbers ("ME 323" and "ME 270" exam reviews at one hour). Otherwise the
+collapse says why:
+
+| `why` | When |
+|---|---|
+| `title` | The same title in the same minute, after folding case, accents and punctuation, spaces aside ("RealTalk" and "Real Talk"). |
+| `similar title` | At least two words, and three quarters of the shorter title's words, match the other's, in the same minute. Dates, times and words like "the", "Purdue" or "session" are left out, and a word matches the start of a longer one ("grad", "graduate"). |
+| `day` | The same or a similar title on the day of an all-day listing (PurdueME's all-day "Halloween Crawl" and Purdue's 10:00 "CoE Halloween Crawl"). |
+| `place` | The same minute in the same room or named venue off campus, with a word of the title in common ("A Partners in Music Education Program Concert" and "...Symphony Orchestra Concert", both at Hilbert Circle Theater). A campus building alone is never enough: many events share Campus Center at once. |
+
+Two rows of one source are one event only by `place`, with two words of the
+title in common: one source can list two events with one title at once, in
+different rooms. On the live listings of 2026-10-26 (Purdue's calendar, IU's,
+the park's and PurdueME's) the rules found eight duplicates: the seven events
+PurdueME and Purdue's calendar both list, and Purdue's second listing of its
+concert. The read side applies the same rule to a student's own calendar
+([campus-events-feed.md](campus-events-feed.md)).
+
 ## The dry run
 
 `?dryRun=1` (or `true`), or a JSON body `{ "dryRun": true }`, runs the fetch
@@ -139,7 +175,8 @@ curl -sS -X POST -H "Authorization: Bearer $PUSH_CRON_SECRET" \
 ```
 
 Read `sources` (what each signal kept and dropped), `dropped` (up to 50 dropped
-listings with the reason), `collapsed` (cross-source duplicates) and `rows`.
+listings with the reason), `collapsed` (each duplicate, the row it went into and
+`why`, see [Duplicates](#duplicates)) and `rows`.
 The live dry run of 2026-10-17, Engage off, answered in 14 s:
 
 ```json

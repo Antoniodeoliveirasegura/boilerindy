@@ -23,6 +23,7 @@ import {
   sharedCalendarCategory,
   sharedCategoriesFor,
   toSharedCalendarItem,
+  withoutOwnDuplicates,
 } from '../src/campusEventsFeed.mjs'
 import { inTribeWindow } from '../src/campusEventsIngest.mjs'
 import { DOWNTOWN_VENUE_KIND, SOURCES, VENUE_KINDS, engageOrgLookup, planCampusEvents, sourceByKey } from '../src/sharedEvents.mjs'
@@ -205,6 +206,29 @@ test('West Lafayette and other-city rows, and members-only sessions, are never l
     campusRow({ title: 'Club tennis practice', open_to_all: false }),
   ]
   assert.deepEqual(titles(planSharedCalendarItems(audience, { now: NOW })), ['Open to students', 'Nothing said'])
+})
+
+// A shared row the student's own calendar already has (a club feed they
+// imported) is listed once, as theirs, by the rule the ingest collapses its
+// sources by.
+test("a shared row that is one event with one of the student's is left out, and the student's row takes its free food", () => {
+  const own = [
+    { id: 'own-1', title: 'Grad School Prep Panel', startTime: '2026-10-27T19:00:00+00:00', allDay: false, location: 'Zoom', category: 'campus_event', freeFood: false },
+    { id: 'own-2', title: 'CS 18000 Lecture', startTime: '2026-10-27T19:00:00+00:00', allDay: false, location: 'LD 010', category: 'class', freeFood: false },
+  ]
+  const shared = [
+    toSharedCalendarItem(campusRow({ title: "What's Next? A Graduate School Preparation Panel", starts_at: '2026-10-27T19:00:00.000Z', location: null, free_food: true })),
+    toSharedCalendarItem(campusRow({ title: 'Study Abroad Pop-In Advising', starts_at: '2026-10-27T19:00:00.000Z' })),
+  ]
+  const { own: mine, shared: listed } = withoutOwnDuplicates(own, shared)
+  assert.deepEqual(titles(listed), ['Study Abroad Pop-In Advising'])
+  assert.equal(mine[0].freeFood, true)
+  assert.equal(mine[1], own[1])
+  // Nothing in common: both lists come back as they were.
+  const none = withoutOwnDuplicates(own.slice(1), shared)
+  assert.equal(none.shared, shared)
+  assert.deepEqual(none.own, own.slice(1))
+  assert.deepEqual(withoutOwnDuplicates([], shared), { own: [], shared })
 })
 
 // Issue #30: White River State Park's rows are downtown. The read lists them,

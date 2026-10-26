@@ -274,10 +274,13 @@ As built: every source above supplies an id, so `dedupe_key` is
 `<source_key>:<id>` and the hash is the fallback for a row without one. Ids
 differ between sources, so the key alone cannot catch the same event
 cross-posted on two of them (Purdue Indy Badminton's weekly hours are on both
-BoilerLink and TheSpot). Each ingest run therefore also collapses rows from
-different sources that share a normalized title and start minute, keeping the
-source listed first above. The sweep runs per source, after a complete fetch:
-rows of that source the run did not write are deleted.
+BoilerLink and TheSpot). Each ingest run therefore also collapses one event
+listed twice, by its start, its title and its place, keeping the source listed
+first above: the same or a similar title in the same minute, the same title on
+an all-day listing's day, or the same room or named venue in the same minute
+([campus-events-ingest.md](campus-events-ingest.md#duplicates) has the rules).
+The sweep runs per source, after a complete fetch: rows of that source the run
+did not write are deleted.
 
 ## Read path
 
