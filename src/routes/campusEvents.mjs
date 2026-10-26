@@ -15,8 +15,9 @@ import { enabledEngageSources } from '../sharedEvents.mjs'
 // `{ "dryRun": true }`) answers the rows a run would write and writes nothing.
 // With CAMPUS_EVENTS_CLASSIFY on, a real run also asks Jev about new and
 // edited listings (src/campusEventsClassify.mjs), and with
-// CAMPUS_EVENTS_DOWNTOWN on it reads White River State Park's calendar too,
-// which the free-food read then lists. See docs/campus-events-ingest.md and,
+// CAMPUS_EVENTS_DOWNTOWN on it reads White River State Park's calendar too
+// (and with CAMPUS_EVENTS_LIBRARY on the Central Library's), which the
+// free-food read then lists. See docs/campus-events-ingest.md and,
 // for the read, docs/campus-events-feed.md.
 
 const ROUTE = 'POST /api/internal/campus-events/ingest'
@@ -100,6 +101,8 @@ function wantsDryRun(req) {
  *   both sites' robots.txt disallows /api/, and only Purdue has agreed (off by default)
  * @param {boolean} [deps.downtownEnabled]       CAMPUS_EVENTS_DOWNTOWN: White River State Park's calendar too
  *   (off by default); a run before README step 49 leaves it out
+ * @param {boolean} [deps.libraryEnabled]        CAMPUS_EVENTS_LIBRARY: with the downtown switch on, the
+ *   Central Library's calendar too (off by default, held for a permission email)
  * @param {Function|null} [deps.classify]        the Jev hook from createCampusEventsClassifier
  *   (CAMPUS_EVENTS_CLASSIFY with TYPESAFE_API_KEY), null when classification is off
  * @param {object}  [deps.ingestOptions]         passed to runCampusEventsIngest (tests hand in
@@ -113,6 +116,7 @@ export function createCampusEventsRouter({
   clubDirectoryCache,
   engageEnabled = false,
   downtownEnabled = false,
+  libraryEnabled = false,
   classify = null,
   ingestOptions = {},
 }) {
@@ -138,7 +142,7 @@ export function createCampusEventsRouter({
         const { directory } = await clubDirectoryCache.get()
         if (directory?.ok) clubs = directory.clubs
       }
-      const summary = await runCampusEventsIngest({ ...ingestOptions, client: supabase, dryRun, engageEnabled, downtownEnabled, clubs, classify })
+      const summary = await runCampusEventsIngest({ ...ingestOptions, client: supabase, dryRun, engageEnabled, downtownEnabled, libraryEnabled, clubs, classify })
       // A downtown source left out before README step 49 reads as skipped.
       const brief = summary.sources
         .filter((s) => s.enabled)

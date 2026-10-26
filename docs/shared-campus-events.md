@@ -7,7 +7,8 @@ The read path (step 4) lists the table on `/events` and `/free-food` behind
 `CAMPUS_EVENTS_FEED`, off by default ([campus-events-feed.md](campus-events-feed.md)).
 The first source beyond campus, White River State Park's events calendar
 (below), is built behind `CAMPUS_EVENTS_DOWNTOWN`, also off by default, with
-README step 49 ([campus-events-ingest.md](campus-events-ingest.md#downtown-events)).
+README step 49 ([campus-events-ingest.md](campus-events-ingest.md#downtown-events));
+the Central Library's is built behind `CAMPUS_EVENTS_LIBRARY` on top of it.
 
 ## The problem
 
@@ -164,6 +165,25 @@ games passed the place rule by the team name, so that group is excluded).
   "Indianapolis, Ind." and its venue, an away game another city. The rows read
   "Jaguars (IU)" under the IU pill.
 
+### PurdueME's events calendar (The Events Calendar): on
+
+Added 2026-10-26 (issue #30): Purdue Mechanical Engineering's department
+calendar, a source Campus Bord reads and Purdue's calendar only partly
+repeats (17 of its 24 listings were not on Purdue's group that day).
+
+- URL: `https://purdueme.com/wp-json/tribe/events/v1/events?categories=indianapolis&start_date=<YYYY-MM-DD>&end_date=<YYYY-MM-DD>&per_page=50&page=<n>`,
+  a 60-day window.
+- Format: The Events Calendar's REST JSON, as the park's.
+- Terms: no key; robots.txt disallows only `/wp-admin/`, so the query string
+  is fine. No terms page on the site.
+- Volume on 2026-10-26: 24 listings, 12 also tagged `west-lafayette` (exam
+  reviews in West Lafayette's buildings), which drop as away unless online: 13
+  rows, 7 of which collapse into Purdue's calendar's.
+- Ids: the post id, one per occurrence.
+- Filter: a campus room ("SL 165", "ET Atrium", "IO 105"), or the category's
+  word for a listing with no venue; the rows read "Purdue ME" under the Purdue
+  pill.
+
 ### White River State Park's events calendar (The Events Calendar): off by default
 
 The first downtown source (issue #30): the park's museums, zoo and lawns are a
@@ -216,12 +236,30 @@ walk from campus, but they are not the campus, so its rows say so (venue
   Treat (treats for children along the canal). Only the keyword matcher, or
   Jev with `CAMPUS_EVENTS_CLASSIFY` on, counts: none of the 19 had free food.
 
+### The Central Library's events (Indianapolis Public Library, a Communico calendar file): built, off until the library agrees
+
+Built 2026-10-26 (issue #30) behind its own switch, `CAMPUS_EVENTS_LIBRARY`,
+on top of `CAMPUS_EVENTS_DOWNTOWN`: on 2026-10-18 the owner held this feed for
+a permission email to the library, and the switch stays off until it is
+answered.
+
+- URL: `https://attend.indypl.org/feeds?data=<base64 JSON>`, the library's own
+  "Subscribe" link, filtered to the Central Library (location 1590), the ages
+  "Adults" and "Teens", and 60 days.
+- Format: iCalendar, read by the same calendar platform as the Jaguars' file.
+- Terms: no key; robots.txt blocks only the search pages; no reuse terms found.
+- Volume on 2026-10-26: 96 teen and adult events in 60 days (130 for every
+  age), all at the Central Library, 1.8 km from campus.
+- Ids: the event's numeric UID; the link is `https://attend.indypl.org/event/<UID>`,
+  since the file names none.
+- Filter: its coordinates (`near`); every row is `venue_kind` `downtown`,
+  labeled "Downtown" under the Downtown pill.
+
 Not chosen yet, each a later change: the other city sources for #30 (the
 Ticketmaster Discovery API needs a key, set aside by the owner's call of
-2026-10-18; the Indianapolis Public Library's iCal feed waits on a permission
-email; Visit Indy and Do317 ban scraping in their terms and need a feed
-agreement) and IU Indy Jaguars athletics (an ICS feed with a 30-second crawl
-delay).
+2026-10-18; Visit Indy and Do317 ban scraping in their terms and need a feed
+agreement; Lucas Oil Stadium and the Eiteljorg run The Events Calendar like the
+park, but their terms forbid commercial republication without permission).
 
 ## Schema sketch
 

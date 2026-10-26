@@ -3,7 +3,8 @@
 // docs/shared-campus-events.md settled the sources: Purdue's events calendar
 // (Localist, group "Purdue in Indianapolis"), IU's events calendar (LiveWhale,
 // category "IU Indianapolis"), IU Indy athletics' schedule (a calendar file,
-// its home games), behind CAMPUS_EVENTS_ENGAGE the Anthology
+// its home games), PurdueME's calendar (The Events Calendar, its
+// "indianapolis" category), behind CAMPUS_EVENTS_ENGAGE the Anthology
 // Engage event search on BoilerLink and TheSpot, and behind
 // CAMPUS_EVENTS_DOWNTOWN the first source beyond campus, White River State
 // Park's events calendar (The Events Calendar). This module turns their raw
@@ -103,6 +104,23 @@ export const SOURCES = Object.freeze([
     everyOrgIsIndianapolis: false,
   }),
   Object.freeze({
+    key: 'purdueme',
+    platform: 'tribe',
+    label: "Purdue Mechanical Engineering's events calendar (The Events Calendar)",
+    origin: 'https://purdueme.com',
+    // Its robots.txt allows a query string (only /wp-admin/ is disallowed), so
+    // the site is asked for its "indianapolis" category, a page at a time.
+    query: Object.freeze({ categories: 'indianapolis' }),
+    maxPages: 5,
+    days: 60,
+    engage: false,
+    // That category also carries West Lafayette's events, tagged with both
+    // campuses (exam reviews in PHYS and WTHR): those count as away unless they
+    // are online or a place puts them on this campus.
+    awayCategories: Object.freeze(['west-lafayette']),
+    indianapolisScope: true,
+  }),
+  Object.freeze({
     key: 'thespot',
     platform: 'engage',
     label: 'TheSpot (Anthology Engage)',
@@ -138,6 +156,26 @@ export const SOURCES = Object.freeze([
     downtown: true,
     // The park's own calendar: a listing with nothing to place it (the Canal
     // Walk has no address) is taken at its word.
+    indianapolisScope: true,
+  }),
+  Object.freeze({
+    key: 'indypl_central',
+    platform: 'ics',
+    label: "Indianapolis Public Library's Central Library events (Communico calendar file)",
+    origin: 'https://attend.indypl.org',
+    // The library's calendar file for its Central Library (location 1590),
+    // teen and adult events only, 60 days out.
+    path: communicoFeedPath({ location: ['1590'], ages: ['Adults', 'Teens'], days: 60 }),
+    // The file has no URL per event; this is each event's page.
+    eventUrl: 'https://attend.indypl.org/event/{uid}',
+    days: 60,
+    engage: false,
+    downtown: true,
+    // Read only with CAMPUS_EVENTS_LIBRARY on as well: on 2026-10-18 the owner
+    // held this feed for a permission email to the library.
+    library: true,
+    // The library's own calendar for its own building: every event carries its
+    // coordinates, 1.8 km from campus.
     indianapolisScope: true,
   }),
 ])
@@ -465,11 +503,14 @@ function buildEvent(source, listing) {
   else if (westLafayette) venueKind = 'west_lafayette'
   else if (otherCity || point) venueKind = 'elsewhere'
 
+  // A source may say a listing is another campus's (PurdueME's "west-lafayette"
+  // tag); that stands unless the listing is online.
+  const awayByListing = listing.away === true && !online
   const decision = indianapolisDecision({
     org: listing.org === true,
     place,
     near,
-    away: westLafayetteText || otherCity,
+    away: westLafayetteText || otherCity || awayByListing,
     hasCoordinates: point != null,
     scope: Boolean(source.indianapolisScope),
   })
@@ -641,12 +682,13 @@ export function engageOrgLookup(clubs) {
   }
 }
 
-// ── The Events Calendar (White River State Park) ────────────────────────────
+// ── The Events Calendar (White River State Park, PurdueME) ──────────────────
 
 // The park's site sets The Events Calendar's time zone to "UTC+0", and every
 // listing's utc_start_date repeats its start_date (a museum opening reads
 // 10:00 in both). Its times are the wall clock in Indianapolis, so they are
-// read in the campus zone and the "UTC" fields are ignored.
+// read in the campus zone and the "UTC" fields are ignored. PurdueME's site
+// says America/Indiana/Indianapolis, so its start_date reads the same way.
 const CAMPUS_TIME_ZONE = 'America/Indiana/Indianapolis'
 const WALL_CLOCK_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
 const CAMPUS_CLOCK = new Intl.DateTimeFormat('en-US', {
@@ -722,10 +764,12 @@ function tribeCategory(names) {
 
 /**
  * A listing of The Events Calendar's REST API (`events[]` of
- * /wp-json/tribe/events/v1/events) to a row: White River State Park's
- * calendar, keyed by the listing's post id, one per occurrence. Its times are
- * campus wall-clock times (campusWallClockToIso). A series is one title at one
- * venue (the two Twilight Tales nights at the Indiana State Museum).
+ * /wp-json/tribe/events/v1/events) to a row: White River State Park's or
+ * PurdueME's calendar, keyed by the listing's post id, one per occurrence.
+ * Its times are campus wall-clock times (campusWallClockToIso). A series is
+ * one title at one venue (the two Twilight Tales nights at the Indiana State
+ * Museum). A listing tagged with one of the source's `awayCategories`
+ * (PurdueME's "west-lafayette") is another campus's unless it is online.
  *
  * Free entry is never free food here, alone or with food in the text: the
  * park's "Free Event" category and a cost of "Free" mean admission, and its
@@ -741,7 +785,9 @@ export function normalizeTribeEvent(raw, source = sourceByKey('wrsp_events')) {
   const venue = raw.venue && typeof raw.venue === 'object' && !Array.isArray(raw.venue) ? raw.venue : {}
   const title = clean(raw.title)
   const description = tribeText(raw.description)
+  const slugs = toArray(raw.categories).map((term) => String(term?.slug ?? '').toLowerCase())
   return buildEvent(source, {
+    away: toArray(source.awayCategories).some((slug) => slugs.includes(slug)),
     externalUid: raw.id,
     title,
     description,
@@ -768,14 +814,31 @@ export function normalizeTribeEvent(raw, source = sourceByKey('wrsp_events')) {
 const ICS_RESULT_RE = /^\s*\[[A-Z]\]\s*/
 
 /**
+ * The path of a Communico calendar file (the Indianapolis Public Library's
+ * "Subscribe" link): its filters as base64 JSON in `data`. The library's own
+ * subscribe links use these names for the ages ("Adults", "Teens").
+ */
+export function communicoFeedPath({ location, ages, days }) {
+  const filters = { location, ages, types: ['all'], tags: [], term: '', days }
+  const data = Buffer.from(JSON.stringify({ feedType: 'ical', filters })).toString('base64')
+  return `/feeds?data=${encodeURIComponent(data)}`
+}
+
+// A location that ends in its own separator: the library writes "Central
+// Library - " when an event names no room.
+const TRAILING_SEPARATOR_RE = /\s*[-,|]\s*$/
+
+/**
  * One event of a calendar file, as src/campusEventsIngest.mjs reads it out of
  * the parsed file (icsListings: `uid`, `summary`, `description`, `location`,
- * `url`, `start` and `end` as ISO, `allDay`, `status`), to a row keyed by its
- * UID. The game's result leaves the title, so a played game keeps its row and
- * its content hash; the description drops its first line when that line
- * repeats the title (Sidearm's does), keeping the TV, streaming and ticket
- * lines. The source's own category (`sports_fitness` for athletics). Null for
- * a cancelled event or one without a title or a start.
+ * `url`, `start` and `end` as ISO, `allDay`, `status`, `lat` and `lon`), to a
+ * row keyed by its UID. The game's result leaves the title, so a played game
+ * keeps its row and its content hash; the description drops its first line
+ * when that line repeats the title (Sidearm's does), keeping the TV, streaming
+ * and ticket lines. The link is the event's URL, or the source's `eventUrl`
+ * with the UID for a file without one (the library's). The source's own
+ * category (`sports_fitness` for athletics). Null for a cancelled event or
+ * one without a title or a start.
  */
 export function normalizeIcsEvent(raw, source) {
   if (!raw || typeof raw !== 'object' || !source) return null
@@ -784,15 +847,19 @@ export function normalizeIcsEvent(raw, source) {
   const lines = String(raw.description ?? '').split(/\r?\n/).map((line) => line.trim())
   if (lines.length && clean(lines[0].replace(ICS_RESULT_RE, '')) === title) lines.shift()
   const description = lines.filter(Boolean).join('\n')
+  const uid = String(raw.uid ?? '').trim()
+  const url = String(raw.url ?? '').trim()
   return buildEvent(source, {
-    externalUid: raw.uid,
+    externalUid: uid,
     title,
     description,
-    location: raw.location,
+    location: clean(raw.location).replace(TRAILING_SEPARATOR_RE, ''),
     startsAt: raw.start,
     endsAt: raw.end,
     allDay: raw.allDay === true,
-    sourceUrl: decodeEntities(String(raw.url ?? '')),
+    lat: raw.lat,
+    lon: raw.lon,
+    sourceUrl: url ? decodeEntities(url) : uid && source.eventUrl ? source.eventUrl.replace('{uid}', encodeURIComponent(uid)) : null,
     category: source.category ?? null,
     freeFood: hasFreeFood(title, description),
     sourceFreeFood: false,

@@ -57,9 +57,11 @@ export const SOURCE_LABELS = Object.freeze({
   purdue_events: 'Purdue event',
   iu_events: 'IU event',
   boilerlink: 'BoilerLink',
+  purdueme: 'Purdue ME',
   thespot: 'TheSpot (IU)',
   iu_athletics: 'Jaguars (IU)',
   wrsp_events: 'Downtown',
+  indypl_central: 'Downtown',
 })
 
 /**

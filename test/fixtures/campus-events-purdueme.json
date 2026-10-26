@@ -1,0 +1,651 @@
+{
+  "events": [
+    {
+      "id": 25666,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/pizza-with-a-professor-6/",
+      "title": "Pizza with a Professor",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-27 12:00:00",
+      "end_date": "2026-10-27 12:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 19547,
+        "venue": "SL 165",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25606,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/grad-school-prep-panel/",
+      "title": "Grad School Prep Panel",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-27 15:00:00",
+      "end_date": "2026-10-27 16:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 18358,
+        "venue": "Zoom",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25226,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-323-exam-review-session-8/",
+      "title": "ME 323 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-27 18:30:00",
+      "end_date": "2026-10-27 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 25219,
+        "venue": "PHYS 223",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 24686,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/study-abroad-pop-in-advising-4/",
+      "title": "Study Abroad Pop In Advising",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-28 10:30:00",
+      "end_date": "2026-10-28 14:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 21735,
+        "venue": "ET Building, First Floor",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25552,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/enggap-graduate-school-fair/",
+      "title": "EngGAP: Graduate School Fair",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-28 17:00:00",
+      "end_date": "2026-10-28 19:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 25554,
+        "venue": "EL",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25690,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/beyond-the-track/",
+      "title": "Beyond the Track",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-28 18:00:00",
+      "end_date": "2026-10-28 19:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 20215,
+        "venue": "IO 105",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25663,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/halloween-crawl-2/",
+      "title": "Halloween Crawl",
+      "description": "",
+      "all_day": true,
+      "start_date": "2026-10-29 00:00:00",
+      "end_date": "2026-10-29 23:59:59",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": []
+    },
+    {
+      "id": 25677,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/indot-x-purdue-in-indianapolis/",
+      "title": "INDOT x Purdue in Indianapolis",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-10-29 11:00:00",
+      "end_date": "2026-10-29 14:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 25679,
+        "venue": "Indiana State Library",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25207,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-274-exam-review-session-8/",
+      "title": "ME 274 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-02 18:30:00",
+      "end_date": "2026-11-02 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 18868,
+        "venue": "WTHR 104",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25231,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-354-exam-review-session-8/",
+      "title": "ME 354 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-02 18:30:00",
+      "end_date": "2026-11-02 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 17746,
+        "venue": "ME 1130",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25197,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-200-exam-review-session-11/",
+      "title": "ME 200 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-03 18:30:00",
+      "end_date": "2026-11-03 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 22639,
+        "venue": "FRNY G140",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25700,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/fall-speaker-series-stephen-cavit/",
+      "title": "Fall Speaker Series: Stephen Cavit",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-04 12:00:00",
+      "end_date": "2026-11-04 13:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 21958,
+        "venue": "UL &#8211; Lilly Auditorium",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25364,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/minnesota-me-graduate-program-info-session-2/",
+      "title": "Minnesota ME Graduate Program Info Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-04 13:00:00",
+      "end_date": "2026-11-04 13:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": []
+    },
+    {
+      "id": 25697,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/real-talk-with-adam-scott/",
+      "title": "Real Talk with Adam Scott",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-04 13:00:00",
+      "end_date": "2026-11-04 15:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 25413,
+        "venue": "ET 002",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25202,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-270-exam-review-session-8/",
+      "title": "ME 270 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-04 18:30:00",
+      "end_date": "2026-11-04 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 18868,
+        "venue": "WTHR 104",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25693,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/a-partners-in-music-education-program-concert/",
+      "title": "A Partners in Music Education Program Concert",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-04 19:00:00",
+      "end_date": "2026-11-04 19:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 25695,
+        "venue": "Hilbert Circle Theater",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25236,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-365-exam-review-session-8/",
+      "title": "ME 365 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-05 18:30:00",
+      "end_date": "2026-11-05 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 21300,
+        "venue": "WTHR 172",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25241,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-375-exam-review-session-8/",
+      "title": "ME 375 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-05 18:30:00",
+      "end_date": "2026-11-05 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 18273,
+        "venue": "PHYS 203",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 24688,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/study-abroad-pop-in-advising-5/",
+      "title": "Study Abroad Pop In Advising",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-11 10:30:00",
+      "end_date": "2026-11-11 14:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 21735,
+        "venue": "ET Building, First Floor",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 25213,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/me-308-exam-review-session-8/",
+      "title": "ME 308 Exam Review Session",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-12 18:30:00",
+      "end_date": "2026-11-12 19:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": {
+        "id": 21036,
+        "venue": "BHEE 170",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 24908,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/free-food-friday-34/",
+      "title": "Free Food Friday",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-13 11:00:00",
+      "end_date": "2026-11-13 12:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 19324,
+        "venue": "ET Atrium",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 24854,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/leed-green-training-3/",
+      "title": "LEED Green Training",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-11-21 13:00:00",
+      "end_date": "2026-11-21 17:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": []
+    },
+    {
+      "id": 24910,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/free-food-friday-35/",
+      "title": "Free Food Friday",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-12-04 11:00:00",
+      "end_date": "2026-12-04 12:00:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        }
+      ],
+      "venue": {
+        "id": 19324,
+        "venue": "ET Atrium",
+        "address": "",
+        "city": "",
+        "geo_lat": null,
+        "geo_lng": null
+      }
+    },
+    {
+      "id": 24856,
+      "status": "publish",
+      "hide_from_listings": false,
+      "url": "https://purdueme.com/event/leed-green-training-4/",
+      "title": "LEED Green Training",
+      "description": "",
+      "all_day": false,
+      "start_date": "2026-12-19 13:00:00",
+      "end_date": "2026-12-19 17:30:00",
+      "timezone": "America/Indiana/Indianapolis",
+      "categories": [
+        {
+          "name": "Indianapolis",
+          "slug": "indianapolis"
+        },
+        {
+          "name": "West Lafayette",
+          "slug": "west-lafayette"
+        }
+      ],
+      "venue": []
+    }
+  ],
+  "rest_url": "https://purdueme.com/wp-json/tribe/events/v1/events/?categories=indianapolis&per_page=50&page=1",
+  "total": 24,
+  "total_pages": 1
+}

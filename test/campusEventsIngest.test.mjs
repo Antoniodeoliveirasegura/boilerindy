@@ -42,6 +42,20 @@ const WRSP_NOW = new Date('2026-10-24T21:30:00.000Z')
 // 30, the November 19 swim meet) and three away ones.
 const IUINDYJAGS = readFileSync(new URL('./fixtures/campus-events-iuindyjags.ics', import.meta.url), 'utf8')
 const ATHLETICS_ROWS = 3
+// PurdueME's "indianapolis" category as fetched on 2026-10-26: 13 rows planned
+// (11 West Lafayette listings drop as away), one of which, its all-day
+// Halloween Crawl, collapses into Purdue's "CoE Halloween Crawl".
+const PURDUEME = fixture('campus-events-purdueme.json')
+const PURDUEME_PLANNED = 13
+const PURDUEME_ROWS = PURDUEME_PLANNED - 1
+const HALLOWEEN_CRAWL = { kept: 'purdue_events:54045913665054', dropped: 'purdueme:25663', title: 'CoE Halloween Crawl', why: 'day' }
+// What the sources that are always on besides the two calendars add to a run.
+const ALWAYS_ON_ROWS = ATHLETICS_ROWS + PURDUEME_ROWS
+// Eight teen and adult events of the Central Library's calendar file, fetched
+// on 2026-10-26, all in a run's window from the 24th: downtown rows, like the
+// park's, read only with CAMPUS_EVENTS_DOWNTOWN on.
+const INDYPL = readFileSync(new URL('./fixtures/campus-events-indypl.ics', import.meta.url), 'utf8')
+const LIBRARY_ROWS = 8
 
 const NOW = new Date('2026-10-17T12:00:00.000Z')
 const RUN_AT = NOW.toISOString()
@@ -67,6 +81,8 @@ const bySource = (overrides = {}) => (url) => {
     'boilerlink.purdue.edu': () => json(BOILERLINK),
     'thespot.indianapolis.iu.edu': () => json(THESPOT),
     'iuindyjags.com': () => calendar(IUINDYJAGS),
+    'purdueme.com': () => json(PURDUEME),
+    'attend.indypl.org': () => calendar(INDYPL),
     'whiteriverstatepark.org': () => json(WRSP),
     ...overrides,
   }
@@ -197,6 +213,8 @@ test('a calendar file reads as plain listings; a date-only event starts at campu
     end: '2026-09-26T21:00:00.000Z',
     allDay: false,
     status: '',
+    lat: null,
+    lon: null,
   })
   assert.match(listings[0].description, /^\[W\] IU Indy Volleyball vs Robert Morris\nW 3-2\n/)
   // The swim meet is all day on November 19 (EST) and the DeKalb tennis on
@@ -236,12 +254,55 @@ test("the season's file is kept from today on the campus calendar to 60 days out
   assert.match(failed.error, /iu_athletics responded 500/)
 })
 
+test("the Central Library's file asks for its location, teens and adults, 60 days; its events carry coordinates", () => {
+  const url = new URL(icsPageUrl(sourceByKey('indypl_central')))
+  assert.equal(`${url.origin}${url.pathname}`, 'https://attend.indypl.org/feeds')
+  assert.deepEqual(JSON.parse(Buffer.from(url.searchParams.get('data'), 'base64').toString('utf8')), {
+    feedType: 'ical',
+    filters: { location: ['1590'], ages: ['Adults', 'Teens'], types: ['all'], tags: [], term: '', days: 60 },
+  })
+  const listings = icsListings(INDYPL)
+  assert.equal(listings.length, 8)
+  // node-ical keys events by UID, and numeric keys come out in number order,
+  // not the file's: the order never matters, since the plan sorts by start.
+  const watchlist = listings.find((raw) => raw.uid === '17569512')
+  assert.deepEqual(
+    [watchlist.summary, watchlist.location, watchlist.url, watchlist.lat, watchlist.lon],
+    ['Teen Watchlist', 'Central Library - ', '', 39.7793029, -86.1568697],
+  )
+  // The Jaguars' file has no GEO.
+  assert.deepEqual([icsListings(IUINDYJAGS)[0].lat, icsListings(IUINDYJAGS)[0].lon], [null, null])
+})
+
+// ── The Events Calendar with a query string: PurdueME (#30) ──────────────────
+
+test("PurdueME's list asks for its category and the window, a page of 50 at a time, up to five pages", async () => {
+  const source = sourceByKey('purdueme')
+  assert.equal(
+    tribePageUrl(source, 1, NOW),
+    'https://purdueme.com/wp-json/tribe/events/v1/events?categories=indianapolis&start_date=2026-10-17&end_date=2026-12-16&per_page=50&page=2',
+  )
+  // The park's stays bare whatever page is asked for.
+  assert.equal(tribePageUrl(sourceByKey('wrsp_events'), 1, NOW), 'https://whiteriverstatepark.org/wp-json/tribe/events/v1/events')
+
+  const [first, second] = [PURDUEME.events.slice(0, 12), PURDUEME.events.slice(12)]
+  const { fetchImpl, calls } = fakeFetch((url) => json({ events: url.searchParams.get('page') === '1' ? first : second, total: 24, total_pages: 2 }))
+  const result = await fetchSourceListings(source, { fetchImpl, now: ATHLETICS_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual(calls.map((c) => new URL(c.url).searchParams.get('page')), ['1', '2'])
+  assert.deepEqual([result.complete, result.pages, result.listings.length], [true, 2, 24])
+
+  const endless = fakeFetch(() => json({ events: PURDUEME.events.slice(0, 1), total: 999, total_pages: 99 }))
+  const cut = await fetchSourceListings(source, { fetchImpl: endless.fetchImpl, now: ATHLETICS_NOW, sleep: noSleep, log: quiet })
+  assert.equal(endless.calls.length, 5)
+  assert.deepEqual([cut.complete, cut.error], [false, 'purdueme has more than 5 pages'])
+})
+
 // ── Runs ────────────────────────────────────────────────────────────────────
 
-test("a dry run fetches the two calendars and the Jaguars' schedule, leaves Engage alone and touches no database", async () => {
+test("a dry run fetches the two calendars, PurdueME and the Jaguars' schedule, leaves Engage alone and touches no database", async () => {
   const { fetchImpl, calls } = fakeFetch(bySource())
   const summary = await runCampusEventsIngest({ dryRun: true, fetchImpl, now: NOW, sleep: noSleep, log: quiet })
-  assert.deepEqual([...new Set(calls.map((c) => new URL(c.url).hostname))], ['events.purdue.edu', 'events.iu.edu', 'iuindyjags.com'])
+  assert.deepEqual([...new Set(calls.map((c) => new URL(c.url).hostname))], ['events.purdue.edu', 'events.iu.edu', 'purdueme.com', 'iuindyjags.com'])
   assert.equal(summary.ok, true)
   assert.equal(summary.dryRun, true)
   assert.equal(summary.startedAt, RUN_AT)
@@ -249,11 +310,13 @@ test("a dry run fetches the two calendars and the Jaguars' schedule, leaves Enga
     { key: 'purdue_events', enabled: true, ok: true, complete: true, rows: 9 },
     { key: 'iu_events', enabled: true, ok: true, complete: true, rows: 8 },
     { key: 'boilerlink', enabled: false, ok: undefined, complete: undefined, rows: undefined },
+    { key: 'purdueme', enabled: true, ok: true, complete: true, rows: PURDUEME_PLANNED },
     { key: 'thespot', enabled: false, ok: undefined, complete: undefined, rows: undefined },
     { key: 'iu_athletics', enabled: true, ok: true, complete: true, rows: ATHLETICS_ROWS },
   ])
-  assert.equal(summary.rows.length, 17 + ATHLETICS_ROWS)
-  assert.equal(summary.totals.rows, 17 + ATHLETICS_ROWS)
+  assert.deepEqual(summary.collapsed, [HALLOWEEN_CRAWL])
+  assert.equal(summary.rows.length, 17 + ALWAYS_ON_ROWS)
+  assert.equal(summary.totals.rows, 17 + ALWAYS_ON_ROWS)
   assert.ok(summary.rows.every((row) => !('last_seen_at' in row)))
   assert.equal(summary.upserted, undefined)
   assert.ok(summary.dropped.some((d) => d.title === '93rd Annual Purdue Christmas Show' && d.why === 'far'))
@@ -266,14 +329,14 @@ test('a run upserts every row on dedupe_key with this run as last_seen_at, then 
   const [upsert] = supabase.queriesOf('campus_events').filter((q) => operation(q.chain) === 'upsert')
   assert.ok(hasCall(upsert.chain, 'upsert', upsertedRows(supabase), { onConflict: 'dedupe_key' }))
   const rows = upsertedRows(supabase)
-  assert.equal(rows.length, 17 + ATHLETICS_ROWS)
+  assert.equal(rows.length, 17 + ALWAYS_ON_ROWS)
   assert.ok(rows.every((row) => row.last_seen_at === RUN_AT && !('classifier' in row)))
-  assert.equal(summary.upserted, 17 + ATHLETICS_ROWS)
+  assert.equal(summary.upserted, 17 + ALWAYS_ON_ROWS)
   assert.equal(summary.rows, undefined)
 
   const swept = sweeps(supabase)
-  assert.equal(swept.length, 3)
-  for (const [i, key] of ['purdue_events', 'iu_events', 'iu_athletics'].entries()) {
+  assert.equal(swept.length, 4)
+  for (const [i, key] of ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics'].entries()) {
     assert.ok(hasCall(swept[i].chain, 'delete', { count: 'exact' }))
     assert.ok(hasCall(swept[i].chain, 'eq', 'source_key', key))
     assert.ok(hasCall(swept[i].chain, 'lt', 'last_seen_at', RUN_AT))
@@ -286,20 +349,23 @@ test('with Engage on, BoilerLink and TheSpot join, the club directory names Indi
   const clubs = [{ id: '398688', indianapolis: true }, { id: '398920', indianapolis: true }, { id: '420527', indianapolis: true }]
   const summary = await runCampusEventsIngest({ dryRun: true, engageEnabled: true, clubs, fetchImpl, now: NOW, sleep: noSleep, log: quiet })
   assert.deepEqual([...new Set(calls.map((c) => new URL(c.url).hostname))], [
-    'events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'thespot.indianapolis.iu.edu', 'iuindyjags.com',
+    'events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'purdueme.com', 'thespot.indianapolis.iu.edu', 'iuindyjags.com',
   ])
-  assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, true, true])
+  assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, true, true, true])
   assert.deepEqual(summary.sources[2].keptBy, { place: 5, org: 3, near: 1 })
-  assert.deepEqual(summary.collapsed, [{ kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours', why: 'title' }])
-  assert.equal(summary.rows.length, 31 + ATHLETICS_ROWS)
+  assert.deepEqual(summary.collapsed, [
+    HALLOWEEN_CRAWL,
+    { kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours', why: 'title' },
+  ])
+  assert.equal(summary.rows.length, 31 + ALWAYS_ON_ROWS)
 })
 
 test('with only BoilerLink named, TheSpot is never fetched', async () => {
   const { fetchImpl, calls } = fakeFetch(bySource())
   const summary = await runCampusEventsIngest({ dryRun: true, engageEnabled: ['boilerlink'], fetchImpl, now: NOW, sleep: noSleep, log: quiet })
-  assert.deepEqual([...new Set(calls.map((c) => new URL(c.url).hostname))], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'iuindyjags.com'])
-  assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, false, true])
-  assert.deepEqual(summary.collapsed, [])
+  assert.deepEqual([...new Set(calls.map((c) => new URL(c.url).hostname))], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'purdueme.com', 'iuindyjags.com'])
+  assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, true, false, true])
+  assert.deepEqual(summary.collapsed, [HALLOWEEN_CRAWL])
 })
 
 test('a source that fails is reported and not swept; the rest of the run goes on', async () => {
@@ -311,8 +377,8 @@ test('a source that fails is reported and not swept; the rest of the run goes on
   assert.equal(iu.complete, false)
   assert.match(iu.error, /iu_events responded 500/)
   assert.equal(iu.swept, undefined)
-  assert.equal(summary.upserted, 9 + ATHLETICS_ROWS)
-  assert.deepEqual(sweeps(supabase).map((q) => q.chain.find((c) => c.method === 'eq').args[1]), ['purdue_events', 'iu_athletics'])
+  assert.equal(summary.upserted, 9 + ALWAYS_ON_ROWS)
+  assert.deepEqual(sweeps(supabase).map((q) => q.chain.find((c) => c.method === 'eq').args[1]), ['purdue_events', 'purdueme', 'iu_athletics'])
 })
 
 test('a source that answers no listings is not swept, so an empty answer cannot wipe it', async () => {
@@ -321,7 +387,7 @@ test('a source that answers no listings is not swept, so an empty answer cannot 
   const summary = await runCampusEventsIngest({ client: supabase, fetchImpl, now: NOW, sleep: noSleep, log: quiet })
   assert.equal(summary.sources[0].complete, true)
   assert.equal(summary.sources[0].listings, 0)
-  assert.deepEqual(sweeps(supabase).map((q) => q.chain.find((c) => c.method === 'eq').args[1]), ['iu_events', 'iu_athletics'])
+  assert.deepEqual(sweeps(supabase).map((q) => q.chain.find((c) => c.method === 'eq').args[1]), ['iu_events', 'purdueme', 'iu_athletics'])
 })
 
 test('a failed sweep is logged and left to the next run', async () => {
@@ -331,9 +397,9 @@ test('a failed sweep is logged and left to the next run', async () => {
   const log = { ...quiet, error: (...args) => errors.push(args.join(' ')) }
   const summary = await runCampusEventsIngest({ client: supabase, fetchImpl, now: NOW, sleep: noSleep, log })
   assert.equal(summary.ok, true)
-  assert.equal(summary.upserted, 17 + ATHLETICS_ROWS)
+  assert.equal(summary.upserted, 17 + ALWAYS_ON_ROWS)
   assert.match(summary.sources[0].sweepError, /campus_events sweep: Gateway Timeout \(HTTP 504\)/)
-  assert.equal(errors.length, 3)
+  assert.equal(errors.length, 4)
 })
 
 test('an upsert that fails transiently is retried once; a second failure, or a missing table, rejects', async () => {
@@ -342,7 +408,7 @@ test('an upsert that fails transiently is retried once; a second failure, or a m
   const flaky = database({ upsert: () => (++attempts === 1 ? { data: null, error: { message: 'Gateway Timeout' }, status: 504 } : { error: null }) })
   const summary = await runCampusEventsIngest({ client: flaky, fetchImpl, now: NOW, sleep: noSleep, log: quiet })
   assert.equal(attempts, 2)
-  assert.equal(summary.upserted, 17 + ATHLETICS_ROWS)
+  assert.equal(summary.upserted, 17 + ALWAYS_ON_ROWS)
 
   const down = database({ upsert: () => ({ data: null, error: { message: 'Gateway Timeout' }, status: 504 }) })
   await assert.rejects(runCampusEventsIngest({ client: down, fetchImpl, now: NOW, sleep: noSleep, log: quiet }), (error) => {
@@ -397,9 +463,9 @@ test('before README step 48 the run writes its rows without organization_key, na
   // The first batch is tried once with the column, then every batch goes up without it.
   assert.deepEqual(attempts, [true, false, false])
   assert.equal(summary.ok, true)
-  assert.equal(summary.upserted, 26 + ATHLETICS_ROWS)
+  assert.equal(summary.upserted, 26 + ALWAYS_ON_ROWS)
   assert.equal(summary.organizationKeys, 'column_missing')
-  assert.equal(sweeps(supabase).length, 4, 'the sweep still runs')
+  assert.equal(sweeps(supabase).length, 5, 'the sweep still runs')
   assert.equal(logged.mock.callCount(), 1)
   assert.match(logged.mock.calls[0].arguments[0], /^\[club_follows\] schema missing: run db\/supabase-club-follows\.sql/)
 
@@ -418,12 +484,12 @@ test('the classify hook sees the planned rows; rows it answered are written apar
     return rows.map((row, i) => (i % 2 === 0 ? { ...row, free_food: true, classifier: verdict } : row))
   }
   await runCampusEventsIngest({ client: supabase, fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify })
-  assert.equal(seen.length, 17 + ATHLETICS_ROWS)
+  assert.equal(seen.length, 17 + ALWAYS_ON_ROWS)
   const batches = supabase.queriesOf('campus_events').filter((q) => operation(q.chain) === 'upsert').map((q) => q.chain[0].args[0])
   assert.equal(batches.length, 2)
   assert.ok(batches[0].every((row) => !('classifier' in row)))
   assert.ok(batches[1].every((row) => row.classifier === verdict && row.free_food === true))
-  assert.equal(batches[0].length + batches[1].length, 17 + ATHLETICS_ROWS)
+  assert.equal(batches[0].length + batches[1].length, 17 + ALWAYS_ON_ROWS)
 
   await assert.rejects(
     runCampusEventsIngest({ client: database(), fetchImpl, now: NOW, sleep: noSleep, log: quiet, classify: async () => undefined }),
@@ -447,9 +513,9 @@ test('the classify hook gets the database and the free food the sources state; i
   assert.ok(context.sourceFreeFood instanceof Set)
   assert.deepEqual([...context.sourceFreeFood].sort(), ['iu_events:2440319', 'purdue_events:54231361791375'])
   assert.equal(summary.classify.mode, 'on')
-  assert.equal(summary.classify.answered, 17 + ATHLETICS_ROWS)
-  assert.equal(summary.totals.freeFood, 17 + ATHLETICS_ROWS) // what was written, not what the rules planned
-  assert.equal(upsertedRows(supabase).filter((row) => row.free_food).length, 17 + ATHLETICS_ROWS)
+  assert.equal(summary.classify.answered, 17 + ALWAYS_ON_ROWS)
+  assert.equal(summary.totals.freeFood, 17 + ALWAYS_ON_ROWS) // what was written, not what the rules planned
+  assert.equal(upsertedRows(supabase).filter((row) => row.free_food).length, 17 + ALWAYS_ON_ROWS)
 })
 
 test('a dry run never calls the classifier, which would read the database', async () => {
@@ -534,29 +600,52 @@ test('with CAMPUS_EVENTS_DOWNTOWN off the park is never fetched, and the run and
   const supabase = database()
   const summary = await runCampusEventsIngest({ client: supabase, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
   assert.deepEqual(parkCalls(calls), [])
-  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'iu_athletics'])
-  assert.deepEqual(upsertBatches(supabase).map((batch) => batch.length), [17 + ATHLETICS_ROWS])
-  assert.equal(summary.upserted, 17 + ATHLETICS_ROWS)
-  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'iu_athletics'])
+  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics'])
+  assert.deepEqual(upsertBatches(supabase).map((batch) => batch.length), [17 + ALWAYS_ON_ROWS])
+  assert.equal(summary.upserted, 17 + ALWAYS_ON_ROWS)
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics'])
   const dry = await runCampusEventsIngest({ dryRun: true, downtownEnabled: false, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
-  assert.equal(dry.rows.length, 17 + ATHLETICS_ROWS)
+  assert.equal(dry.rows.length, 17 + ALWAYS_ON_ROWS)
   assert.ok(dry.rows.every((row) => row.source_key !== 'wrsp_events'))
+})
+
+test('the Central Library is read only with CAMPUS_EVENTS_LIBRARY on as well as CAMPUS_EVENTS_DOWNTOWN', async () => {
+  const libraryCalls = (calls) => calls.filter((c) => new URL(c.url).hostname === 'attend.indypl.org')
+  // Downtown on, library off (production's settings when this landed): the park alone.
+  const parkOnly = fakeFetch(bySource())
+  const park = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, fetchImpl: parkOnly.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual(libraryCalls(parkOnly.calls), [])
+  assert.equal(park.sources.at(-1).key, 'wrsp_events')
+  assert.ok(park.rows.every((row) => row.source_key !== 'indypl_central'))
+  // Library on without downtown: still nothing downtown.
+  const noDowntown = fakeFetch(bySource())
+  await runCampusEventsIngest({ dryRun: true, libraryEnabled: true, fetchImpl: noDowntown.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual([...libraryCalls(noDowntown.calls), ...parkCalls(noDowntown.calls)], [])
+  // Both on: one request for the file.
+  const both = fakeFetch(bySource())
+  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, libraryEnabled: true, fetchImpl: both.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.equal(libraryCalls(both.calls).length, 1)
+  assert.equal(summary.sources.at(-1).rows, LIBRARY_ROWS)
 })
 
 test('with it on, a dry run reads the park once and plans its listings as downtown rows, with no database', async () => {
   const { fetchImpl, calls } = fakeFetch(bySource())
-  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, libraryEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
   assert.deepEqual(parkCalls(calls).map((c) => c.url), [PARK_URL])
-  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'iu_athletics', 'wrsp_events'])
-  assert.deepEqual(summary.sources.at(-1), {
+  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events', 'indypl_central'])
+  assert.deepEqual(summary.sources.find((s) => s.key === 'wrsp_events'), {
     key: 'wrsp_events', enabled: true, ok: true, complete: true, pages: 1, error: null,
     listings: 19, skipped: 0, keptBy: { place: 18, scope: 1 }, droppedBy: {}, merged: 0, rows: 19,
   })
   const park = summary.rows.filter((row) => row.source_key === 'wrsp_events')
   assert.equal(park.length, 19)
   assert.ok(park.every((row) => row.venue_kind === 'downtown' && row.free_food === false))
-  assert.equal(summary.rows.length, 17 + ATHLETICS_ROWS + 19)
-  assert.equal(summary.totals.venueKinds.downtown, 19)
+  // The library's events, placed by their coordinates 1.8 km out.
+  const library = summary.rows.filter((row) => row.source_key === 'indypl_central')
+  assert.equal(library.length, LIBRARY_ROWS)
+  assert.ok(library.every((row) => row.venue_kind === 'downtown' && row.location === 'Central Library'))
+  assert.equal(summary.rows.length, 17 + ALWAYS_ON_ROWS + 19 + LIBRARY_ROWS)
+  assert.equal(summary.totals.venueKinds.downtown, 19 + LIBRARY_ROWS)
 })
 
 test('with it on and README step 49 run, one downtown row goes up first, then every row, and the park is swept', async () => {
@@ -564,14 +653,15 @@ test('with it on and README step 49 run, one downtown row goes up first, then ev
   const supabase = database()
   const warnings = []
   const log = { ...quiet, warn: (line) => warnings.push(line) }
-  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
+  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, libraryEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
   const batches = upsertBatches(supabase)
-  assert.deepEqual(batches.map((batch) => batch.length), [1, 36 + ATHLETICS_ROWS])
+  assert.deepEqual(batches.map((batch) => batch.length), [1, 36 + ALWAYS_ON_ROWS + LIBRARY_ROWS])
   assert.deepEqual(batches[0].map((row) => [row.dedupe_key, row.venue_kind, row.last_seen_at]), [['wrsp_events:6909', 'downtown', WRSP_NOW.toISOString()]])
   assert.equal(batches[1].filter((row) => row.source_key === 'wrsp_events').length, 19)
-  assert.equal(summary.upserted, 36 + ATHLETICS_ROWS)
-  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'iu_athletics', 'wrsp_events'])
-  assert.equal(summary.sources.at(-1).swept, 2)
+  assert.equal(batches[1].filter((row) => row.source_key === 'indypl_central').length, LIBRARY_ROWS)
+  assert.equal(summary.upserted, 36 + ALWAYS_ON_ROWS + LIBRARY_ROWS)
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics', 'wrsp_events', 'indypl_central'])
+  assert.equal(summary.sources.find((s) => s.key === 'wrsp_events').swept, 2)
   assert.deepEqual(warnings, [])
 })
 
@@ -585,23 +675,23 @@ test('before README step 49 a run leaves the park out with one log line, and wri
   })
   const warnings = []
   const log = { ...quiet, warn: (line) => warnings.push(line) }
-  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
+  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, libraryEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
   assert.equal(summary.ok, true)
   // The one row it tried alone, then the campus rows by themselves.
   const batches = upsertBatches(supabase)
-  assert.deepEqual(batches.map((batch) => batch.length), [1, 17 + ATHLETICS_ROWS])
-  assert.ok(batches[1].every((row) => row.source_key !== 'wrsp_events'))
-  assert.equal(summary.upserted, 17 + ATHLETICS_ROWS)
-  assert.equal(summary.totals.rows, 17 + ATHLETICS_ROWS)
+  assert.deepEqual(batches.map((batch) => batch.length), [1, 17 + ALWAYS_ON_ROWS])
+  assert.ok(batches[1].every((row) => row.source_key !== 'wrsp_events' && row.source_key !== 'indypl_central'))
+  assert.equal(summary.upserted, 17 + ALWAYS_ON_ROWS)
+  assert.equal(summary.totals.rows, 17 + ALWAYS_ON_ROWS)
   assert.equal(summary.totals.venueKinds.downtown, undefined)
-  // Its entry says why, and a source that was left out is not swept.
-  const park = summary.sources.at(-1)
-  assert.deepEqual([park.key, park.ok, park.schemaMissing, park.rows, park.swept], ['wrsp_events', false, DOWNTOWN_SQL_FILE, 19, undefined])
-  assert.equal(park.error, "left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run")
-  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'iu_athletics'])
-  assert.deepEqual(warnings, [
-    "[campus-events] wrsp_events left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run: run it in the Supabase SQL Editor.",
-  ])
+  // Each downtown entry says why, and a source that was left out is not swept.
+  const reason = "left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run"
+  for (const [key, rows] of [['wrsp_events', 19], ['indypl_central', LIBRARY_ROWS]]) {
+    const entry = summary.sources.find((s) => s.key === key)
+    assert.deepEqual([entry.ok, entry.schemaMissing, entry.rows, entry.swept, entry.error], [false, DOWNTOWN_SQL_FILE, rows, undefined, reason], key)
+  }
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics'])
+  assert.deepEqual(warnings, [`[campus-events] wrsp_events, indypl_central ${reason}: run it in the Supabase SQL Editor.`])
 
   // Any other refusal of that first row fails the run, as a failed write always has.
   const otherCheck = { ...STEP_49_MISSING, message: 'new row for relation "campus_events" violates check constraint "campus_events_category_check"' }

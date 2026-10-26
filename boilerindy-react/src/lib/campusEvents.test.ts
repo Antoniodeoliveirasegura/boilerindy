@@ -81,14 +81,16 @@ describe('timing by the end', () => {
 describe('the source pills', () => {
   const purdue = { shared: true, sourceKey: 'purdue_events' }
   const boilerlink = { shared: true, sourceKey: 'boilerlink' }
+  const purdueme = { shared: true, sourceKey: 'purdueme' }
   const iu = { shared: true, sourceKey: 'iu_events' }
   const thespot = { shared: true, sourceKey: 'thespot' }
   const jaguars = { shared: true, sourceKey: 'iu_athletics' }
   const park = { shared: true, sourceKey: 'wrsp_events' }
+  const library = { shared: true, sourceKey: 'indypl_central' }
   const mine = {}
 
   it("sorts each row by school: Purdue's calendars, IU's, or the student's own", () => {
-    expect([purdue, boilerlink, iu, thespot, jaguars, mine].map(eventSourceOf)).toEqual(['purdue', 'purdue', 'iu', 'iu', 'iu', 'mine'])
+    expect([purdue, boilerlink, purdueme, iu, thespot, jaguars, mine].map(eventSourceOf)).toEqual(['purdue', 'purdue', 'purdue', 'iu', 'iu', 'iu', 'mine'])
     expect(eventSourceOf({ shared: true, sourceKey: 'somewhere_else' })).toBeNull()
     expect(eventSourceOf({ shared: true })).toBeNull()
   })
@@ -108,7 +110,9 @@ describe('the source pills', () => {
   // Downtown pill, after the schools and before the student's own calendar.
   it('gives the downtown rows their own pill, and a downtown row reads as downtown alone', () => {
     expect(eventSourceOf(park)).toBe('downtown')
-    expect(eventSourceCounts([mine, park, iu, park, purdue])).toEqual([
+    // The Central Library's rows share the park's pill.
+    expect(eventSourceOf(library)).toBe('downtown')
+    expect(eventSourceCounts([mine, park, iu, library, purdue])).toEqual([
       { id: 'purdue', label: 'Purdue', count: 1 },
       { id: 'iu', label: 'IU', count: 1 },
       { id: 'downtown', label: 'Downtown', count: 2 },

@@ -697,13 +697,14 @@ app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinking
 // the Engage event searches it names, `boilerlink`, `thespot`, or `on` for both,
 // and the club directory cache built above says which BoilerLink organizations
 // are Indianapolis ones. CAMPUS_EVENTS_DOWNTOWN (off by default) adds White
-// River State Park's calendar, the first downtown source; until README step 49
-// has run a real run leaves it out with one log line. CAMPUS_EVENTS_CLASSIFY
-// (off by default; `shadow` stores the verdicts without using them) with
-// TYPESAFE_API_KEY asks Jev about each new or edited listing
+// River State Park's calendar, the first downtown source, and with
+// CAMPUS_EVENTS_LIBRARY (off by default) the Central Library's; until README
+// step 49 has run a real run leaves them out with one log line.
+// CAMPUS_EVENTS_CLASSIFY (off by default; `shadow` stores the verdicts without
+// using them) with TYPESAFE_API_KEY asks Jev about each new or edited listing
 // (src/campusEventsClassify.mjs).
 const classifyCampusEvents = createCampusEventsClassifier({ apiKey: process.env.TYPESAFE_API_KEY, setting: process.env.CAMPUS_EVENTS_CLASSIFY })
-app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN'), classify: classifyCampusEvents }))
+app.use(createCampusEventsRouter({ supabase, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, clubDirectoryCache, engageEnabled: engageSourcesFromSetting(process.env.CAMPUS_EVENTS_ENGAGE), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN'), libraryEnabled: envSwitch('CAMPUS_EVENTS_LIBRARY'), classify: classifyCampusEvents }))
 
 // ── The student's calendar, classes, tasks, grades, degree and schedule edits ──
 // GET /api/me/calendar, /calendar/categories, /classes and /events, the task

@@ -88,15 +88,27 @@ export function engagePageUrl(source, skip, now) {
   return url.toString()
 }
 
+// The Events Calendar's largest page.
+export const TRIBE_PAGE_SIZE = 50
+
 /**
- * The Events Calendar's event list, with no query string: White River State
- * Park's robots.txt disallows every URL with one (`Disallow: /*?`). Without
- * one the site answers its defaults, every upcoming listing for two years, 50
- * a page (27 on one page on 2026-10-24), and the ingest keeps its own window
- * (inTribeWindow).
+ * The Events Calendar's event list. With no `query` on the source, no query
+ * string at all: White River State Park's robots.txt disallows every URL with
+ * one (`Disallow: /*?`). Without one the site answers its defaults, every
+ * upcoming listing for two years, 50 a page (27 on one page on 2026-10-24),
+ * and the ingest keeps its own window (inTribeWindow). A source whose
+ * robots.txt allows one (PurdueME) is asked for its `query` (a category), the
+ * window and page `index + 1` of TRIBE_PAGE_SIZE.
  */
-export function tribePageUrl(source) {
-  return new URL('/wp-json/tribe/events/v1/events', source.origin).toString()
+export function tribePageUrl(source, index = 0, now = new Date()) {
+  const url = new URL('/wp-json/tribe/events/v1/events', source.origin)
+  if (!source.query) return url.toString()
+  for (const [key, value] of Object.entries(source.query)) url.searchParams.set(key, value)
+  url.searchParams.set('start_date', campusYmd(now))
+  url.searchParams.set('end_date', campusYmd(new Date(now.getTime() + source.days * DAY_MS)))
+  url.searchParams.set('per_page', String(TRIBE_PAGE_SIZE))
+  url.searchParams.set('page', String(index + 1))
+  return url.toString()
 }
 
 /**
@@ -134,9 +146,10 @@ function icsInstant(date, allDay) {
  * The events of a calendar file as plain listings for normalizeIcsEvent in
  * src/sharedEvents.mjs: `uid`, `summary`, `description`, `location`, `url`,
  * `start` and `end` as ISO (an all-day one at campus midnight, its end the
- * next day's as the file writes it), `allDay` and `status`. Null for text that
- * is not a calendar. A repeating event gives its first occurrence: Sidearm's
- * schedule has none.
+ * next day's as the file writes it), `allDay`, `status`, and `lat` and `lon`
+ * from GEO (null without one). Null for text that is not a calendar. A
+ * repeating event gives its first occurrence: neither Sidearm's schedule nor
+ * the library's file has any.
  */
 export function icsListings(text) {
   if (typeof text !== 'string' || !/^\s*BEGIN:VCALENDAR/.test(text)) return null
@@ -160,6 +173,8 @@ export function icsListings(text) {
       end: icsInstant(event.end, allDay),
       allDay,
       status: icalText(event.status),
+      lat: event.geo?.lat ?? null,
+      lon: event.geo?.lon ?? null,
     })
   }
   return listings
@@ -205,10 +220,11 @@ const PLATFORMS = {
       return { items: body.value, more: Number.isFinite(total) && (index + 1) * PAGE_SIZE < total }
     },
   },
-  // One page only (MAX_PAGES.tribe): a second one would need `?page=`, which
-  // robots.txt disallows, so a list that outgrows it reads as incomplete.
+  // The park gets one page only (MAX_PAGES.tribe): a second one would need
+  // `?page=`, which its robots.txt disallows, so a list that outgrows it reads
+  // as incomplete. A source with a `query` pages up to its `maxPages`.
   tribe: {
-    url: (source) => tribePageUrl(source),
+    url: (source, index, now) => tribePageUrl(source, index, now),
     read: (body, index) => {
       if (!Array.isArray(body?.events)) return null
       const total = Number(body.total_pages)
@@ -239,7 +255,7 @@ export async function fetchSourceListings(
   { fetchImpl = globalThis.fetch, now = new Date(), sleep = wait, pageDelayMs = PAGE_DELAY_MS, timeoutMs = PAGE_TIMEOUT_MS, log = console } = {},
 ) {
   const platform = PLATFORMS[source.platform]
-  const maxPages = MAX_PAGES[source.platform]
+  const maxPages = source.maxPages ?? MAX_PAGES[source.platform]
   const listings = []
   let pages = 0
   for (let index = 0; index < maxPages; index += 1) {
@@ -404,7 +420,8 @@ async function leaveOutDowntownWithoutStep49(client, rows, { summary, fetched, r
  * run touches no database.
  *
  * `downtownEnabled` (CAMPUS_EVENTS_DOWNTOWN) adds the downtown sources, White
- * River State Park's calendar; off, they are neither fetched nor in the
+ * River State Park's calendar, and with `libraryEnabled` (CAMPUS_EVENTS_LIBRARY)
+ * as well the Central Library's; off, they are neither fetched nor in the
  * summary, so the run is the one before they existed. A real run before README
  * step 49 leaves them out (leaveOutDowntownWithoutStep49).
  */
@@ -413,6 +430,7 @@ export async function runCampusEventsIngest({
   dryRun = false,
   engageEnabled = false,
   downtownEnabled = false,
+  libraryEnabled = false,
   clubs = [],
   classify = null,
   fetchImpl = globalThis.fetch,
@@ -426,10 +444,13 @@ export async function runCampusEventsIngest({
   const runAt = now.toISOString()
 
   const engage = enabledEngageSources(engageEnabled)
+  // The sources this run reads at all: a downtown one needs CAMPUS_EVENTS_DOWNTOWN,
+  // the library CAMPUS_EVENTS_LIBRARY too.
+  const switchedOn = (source) => (downtownEnabled || !source.downtown) && (libraryEnabled || !source.library)
   const fetched = new Map()
   for (const source of SOURCES) {
     if (source.engage && !engage.has(source.key)) continue
-    if (source.downtown && !downtownEnabled) continue
+    if (!switchedOn(source)) continue
     fetched.set(source.key, await fetchSourceListings(source, { fetchImpl, now, sleep, pageDelayMs, log }))
   }
   const plan = planCampusEvents(
@@ -450,7 +471,7 @@ export async function runCampusEventsIngest({
   }
 
   const planned = new Map(plan.sources.map((stats) => [stats.key, stats]))
-  const sources = SOURCES.filter((source) => downtownEnabled || !source.downtown).map((source) => {
+  const sources = SOURCES.filter(switchedOn).map((source) => {
     const result = fetched.get(source.key)
     if (!result) return { key: source.key, enabled: false }
     const { key, ...stats } = planned.get(source.key)
