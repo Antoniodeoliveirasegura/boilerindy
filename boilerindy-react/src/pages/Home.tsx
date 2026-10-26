@@ -30,6 +30,7 @@ import {
   useScheduleOverrides,
 } from '../lib/scheduleOverrideStore'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
+import { useEntrance } from '../hooks/useEntrance'
 import { allowedSizesFor } from '../lib/dashboardLayoutStore'
 import { useGradeTracker } from '../hooks/useGradeTracker'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
@@ -38,6 +39,7 @@ import AddWidgetPicker from '../components/dashboard/AddWidgetPicker'
 import SponsoredWidget from '../components/dashboard/SponsoredWidget'
 import CampusNewsWidget from '../components/dashboard/CampusNewsWidget'
 import ConfirmDialog from '../components/ConfirmDialog'
+import FlapDigit from '../components/FlapDigit'
 import { useUserLocation } from '../hooks/useUserLocation'
 import { mapHrefForRoom } from '../lib/buildingCode'
 import { localIsoDate, startOfWeek } from '../lib/localDate'
@@ -1345,16 +1347,14 @@ export default function Home() {
                   role="img"
                   aria-label={`${start.toLocaleDateString(undefined, { weekday: 'long' })} ${shortTime(start)}`}
                 >
+                  {/* Each digit rolls over when the next class changes, and in
+                      from a blank tile when the board appears (FlapDigit). */}
                   {flap.hour.map((digit, i) => (
-                    <span key={`h${i}`} className="flap" aria-hidden="true">
-                      {digit}
-                    </span>
+                    <FlapDigit key={`h${i}`} value={digit} index={i} />
                   ))}
                   <span className="flap-sep" aria-hidden="true">:</span>
                   {flap.minute.map((digit, i) => (
-                    <span key={`m${i}`} className="flap" aria-hidden="true">
-                      {digit}
-                    </span>
+                    <FlapDigit key={`m${i}`} value={digit} index={flap.hour.length + i} />
                   ))}
                   <span className="flap-meta" aria-hidden="true">
                     <b>{flap.meridiem}</b>
@@ -2024,6 +2024,12 @@ export default function Home() {
     .filter((w) => !w.visible && widgetRegistry[w.id])
     .map((w) => ({ id: w.id, title: widgetRegistry[w.id].title }))
 
+  // The board paints at once from the saved layout, and each widget loads
+  // inside its own card, so the grid never rises as a whole: a widget that
+  // shows up later (Heads up once something is due, one added back while
+  // customizing) rises by itself (hooks/useEntrance).
+  const widgetsRef = useEntrance<HTMLDivElement>(true)
+
   return (
     <div className="page">
       <PageTitle>Dashboard</PageTitle>
@@ -2107,6 +2113,7 @@ export default function Home() {
       )}
 
       <div
+        ref={widgetsRef}
         className={
           editing
             ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'

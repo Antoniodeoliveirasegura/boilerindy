@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import dns from 'node:dns/promises'
 import express from 'express'
 import ical from 'node-ical'
-import { createSourcesRouter } from '../../src/routes/sources.mjs'
+import { createSourcesPublicRouter, createSourcesRouter } from '../../src/routes/sources.mjs'
 import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 
 // Issue #191: the linked calendar source routes and the source re-sync cron
@@ -18,6 +18,10 @@ import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 // The auto-capture start route launches a visible Chromium once it is past
 // its guards, so every call to it here is signed out, has automation off, or
 // comes from a student with no Purdue link while linking is on.
+//
+// The demo calendars (issue #521) are built in-process, so a test that adds
+// or syncs one hands withApp no feed: a fetch would throw, and the recorded
+// feed URLs and lookups stay empty.
 
 const STUDENT = { id: '11111111-1111-4111-8111-111111111111', email: 'student@example.com', purdue_email: 'student@purdue.edu' }
 const OTHER = { id: '22222222-2222-4222-8222-222222222222', email: 'other@example.com', purdue_email: 'other@purdue.edu' }
@@ -25,6 +29,11 @@ const UNLINKED = { id: '33333333-3333-4333-8333-333333333333', email: 'unlinked@
 const SOURCE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PURDUE_FEED = 'https://timetable.mypurdue.purdue.edu/Timetabling/export?token=feed-token'
 const BRIGHTSPACE_FEED = 'https://purdue.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=feed-token'
+const DEMO_ORIGIN = 'https://www.boilerindy.app'
+const DEMO_PURDUE = `${DEMO_ORIGIN}/api/demo/calendars/purdue-timetable.ics`
+const DEMO_BRIGHTSPACE = `${DEMO_ORIGIN}/api/demo/calendars/brightspace.ics`
+const DEMO_CLASSES = 12 * 15 // twelve weeks of fifteen meetings
+const TASK_CATEGORIES = ['assignment', 'quiz', 'lab', 'project', 'exam']
 const CRON_SECRET = 'cron-secret-for-tests'
 const AUTH = { authorization: `Bearer ${CRON_SECRET}` }
 const LINK_FIRST = 'Link your Purdue account before connecting Purdue schedule data.'
@@ -128,7 +137,7 @@ function linkedSourcesTable(rows) {
 }
 
 async function withApp(
-  { user = STUDENT, isProduction = false, purdueLinkingEnabled = true, cronSecret = CRON_SECRET, rows = [], tables = {}, feed } = {},
+  { user = STUDENT, isProduction = false, purdueLinkingEnabled = true, cronSecret = CRON_SECRET, rows = [], tables = {}, feed, demoCalendarsEnabled = true } = {},
   run,
 ) {
   const supabase = fakeSupabase({
@@ -165,6 +174,8 @@ async function withApp(
       PUSH_CRON_SECRET: cronSecret,
       pushCronSecretMatches: (header) => Boolean(cronSecret) && header === `Bearer ${cronSecret}`,
       warnCronTransient: (route, error) => cronWarnings.push({ route, error }),
+      demoCalendarsEnabled,
+      demoCalendarOrigins: [DEMO_ORIGIN],
     }),
   )
   // Stands in for apiNotFound: where the re-sync route falls through to.
@@ -737,4 +748,189 @@ test('a listing that fails transiently twice answers 503 through warnCronTransie
     assert.equal(supabase.queriesOf('linked_sources').length, 1)
     assert.deepEqual(cronWarnings, [])
   })
+})
+
+// ── Demo calendars (issue #521) ─────────────────────────────────────────────
+
+function insertedRow(supabase) {
+  const insert = supabase.queriesOf('linked_sources').find((q) => operation(q.chain) === 'insert')
+  return insert.chain.find((c) => c.method === 'insert').args[0]
+}
+
+const upsertedItems = (supabase) =>
+  supabase.queriesOf('calendar_items')
+    .filter((q) => operation(q.chain) === 'upsert')
+    .flatMap((q) => q.chain.find((c) => c.method === 'upsert').args[0])
+
+test('a demo calendar link adds a source and imports it with no lookup and no fetch', async () => {
+  await withApp({}, async ({ call, supabase, rows, invalidated, feedUrls, lookups }) => {
+    const res = await call('POST', '/api/sources/purdue/schedule', { icsUrl: DEMO_PURDUE })
+    assert.equal(res.status, 201)
+    const row = insertedRow(supabase)
+    assert.deepEqual([row.user_id, row.source_type, row.label, row.source_url, row.status], [STUDENT.id, 'purdue_schedule_ical', 'Schedule', DEMO_PURDUE, 'pending'])
+    const items = upsertedItems(supabase)
+    assert.equal(items.length, DEMO_CLASSES)
+    assert.ok(items.every((item) => item.category === 'class' && item.source_id === row.id && item.user_id === STUDENT.id))
+    assert.ok(items.some((item) => item.title === 'MA 16600 Lecture' && item.location === 'LDPI 108'))
+    assert.equal(res.body.sync.itemCount, DEMO_CLASSES)
+    assert.equal(res.body.sync.timezone, 'America/Indiana/Indianapolis')
+    assert.equal(rows[0].status, 'ready')
+    assert.deepEqual(invalidated.map((i) => i.userId), [STUDENT.id, STUDENT.id])
+    assert.deepEqual(feedUrls, [])
+    assert.deepEqual(lookups, [])
+  })
+  await withApp({ user: UNLINKED }, async ({ call, supabase, rows, feedUrls, lookups }) => {
+    const res = await call('POST', '/api/sources/brightspace/schedule', { icsUrl: `  ${DEMO_BRIGHTSPACE}  ` })
+    assert.equal(res.status, 201)
+    const row = insertedRow(supabase)
+    assert.deepEqual([row.user_id, row.source_type, row.label, row.source_url], [UNLINKED.id, 'brightspace_ical', 'Brightspace Calendar', DEMO_BRIGHTSPACE])
+    const items = upsertedItems(supabase)
+    assert.ok(items.length > 0)
+    assert.equal(res.body.sync.itemCount, items.length)
+    assert.ok(items.every((item) => TASK_CATEGORIES.includes(item.category)), [...new Set(items.map((item) => item.category))].join())
+    assert.ok(items.some((item) => /^Homework \d+ - MA 16600$/.test(item.title)))
+    assert.equal(rows[0].status, 'ready')
+    assert.deepEqual(feedUrls, [])
+    assert.deepEqual(lookups, [])
+  })
+})
+
+test("the allowlist still refuses every other link, the other provider's demo link and, switched off, the demo links", async () => {
+  const notAllowed = { error: { message: 'That calendar provider is not allowed.', status: 400 } }
+  await withApp({ feed: icsFeed }, async ({ call, supabase, feedUrls, lookups }) => {
+    for (const [path, icsUrl] of [
+      ['/api/sources/brightspace/schedule', DEMO_PURDUE],
+      ['/api/sources/purdue/schedule', DEMO_BRIGHTSPACE],
+      ['/api/sources/brightspace/schedule', 'https://example.com/api/demo/calendars/brightspace.ics'],
+      ['/api/sources/brightspace/schedule', `${DEMO_BRIGHTSPACE}?token=feed-token`],
+      // An origin the server was not handed.
+      ['/api/sources/purdue/schedule', 'https://boilerindy-api.onrender.com/api/demo/calendars/purdue-timetable.ics'],
+    ]) {
+      const res = await call('POST', path, { icsUrl })
+      assert.equal(res.status, 400, `${path} ${icsUrl}`)
+      assert.deepEqual(res.body, notAllowed)
+    }
+    assert.equal(supabase.queries.length, 0)
+    assert.deepEqual(lookups, [])
+    assert.deepEqual(feedUrls, [])
+  })
+  await withApp({ demoCalendarsEnabled: false, feed: icsFeed }, async ({ call, supabase, feedUrls, lookups }) => {
+    for (const [path, icsUrl] of [
+      ['/api/sources/purdue/schedule', DEMO_PURDUE],
+      ['/api/sources/brightspace/schedule', DEMO_BRIGHTSPACE],
+    ]) {
+      const res = await call('POST', path, { icsUrl })
+      assert.equal(res.status, 400, path)
+      assert.deepEqual(res.body, notAllowed)
+    }
+    assert.equal(supabase.queries.length, 0)
+    assert.deepEqual(lookups, [])
+    assert.deepEqual(feedUrls, [])
+  })
+})
+
+test('the re-sync rebuilds demo sources in-process, one added under an earlier origin too, and the debug view reads one the same way', async () => {
+  const rows = [
+    sourceRow({ source_url: 'https://old-site.example.com/api/demo/calendars/brightspace.ics', last_synced_at: null }),
+    sourceRow({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', source_type: 'purdue_schedule_ical', label: 'Schedule', source_url: DEMO_PURDUE }),
+  ]
+  await withApp({ user: null, rows }, async ({ call, supabase, invalidated, feedUrls, lookups, feedWarnings, cronWarnings }) => {
+    const res = await call('POST', '/api/internal/sources/resync', undefined, AUTH)
+    assert.equal(res.status, 200)
+    const items = upsertedItems(supabase)
+    assert.deepEqual(
+      { ...res.body, durationMs: undefined },
+      { ok: true, scanned: 2, truncated: false, due: 2, synced: 2, failed: 0, deferred: 0, items: items.length, failures: [], durationMs: undefined },
+    )
+    assert.equal(items.filter((item) => item.category === 'class').length, DEMO_CLASSES)
+    assert.ok(items.some((item) => item.source_type === 'brightspace_ical' && item.category === 'assignment'))
+    assert.deepEqual(rows.map((row) => row.status), ['ready', 'ready'])
+    assert.deepEqual(invalidated.map((i) => i.userId), [STUDENT.id, STUDENT.id])
+    assert.deepEqual(feedUrls, [])
+    assert.deepEqual(lookups, [])
+    assert.deepEqual(feedWarnings, [])
+    assert.deepEqual(cronWarnings, [])
+  })
+  await withApp({ rows: [sourceRow({ source_type: 'purdue_schedule_ical', source_url: DEMO_PURDUE })] }, async ({ call, feedUrls }) => {
+    const res = await call('GET', `/api/debug/source/${SOURCE_ID}`)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.detectedTimezone, 'America/Indiana/Indianapolis')
+    assert.equal(res.body.rawEventCount, 8)
+    assert.equal(res.body.sampleRawEvents[0].summary, 'MA 16600 Lecture')
+    assert.deepEqual(feedUrls, [])
+  })
+})
+
+test('with DEMO_CALENDARS off, a demo source fails its sync as a dead feed would, still without a fetch', async () => {
+  await withApp({ demoCalendarsEnabled: false, rows: [sourceRow({ source_url: DEMO_BRIGHTSPACE })] }, async ({ call, supabase, rows, invalidated, feedUrls, lookups, feedWarnings }) => {
+    const res = await call('POST', `/api/sync/${SOURCE_ID}`, {})
+    assert.equal(res.status, 400)
+    assert.deepEqual(res.body, { error: { message: 'Could not fetch the calendar feed.', status: 400 } })
+    assert.equal(rows[0].status, 'error')
+    assert.equal(rows[0].last_error, 'Could not fetch the calendar feed.')
+    assert.deepEqual(supabase.queriesOf('calendar_items'), [])
+    assert.deepEqual(invalidated, [])
+    assert.deepEqual(feedUrls, [])
+    assert.deepEqual(lookups, [])
+    assert.deepEqual(feedWarnings, [])
+  })
+})
+
+// ── GET /api/demo/calendars/:file ───────────────────────────────────────────
+
+async function withPublicApp({ demoCalendarsEnabled = true } = {}, run) {
+  const limiterHits = []
+  const limiter = (name) => (req, _res, next) => {
+    limiterHits.push(`${name} ${req.method} ${req.path}`)
+    next()
+  }
+  const app = express()
+  app.use(createSourcesPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), demoCalendarsEnabled }))
+  app.use((_req, res) => res.status(404).json({ fellThrough: true }))
+  const server = app.listen(0)
+  await new Promise((resolve) => server.once('listening', resolve))
+  const base = `http://127.0.0.1:${server.address().port}`
+  try {
+    await run({ get: (path) => fetch(base + path), limiterHits })
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+}
+
+test('GET /api/demo/calendars/:file answers the feed with the edge cache header, behind the public read limiters', async () => {
+  await withPublicApp({}, async ({ get, limiterHits }) => {
+    const purdue = await get('/api/demo/calendars/purdue-timetable.ics')
+    assert.equal(purdue.status, 200)
+    assert.equal(purdue.headers.get('content-type'), 'text/calendar; charset=utf-8')
+    assert.equal(purdue.headers.get('cache-control'), 'public, max-age=300, s-maxage=3600')
+    assert.equal(purdue.headers.get('set-cookie'), null)
+    const text = await purdue.text()
+    assert.match(text, /^BEGIN:VCALENDAR\r\n/)
+    assert.match(text, /\r\nSUMMARY:MA 16600 Lecture\r\n/)
+    const brightspace = await get('/api/demo/calendars/brightspace.ics')
+    assert.equal(brightspace.status, 200)
+    assert.match(await brightspace.text(), /\r\nSUMMARY:Homework \d+ - MA 16600 - Due\r\n/)
+    assert.deepEqual(limiterHits, [
+      'public-read-ip GET /api/demo/calendars/purdue-timetable.ics',
+      'public-read GET /api/demo/calendars/purdue-timetable.ics',
+      'public-read-ip GET /api/demo/calendars/brightspace.ics',
+      'public-read GET /api/demo/calendars/brightspace.ics',
+    ])
+  })
+})
+
+test('any other name, and either demo calendar with DEMO_CALENDARS off, is a 404 that is never stored', async () => {
+  for (const [demoCalendarsEnabled, paths] of [
+    [true, ['/api/demo/calendars/other.ics', '/api/demo/calendars/constructor', '/api/demo/calendars/__proto__']],
+    [false, ['/api/demo/calendars/purdue-timetable.ics', '/api/demo/calendars/brightspace.ics']],
+  ]) {
+    await withPublicApp({ demoCalendarsEnabled }, async ({ get }) => {
+      for (const path of paths) {
+        const res = await get(path)
+        assert.equal(res.status, 404, path)
+        assert.equal(res.headers.get('cache-control'), 'no-store', path)
+        assert.deepEqual(await res.json(), NOT_FOUND, path)
+      }
+    })
+  }
 })

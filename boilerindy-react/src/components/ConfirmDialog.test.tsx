@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import ConfirmDialog from './ConfirmDialog'
+import { fakeAnimation, installFakeAnimations } from '../lib/fakeAnimations'
 
 // Issue #221 - the dialog focused its confirm button but let Tab wander into
 // the page behind it, and closing it dropped focus to <body>. Now Tab cycles
@@ -63,5 +64,37 @@ describe('ConfirmDialog', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(opener).toHaveFocus()
     opener.remove()
+  })
+
+  // docs/motion.md: in a browser the dialog plays its exit before it leaves.
+  // jsdom has no Web Animations API, so the exit here is a fake the test ends.
+  test('animates out on the page, inert, with focus already back on the opener and the page scrollable', async () => {
+    const exit = fakeAnimation()
+    const uninstall = installFakeAnimations((el) => (el.getAttribute('data-motion') === 'closed' ? [exit] : []))
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    opener.focus()
+    try {
+      const { rerender, onCancel } = renderDialog(false)
+      rerender(true)
+      const dialog = document.querySelector('[role="dialog"]')
+      expect(dialog).toHaveAttribute('data-motion', 'open')
+
+      rerender(false)
+      expect(dialog).toBeInTheDocument()
+      expect(dialog).toHaveAttribute('data-motion', 'closed')
+      expect(dialog).toHaveAttribute('inert')
+      expect(opener).toHaveFocus()
+      expect(document.body.style.overflow).toBe('')
+      // A closing dialog no longer answers Escape.
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(onCancel).not.toHaveBeenCalled()
+
+      await act(async () => exit.finish())
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    } finally {
+      uninstall()
+      opener.remove()
+    }
   })
 })

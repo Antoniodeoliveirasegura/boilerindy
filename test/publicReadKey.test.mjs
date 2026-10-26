@@ -62,6 +62,8 @@ const PUBLIC_READS = [
   '/api/campus-news',
   // The signed-out Free Food page's read (issue #366).
   '/api/campus-events/free-food',
+  // The demo calendars for the App Review account (issue #521).
+  '/api/demo/calendars/:file',
 ]
 
 test('the session middleware uses the exported cookie name', () => {
@@ -127,6 +129,7 @@ test('every public read answers with the cache header the edge needs', () => {
     handlePushConfig: "'no-store'",
     handleDining: "'public, max-age=120, s-maxage=300'",
     handlePublicFreeFood: "'public, max-age=60, s-maxage=300, stale-while-revalidate=600'",
+    handleDemoCalendar: "'public, max-age=300, s-maxage=3600'",
   }
   for (const [handler, header] of Object.entries(expected)) {
     const body = handlerSource(handler)

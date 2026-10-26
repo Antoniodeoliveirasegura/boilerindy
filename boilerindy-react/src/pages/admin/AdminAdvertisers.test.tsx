@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import AdminAdvertisers from './AdminAdvertisers'
 import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
+import { fakeAnimation, installFakeAnimations } from '../../lib/fakeAnimations'
 
 // The Create advertiser account dialog:
 // - Took no focus, let Tab walk out to the page under its scrim, and ignored
@@ -113,6 +114,30 @@ describe('AdminAdvertisers create dialog', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     watch.disconnect()
     expect(focusAsItClosed).toBe(opener)
+  })
+
+  // docs/motion.md: in a browser the dialog plays its exit before it leaves,
+  // its fields still on the page. React then puts focus back on the field
+  // that had it, so the dialog hands it to the opener again. jsdom has no Web
+  // Animations API, so the exit here is a fake the test ends.
+  it('animates out with focus already back on the opener, and then leaves', async () => {
+    const exit = fakeAnimation()
+    const uninstall = installFakeAnimations((el) => (el.getAttribute('data-motion') === 'closed' ? [exit] : []))
+    try {
+      const { opener, dialog } = await openDialog()
+      expect(within(dialog).getByLabelText('Business email')).toHaveFocus()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+      const root = dialog.parentElement as HTMLElement
+      expect(root).toHaveAttribute('data-motion', 'closed')
+      expect(root).toHaveAttribute('inert')
+      expect(opener).toHaveFocus()
+
+      await act(async () => exit.finish())
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    } finally {
+      uninstall()
+    }
   })
 })
 

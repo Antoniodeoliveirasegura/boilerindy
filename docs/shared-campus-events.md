@@ -7,7 +7,8 @@ The read path (step 4) lists the table on `/events` and `/free-food` behind
 `CAMPUS_EVENTS_FEED`, off by default ([campus-events-feed.md](campus-events-feed.md)).
 The first source beyond campus, White River State Park's events calendar
 (below), is built behind `CAMPUS_EVENTS_DOWNTOWN`, also off by default, with
-README step 49 ([campus-events-ingest.md](campus-events-ingest.md#downtown-events)).
+README step 49 ([campus-events-ingest.md](campus-events-ingest.md#downtown-events));
+the Central Library's is built behind `CAMPUS_EVENTS_LIBRARY` on top of it.
 
 ## The problem
 
@@ -95,16 +96,23 @@ publishing schedule of its own to follow.
 
 ### IU's events calendar (LiveWhale), category "IU Indianapolis": on
 
-- URL: `https://events.iu.edu/live/json/events/category/IU%20Indianapolis/near_location/39.774,-86.1765/near_distance/1/start_date/<YYYY-MM-DD>/end_date/<YYYY-MM-DD>/response_fields/location,tags,summary,group_title,event_types?page=<n>`,
-  a 31-day window from today. `near_location` and `near_distance` keep events
-  within 1 mile of the campus at 39.774, -86.1765.
+- URL: `https://events.iu.edu/live/json/events/category/IU%20Indianapolis/start_date/<YYYY-MM-DD>/end_date/<YYYY-MM-DD>/response_fields/location,tags,summary,group_title,event_types?page=<n>`,
+  a 31-day window from today, with no distance filter. Until 2026-10-26 the
+  path also carried `near_location/39.774,-86.1765/near_distance/1`, which
+  LiveWhale applies to coordinates alone: it dropped every listing without any
+  (304 of the 647 that day, every athletics listing among them) along with the
+  32 placed more than a mile out, most of them the medical school's. The
+  Indianapolis rules place each listing instead, and `LIVEWHALE_EXCLUDED_GROUPS`
+  leaves out the groups that are not for students
+  ([campus-events-ingest.md](campus-events-ingest.md)).
 - Format: LiveWhale JSON, `{ meta: { total_pages }, data: [...] }`, 100 events a
   page.
 - Terms: no key. robots.txt allows everything.
-- Volume on 2026-10-17: 1,330 IU Indianapolis events in all, 320 within a mile
-  in the next 31 days. Student Affairs events are the core; Campus Recreation
-  fitness classes, Herron exhibits and School of Medicine seminars fill the
-  rest.
+- Volume on 2026-10-26: 647 listings in the next 31 days, 343 of them with
+  coordinates, which the plan turns into 234 rows (the distance filter left
+  182). Student Affairs events are the core (110 rows); the schools, Bepko's
+  study sessions, International Affairs and Student Employment fill the rest.
+  On 2026-10-17 the category held 1,330 events in all.
 - Ids: the LiveWhale event id. A multi-day event (an exhibit) repeats its id
   once per day, and those rows merge into one row spanning the days listed.
 - Owner decision still open: whether IU Indianapolis's own events are open to
@@ -137,6 +145,44 @@ publishing schedule of its own to follow.
   the campus, or its coordinates are within 2.5 km. TheSpot is IU
   Indianapolis's own instance, so every organization on it counts as an
   Indianapolis one.
+
+### IU Indy athletics' schedule (a Sidearm calendar file): on
+
+Added 2026-10-26 (issue #30): the Jaguars' games, which neither campus
+calendar placed (LiveWhale's athletics group had no coordinates, and its away
+games passed the place rule by the team name, so that group is excluded).
+
+- URL: `https://iuindyjags.com/calendar.ashx/calendar.ics?sport_id=0`, every
+  sport's whole season in one file.
+- Format: iCalendar, parsed with `node-ical` as a student's own feed is.
+- Terms: no key. robots.txt allows every path and asks for 30 seconds between
+  requests; a run makes one.
+- Volume on 2026-10-26: 207 events in the file, 62 in the next 60 days, 23 of
+  them home games on campus (James T. Morris Arena, the IU Natatorium,
+  Michael A. Carroll Stadium).
+- Ids: the UID, `vcal_<game id>-iuindyjags.com`, one per game.
+- Filter: by location alone, since every title names IU Indy: a home game says
+  "Indianapolis, Ind." and its venue, an away game another city. The rows read
+  "Jaguars (IU)" under the IU pill.
+
+### PurdueME's events calendar (The Events Calendar): on
+
+Added 2026-10-26 (issue #30): Purdue Mechanical Engineering's department
+calendar, a source Campus Bord reads and Purdue's calendar only partly
+repeats (17 of its 24 listings were not on Purdue's group that day).
+
+- URL: `https://purdueme.com/wp-json/tribe/events/v1/events?categories=indianapolis&start_date=<YYYY-MM-DD>&end_date=<YYYY-MM-DD>&per_page=50&page=<n>`,
+  a 60-day window.
+- Format: The Events Calendar's REST JSON, as the park's.
+- Terms: no key; robots.txt disallows only `/wp-admin/`, so the query string
+  is fine. No terms page on the site.
+- Volume on 2026-10-26: 24 listings, 12 also tagged `west-lafayette` (exam
+  reviews in West Lafayette's buildings), which drop as away unless online: 13
+  rows, 7 of which collapse into Purdue's calendar's.
+- Ids: the post id, one per occurrence.
+- Filter: a campus room ("SL 165", "ET Atrium", "IO 105"), or the category's
+  word for a listing with no venue; the rows read "Purdue ME" under the Purdue
+  pill.
 
 ### White River State Park's events calendar (The Events Calendar): off by default
 
@@ -190,12 +236,30 @@ walk from campus, but they are not the campus, so its rows say so (venue
   Treat (treats for children along the canal). Only the keyword matcher, or
   Jev with `CAMPUS_EVENTS_CLASSIFY` on, counts: none of the 19 had free food.
 
+### The Central Library's events (Indianapolis Public Library, a Communico calendar file): built, off until the library agrees
+
+Built 2026-10-26 (issue #30) behind its own switch, `CAMPUS_EVENTS_LIBRARY`,
+on top of `CAMPUS_EVENTS_DOWNTOWN`: on 2026-10-18 the owner held this feed for
+a permission email to the library, and the switch stays off until it is
+answered.
+
+- URL: `https://attend.indypl.org/feeds?data=<base64 JSON>`, the library's own
+  "Subscribe" link, filtered to the Central Library (location 1590), the ages
+  "Adults" and "Teens", and 60 days.
+- Format: iCalendar, read by the same calendar platform as the Jaguars' file.
+- Terms: no key; robots.txt blocks only the search pages; no reuse terms found.
+- Volume on 2026-10-26: 96 teen and adult events in 60 days (130 for every
+  age), all at the Central Library, 1.8 km from campus.
+- Ids: the event's numeric UID; the link is `https://attend.indypl.org/event/<UID>`,
+  since the file names none.
+- Filter: its coordinates (`near`); every row is `venue_kind` `downtown`,
+  labeled "Downtown" under the Downtown pill.
+
 Not chosen yet, each a later change: the other city sources for #30 (the
 Ticketmaster Discovery API needs a key, set aside by the owner's call of
-2026-10-18; the Indianapolis Public Library's iCal feed waits on a permission
-email; Visit Indy and Do317 ban scraping in their terms and need a feed
-agreement) and IU Indy Jaguars athletics (an ICS feed with a 30-second crawl
-delay).
+2026-10-18; Visit Indy and Do317 ban scraping in their terms and need a feed
+agreement; Lucas Oil Stadium and the Eiteljorg run The Events Calendar like the
+park, but their terms forbid commercial republication without permission).
 
 ## Schema sketch
 
@@ -267,10 +331,13 @@ As built: every source above supplies an id, so `dedupe_key` is
 `<source_key>:<id>` and the hash is the fallback for a row without one. Ids
 differ between sources, so the key alone cannot catch the same event
 cross-posted on two of them (Purdue Indy Badminton's weekly hours are on both
-BoilerLink and TheSpot). Each ingest run therefore also collapses rows from
-different sources that share a normalized title and start minute, keeping the
-source listed first above. The sweep runs per source, after a complete fetch:
-rows of that source the run did not write are deleted.
+BoilerLink and TheSpot). Each ingest run therefore also collapses one event
+listed twice, by its start, its title and its place, keeping the source listed
+first above: the same or a similar title in the same minute, the same title on
+an all-day listing's day, or the same room or named venue in the same minute
+([campus-events-ingest.md](campus-events-ingest.md#duplicates) has the rules).
+The sweep runs per source, after a complete fetch: rows of that source the run
+did not write are deleted.
 
 ## Read path
 

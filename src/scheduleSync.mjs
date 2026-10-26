@@ -189,6 +189,28 @@ function getLocalTimeInTimezone(date, timezone) {
 }
 
 /**
+ * Get the calendar date (year, 0-based month, day) of a Date in a specific timezone.
+ */
+function getLocalDateInTimezone(date, timezone) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    const parts = fmt.formatToParts(date)
+    const year = parseInt(parts.find(p => p.type === 'year')?.value, 10)
+    const month = parseInt(parts.find(p => p.type === 'month')?.value, 10) - 1
+    const day = parseInt(parts.find(p => p.type === 'day')?.value, 10)
+    if ([year, month, day].some(Number.isNaN)) throw new Error('No date parts')
+    return { year, month, day }
+  } catch {
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate() }
+  }
+}
+
+/**
  * Create a Date object for a specific date and local time in a timezone.
  * This properly handles DST by finding the UTC time that corresponds to the local time.
  */
@@ -273,11 +295,18 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
     const eventDaysSeen = new Set()
 
     for (const date of dates) {
+      // A timed meeting falls on its day in the feed's timezone, the day
+      // node-ical files its EXDATE and RECURRENCE-ID entries under. Its UTC day
+      // put a class at 7 PM EST (8 PM EDT) or later on the day after. An
+      // all-day series keeps the UTC day it always had.
       let year, month, day
       try {
-        year = date.getUTCFullYear()
-        month = date.getUTCMonth()
-        day = date.getUTCDate()
+        const local = event.datetype === 'date'
+          ? { year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate() }
+          : getLocalDateInTimezone(date, timezone)
+        year = local.year
+        month = local.month
+        day = local.day
       } catch {
         continue
       }
@@ -288,14 +317,13 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
       if (eventDaysSeen.has(eventDayKey)) continue
       eventDaysSeen.add(eventDayKey)
 
-      // Skip excluded (EXDATE) dates
+      // Skip excluded (EXDATE) dates. node-ical files each exclusion under its
+      // day in its own timezone and, for a date-time, its exact instant as
+      // well. Matching the first ten characters of any key read that instant's
+      // UTC day too, which for an evening exclusion is the next day's class.
       if (event.exdate) {
         try {
-          const excluded = Object.keys(event.exdate).some(k => {
-            const exKey = k.slice(0, 10)
-            return exKey === dateKey || exKey === date.toISOString?.()?.slice(0, 10)
-          })
-          if (excluded) continue
+          if (event.exdate[dateKey] || event.exdate[date.toISOString()]) continue
         } catch {
           // Ignore exdate parsing errors
         }

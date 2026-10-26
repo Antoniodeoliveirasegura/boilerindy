@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import AppLayout from './AppLayout'
+import { fakeAnimation, installFakeAnimations } from '../lib/fakeAnimations'
 import { PREVIEW_MESSAGE, previewMessage } from '../lib/publicPreview'
 
 // Issue #369: AppLayout rendered the navbar, bottom tab bar, spotlight rails
@@ -147,5 +148,62 @@ describe('AppLayout on a preview route', () => {
     expect(screen.queryByTestId('preview-bar')).toBeNull()
     expect(screen.queryByTestId('navbar-slot')).toBeNull()
     expect(screen.queryByRole('link', { name: 'Create account' })).toBeNull()
+  })
+})
+
+// docs/motion.md: a move to another page lets its blocks rise in, while the
+// first page load and a query string change do not. jsdom has no Web
+// Animations API, so the rise here is a fake the test ends.
+describe('AppLayout page entrance', () => {
+  function renderPages() {
+    auth.value = { loading: false, user: { id: 'user-1' } }
+    return render(
+      <MemoryRouter initialEntries={['/events']} useTransitions={false}>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route
+              path="/events"
+              element={
+                <div className="page">
+                  <Link to="/dining">To dining</Link>
+                  <Link to="/events?category=food">Free food only</Link>
+                </div>
+              }
+            />
+            <Route path="/dining" element={<div className="page">dining page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  test('marks main on a move to another page, not before, and unmarks it once the rise ends', async () => {
+    const rise = fakeAnimation({ name: 'motion-rise', endTime: 700 })
+    let rising = true
+    const uninstall = installFakeAnimations((el) => (rising && el.hasAttribute('data-route-enter') ? [rise] : []))
+    try {
+      renderPages()
+      const main = screen.getByRole('main')
+      expect(main).not.toHaveAttribute('data-route-enter')
+
+      fireEvent.click(screen.getByRole('link', { name: 'Free food only' }))
+      expect(main).not.toHaveAttribute('data-route-enter')
+
+      fireEvent.click(screen.getByRole('link', { name: 'To dining' }))
+      expect(screen.getByText('dining page')).toBeInTheDocument()
+      expect(main).toHaveAttribute('data-route-enter')
+
+      rising = false
+      await act(async () => rise.finish())
+      expect(main).not.toHaveAttribute('data-route-enter')
+    } finally {
+      uninstall()
+    }
+  })
+
+  test('without the Web Animations API nothing is marked', () => {
+    renderPages()
+    fireEvent.click(screen.getByRole('link', { name: 'To dining' }))
+    expect(screen.getByRole('main')).not.toHaveAttribute('data-route-enter')
   })
 })

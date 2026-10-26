@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import BrandMark from '../components/BrandMark'
+import FlapDigit from '../components/FlapDigit'
 import Icon from '../components/Icons'
 import SiteDisclaimer from '../components/SiteDisclaimer'
 import SkipLink from '../components/SkipLink'
@@ -17,6 +18,10 @@ import './marketing.css'
 // The app's own 1200px column (.page), on the nav's edges, minus its top
 // and bottom padding: each landing section sets its own vertical rhythm.
 const wrap = 'page py-0'
+
+// The preview board's small tiles. Their padding goes in --flap-pad, which
+// the rolling digit's strip uses too (index.css .flap-roll).
+const LANDING_FLAP = 'min-w-[26px] [--flap-pad:6px_4px_5px] text-[28px] sm:text-[30px]'
 
 const bentoTiles = [
   {
@@ -254,11 +259,13 @@ export default function Landing() {
                   <div className="ink-panel r-cls px-3 py-3 sm:px-3.5">
                     <div className="board-title text-[10px] tracking-[0.14em]">Next class</div>
                     <div className="mt-2.5 flex items-center gap-3 sm:gap-3.5">
+                      {/* The one motion on this page besides the hero's fade:
+                          the digits roll in from blank tiles once (FlapDigit). */}
                       <div className="flaps shrink-0" aria-hidden="true">
-                        <span className="flap min-w-[26px] px-1 pt-1.5 pb-[5px] text-[28px] sm:text-[30px]">1</span>
+                        <FlapDigit value="1" index={0} className={LANDING_FLAP} />
                         <span className="flap-sep text-[22px]">:</span>
-                        <span className="flap min-w-[26px] px-1 pt-1.5 pb-[5px] text-[28px] sm:text-[30px]">3</span>
-                        <span className="flap min-w-[26px] px-1 pt-1.5 pb-[5px] text-[28px] sm:text-[30px]">0</span>
+                        <FlapDigit value="3" index={1} className={LANDING_FLAP} />
+                        <FlapDigit value="0" index={2} className={LANDING_FLAP} />
                       </div>
                       <div className="min-w-0">
                         <div className="font-display text-[14px] sm:text-[15px] font-extrabold leading-tight text-[var(--color-ink-txt)]">CS 30200 · Software Engineering</div>

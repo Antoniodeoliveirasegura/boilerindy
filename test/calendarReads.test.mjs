@@ -247,6 +247,25 @@ test('listCalendarItems: with the feed on, shared rows join in start order, the 
   assert.deepEqual(newestFirst.map((item) => item.id), ['campus:s3', 'own-2', 'campus:s2', 'campus:s1', 'own-1'])
 })
 
+test('listCalendarItems: a shared row that is one event with one of the student\'s own is listed once, as the student\'s', async () => {
+  const start = fromNow(2 * HOUR_MS)
+  const own = [calendarRow({ id: 'own-fair', title: 'Fall Career Fair', category: 'campus_event', start_time: start, end_time: null, location: 'Campus Center' })]
+  const shared = [
+    campusRow('fair', 2 * HOUR_MS, { title: 'Fall Career Fair', starts_at: start, free_food: true }),
+    campusRow('yoga', 2 * HOUR_MS, { title: 'Yoga', starts_at: start }),
+  ]
+  const supabase = fakeSupabase({
+    calendar_items: () => ({ data: own, error: null }),
+    campus_events: () => ({ data: shared, error: null }),
+    club_follows: () => ({ data: [], error: null }),
+  })
+  const { listCalendarItems } = createCalendarReads(supabase, { sharedEventsFeed: true })
+  const items = await listCalendarItems(USER, { categories: ['campus_event', 'event', 'deadline'], sharedCategories: ['campus_event', 'deadline'] })
+  assert.deepEqual(items.map((item) => item.id), ['own-fair', 'campus:yoga'])
+  // The shared copy's free food stays on the page, on the student's row.
+  assert.equal(items[0].freeFood, true)
+})
+
 test('listCalendarItems: a missing campus_events table leaves the student\'s rows, even for a read that throws on error', async (t) => {
   t.mock.method(console, 'error', () => {})
   const rows = [calendarRow({ category: 'campus_event' })]

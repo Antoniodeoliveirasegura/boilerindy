@@ -31,6 +31,10 @@ The server remains the real gate: `assertSafeHttpUrl` (SSRF checks, redirect
 re-validation) plus `SCHEDULE_SOURCE_HOSTS` in `src/routes/sources.mjs`. The
 client list must be kept identical to it.
 
+Two more links pass both checks: the demo calendars for the App Review account
+(issue #521), on BoilerIndy's own origin, which the server builds itself
+instead of fetching. See [demo-calendars.md](demo-calendars.md).
+
 This was the recommended option in #120 because it works in production
 today, needs no new infrastructure, and keeps Purdue credentials entirely on
 the student's side. Option B (a browser extension or bookmarklet that grabs

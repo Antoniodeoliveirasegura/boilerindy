@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { usePresence } from '../hooks/usePresence'
 import Icon from './Icons'
 import { listPrograms } from '../../../src/degreePrograms.mjs'
 import { DEGREE_LABELS } from '../../../src/purdueMajors.mjs'
@@ -60,6 +61,8 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // The dropdown plays its exit before it leaves the page (docs/motion.md).
+  const { attach: attachDropdown, mounted: dropdownMounted, motion: dropdownMotion } = usePresence(open)
 
   const results = useMemo(() => {
     const q = normalize(query)
@@ -164,8 +167,13 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
         )}
       </div>
 
-      {open && (
-        <div className="menu-panel absolute z-50 mt-1.5 w-full overflow-hidden p-0">
+      {dropdownMounted && (
+        <div
+          ref={attachDropdown}
+          data-motion={dropdownMotion}
+          inert={!open}
+          className="menu-panel motion-pop origin-top absolute z-50 mt-1.5 w-full overflow-hidden p-0"
+        >
           <div className="relative border-b border-[var(--color-border)] p-2">
             <Icon
               name="search"

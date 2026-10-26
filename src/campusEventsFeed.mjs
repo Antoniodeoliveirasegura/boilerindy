@@ -23,7 +23,7 @@ import { readFollowedKeys } from './clubFollows.mjs'
 import { DB_FEATURES, isSchemaMissingError, logRouteError, logSchemaMissingOnce } from './dbErrors.mjs'
 import { isMissingColumnError } from './moderation.mjs'
 import { selectUpTo } from './pagedSelect.mjs'
-import { DOWNTOWN_SOURCE_KEYS, httpUrlOrNull } from './sharedEvents.mjs'
+import { DOWNTOWN_SOURCE_KEYS, campusDay, duplicateReason, httpUrlOrNull } from './sharedEvents.mjs'
 
 /** The calendar categories a shared row is listed under: Purdue's official dates are deadlines, the rest campus events. */
 export const SHARED_CALENDAR_CATEGORIES = Object.freeze(['campus_event', 'deadline'])
@@ -50,14 +50,18 @@ export const PUBLIC_FREE_FOOD_MAX_ROWS = 500
 
 // Where a row comes from, in the words the page shows. IU Indianapolis's own
 // listings say so: whether they are open to Purdue students is the owner's
-// call on #30, so they read as IU events until it is made. White River State
-// Park's read as Downtown, so a museum night never reads as a campus event.
+// call on #30, so they read as IU events until it is made. IU Indy athletics'
+// home games read as the Jaguars'. White River State Park's read as Downtown,
+// so a museum night never reads as a campus event.
 export const SOURCE_LABELS = Object.freeze({
   purdue_events: 'Purdue event',
   iu_events: 'IU event',
   boilerlink: 'BoilerLink',
+  purdueme: 'Purdue ME',
   thespot: 'TheSpot (IU)',
+  iu_athletics: 'Jaguars (IU)',
   wrsp_events: 'Downtown',
+  indypl_central: 'Downtown',
 })
 
 /**
@@ -71,6 +75,57 @@ export const SOURCE_LABELS = Object.freeze({
  */
 export function applyDowntownSwitch(items, downtownEnabled) {
   return downtownEnabled ? items : items.filter((item) => !DOWNTOWN_SOURCE_KEYS.includes(item.sourceKey))
+}
+
+// A calendar item as duplicateReason reads it.
+function itemView(item) {
+  return {
+    title: item.title,
+    startsAt: new Date(item.startTime).toISOString(),
+    allDay: Boolean(item.allDay),
+    location: item.location,
+    deadline: item.category === 'deadline',
+  }
+}
+
+/**
+ * The student's own rows and the shared rows a calendar read lists beside
+ * them, without a shared row that is one event with one of the student's
+ * (duplicateReason in src/sharedEvents.mjs, the rule the ingest collapses its
+ * sources by): a career fair the student imported from a club's feed shows
+ * once. The student's row stays, since it is theirs and the other readers of
+ * the calendar see it, and takes the shared row's free food, so the Free Food
+ * page still lists the event. Only rows of one campus day are compared. Pure.
+ * @param {object[]} own the student's calendar items
+ * @param {object[]} shared shared calendar items (toSharedCalendarItem)
+ * @returns {{ own: object[], shared: object[] }}
+ */
+export function withoutOwnDuplicates(own, shared) {
+  if (own.length === 0 || shared.length === 0) return { own, shared }
+  const ownByDay = new Map()
+  own.forEach((item, index) => {
+    if (Number.isNaN(Date.parse(item.startTime))) return
+    const view = itemView(item)
+    const day = campusDay(view.startsAt)
+    if (!ownByDay.has(day)) ownByDay.set(day, [])
+    ownByDay.get(day).push({ index, view })
+  })
+  const freeFood = new Set()
+  const listed = []
+  for (const item of shared) {
+    const view = Number.isNaN(Date.parse(item.startTime)) ? null : itemView(item)
+    const match = view && (ownByDay.get(campusDay(view.startsAt)) ?? []).find((entry) => duplicateReason(entry.view, view))
+    if (!match) {
+      listed.push(item)
+      continue
+    }
+    if (item.freeFood) freeFood.add(match.index)
+  }
+  if (listed.length === shared.length) return { own, shared }
+  return {
+    own: own.map((item, index) => (freeFood.has(index) && !item.freeFood ? { ...item, freeFood: true } : item)),
+    shared: listed,
+  }
 }
 
 const COLUMNS =

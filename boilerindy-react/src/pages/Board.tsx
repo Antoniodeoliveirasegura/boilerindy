@@ -6,6 +6,7 @@ import { track } from '../lib/usageStats'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 // Same caps and page sizes the API enforces (issue #200)
 import {
@@ -495,6 +496,11 @@ export default function Board() {
       return sort === 'popular' ? (b.upvotes ?? 0) - (a.upvotes ?? 0) : 0
     })
 
+  // The threads rise in when the board lands and when a topic or the search
+  // swaps them (hooks/useEntrance). A sort reloads the board through
+  // `loading`, one render after the pill, so it stays out of the key.
+  const postsRef = useEntrance<HTMLDivElement>(!loading, `${filterTag ?? ''}|${normalizedQuery}`)
+
   return (
     <div className="page r-ink">
       <div className="page-measure">
@@ -768,7 +774,7 @@ export default function Board() {
         {!loading && (
           <div>
             {sortedPosts.length > 0 && (
-              <div className="card posts px-5 max-sm:px-4">
+              <div ref={postsRef} className="card posts px-5 max-sm:px-4">
                 {sortedPosts.map((post) => (
                   <article
                     key={post.id}

@@ -12,7 +12,7 @@
 // turns the feed on and a read asks for them.
 
 import { classScanFrom, getAcademicTerm, getPreferredClassTerm, parseTermKey } from './academicTerms.mjs'
-import { applyDowntownSwitch, listSharedCalendarItems } from './campusEventsFeed.mjs'
+import { applyDowntownSwitch, listSharedCalendarItems, withoutOwnDuplicates } from './campusEventsFeed.mjs'
 import { hasFreeFood } from './freeFood.mjs'
 import { DEFAULT_MAX_ROWS, selectUpTo } from './pagedSelect.mjs'
 import { normalizeScheduleOverrides } from './scheduleOverrides.mjs'
@@ -40,7 +40,9 @@ function orderClassItemsForDisplay(items) {
  *   campus events of those categories (listSharedCalendarItems, marked
  *   `shared: true`, and `followed` saying whether the student follows the club
  *   that listed one, issue #16) join them in start order, the student's own
- *   row first on a tie, and `limit` counts both. Those rows never fail the
+ *   row first on a tie, and `limit` counts both; a shared row that is one
+ *   event with one of the student's is left out (withoutOwnDuplicates), its
+ *   free food handed to the student's row. Those rows never fail the
  *   read: without them (a missing campus_events table, a failed read) it
  *   answers the student's rows alone.
  * - getClassItemsForUser(userId, { limit, term, mode }): the class meetings
@@ -124,12 +126,15 @@ export function createCalendarReads(supabase, { sharedEventsFeed = false, downto
     }))
     const listed = applyDowntownSwitch(shared, downtownEnabled)
     if (!listed.length) return own
+    // A shared row that is one event with one of the student's rows is left
+    // out, and the student's row takes its free food (withoutOwnDuplicates).
+    const unique = withoutOwnDuplicates(own, listed)
     // Both lists are in start order. A stable sort on the start alone keeps
     // the database's id order among the student's rows and puts them ahead of
     // a shared row with the same start; the first rowLimit of the merge are
     // right even when the student's read stopped at rowLimit.
     const sign = ascending ? 1 : -1
-    return [...own, ...(ascending ? listed : [...listed].reverse())]
+    return [...unique.own, ...(ascending ? unique.shared : [...unique.shared].reverse())]
       .sort((a, b) => sign * (Date.parse(a.startTime) - Date.parse(b.startTime)))
       .slice(0, rowLimit)
   }

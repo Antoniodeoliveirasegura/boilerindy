@@ -52,11 +52,14 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 | Once per series | One row per `series_key`, its next occurrence, so a weekly class is listed once. |
 | Category | `deadline` (Purdue's "Dates and Deadlines") reads as Deadline, every other row as Campus Event. |
 | Free food | The stored `free_food`: the source's own tag, free entry with food in the listing, or the keyword matcher, which Jev's answer replaces with `CAMPUS_EVENTS_CLASSIFY` on ([campus-events-ingest.md](campus-events-ingest.md#jev-classification)). |
+| Not the student's own | On a student's read, a shared row that is one event with one of the student's own rows (a club feed they imported) is left out, by the rule the ingest collapses its sources by ([Duplicates](campus-events-ingest.md#duplicates)); the student's row stays and takes the shared row's free food (`withoutOwnDuplicates` in `src/campusEventsFeed.mjs`). |
 
 Each listed row carries `shared: true`, a source label and the listing's link,
 http(s) only. The labels are `SOURCE_LABELS` in `src/campusEventsFeed.mjs`:
-"Purdue event", "IU event", "BoilerLink", "TheSpot (IU)" and, for White River
-State Park's listings, "Downtown". IU Indianapolis's
+"Purdue event", "IU event", "BoilerLink", "Purdue ME" for PurdueME's calendar,
+"TheSpot (IU)", "Jaguars (IU)" for IU Indy athletics' home games and, for the
+downtown sources' listings (White River State Park, the Central Library),
+"Downtown". IU Indianapolis's
 own listings are open to Purdue Indianapolis students (the owner's call on #30,
 2026-10-18) and keep the "IU event" label to say where they come from. A shared
 row's id is `campus:` and the table's id, so
@@ -80,8 +83,9 @@ Faculty Crossing's writing session no longer reach the table; see
 `docs/campus-events-ingest.md`).
 
 Both pages filter by source once their rows come from two sources or more:
-All sources, Purdue (Purdue's calendar and BoilerLink), IU (IU's calendar and
-TheSpot) and My calendar (the student's own rows), each pill with its count, by
+All sources, Purdue (Purdue's calendar, BoilerLink and PurdueME), IU (IU's
+calendar, TheSpot and the Jaguars' home games) and My calendar (the student's own rows),
+each pill with its count, by
 `sourceKey` (`components/EventSourceFilter.tsx`, `lib/campusEvents.ts`). Events
 counts over every row, as its category pills do; Free Food over its free-food
 list. A pick whose source runs out of rows falls back to All sources.
@@ -160,7 +164,10 @@ and featured deal never show shared rows, since Home's calendar read leaves out
 Issue #30: White River State Park's events calendar, the first source beyond
 campus, behind `CAMPUS_EVENTS_DOWNTOWN` (off by default; the ingest side and
 README step 49 are in [campus-events-ingest.md](campus-events-ingest.md#downtown-events)).
-Its rows are `venue_kind` `downtown` and `source_key` `wrsp_events`.
+Its rows are `venue_kind` `downtown` and `source_key` `wrsp_events`. The
+Central Library's (`indypl_central`, which the ingest reads only with
+`CAMPUS_EVENTS_LIBRARY` on too) are downtown rows the same way, under the same
+label and pill, and every rule below applies to them alike.
 
 - The read rule: while the switch is on, a downtown row is listed by every
   rule above, like a campus row, with `sourceKey: "wrsp_events"` and

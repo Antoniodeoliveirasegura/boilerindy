@@ -303,9 +303,10 @@ export default function CampusAssistant() {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop. The panel and its backdrop open on the sheet timing and
+          close faster (docs/motion.md). */}
       <div
-        className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-150 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/30 z-40 transition-opacity ${open ? 'opacity-100 duration-[var(--motion-scrim)]' : 'opacity-0 pointer-events-none duration-[var(--motion-base)]'}`}
         onClick={() => setOpen(false)}
       />
 
@@ -320,7 +321,7 @@ export default function CampusAssistant() {
       <div
         ref={panelRef}
         inert={!open}
-        className={`fixed bottom-[calc(144px+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 [@media(max-height:32rem)]:bottom-[calc(70px+env(safe-area-inset-bottom))] [@media(max-height:32rem)]:right-[80px] md:[@media(max-height:32rem)]:bottom-6 md:[@media(max-height:32rem)]:right-[88px] z-50 w-[360px] max-w-[calc(100vw-32px)] [@media(max-height:32rem)]:max-w-[calc(100vw-96px)] transition-[opacity,transform] duration-150 ease-[var(--ease-snap)] ${open ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
+        className={`fixed bottom-[calc(144px+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 [@media(max-height:32rem)]:bottom-[calc(70px+env(safe-area-inset-bottom))] [@media(max-height:32rem)]:right-[80px] md:[@media(max-height:32rem)]:bottom-6 md:[@media(max-height:32rem)]:right-[88px] z-50 w-[360px] max-w-[calc(100vw-32px)] [@media(max-height:32rem)]:max-w-[calc(100vw-96px)] transition-[opacity,transform] ${open ? 'opacity-100 translate-y-0 duration-[var(--motion-sheet)] ease-[var(--ease-sheet)]' : 'opacity-0 translate-y-4 pointer-events-none duration-[var(--motion-base)] ease-[var(--ease-exit)]'}`}
       >
         {/* The card is capped to the room between the top bar (56px, 64px from
             md) plus an 8px gap and its own bottom offset (144px below md, 96px

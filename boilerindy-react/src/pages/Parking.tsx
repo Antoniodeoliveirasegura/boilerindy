@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Icon from '../components/Icons'
+import { useEntrance } from '../hooks/useEntrance'
 import {
   availabilityLabel,
   directionsUrl,
@@ -127,6 +128,9 @@ export default function Parking() {
   }, [])
 
   const garages = snapshot?.garages ?? []
+  // The garages rise in when the first snapshot lands, after the skeleton;
+  // the minute refresh updates them in place (hooks/useEntrance).
+  const rowsRef = useEntrance(snapshot !== null)
   const permits = snapshot?.permits
   const openSpaces = garages.reduce((sum, g) => sum + (g.available ?? 0), 0)
   const knownCount = garages.filter((g) => g.status !== 'unknown').length
@@ -185,7 +189,7 @@ export default function Parking() {
           ))}
         </div>
       ) : garages.length > 0 ? (
-        <section className="card px-4 sm:px-5 py-1 mb-8 r-bus divide-y divide-[var(--color-border)]">
+        <section ref={rowsRef} className="card px-4 sm:px-5 py-1 mb-8 r-bus divide-y divide-[var(--color-border)]">
           {garages.map((g) => (
             <GarageRow key={g.id} garage={g} now={now} />
           ))}

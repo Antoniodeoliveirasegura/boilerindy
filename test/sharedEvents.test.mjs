@@ -35,9 +35,10 @@ import {
   SOURCES,
   VENUE_KINDS,
   campusWallClockToIso,
-  collapseCrossSource,
+  collapseDuplicates,
   contentHashFor,
   dedupeKeyFor,
+  duplicateReason,
   enabledEngageSources,
   engageOrgLookup,
   engageSourcesFromSetting,
@@ -45,15 +46,20 @@ import {
   kmFromCampus,
   mergeRepeatedIds,
   normalizeEngageEvent,
+  normalizeIcsEvent,
   normalizeListing,
   normalizeLiveWhaleEvent,
   normalizeLocalistEvent,
   organizationKeyFor,
   parseOrganizationKey,
+  placeOf,
   planCampusEvents,
   seriesKeyFor,
   sourceByKey,
+  titleMatch,
+  titleWords,
 } from '../src/sharedEvents.mjs'
+import { icsListings } from '../src/campusEventsIngest.mjs'
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
 const LOCALIST = fixture('campus-events-localist.json').events.map((wrapper) => wrapper.event)
@@ -240,6 +246,20 @@ test("the excluded LiveWhale groups drop as `group`; a listing the place rules d
     'iu school of medicine calendar',
     'iu indianapolis faculty crossing events',
     'kelley school of business executive education programs events',
+    'indiana university melvin and bren simon comprehensive cancer center events',
+    'iu human resources calendar',
+    'financial training communications events',
+    'institutional survey support events',
+    'iu indianapolis center for teaching and learning events',
+    'uits web team calendar',
+    'iu research events',
+    'office for research compliance events calendar',
+    'iu research software solutions events',
+    'iu indianapolis veterans faculty staff council events',
+    'hands in autism events',
+    'iu alumni association calendar',
+    'iu indianapolis university college events',
+    'iu indianapolis athletics events',
   ])
   const journalClub = normalizeLiveWhaleEvent(liveWhale(2138351)[0], IU) // ICMH Journal Club, VanNuys
   assert.deepEqual(journalClub.indianapolis, { keep: false, by: 'group' })
@@ -253,6 +273,25 @@ test("the excluded LiveWhale groups drop as `group`; a listing the place rules d
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: ' IU  SCHOOL of Medicine Calendar ' }, IU).indianapolis, { keep: false, by: 'group' })
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: 'IU School of Medicine &amp; Friends' }, IU).indianapolis, { keep: true, by: 'place' })
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: undefined }, IU).indianapolis, { keep: true, by: 'place' })
+})
+
+test('without the distance filter, a listing with no coordinates is kept on the category\'s word unless its group is excluded', () => {
+  // Since 2026-10-26 the IU query has no near_location, so listings without
+  // coordinates arrive: a staff webinar, a school's talk, an away game.
+  const unplaced = { ...liveWhale(2394594)[0], location: '', location_title: '', location_latitude: null, location_longitude: null }
+  const talk = normalizeLiveWhaleEvent({ ...unplaced, title: 'Coffee & Careers: Networking', group_title: 'IU Indianapolis School of Liberal Arts Events' }, IU)
+  assert.deepEqual(talk.indianapolis, { keep: true, by: 'scope' })
+  assert.equal(talk.row.venue_kind, 'unknown')
+  const webinar = normalizeLiveWhaleEvent({ ...unplaced, title: '2027 Benefits Open Enrollment: Overview Webinar', group_title: 'IU Human Resources Calendar' }, IU)
+  assert.deepEqual(webinar.indianapolis, { keep: false, by: 'group' })
+  // Entities decoded and punctuation folded: "Financial Training &amp; Communications Events".
+  const training = normalizeLiveWhaleEvent({ ...unplaced, title: 'eShipGlobal System Training', group_title: 'Financial Training &amp; Communications Events' }, IU)
+  assert.deepEqual(training.indianapolis, { keep: false, by: 'group' })
+  // The athletics group names away games after the team, which the place rule
+  // reads as campus; the group is excluded for that.
+  const awayGame = { ...unplaced, title: '10/27 8:00 PM IU Indy Men’s Basketball at Austin Peay (exh.)', location: 'Clarksville, Tenn.' }
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...awayGame, group_title: 'IU Indianapolis Athletics Events' }, IU).indianapolis, { keep: false, by: 'group' })
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...awayGame, group_title: 'IU Indianapolis Student Affairs Events' }, IU).indianapolis, { keep: true, by: 'place' })
 })
 
 test("the source's own word on free food is kept apart from the keyword matcher, which Jev may overrule", () => {
@@ -349,16 +388,16 @@ test('the organization key survives the collapse: the source kept takes it from 
   const crossPost = normalizeEngageEvent(engage(THESPOT, '12728562'), THESPOT_SOURCE).row
   assert.equal(badminton.organization_key, 'boilerlink:400129') // Purdue Badminton Club Indianapolis
   // BoilerLink wins over TheSpot and keeps its own key.
-  assert.equal(collapseCrossSource([crossPost, badminton]).rows[0].organization_key, 'boilerlink:400129')
+  assert.equal(collapseDuplicates([crossPost, badminton]).rows[0].organization_key, 'boilerlink:400129')
   // Purdue's calendar wins over BoilerLink and takes the club's key, so a
   // student who follows the club still sees the event.
   const onPurdueCalendar = { ...badminton, source_key: 'purdue_events', dedupe_key: 'purdue_events:1', external_uid: '1', organization_key: null }
-  const { rows, collapsed } = collapseCrossSource([badminton, onPurdueCalendar])
+  const { rows, collapsed } = collapseDuplicates([badminton, onPurdueCalendar])
   assert.deepEqual(collapsed.map((c) => [c.kept, c.dropped]), [['purdue_events:1', 'boilerlink:12728673']])
   assert.equal(rows[0].source_key, 'purdue_events')
   assert.equal(rows[0].organization_key, 'boilerlink:400129')
   // Neither has one: still null, never undefined.
-  const plain = collapseCrossSource([{ ...onPurdueCalendar }, { ...badminton, organization_key: null }]).rows[0]
+  const plain = collapseDuplicates([{ ...onPurdueCalendar }, { ...badminton, organization_key: null }]).rows[0]
   assert.equal(plain.organization_key, null)
 })
 
@@ -554,10 +593,98 @@ test('planned with the campus sources, the park comes last: its rows are added, 
   // The same event on a campus calendar and the park's: the campus row is kept.
   const fair = park(6886).row
   const onCampus = { ...fair, source_key: 'iu_events', dedupe_key: 'iu_events:1', external_uid: '1', venue_kind: 'indy_campus' }
-  const { rows, collapsed } = collapseCrossSource([fair, onCampus])
+  const { rows, collapsed } = collapseDuplicates([fair, onCampus])
   assert.deepEqual(rows.map((row) => row.dedupe_key), ['iu_events:1'])
   assert.deepEqual(collapsed.map((c) => [c.kept, c.dropped]), [['iu_events:1', 'wrsp_events:6886']])
-  assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events'])
+  assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events', 'indypl_central'])
+})
+
+// ── Calendar files: the Central Library, downtown ───────────────────────────
+
+// Eight teen and adult events of the Central Library's calendar file, fetched
+// on 2026-10-26 and read as the ingest reads them.
+const LIBRARY = icsListings(readFileSync(new URL('./fixtures/campus-events-indypl.ics', import.meta.url), 'utf8'))
+const LIBRARY_SOURCE = sourceByKey('indypl_central')
+
+test("the Central Library's events are downtown rows, placed by their coordinates, linked to each event's page", () => {
+  const watchlist = one(normalizeListing(LIBRARY_SOURCE, LIBRARY.find((raw) => raw.uid === '17569512')))
+  assert.deepEqual(watchlist.indianapolis, { keep: true, by: 'near' })
+  assert.deepEqual(
+    [watchlist.row.dedupe_key, watchlist.row.title, watchlist.row.location, watchlist.row.venue_kind, watchlist.row.source_url],
+    ['indypl_central:17569512', 'Teen Watchlist', 'Central Library', 'downtown', 'https://attend.indypl.org/event/17569512'],
+  )
+  const plan = planCampusEvents({ indypl_central: LIBRARY })
+  assert.deepEqual(plan.sources[0], { key: 'indypl_central', listings: 8, skipped: 0, keptBy: { near: 8 }, droppedBy: {}, merged: 0, rows: 8 })
+  // Two different events at one minute in the same building stay two.
+  assert.deepEqual(plan.collapsed, [])
+  // A weekly program shares one series, so the read lists its next one.
+  const stem = plan.rows.filter((row) => row.title === 'Explore STEM + More')
+  assert.deepEqual([stem.length, new Set(stem.map((row) => row.series_key)).size], [2, 1])
+})
+
+// ── The Events Calendar: PurdueME ───────────────────────────────────────────
+
+// PurdueME's "indianapolis" category as fetched on 2026-10-26: 24 listings,
+// 12 of them also tagged west-lafayette.
+const PURDUEME = fixture('campus-events-purdueme.json').events
+const PURDUEME_SOURCE = sourceByKey('purdueme')
+const meEvent = (id) => one(normalizeListing(PURDUEME_SOURCE, PURDUEME.find((raw) => raw.id === id)))
+
+test("PurdueME's Indianapolis listings are kept; the West Lafayette ones its category also carries are away unless online", () => {
+  const pizza = meEvent(25666) // Pizza with a Professor, SL 165
+  assert.deepEqual(pizza.indianapolis, { keep: true, by: 'place' })
+  assert.deepEqual(
+    [pizza.row.dedupe_key, pizza.row.venue_kind, pizza.row.starts_at, pizza.row.free_food, pizza.row.source_url],
+    ['purdueme:25666', 'indy_campus', '2026-10-27T16:00:00.000Z', true, 'https://purdueme.com/event/pizza-with-a-professor-6/'],
+  )
+  assert.equal(meEvent(24908).row.free_food, true) // Free Food Friday, ET Atrium
+  // The all-day Halloween Crawl has no venue: kept on the category's word.
+  assert.deepEqual(meEvent(25663).indianapolis, { keep: true, by: 'scope' })
+  // An exam review in West Lafayette's PHYS 223, tagged with both campuses.
+  assert.deepEqual(meEvent(25226).indianapolis, { keep: false, by: 'away' })
+  // The graduate school panel is tagged with both too, but it is on Zoom.
+  const panel = meEvent(25606)
+  assert.deepEqual([panel.indianapolis.keep, panel.row.venue_kind], [true, 'online'])
+  // The entity in "UL &#8211; Lilly Auditorium" is decoded.
+  assert.equal(meEvent(25700).row.location, `UL ${String.fromCharCode(0x2013)} Lilly Auditorium`)
+
+  const plan = planCampusEvents({ purdueme: PURDUEME })
+  assert.deepEqual(plan.sources[0], { key: 'purdueme', listings: 24, skipped: 0, keptBy: { place: 6, scope: 7 }, droppedBy: { away: 11 }, merged: 0, rows: 13 })
+  // The park's own listings carry no such tag, so none of its rows is away.
+  assert.equal(planCampusEvents({ wrsp_events: WRSP }).sources[0].droppedBy.away, undefined)
+})
+
+// ── Calendar files: IU Indy athletics ───────────────────────────────────────
+
+// Nine events of the Jaguars' calendar file, fetched on 2026-10-26 and read as
+// the ingest reads them (icsListings).
+const JAGUARS = icsListings(readFileSync(new URL('./fixtures/campus-events-iuindyjags.ics', import.meta.url), 'utf8'))
+const ATHLETICS = sourceByKey('iu_athletics')
+const game = (uid) => normalizeIcsEvent(JAGUARS.find((raw) => raw.uid === `vcal_${uid}-iuindyjags.com`), ATHLETICS)
+
+test("the Jaguars' home games are kept by their location; an away game is not, though its title names IU Indy", () => {
+  const played = game(17421) // [W] Volleyball vs Robert Morris, The Jungle
+  assert.deepEqual(played.indianapolis, { keep: true, by: 'place' })
+  assert.equal(played.row.title, 'IU Indy Volleyball vs Robert Morris')
+  assert.equal(played.row.description.startsWith('W 3-2 TV: ESPN+'), true)
+  assert.deepEqual(
+    [played.row.dedupe_key, played.row.category, played.row.venue_kind, played.row.source_url, played.row.all_day],
+    ['iu_athletics:vcal_17421-iuindyjags.com', 'sports_fitness', 'indy_campus', 'https://iuindyjags.com/calendar.aspx?game_id=17421&sport_id=14', false],
+  )
+  assert.deepEqual(game(17430).indianapolis, { keep: true, by: 'place' }) // James T. Morris Arena
+  assert.deepEqual(game(17374).indianapolis, { keep: true, by: 'place' }) // Michael A. Carroll Stadium
+  const swim = game(17560) // all day at the IU Natatorium
+  assert.deepEqual([swim.indianapolis.keep, swim.row.all_day, swim.row.starts_at], [true, true, '2026-11-19T05:00:00.000Z'])
+
+  // Away: Clarksville and DeKalb name nothing in Indianapolis, Muncie is another city.
+  assert.deepEqual(game(17640).indianapolis, { keep: false, by: 'unplaced' })
+  assert.deepEqual(game(17608).indianapolis, { keep: false, by: 'unplaced' })
+  assert.deepEqual(game(17604).indianapolis, { keep: false, by: 'away' })
+  // Read by title and location, as the other sources are, the team name would keep it.
+  const away = JAGUARS.find((raw) => raw.uid === 'vcal_17640-iuindyjags.com')
+  assert.deepEqual(normalizeIcsEvent(away, { ...ATHLETICS, placeFromLocation: false }).indianapolis, { keep: true, by: 'place' })
+  assert.equal(normalizeIcsEvent({ ...away, status: 'CANCELLED' }, ATHLETICS), null)
+  assert.equal(normalizeIcsEvent({ ...away, summary: '' }, ATHLETICS), null)
 })
 
 // ── Rules and keys ──────────────────────────────────────────────────────────
@@ -606,19 +733,127 @@ test('a link that is not http(s) is not stored', () => {
   assert.equal(one(normalizeLocalistEvent(raw, PURDUE)).row.source_url, null)
 })
 
-test('the same event on two sources collapses into the first source; one source never collapses with itself', () => {
+test('the same event on two sources collapses into the first source; one source collapses with itself only in one room or venue', () => {
   const badminton = normalizeEngageEvent(engage(BOILERLINK, '12728673'), BOILERLINK_SOURCE, { isIndianapolisOrg }).row
   const crossPost = normalizeEngageEvent(engage(THESPOT, '12728562'), THESPOT_SOURCE).row
   assert.equal(badminton.starts_at, crossPost.starts_at)
-  const { rows, collapsed } = collapseCrossSource([crossPost, badminton])
+  const { rows, collapsed } = collapseDuplicates([crossPost, badminton])
   assert.deepEqual(rows.map((row) => row.dedupe_key), ['boilerlink:12728673'])
-  assert.deepEqual(collapsed, [{ kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours' }])
+  assert.deepEqual(collapsed, [{ kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours', why: 'title' }])
+  // The Jungle is a building many events share at once, so one source's
+  // second listing there stays.
   const twin = { ...badminton, dedupe_key: 'boilerlink:1', external_uid: '1' }
-  assert.equal(collapseCrossSource([badminton, twin]).rows.length, 2)
+  assert.equal(collapseDuplicates([badminton, twin]).rows.length, 2)
   // A row that lacks something takes it from the copy it absorbs.
-  const merged = collapseCrossSource([{ ...badminton, category: null, free_food: false }, { ...crossPost, category: 'social', free_food: true }]).rows[0]
+  const merged = collapseDuplicates([{ ...badminton, category: null, free_food: false }, { ...crossPost, category: 'social', free_food: true }]).rows[0]
   assert.equal(merged.category, 'social')
   assert.equal(merged.free_food, true)
+})
+
+// Rows as the plan builds them, for the listings Purdue's calendar and
+// PurdueME both carried on 2026-10-26.
+const listed = (source_key, id, title, starts_at, location, extra = {}) => ({
+  title, description: null, starts_at, ends_at: null, location, all_day: false,
+  source_key, source_url: null, external_uid: String(id), dedupe_key: `${source_key}:${id}`,
+  category: null, free_food: false, venue_kind: location ? 'indy_campus' : 'unknown', open_to_all: null,
+  series_key: `${source_key}:series`, content_hash: 'hash', organization_key: null, ...extra,
+})
+const EN_DASH = String.fromCharCode(0x2013)
+
+test('titleWords and placeOf: what a duplicate is matched on', () => {
+  assert.deepEqual(titleWords('11/2 11:00 AM IU Indy Men’s Basketball vs Miami (exh.)'), ['men', 'basketball', 'miami', 'exh'])
+  assert.deepEqual(titleWords("What's Next? A Graduate School Preparation Panel"), ['what', 'next', 'graduate', 'school', 'preparation', 'panel'])
+  assert.deepEqual(titleMatch('Grad School Prep Panel', "What's Next? A Graduate School Preparation Panel"), { level: 'similar', shared: 4 })
+  assert.equal(titleMatch('RealTalk with Adam Scott', 'Real Talk with Adam Scott').level, 'same')
+  assert.deepEqual(placeOf('Launch Pad, ET 002'), { room: 'ET002', code: 'ET', building: null, venue: null })
+  assert.deepEqual(placeOf(`UL ${EN_DASH} Lilly Auditorium`), { room: null, code: 'UL', building: null, venue: null })
+  assert.deepEqual(placeOf('The Jungle/IUI Gymnasium'), { room: null, code: null, building: 'the jungle', venue: null })
+  assert.deepEqual(placeOf('Engineering and Technology Building - Purdue Indianapolis'), { room: null, code: null, building: 'engineering and technology', venue: null })
+  assert.deepEqual(placeOf('Hilbert Circle Theatre, 45 Monument Circle'), { room: null, code: null, building: null, venue: 'hilbert circle theater' })
+  for (const nowhere of ['Zoom', 'Online', 'Indianapolis, IN', 'TBD', '', null]) {
+    assert.deepEqual(placeOf(nowhere), { room: null, code: null, building: null, venue: null }, String(nowhere))
+  }
+})
+
+test('duplicateReason finds one event under another title, a place or an all-day; a deadline, another room or another number is not one', () => {
+  const at = (title, startsAt, location = null, extra = {}) => ({ title, startsAt, allDay: false, location, deadline: false, ...extra })
+  assert.equal(
+    duplicateReason(at("What's Next? A Graduate School Preparation Panel", '2026-10-27T19:00:00.000Z'), at('Grad School Prep Panel', '2026-10-27T19:00:00.000Z', 'Zoom')),
+    'similar title',
+  )
+  assert.equal(
+    duplicateReason(at('RealTalk with Adam Scott', '2026-11-04T18:00:00.000Z', 'Launch Pad, ET 002'), at('Real Talk with Adam Scott', '2026-11-04T18:00:00.000Z', 'ET 002')),
+    'title',
+  )
+  assert.equal(
+    duplicateReason(
+      at('Fall Speaker Series with Stephen Cavit - The Sound of Place- Harmonizing Innovation', '2026-11-04T17:00:00.000Z', 'University Library - Indianapolis, UL Lilly Auditorium'),
+      at('Fall Speaker Series: Stephen Cavit', '2026-11-04T17:00:00.000Z', `UL ${EN_DASH} Lilly Auditorium`),
+    ),
+    'similar title',
+  )
+  // PurdueME's all-day crawl and Purdue's 10:00 one, on the same campus day.
+  assert.equal(
+    duplicateReason(at('CoE Halloween Crawl', '2026-10-29T14:00:00.000Z', 'EL, ET, SL & STT'), at('Halloween Crawl', '2026-10-29T04:00:00.000Z', null, { allDay: true })),
+    'day',
+  )
+  // One named venue in one minute, with a word in common; one source's own
+  // second listing of it needs two.
+  const concert = at('Purdue University Philharmonic and North Central High School Symphony Orchestra Concert', '2026-11-05T00:00:00.000Z', 'Hilbert Circle Theater')
+  assert.equal(duplicateReason(concert, at('A Partners in Music Education Program Concert', '2026-11-05T00:00:00.000Z', 'Hilbert Circle Theatre')), 'place')
+  assert.equal(
+    duplicateReason(at('Purdue Bands & Orchestras Presents Philharmonic Orchestra in Indianapolis', '2026-11-05T00:00:00.000Z', 'Hilbert Circle Theatre'), concert, { sameSource: true }),
+    'place',
+  )
+
+  // Not one event: Purdue's holiday and the park's free admission that day,
+  assert.equal(
+    duplicateReason(
+      at('Martin Luther King Jr. Day', '2027-01-18T05:00:00.000Z', null, { allDay: true, deadline: true }),
+      at('FREE ADMISSION - Martin Luther King Jr. Day', '2027-01-18T05:00:00.000Z', 'White River State Park, 801 W. Washington St.', { allDay: true }),
+    ),
+    null,
+  )
+  // two exam reviews at one hour, one title in two rooms,
+  assert.equal(duplicateReason(at('ME 323 Exam Review Session', '2026-10-27T22:30:00.000Z', 'PHYS 223'), at('ME 270 Exam Review Session', '2026-10-27T22:30:00.000Z', 'PHYS 223')), null)
+  assert.equal(duplicateReason(at('Study Hours', '2026-10-27T22:30:00.000Z', 'ET 103'), at('Study Hours', '2026-10-27T22:30:00.000Z', 'SL 165')), null)
+  // a talk that shares only "speaker series" with another at the same minute,
+  assert.equal(
+    duplicateReason(at('Themed Entertainment Speaker Series - Roberta Perry', '2026-11-04T17:00:00.000Z'), at('Fall Speaker Series: Stephen Cavit', '2026-11-04T17:00:00.000Z', 'UL Lilly Auditorium')),
+    null,
+  )
+  // two classes in one building, one title an hour apart,
+  assert.equal(duplicateReason(at('Mobility and Strength', '2026-10-28T16:00:00.000Z', 'CAMPUS CENTER'), at('AI2 Consortium Monthly Symposia', '2026-10-28T16:00:00.000Z', 'CAMPUS CENTER')), null)
+  assert.equal(duplicateReason(at('Yoga', '2026-10-27T16:00:00.000Z'), at('Yoga', '2026-10-27T17:00:00.000Z')), null)
+  // and one source's two listings of one title in one building.
+  assert.equal(duplicateReason(at('Yoga', '2026-10-27T16:00:00.000Z', 'Campus Center'), at('Yoga', '2026-10-27T16:00:00.000Z', 'Campus Center'), { sameSource: true }), null)
+})
+
+test('collapseDuplicates keeps one row per event: the first source wins, takes what it lacks, and the third copy joins by the one it resembles', () => {
+  const panel = listed('purdue_events', 1, "What's Next? A Graduate School Preparation Panel", '2026-10-27T19:00:00.000Z', null)
+  const panelMe = listed('purdueme', 25606, 'Grad School Prep Panel', '2026-10-27T19:00:00.000Z', 'Zoom', { venue_kind: 'online' })
+  const concertA = listed('purdue_events', 54285521784147, 'Purdue Bands & Orchestras Presents Philharmonic Orchestra in Indianapolis', '2026-11-05T00:00:00.000Z', 'Hilbert Circle Theatre')
+  const concertB = listed('purdue_events', 54291976045192, 'Purdue University Philharmonic and North Central High School Symphony Orchestra Concert', '2026-11-05T00:00:00.000Z', 'Hilbert Circle Theater')
+  const concertMe = listed('purdueme', 25693, 'A Partners in Music Education Program Concert', '2026-11-05T00:00:00.000Z', 'Hilbert Circle Theater')
+  const crawl = listed('purdue_events', 2, 'CoE Halloween Crawl', '2026-10-29T14:00:00.000Z', 'EL, ET, SL & STT')
+  const crawlMe = listed('purdueme', 25663, 'Halloween Crawl', '2026-10-29T04:00:00.000Z', null, { all_day: true })
+  const order = [...SOURCES.map((source) => source.key), 'purdueme']
+  const { rows, collapsed } = collapseDuplicates([panelMe, concertMe, crawlMe, concertB, panel, crawl, concertA], order)
+  assert.deepEqual(rows.map((row) => row.dedupe_key).sort(), ['purdue_events:1', 'purdue_events:2', 'purdue_events:54285521784147'])
+  assert.deepEqual(
+    collapsed.map(({ kept, dropped, why }) => [kept, dropped, why]),
+    [
+      ['purdue_events:1', 'purdueme:25606', 'similar title'],
+      ['purdue_events:2', 'purdueme:25663', 'day'],
+      ['purdue_events:54285521784147', 'purdue_events:54291976045192', 'place'],
+      ['purdue_events:54285521784147', 'purdueme:25693', 'place'],
+    ],
+  )
+  // Purdue's panel had no place: it takes PurdueME's Zoom, and with it online.
+  const kept = rows.find((row) => row.dedupe_key === 'purdue_events:1')
+  assert.equal(kept.location, 'Zoom')
+  assert.equal(kept.venue_kind, 'online')
+  assert.equal(kept.content_hash, contentHashFor(kept))
 })
 
 // ── The plan ────────────────────────────────────────────────────────────────
@@ -705,9 +940,9 @@ test('the vocabularies and columns match db/supabase-campus-events.sql and db/su
   }
   assert.deepEqual(checked('category'), [...CATEGORIES])
   assert.deepEqual(checked('venue_kind'), [...VENUE_KINDS])
-  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'wrsp_events'])
+  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events', 'indypl_central'])
   assert.deepEqual(SOURCES.filter((source) => source.engage).map((source) => source.key), ['boilerlink', 'thespot'])
-  assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events'])
+  assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events', 'indypl_central'])
 })
 
 // Issue #30: README step 49 is its own file, and leaves Jev's questions alone.

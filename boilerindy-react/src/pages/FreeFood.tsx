@@ -21,6 +21,7 @@ import {
 } from '../lib/campusEvents'
 import { usePublicFreeFood } from '../lib/queries/publicData'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
+import { useEntrance } from '../hooks/useEntrance'
 import PageTitle from '../components/PageTitle'
 import EventSourceFilter from '../components/EventSourceFilter'
 
@@ -146,6 +147,10 @@ export default function FreeFood() {
     }
     return groups
   }, [freeFoodItems])
+
+  // The day groups rise in when the events land and when a source pill swaps
+  // them (hooks/useEntrance).
+  const daysRef = useEntrance(!loading && !loadFailed, sourceFilter)
 
   // The event a shared link names (?event=): its row is marked and scrolled to
   // once the list is in, and a link to one no longer listed (over, or taken
@@ -301,7 +306,7 @@ export default function FreeFood() {
           </div>
         </div>
       ) : (
-        <section className="card card-pad">
+        <section ref={daysRef} className="card card-pad">
           {Object.entries(grouped).map(([date, dateItems], groupIdx) => (
             <div key={date} className={groupIdx > 0 ? 'mt-2' : ''}>
               <div className="eyebrow bare">

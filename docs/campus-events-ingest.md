@@ -1,8 +1,9 @@
 # Shared campus events ingest
 
 Issue #30. The cron route that reads Purdue's and IU's public events calendars
-(and, with `CAMPUS_EVENTS_DOWNTOWN` on, White River State Park's: [Downtown
-events](#downtown-events)) into the shared `campus_events` table every 6 hours,
+(and, with `CAMPUS_EVENTS_DOWNTOWN` on, White River State Park's and the
+Central Library's: [Downtown events](#downtown-events)) into the shared
+`campus_events` table every 6 hours,
 with a dry run that writes
 nothing. `/events` and `/free-food` list the table behind `CAMPUS_EVENTS_FEED`,
 off by default: [campus-events-feed.md](campus-events-feed.md) is that read
@@ -20,10 +21,16 @@ exist.
    other, a page at a time with a second between pages (Purdue's robots.txt
    asks for that delay; every source gets it). A page that fails transiently is
    retried once after 1.5 s. A source that still fails, or answers something
-   that is not its JSON, is reported in the summary and the run goes on with
-   the others.
+   that is not its JSON (or not a calendar file), is reported in the summary
+   and the run goes on with the others.
    - Purdue's events calendar (Localist): `purdue_events`, always on.
    - IU's events calendar (LiveWhale): `iu_events`, always on.
+   - IU Indy athletics' schedule (a Sidearm calendar file): `iu_athletics`,
+     always on. One request a run for the whole season's file; the home games
+     from today to 60 days out are kept ([IU Indy athletics](#iu-indy-athletics)).
+   - PurdueME's events calendar (The Events Calendar): `purdueme`, always on.
+     Its "indianapolis" category for the next 60 days, 50 a page
+     ([PurdueME](#purdueme)).
    - BoilerLink and TheSpot (Anthology Engage): `boilerlink` and `thespot`, each
      only when `CAMPUS_EVENTS_ENGAGE` names it (`boilerlink`, `thespot`, a comma
      list, or `on` for both). Both sites' robots.txt disallow `/api/`. Purdue's
@@ -36,9 +43,13 @@ exist.
      `wrsp_events`, only with `CAMPUS_EVENTS_DOWNTOWN` on. One request with no
      query string, since its robots.txt disallows every URL with one
      ([Downtown events](#downtown-events)).
+   - The Central Library's events (the Indianapolis Public Library's Communico
+     calendar file): `indypl_central`, only with `CAMPUS_EVENTS_DOWNTOWN` and
+     `CAMPUS_EVENTS_LIBRARY` both on. One request for its teen and adult events
+     over 60 days ([The Central Library](#the-central-library)).
 2. **Plan** (`src/sharedEvents.mjs`, pure). Each listing becomes a row, the
    Indianapolis filter keeps or drops it, one source's repeated ids merge, and
-   the same event listed by two sources collapses into one row.
+   one event listed twice collapses into one row ([Duplicates](#duplicates)).
 3. **Classify**, only with `CAMPUS_EVENTS_CLASSIFY` on (or `shadow`) and never
    in a dry run: Jev answers four questions about each new or edited listing
    and refines the rows ([Jev classification](#jev-classification)).
@@ -86,7 +97,7 @@ reason:
    Kept, so an Indianapolis club's away game is kept too, with `venue_kind`
    `elsewhere`.
 5. `scope`: the source's own query is about Indianapolis (Purdue's "Purdue in
-   Indianapolis" group, IU's "IU Indianapolis" category within a mile, White
+   Indianapolis" group, IU's "IU Indianapolis" category, White
    River State Park's own calendar) and the listing has no coordinates to
    check: a deadline, a virtual event, a room named only by its building, the
    park's Canal Walk. Kept.
@@ -98,19 +109,70 @@ wrong (TheSpot puts University Hall in Texas).
 
 One more drop applies after those rules, to a LiveWhale listing they would
 keep: `group`, when its `group_title` is one of `LIVEWHALE_EXCLUDED_GROUPS` in
-`src/sharedEvents.mjs` (compared folded). Today those are three groups whose
-listings are not for Purdue students, 66 of the 320 IU listings on 2026-10-18:
+`src/sharedEvents.mjs` (compared folded). Those are the groups whose listings
+are not for Purdue students, 340 of the 647 IU listings in the 31 days from
+2026-10-26 (335 drop as `group`; the place rules drop the other 5 first, as
+`away` or `far`):
 
-- the IU School of Medicine Calendar (50): room bookings, exam sittings, grand
-  rounds and research seminars;
-- IU Indianapolis Faculty Crossing Events (13): development sessions for
+- the IU School of Medicine Calendar (110): room bookings, exam sittings, grand
+  rounds and research seminars; the cancer center's seminars (3);
+- IU Indianapolis Faculty Crossing Events (15): development sessions for
   faculty;
-- Kelley School of Business Executive Education Programs Events (3): paid
-  programs for working professionals.
+- Kelley School of Business Executive Education Programs Events (27): paid
+  programs for working professionals;
+- staff calendars: Human Resources' benefits webinars (31), financial system
+  training (18), institutional survey support (17), the Center for Teaching
+  and Learning (12), the UITS web team's office hours (5), research
+  administration, compliance and software (17, 2 and 1) and the veterans
+  faculty and staff council (1);
+- Hands in Autism Events (24): a community program's support groups;
+- the IU Alumni Association Calendar (18): alumni gatherings, most of them in
+  other cities;
+- IU Indianapolis University College Events (29): IU's own withdrawal and
+  refund deadlines, which are not Purdue's, and health program site visits;
+- IU Indianapolis Athletics Events (10): an away game reads "IU Indy Men's
+  Basketball at Austin Peay" in Clarksville, Tenn., and the team name in the
+  title passes the place rule as campus.
 
 A listing the place rules already drop keeps its own reason (`away`, `far`).
 Rows a run no longer plans are swept, so the first run after a change removes
 the stored rows of a newly excluded group.
+
+## Duplicates
+
+One event can reach the plan under several ids: on two sources (Purdue Indy
+Badminton's weekly hours on BoilerLink and TheSpot), under two titles
+("What's Next? A Graduate School Preparation Panel" on Purdue's calendar is
+PurdueME's "Grad School Prep Panel"), or twice on one source (Purdue's calendar
+lists one Philharmonic concert at Hilbert Circle Theatre as two events).
+`duplicateReason` in `src/sharedEvents.mjs` decides whether two rows are one
+event, and `collapseDuplicates` keeps one row per event: the row of the source
+listed first in `SOURCES`, which takes what it lacks (a place, an end, a
+category, free food, a club) from the copies it absorbs. A row joins an event
+when it is a duplicate of any row already in it.
+
+Two rows must start in the same minute, or fall on the same campus day when one
+of them is all-day. They are never one event when one is a deadline and the
+other is not (Purdue's Martin Luther King Jr. Day and the park's free admission
+that day), when two places of one kind disagree (rooms "ET 103" and "SL 165",
+two campus buildings, two named venues), or when their titles carry different
+numbers ("ME 323" and "ME 270" exam reviews at one hour). Otherwise the
+collapse says why:
+
+| `why` | When |
+|---|---|
+| `title` | The same title in the same minute, after folding case, accents and punctuation, spaces aside ("RealTalk" and "Real Talk"). |
+| `similar title` | At least two words, and three quarters of the shorter title's words, match the other's, in the same minute. Dates, times and words like "the", "Purdue" or "session" are left out, and a word matches the start of a longer one ("grad", "graduate"). |
+| `day` | The same or a similar title on the day of an all-day listing (PurdueME's all-day "Halloween Crawl" and Purdue's 10:00 "CoE Halloween Crawl"). |
+| `place` | The same minute in the same room or named venue off campus, with a word of the title in common ("A Partners in Music Education Program Concert" and "...Symphony Orchestra Concert", both at Hilbert Circle Theater). A campus building alone is never enough: many events share Campus Center at once. |
+
+Two rows of one source are one event only by `place`, with two words of the
+title in common: one source can list two events with one title at once, in
+different rooms. On the live listings of 2026-10-26 (Purdue's calendar, IU's,
+the park's and PurdueME's) the rules found eight duplicates: the seven events
+PurdueME and Purdue's calendar both list, and Purdue's second listing of its
+concert. The read side applies the same rule to a student's own calendar
+([campus-events-feed.md](campus-events-feed.md)).
 
 ## The dry run
 
@@ -124,7 +186,8 @@ curl -sS -X POST -H "Authorization: Bearer $PUSH_CRON_SECRET" \
 ```
 
 Read `sources` (what each signal kept and dropped), `dropped` (up to 50 dropped
-listings with the reason), `collapsed` (cross-source duplicates) and `rows`.
+listings with the reason), `collapsed` (each duplicate, the row it went into and
+`why`, see [Duplicates](#duplicates)) and `rows`.
 The live dry run of 2026-10-17, Engage off, answered in 14 s:
 
 ```json
@@ -198,6 +261,58 @@ without it. The run otherwise writes and sweeps as before.
 | 503 | `campus_events_schema_missing`: the migration has not run (a dry run still works). Otherwise a database 5xx or timeout that survived its retry, logged as a warning; the next run retries. |
 | 500 | Any other database failure, logged as an error. |
 
+## PurdueME
+
+`purdueme` reads Purdue Mechanical Engineering's calendar, the source Campus
+Bord's scrapers added: The Events Calendar's REST list on `purdueme.com`, the
+same platform as White River State Park's. Its robots.txt disallows only
+`/wp-admin/`, so unlike the park it is asked for what the ingest wants
+(`query` on the source, `tribePageUrl`): the "indianapolis" category, today to
+60 days out, 50 a page, up to `maxPages` (5).
+
+- **West Lafayette's listings.** The category also carries events tagged with
+  both campuses: on 2026-10-26, 12 of its 24, mostly exam reviews in PHYS,
+  WTHR and FRNY. A listing tagged with one of the source's `awayCategories`
+  (`west-lafayette`) counts as `away` unless it is online (the graduate school
+  panel on Zoom) or a place puts it on this campus, so 11 drop and 13 rows are
+  planned.
+- **Duplicates.** Seven of those 13 are on Purdue's calendar too, under other
+  titles or times ("Grad School Prep Panel", the all-day "Halloween Crawl"),
+  and collapse into Purdue's rows ([Duplicates](#duplicates)). What PurdueME
+  adds is its own: Pizza with a Professor, the Free Food Fridays in the ET
+  Atrium, Beyond the Track, a second study abroad drop-in, INDOT x Purdue.
+- Times are its wall clock in Indianapolis, as the park's; descriptions are
+  empty; the free food comes from the keyword matcher ("Free Food Friday",
+  "Pizza with a Professor"), never from a cost.
+
+## IU Indy athletics
+
+`iu_athletics` reads `https://iuindyjags.com/calendar.ashx/calendar.ics?sport_id=0`,
+the Jaguars' whole season as one iCalendar file (Sidearm), parsed with
+`node-ical` like a student's own feed (`icsListings` in
+`src/campusEventsIngest.mjs`, `normalizeIcsEvent` in `src/sharedEvents.mjs`).
+Its robots.txt allows every path and asks for 30 seconds between requests; a
+run makes one. On 2026-10-26 the file held 207 events, 62 of them in the next
+60 days, 23 of those home games on campus (James T. Morris Arena, the IU
+Natatorium, Michael A. Carroll Stadium).
+
+- **Home games only, by location.** Every title names the team ("IU Indy Men's
+  Basketball at Austin Peay"), wherever the game is, so this source is placed
+  by its location alone (`placeFromLocation`): "Indianapolis, Ind., James T.
+  Morris Arena" is kept as `place`; "Clarksville, Tenn." drops as `unplaced`
+  and "Muncie, IN" as `away`. That is why IU's own calendar leaves out its
+  athletics group ([What a row says](#what-a-row-says)).
+- **Results leave the title.** Sidearm puts "[W]", "[L]", "[T]" or "[N]" in
+  front of a played game's title; the row keeps the plain title, so a result
+  never forks it. The description drops its first line, which repeats the
+  title, and keeps the TV, streaming and ticket lines.
+- **All-day meets** (a tournament, a swim meet) are date-only in the file.
+  `node-ical` builds those at midnight in the server's own time zone, UTC on
+  Render, so the date as written becomes midnight on the campus clock, ending
+  the next midnight, whatever the time zone.
+- Ids: the file's UID, `vcal_<game id>-iuindyjags.com`; the link is the game's
+  page. Category `sports_fitness`, never free food unless the text says so.
+
 ## Downtown events
 
 Issue #30's first source beyond campus is White River State Park's events
@@ -208,10 +323,39 @@ the Canal Walk. Its rows are `venue_kind` `downtown` with `source_key`
 `wrsp_events`, so the read labels them "Downtown" and gives them a pill of
 their own ([campus-events-feed.md](campus-events-feed.md#downtown-events)).
 
-`CAMPUS_EVENTS_DOWNTOWN` (`on`, `1` or `true`; off by default) turns it on.
-With it off the ingest neither fetches the park nor names it in its summary,
-and every read leaves its rows out, so a run and its answer are what they were
-before the source existed.
+`CAMPUS_EVENTS_DOWNTOWN` (`on`, `1` or `true`; off by default) turns it on,
+and, with `CAMPUS_EVENTS_LIBRARY` on as well, the Central Library
+([The Central Library](#the-central-library)).
+With it off the ingest neither fetches a downtown source nor names one in its
+summary, and every read leaves their rows out, so a run and its answer are
+what they were before the sources existed.
+
+### The Central Library
+
+`indypl_central` reads the Indianapolis Public Library's calendar file for its
+Central Library, only with `CAMPUS_EVENTS_LIBRARY` on as well as the downtown
+switch: on 2026-10-18 the owner held this feed for a permission email to the
+library, so it stays off until the library has said yes (README's environment
+table). The file is Communico's "Subscribe" feed (40 E. St. Clair Street, 1.8
+km from campus): `https://attend.indypl.org/feeds?data=<base64 JSON>`, the JSON
+naming location 1590, the ages "Adults" and "Teens" (the owner's call: no
+children's programs), and 60 days (`communicoFeedPath` in
+`src/sharedEvents.mjs`). robots.txt blocks only its search pages; no key, and
+no reuse terms found. On 2026-10-26 it held 96 teen and adult events (130 for
+every age): author talks, the Indy Cinema Series, writing and conversation
+circles, STEM and technology workshops, teen hangouts.
+
+- Each event is placed by its coordinates (GEO, 1.8 km out: `near`) and is
+  `venue_kind` `downtown`, labeled "Downtown" under the Downtown pill like the
+  park's.
+- The file has no URL per event, so the link is the event's page,
+  `https://attend.indypl.org/event/<UID>` (the source's `eventUrl`). The
+  location reads "Central Library", the library's dangling " - " dropped.
+- A weekly program ("Explore STEM + More", 14 times in 60 days) is one series,
+  listed once at its next occurrence.
+- Free food comes from the keyword matcher alone, which reads "Bring your
+  favorite snacks" as food; with `CAMPUS_EVENTS_CLASSIFY` on, Jev's answer
+  replaces it.
 
 ### What a downtown row says
 
@@ -284,6 +428,17 @@ Back to `off`, the next deploy stops the fetch and hides the rows from every
 read. They stay in the table, since a source that is not fetched is not
 swept; `delete from campus_events where source_key = 'wrsp_events';` removes
 them.
+
+The Central Library, once the library has answered the permission email:
+
+1. With downtown on, set `CAMPUS_EVENTS_LIBRARY=on` on Render and redeploy.
+2. Run the dry run and read the `indypl_central` entry: about 96 rows, every
+   one `near`, `venue_kind` `downtown`.
+3. The next run writes them; `/events` lists them as "Downtown" with the park's.
+
+Back to `off`, the fetch stops and the rows age out of every read within 26
+hours; `delete from campus_events where source_key = 'indypl_central';` removes
+them at once.
 
 ## Jev classification
 
@@ -431,9 +586,11 @@ of two versions are never mixed.
 - IU Indianapolis's own events are open to Purdue Indianapolis students (the
   owner's call on #30, 2026-10-18); the rows carry `source_key = 'iu_events'`,
   and the read path labels them "IU event" to say where they come from.
-- Each source is ingested in full every run. At today's volumes that is 5 page
-  requests with Engage off and about 24 with it on, and one more for the park
-  with `CAMPUS_EVENTS_DOWNTOWN` on.
+- Each source is ingested in full every run. At today's volumes that is 11 page
+  requests with Engage off (Purdue's calendar, IU's 7 pages, PurdueME and the
+  Jaguars' file) and about 25 more with it on, one more for the park with
+  `CAMPUS_EVENTS_DOWNTOWN` on, and one for the Central Library with
+  `CAMPUS_EVENTS_LIBRARY` on too.
 - White River State Park is read as its one robots-allowed page, the 50
   soonest listings over two years (27 on 2026-10-24). A longer list reads as
   incomplete and is not swept; reading past it would take the park's leave
@@ -446,9 +603,11 @@ of two versions are never mixed.
 Constants at the top of `src/campusEventsIngest.mjs` (`PAGE_DELAY_MS`,
 `PAGE_TIMEOUT_MS`, `MAX_PAGES`, `UPSERT_BATCH_SIZE`) and the source table in
 `src/sharedEvents.mjs` (`SOURCES`: the Localist window of 120 days, the LiveWhale
-window of 31 days and distance of 1 mile, the park's window of 60 days).
+window of 31 days, the athletics, PurdueME and the park's windows of 60 days).
 `MAX_PAGES.tribe` stays 1: a second page needs the query string the park's
-robots.txt disallows. `complete: false` with "more than N
+robots.txt disallows; a source's own `maxPages` (PurdueME's 5) overrides its
+platform's. `MAX_PAGES.ics` is 1: a calendar file is one request.
+`complete: false` with "more than N
 pages" means a source outgrew its page cap. The cron's `pg_net` timeout is 180
 seconds. A run with Engage off took 14 s on 2026-10-17; with it on a run reads
 about 24 pages a second apart, so it should still finish well inside that.

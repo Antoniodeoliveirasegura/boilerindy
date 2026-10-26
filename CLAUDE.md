@@ -25,9 +25,9 @@ rights to the BoilerIndy name or logo.
   mounted where their routes used to be, with absolute paths inside.
   `docs/api-routes.md` is the generated inventory of every route and the file
   it lives in (`pnpm run docs:routes`; `test/apiRoutesDoc.test.mjs` fails when
-  it is stale). The eleven session-free public reads (transit, parking, clubs,
+  it is stale). The twelve session-free public reads (transit, parking, clubs,
   push config, dining with its dish details and look-ahead, campus news, the
-  signed-out free-food list) are registered ahead of `app.use(session(...))` with a
+  signed-out free-food list, the demo calendars) are registered ahead of `app.use(session(...))` with a
   `Cache-Control` header so Vercel's edge can cache them; `test/publicReadKey.test.mjs`
   pins that block.
 - `src/*.mjs`: backend modules, camelCase, named exports. Anything that needs a
@@ -81,6 +81,9 @@ rights to the BoilerIndy name or logo.
   boilerindy-react test`). A test's router is
   `<MemoryRouter useTransitions={false}>`, like the `BrowserRouter` in
   `App.tsx`; lint fails on a router without it.
+- Motion: the tokens and keyframes in `index.css`, `usePresence` for a dialog,
+  menu or toast that animates out, `useEntrance` for a list; only transform
+  and opacity move. `docs/motion.md` has the rules.
 - Route guards: every app route in `App.tsx` is wrapped in `RequireAuth`
   except the public preview (issue #366), `/dining`, `/transit`, `/map` and
   `/free-food`, listed in `lib/publicPreview.ts` (`publicPreview.test.ts`

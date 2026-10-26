@@ -1,15 +1,36 @@
 // Client-side pre-check for a pasted schedule feed link (issue #120). The
 // server is the real gate (assertSafeHttpUrl plus a per-provider host
-// allowlist in server.mjs); this mirrors the allowlist so a student who pastes
-// the wrong thing gets a specific hint next to the field instead of a generic
-// error from the API after a round trip.
+// allowlist in src/routes/sources.mjs); this mirrors the allowlist so a student
+// who pastes the wrong thing gets a specific hint next to the field instead of
+// a generic error from the API after a round trip.
 
 export type ScheduleSourceKind = 'brightspace' | 'purdue'
 
-/** Must match SCHEDULE_SOURCE_HOSTS in server.mjs. */
+/** Must match SCHEDULE_SOURCE_HOSTS in src/routes/sources.mjs. */
 export const SOURCE_HOSTS: Record<ScheduleSourceKind, string[]> = {
   purdue: ['purdue.edu'],
   brightspace: ['brightspace.com', 'd2l.com', 'desire2learn.com'],
+}
+
+/**
+ * The demo calendars for the App Review account (issue #521), which the server
+ * builds itself: on this site's own origin, the exact path for the kind, as
+ * src/demoCalendars.mjs accepts them.
+ */
+export const DEMO_CALENDAR_PATHS: Record<ScheduleSourceKind, string> = {
+  purdue: '/api/demo/calendars/purdue-timetable.ics',
+  brightspace: '/api/demo/calendars/brightspace.ics',
+}
+
+function isDemoCalendar(kind: ScheduleSourceKind, url: URL): boolean {
+  return (
+    url.origin === globalThis.location?.origin &&
+    url.pathname === DEMO_CALENDAR_PATHS[kind] &&
+    !url.search &&
+    !url.hash &&
+    !url.username &&
+    !url.password
+  )
 }
 
 export const PROVIDER_LINKS: Record<ScheduleSourceKind, { label: string; href: string }> = {
@@ -37,6 +58,8 @@ export function checkScheduleSourceUrl(kind: ScheduleSourceKind, raw: string): S
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     return { ok: false, reason: 'The link has to start with https://.' }
   }
+
+  if (isDemoCalendar(kind, url)) return { ok: true, url: value }
 
   if (!hostAllowed(url.hostname, SOURCE_HOSTS[kind])) {
     const expected =
