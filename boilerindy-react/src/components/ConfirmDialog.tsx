@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { usePresence } from '../hooks/usePresence'
 import Icon from './Icons'
 
 /**
@@ -35,6 +36,9 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
+  // Closing plays the exit before the dialog leaves the page; focus, the Tab
+  // trap and the scroll lock below already let go when `open` turns false.
+  const presence = usePresence(open)
 
   // Focus moves into the dialog while it is open and goes back afterwards
   // (issue #221): the element that had focus when the dialog opened, usually
@@ -75,7 +79,7 @@ export default function ConfirmDialog({
     }
   }, [open, onCancel])
 
-  if (!open) return null
+  if (!presence.mounted) return null
 
   const confirmTone =
     tone === 'danger'
@@ -84,6 +88,9 @@ export default function ConfirmDialog({
 
   return createPortal(
     <div
+      ref={presence.ref}
+      data-motion={presence.motion}
+      inert={!open}
       className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
@@ -91,11 +98,11 @@ export default function ConfirmDialog({
       aria-describedby={message ? 'confirm-dialog-message' : undefined}
     >
       <div
-        className="absolute inset-0 bg-black/55 animate-fade-in"
+        className="motion-scrim absolute inset-0 bg-black/55"
         onClick={onCancel}
         aria-hidden="true"
       />
-      <div className="relative card w-full max-w-sm p-5 shadow-[var(--shadow-xl)] animate-fade-in-up">
+      <div className="motion-sheet relative card w-full max-w-sm p-5 shadow-[var(--shadow-xl)]">
         <div className="flex items-start gap-3">
           {icon && (
             <div className={`route-badge shrink-0 ${tone === 'danger' ? 'bg-[var(--color-error)] text-[var(--color-on-route)]' : 'r-ink'}`}>

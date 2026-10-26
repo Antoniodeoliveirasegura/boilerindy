@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../../components/Icons'
+import { usePresence } from '../../hooks/usePresence'
 import { createAdminAdvertiser, listAdminAdvertisers } from '../../lib/adminApi'
 import { AlertBanner, EmptyState, PageHeader } from './adminShared'
 import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_TH, formatDateTime, generateTempPassword } from './adminHelpers'
@@ -42,6 +43,8 @@ export default function AdminAdvertisers() {
   })
   const dialogRef = useRef<HTMLDivElement>(null)
   const emailRef = useRef<HTMLInputElement>(null)
+  // Closing plays the exit before the dialog leaves the page (docs/motion.md).
+  const createDialog = usePresence(showForm)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -200,14 +203,20 @@ export default function AdminAdvertisers() {
       {!showForm && <AlertBanner message={error} onDismiss={() => setError('')} />}
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
 
-      {showForm && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/55">
+      {createDialog.mounted && (
+        <div
+          ref={createDialog.ref}
+          data-motion={createDialog.motion}
+          inert={!showForm}
+          className="fixed inset-0 z-[3000] flex items-center justify-center p-4"
+        >
+          <div className="motion-scrim absolute inset-0 bg-black/55" aria-hidden="true" />
           <div
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-advertiser-title"
-            className="card w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:p-6 shadow-[var(--shadow-xl)]"
+            className="motion-sheet relative card w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:p-6 shadow-[var(--shadow-xl)]"
           >
             <h2 id="create-advertiser-title" className="card-title text-[20px] mb-1">
               Create advertiser account

@@ -630,7 +630,7 @@ export default function Assignments() {
       />
       {/* A feed that stopped syncing shows here, not only on the Connect page (issue #12). */}
       <SourceErrorNotice className="mb-6" />
-      <header className="page-head animate-fade-in-up">
+      <header className="page-head">
         <div>
           <h1 className="page-title">Tasks</h1>
           <p className="page-sub">
@@ -678,7 +678,7 @@ export default function Assignments() {
       {loadFailure && (
         <div
           role="alert"
-          className="card mb-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-1)] animate-fade-in-up"
+          className="card mb-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-1)]"
         >
           <Icon name="alert" size={16} className="shrink-0 text-[var(--color-error)]" />
           <span className="min-w-0 flex-1">{loadFailure}</span>
@@ -689,7 +689,7 @@ export default function Assignments() {
       )}
 
       {tablesMissing && (
-        <div className="card mb-5 flex items-start gap-2.5 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-2)] animate-fade-in-up">
+        <div className="card mb-5 flex items-start gap-2.5 px-4 py-3 text-[13px] leading-relaxed text-[var(--color-txt-2)]">
           <Icon name="info" size={16} className="mt-0.5 shrink-0 text-[var(--color-txt-2)]" />
           <div className="min-w-0">
             <span className="font-semibold text-[var(--color-txt-1)]">Tasks work in this browser: </span>
@@ -700,7 +700,7 @@ export default function Assignments() {
         </div>
       )}
 
-      <section className="card card-pad r-tsk mb-5 animate-fade-in-up stagger-1">
+      <section className="card card-pad r-tsk mb-5">
         <div className="eyebrow mb-4">
           Add a task
         </div>
@@ -741,7 +741,7 @@ export default function Assignments() {
       </section>
 
       {hasNoSources && (
-        <section className="card card-pad r-tsk mb-5 flex flex-col gap-4 sm:flex-row sm:items-center animate-fade-in-up">
+        <section className="card card-pad r-tsk mb-5 flex flex-col gap-4 sm:flex-row sm:items-center">
           <span className="route-badge">
             <Icon name="calendar" size={18} />
           </span>
@@ -761,7 +761,7 @@ export default function Assignments() {
       )}
 
       {categoriesWithManual.length > 0 && (
-        <div className="mb-5 flex flex-wrap gap-2 animate-fade-in-up stagger-1">
+        <div className="mb-5 flex flex-wrap gap-2">
           <button
             onClick={() => setSelectedCategories([])}
             className={`pill whitespace-nowrap ${selectedCategories.length === 0 ? 'pill-active' : ''}`}
@@ -800,7 +800,7 @@ export default function Assignments() {
 
       {/* AI Insights Panel */}
       {!hasNoSources && !loading && filteredItems.length > 0 && (
-        <section className="card card-pad r-ai mb-5 animate-fade-in-up stagger-2">
+        <section className="card card-pad r-ai mb-5">
           {/* card-head as on Events' Recommended card. The title row is the
               collapse toggle (a real button, so it works from the keyboard);
               the Generate action sits at the right while the card is open. */}
@@ -901,7 +901,7 @@ export default function Assignments() {
         </div>
       ) : (
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
-          <section className="card card-pad r-tsk min-w-0 animate-fade-in-up stagger-2">
+          <section className="card card-pad r-tsk min-w-0">
             {Object.entries(groupedItems).map(([date, dateItems], groupIndex) => (
               <div key={date} className={groupIndex > 0 ? 'mt-2' : ''}>
                 <div className="eyebrow bare">
@@ -1027,7 +1027,7 @@ export default function Assignments() {
           <div
             ref={detailRef}
             className={`h-fit min-w-0 scroll-mt-24 lg:sticky lg:top-24 ${
-              selectedItem ? 'animate-fade-in-up stagger-3' : 'hidden lg:block'
+              selectedItem ? 'animate-fade-in-up' : 'hidden lg:block'
             }`}
           >
             {selectedItem ? (

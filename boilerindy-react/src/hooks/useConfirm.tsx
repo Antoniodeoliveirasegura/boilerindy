@@ -27,10 +27,16 @@ type PendingConfirm = { options: ConfirmOptions; resolve: (ok: boolean) => void 
 
 export function useConfirm() {
   const [pending, setPending] = useState<PendingConfirm | null>(null)
+  // The last question asked stays after it is answered, so the dialog still
+  // reads the same while it animates out.
+  const [shown, setShown] = useState<ConfirmOptions | null>(null)
 
   const confirm = useCallback(
     (options: ConfirmOptions) =>
-      new Promise<boolean>((resolve) => setPending({ options, resolve })),
+      new Promise<boolean>((resolve) => {
+        setShown(options)
+        setPending({ options, resolve })
+      }),
     [],
   )
 
@@ -42,12 +48,12 @@ export function useConfirm() {
   const confirmDialog = (
     <ConfirmDialog
       open={pending !== null}
-      title={pending?.options.title ?? ''}
-      message={pending?.options.message}
-      confirmLabel={pending?.options.confirmLabel}
-      cancelLabel={pending?.options.cancelLabel}
-      tone={pending?.options.tone}
-      icon={pending?.options.icon}
+      title={shown?.title ?? ''}
+      message={shown?.message}
+      confirmLabel={shown?.confirmLabel}
+      cancelLabel={shown?.cancelLabel}
+      tone={shown?.tone}
+      icon={shown?.icon}
       onConfirm={() => settle(true)}
       onCancel={() => settle(false)}
     />

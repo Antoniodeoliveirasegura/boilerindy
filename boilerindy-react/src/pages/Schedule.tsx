@@ -560,7 +560,7 @@ export default function Schedule() {
   return (
     <div className="page">
       <PageTitle>Class Schedule</PageTitle>
-      <header className="page-head animate-fade-in-up">
+      <header className="page-head">
         <div>
           <h1 className="page-title">Class Schedule</h1>
           <p className="page-sub">
@@ -595,7 +595,7 @@ export default function Schedule() {
       )}
 
       {needsSetup && (
-        <section className="card card-pad r-cls mb-5 flex flex-col gap-4 sm:flex-row sm:items-center animate-fade-in-up">
+        <section className="card card-pad r-cls mb-5 flex flex-col gap-4 sm:flex-row sm:items-center">
           <span className="route-badge">
             <Icon name={onboarding?.needsPurdueConnection ? 'graduation' : 'calendar'} size={18} />
           </span>
@@ -622,7 +622,7 @@ export default function Schedule() {
       )}
 
       {editorOpen ? (
-        <section className="card card-pad mb-5 animate-fade-in-up">
+        <section className="card card-pad mb-5">
           <header className="card-head items-start">
             <div>
               <h2 className="card-title">{adding ? 'Add a class' : 'Edit class'}</h2>
@@ -743,7 +743,7 @@ export default function Schedule() {
       ) : null}
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
-        <section className="card r-cls min-w-0 animate-fade-in-up stagger-1">
+        <section className="card r-cls min-w-0">
           {/* Weekday strip. On phones the five short names share the card's
               width: at 88px each, Thu and Fri sat past the edge of a 390px
               screen behind a sideways scroll. A day keeps at least 48px, so
