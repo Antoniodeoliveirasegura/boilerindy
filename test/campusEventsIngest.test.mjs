@@ -217,7 +217,7 @@ test('with Engage on, BoilerLink and TheSpot join, the club directory names Indi
   ])
   assert.deepEqual(summary.sources.map((s) => s.enabled), [true, true, true, true])
   assert.deepEqual(summary.sources[2].keptBy, { place: 5, org: 3, near: 1 })
-  assert.deepEqual(summary.collapsed, [{ kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours' }])
+  assert.deepEqual(summary.collapsed, [{ kept: 'boilerlink:12728673', dropped: 'thespot:12728562', title: 'Weekly Badminton Club Hours', why: 'title' }])
   assert.equal(summary.rows.length, 31)
 })
 
