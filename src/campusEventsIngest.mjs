@@ -146,9 +146,10 @@ function icsInstant(date, allDay) {
  * The events of a calendar file as plain listings for normalizeIcsEvent in
  * src/sharedEvents.mjs: `uid`, `summary`, `description`, `location`, `url`,
  * `start` and `end` as ISO (an all-day one at campus midnight, its end the
- * next day's as the file writes it), `allDay` and `status`. Null for text that
- * is not a calendar. A repeating event gives its first occurrence: Sidearm's
- * schedule has none.
+ * next day's as the file writes it), `allDay`, `status`, and `lat` and `lon`
+ * from GEO (null without one). Null for text that is not a calendar. A
+ * repeating event gives its first occurrence: neither Sidearm's schedule nor
+ * the library's file has any.
  */
 export function icsListings(text) {
   if (typeof text !== 'string' || !/^\s*BEGIN:VCALENDAR/.test(text)) return null
@@ -172,6 +173,8 @@ export function icsListings(text) {
       end: icsInstant(event.end, allDay),
       allDay,
       status: icalText(event.status),
+      lat: event.geo?.lat ?? null,
+      lon: event.geo?.lon ?? null,
     })
   }
   return listings
@@ -417,7 +420,8 @@ async function leaveOutDowntownWithoutStep49(client, rows, { summary, fetched, r
  * run touches no database.
  *
  * `downtownEnabled` (CAMPUS_EVENTS_DOWNTOWN) adds the downtown sources, White
- * River State Park's calendar; off, they are neither fetched nor in the
+ * River State Park's calendar, and with `libraryEnabled` (CAMPUS_EVENTS_LIBRARY)
+ * as well the Central Library's; off, they are neither fetched nor in the
  * summary, so the run is the one before they existed. A real run before README
  * step 49 leaves them out (leaveOutDowntownWithoutStep49).
  */
@@ -426,6 +430,7 @@ export async function runCampusEventsIngest({
   dryRun = false,
   engageEnabled = false,
   downtownEnabled = false,
+  libraryEnabled = false,
   clubs = [],
   classify = null,
   fetchImpl = globalThis.fetch,
@@ -439,10 +444,13 @@ export async function runCampusEventsIngest({
   const runAt = now.toISOString()
 
   const engage = enabledEngageSources(engageEnabled)
+  // The sources this run reads at all: a downtown one needs CAMPUS_EVENTS_DOWNTOWN,
+  // the library CAMPUS_EVENTS_LIBRARY too.
+  const switchedOn = (source) => (downtownEnabled || !source.downtown) && (libraryEnabled || !source.library)
   const fetched = new Map()
   for (const source of SOURCES) {
     if (source.engage && !engage.has(source.key)) continue
-    if (source.downtown && !downtownEnabled) continue
+    if (!switchedOn(source)) continue
     fetched.set(source.key, await fetchSourceListings(source, { fetchImpl, now, sleep, pageDelayMs, log }))
   }
   const plan = planCampusEvents(
@@ -463,7 +471,7 @@ export async function runCampusEventsIngest({
   }
 
   const planned = new Map(plan.sources.map((stats) => [stats.key, stats]))
-  const sources = SOURCES.filter((source) => downtownEnabled || !source.downtown).map((source) => {
+  const sources = SOURCES.filter(switchedOn).map((source) => {
     const result = fetched.get(source.key)
     if (!result) return { key: source.key, enabled: false }
     const { key, ...stats } = planned.get(source.key)

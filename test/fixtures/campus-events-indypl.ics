@@ -1,0 +1,148 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Indianapolis Public Library //Event Calendar//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VTIMEZONE
+TZID:America/Indiana/Indianapolis
+BEGIN:STANDARD
+DTSTART:20261101T060000Z
+TZOFFSETTO:-0500
+TZOFFSETFROM:-0400
+RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU
+END:STANDARD
+BEGIN:DAYLIGHT
+DTSTART:20260308T070000Z
+TZOFFSETTO:-0400
+TZOFFSETFROM:-0500
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU
+END:DAYLIGHT
+END:VTIMEZONE
+BEGIN:VEVENT
+UID:17569512
+DTSTART:20261026T200000Z
+DTEND:20261026T220000Z
+STATUS:CONFIRMED
+SUMMARY:Teen Watchlist
+DESCRIPTION:Drop by\, grab a seat\, and watch cool movies or binge-wor
+ thy shows with other teens. Hang out\, chat\, react dramatically to pl
+ ot twists\, or just vibe in the background  no pressure either way. 
+ Bring your favorite snacks and make yourself comfortable!
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:17449067
+DTSTART:20261026T220000Z
+DTEND:20261026T230000Z
+STATUS:CONFIRMED
+SUMMARY:An Evening with Chloe Gong
+DESCRIPTION:Join Taylor Bridgeforth (moderator and author) for an enga
+ ging conversation with bestselling young adult author Chloe Gong!. 
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:15575131
+DTSTART:20261027T213000Z
+DTEND:20261027T233000Z
+STATUS:CONFIRMED
+SUMMARY:Free Notarization Services at Central Library
+DESCRIPTION:All adults are welcome (first come\, first served) on the 
+ 4th Tuesday of the month between 5:30-7:30 PM to receive notarization 
+ services free of charge courtesy of Gold Torch Notary Services. Please
+  select the program title to review the list of services and requireme
+ nts for service.
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:15336222
+DTSTART:20261027T220000Z
+DTEND:20261028T000000Z
+STATUS:CONFIRMED
+SUMMARY:The Indy Cinema Series at Central Library
+DESCRIPTION:Join us for an evening movie at Central Library in the Clo
+ wes Auditorium Theater. Adults 17 & up are invited to view a selection
+  of contemporary and classic cinema each month. Free admission and no 
+ registration required. Drop in--catch a film!
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:17032250
+DTSTART:20261027T220000Z
+DTEND:20261027T230000Z
+STATUS:CONFIRMED
+SUMMARY:Spanish Conversation Circle
+DESCRIPTION:Join our Spanish Conversation Circle to practice and impro
+ ve your Spanish conversation skills in a comfortable and welcoming pla
+ ce.  This class focuses on casual conversation. We discuss topics on c
+ ulture\, idioms\, phrasal verbs\, some grammar\, and much much more!
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:17569949
+DTSTART:20261028T190000Z
+DTEND:20261028T210000Z
+STATUS:CONFIRMED
+SUMMARY:Explore STEM + More
+DESCRIPTION:Kids and families\, stop by the 3rd floor to immerse yours
+ elf in the world of science and tech exploration. Discover something n
+ ew by exploring robots\, LEGOs\, STEM apps\, crafts\, games\, and more
+  at your own pace. 
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:17569950
+DTSTART:20261031T170000Z
+DTEND:20261031T200000Z
+STATUS:CONFIRMED
+SUMMARY:Explore STEM + More
+DESCRIPTION:Kids and families\, stop by the 3rd floor to immerse yours
+ elf in the world of science and tech exploration. Discover something n
+ ew by exploring robots\, LEGOs\, STEM apps\, crafts\, games\, and more
+  at your own pace. 
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+BEGIN:VEVENT
+UID:17687767
+DTSTART:20261109T210000Z
+DTEND:20261109T230000Z
+STATUS:CONFIRMED
+SUMMARY:Teen Watchlist
+DESCRIPTION:Drop by\, grab a seat\, and watch cool movies or binge-wor
+ thy shows with other teens. Hang out\, chat\, react dramatically to pl
+ ot twists\, or just vibe in the background  no pressure either way. 
+ Bring your favorite snacks and make yourself comfortable!
+LOCATION:Central Library - 
+GEO:39.7793029;-86.1568697
+DTSTAMP:20261026T093254Z
+ORGANIZER;CN=Indianapolis Public Library ;LANGUAGE=en:mailto:noreply@m
+ ylocallibrary.info
+END:VEVENT
+END:VCALENDAR

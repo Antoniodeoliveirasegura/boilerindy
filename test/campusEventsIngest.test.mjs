@@ -51,6 +51,11 @@ const PURDUEME_ROWS = PURDUEME_PLANNED - 1
 const HALLOWEEN_CRAWL = { kept: 'purdue_events:54045913665054', dropped: 'purdueme:25663', title: 'CoE Halloween Crawl', why: 'day' }
 // What the sources that are always on besides the two calendars add to a run.
 const ALWAYS_ON_ROWS = ATHLETICS_ROWS + PURDUEME_ROWS
+// Eight teen and adult events of the Central Library's calendar file, fetched
+// on 2026-10-26, all in a run's window from the 24th: downtown rows, like the
+// park's, read only with CAMPUS_EVENTS_DOWNTOWN on.
+const INDYPL = readFileSync(new URL('./fixtures/campus-events-indypl.ics', import.meta.url), 'utf8')
+const LIBRARY_ROWS = 8
 
 const NOW = new Date('2026-10-17T12:00:00.000Z')
 const RUN_AT = NOW.toISOString()
@@ -77,6 +82,7 @@ const bySource = (overrides = {}) => (url) => {
     'thespot.indianapolis.iu.edu': () => json(THESPOT),
     'iuindyjags.com': () => calendar(IUINDYJAGS),
     'purdueme.com': () => json(PURDUEME),
+    'attend.indypl.org': () => calendar(INDYPL),
     'whiteriverstatepark.org': () => json(WRSP),
     ...overrides,
   }
@@ -207,6 +213,8 @@ test('a calendar file reads as plain listings; a date-only event starts at campu
     end: '2026-09-26T21:00:00.000Z',
     allDay: false,
     status: '',
+    lat: null,
+    lon: null,
   })
   assert.match(listings[0].description, /^\[W\] IU Indy Volleyball vs Robert Morris\nW 3-2\n/)
   // The swim meet is all day on November 19 (EST) and the DeKalb tennis on
@@ -244,6 +252,26 @@ test("the season's file is kept from today on the campus calendar to 60 days out
   const failed = await fetchSourceListings(source, { fetchImpl: down.fetchImpl, now: ATHLETICS_NOW, sleep: noSleep, log: quiet })
   assert.equal(failed.complete, false)
   assert.match(failed.error, /iu_athletics responded 500/)
+})
+
+test("the Central Library's file asks for its location, teens and adults, 60 days; its events carry coordinates", () => {
+  const url = new URL(icsPageUrl(sourceByKey('indypl_central')))
+  assert.equal(`${url.origin}${url.pathname}`, 'https://attend.indypl.org/feeds')
+  assert.deepEqual(JSON.parse(Buffer.from(url.searchParams.get('data'), 'base64').toString('utf8')), {
+    feedType: 'ical',
+    filters: { location: ['1590'], ages: ['Adults', 'Teens'], types: ['all'], tags: [], term: '', days: 60 },
+  })
+  const listings = icsListings(INDYPL)
+  assert.equal(listings.length, 8)
+  // node-ical keys events by UID, and numeric keys come out in number order,
+  // not the file's: the order never matters, since the plan sorts by start.
+  const watchlist = listings.find((raw) => raw.uid === '17569512')
+  assert.deepEqual(
+    [watchlist.summary, watchlist.location, watchlist.url, watchlist.lat, watchlist.lon],
+    ['Teen Watchlist', 'Central Library - ', '', 39.7793029, -86.1568697],
+  )
+  // The Jaguars' file has no GEO.
+  assert.deepEqual([icsListings(IUINDYJAGS)[0].lat, icsListings(IUINDYJAGS)[0].lon], [null, null])
 })
 
 // ── The Events Calendar with a query string: PurdueME (#30) ──────────────────
@@ -581,20 +609,43 @@ test('with CAMPUS_EVENTS_DOWNTOWN off the park is never fetched, and the run and
   assert.ok(dry.rows.every((row) => row.source_key !== 'wrsp_events'))
 })
 
+test('the Central Library is read only with CAMPUS_EVENTS_LIBRARY on as well as CAMPUS_EVENTS_DOWNTOWN', async () => {
+  const libraryCalls = (calls) => calls.filter((c) => new URL(c.url).hostname === 'attend.indypl.org')
+  // Downtown on, library off (production's settings when this landed): the park alone.
+  const parkOnly = fakeFetch(bySource())
+  const park = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, fetchImpl: parkOnly.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual(libraryCalls(parkOnly.calls), [])
+  assert.equal(park.sources.at(-1).key, 'wrsp_events')
+  assert.ok(park.rows.every((row) => row.source_key !== 'indypl_central'))
+  // Library on without downtown: still nothing downtown.
+  const noDowntown = fakeFetch(bySource())
+  await runCampusEventsIngest({ dryRun: true, libraryEnabled: true, fetchImpl: noDowntown.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.deepEqual([...libraryCalls(noDowntown.calls), ...parkCalls(noDowntown.calls)], [])
+  // Both on: one request for the file.
+  const both = fakeFetch(bySource())
+  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, libraryEnabled: true, fetchImpl: both.fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  assert.equal(libraryCalls(both.calls).length, 1)
+  assert.equal(summary.sources.at(-1).rows, LIBRARY_ROWS)
+})
+
 test('with it on, a dry run reads the park once and plans its listings as downtown rows, with no database', async () => {
   const { fetchImpl, calls } = fakeFetch(bySource())
-  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
+  const summary = await runCampusEventsIngest({ dryRun: true, downtownEnabled: true, libraryEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log: quiet })
   assert.deepEqual(parkCalls(calls).map((c) => c.url), [PARK_URL])
-  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events'])
-  assert.deepEqual(summary.sources.at(-1), {
+  assert.deepEqual(summary.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events', 'indypl_central'])
+  assert.deepEqual(summary.sources.find((s) => s.key === 'wrsp_events'), {
     key: 'wrsp_events', enabled: true, ok: true, complete: true, pages: 1, error: null,
     listings: 19, skipped: 0, keptBy: { place: 18, scope: 1 }, droppedBy: {}, merged: 0, rows: 19,
   })
   const park = summary.rows.filter((row) => row.source_key === 'wrsp_events')
   assert.equal(park.length, 19)
   assert.ok(park.every((row) => row.venue_kind === 'downtown' && row.free_food === false))
-  assert.equal(summary.rows.length, 17 + ALWAYS_ON_ROWS + 19)
-  assert.equal(summary.totals.venueKinds.downtown, 19)
+  // The library's events, placed by their coordinates 1.8 km out.
+  const library = summary.rows.filter((row) => row.source_key === 'indypl_central')
+  assert.equal(library.length, LIBRARY_ROWS)
+  assert.ok(library.every((row) => row.venue_kind === 'downtown' && row.location === 'Central Library'))
+  assert.equal(summary.rows.length, 17 + ALWAYS_ON_ROWS + 19 + LIBRARY_ROWS)
+  assert.equal(summary.totals.venueKinds.downtown, 19 + LIBRARY_ROWS)
 })
 
 test('with it on and README step 49 run, one downtown row goes up first, then every row, and the park is swept', async () => {
@@ -602,14 +653,15 @@ test('with it on and README step 49 run, one downtown row goes up first, then ev
   const supabase = database()
   const warnings = []
   const log = { ...quiet, warn: (line) => warnings.push(line) }
-  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
+  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, libraryEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
   const batches = upsertBatches(supabase)
-  assert.deepEqual(batches.map((batch) => batch.length), [1, 36 + ALWAYS_ON_ROWS])
+  assert.deepEqual(batches.map((batch) => batch.length), [1, 36 + ALWAYS_ON_ROWS + LIBRARY_ROWS])
   assert.deepEqual(batches[0].map((row) => [row.dedupe_key, row.venue_kind, row.last_seen_at]), [['wrsp_events:6909', 'downtown', WRSP_NOW.toISOString()]])
   assert.equal(batches[1].filter((row) => row.source_key === 'wrsp_events').length, 19)
-  assert.equal(summary.upserted, 36 + ALWAYS_ON_ROWS)
-  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics', 'wrsp_events'])
-  assert.equal(summary.sources.at(-1).swept, 2)
+  assert.equal(batches[1].filter((row) => row.source_key === 'indypl_central').length, LIBRARY_ROWS)
+  assert.equal(summary.upserted, 36 + ALWAYS_ON_ROWS + LIBRARY_ROWS)
+  assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics', 'wrsp_events', 'indypl_central'])
+  assert.equal(summary.sources.find((s) => s.key === 'wrsp_events').swept, 2)
   assert.deepEqual(warnings, [])
 })
 
@@ -623,23 +675,23 @@ test('before README step 49 a run leaves the park out with one log line, and wri
   })
   const warnings = []
   const log = { ...quiet, warn: (line) => warnings.push(line) }
-  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
+  const summary = await runCampusEventsIngest({ client: supabase, downtownEnabled: true, libraryEnabled: true, fetchImpl, now: WRSP_NOW, sleep: noSleep, log })
   assert.equal(summary.ok, true)
   // The one row it tried alone, then the campus rows by themselves.
   const batches = upsertBatches(supabase)
   assert.deepEqual(batches.map((batch) => batch.length), [1, 17 + ALWAYS_ON_ROWS])
-  assert.ok(batches[1].every((row) => row.source_key !== 'wrsp_events'))
+  assert.ok(batches[1].every((row) => row.source_key !== 'wrsp_events' && row.source_key !== 'indypl_central'))
   assert.equal(summary.upserted, 17 + ALWAYS_ON_ROWS)
   assert.equal(summary.totals.rows, 17 + ALWAYS_ON_ROWS)
   assert.equal(summary.totals.venueKinds.downtown, undefined)
-  // Its entry says why, and a source that was left out is not swept.
-  const park = summary.sources.at(-1)
-  assert.deepEqual([park.key, park.ok, park.schemaMissing, park.rows, park.swept], ['wrsp_events', false, DOWNTOWN_SQL_FILE, 19, undefined])
-  assert.equal(park.error, "left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run")
+  // Each downtown entry says why, and a source that was left out is not swept.
+  const reason = "left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run"
+  for (const [key, rows] of [['wrsp_events', 19], ['indypl_central', LIBRARY_ROWS]]) {
+    const entry = summary.sources.find((s) => s.key === key)
+    assert.deepEqual([entry.ok, entry.schemaMissing, entry.rows, entry.swept, entry.error], [false, DOWNTOWN_SQL_FILE, rows, undefined, reason], key)
+  }
   assert.deepEqual(sweptKeys(supabase), ['purdue_events', 'iu_events', 'purdueme', 'iu_athletics'])
-  assert.deepEqual(warnings, [
-    "[campus-events] wrsp_events left out: campus_events does not allow venue_kind 'downtown' until db/supabase-campus-events-downtown.sql (README step 49) has run: run it in the Supabase SQL Editor.",
-  ])
+  assert.deepEqual(warnings, [`[campus-events] wrsp_events, indypl_central ${reason}: run it in the Supabase SQL Editor.`])
 
   // Any other refusal of that first row fails the run, as a failed write always has.
   const otherCheck = { ...STEP_49_MISSING, message: 'new row for relation "campus_events" violates check constraint "campus_events_category_check"' }

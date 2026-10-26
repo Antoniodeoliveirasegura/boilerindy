@@ -1,8 +1,9 @@
 # Shared campus events ingest
 
 Issue #30. The cron route that reads Purdue's and IU's public events calendars
-(and, with `CAMPUS_EVENTS_DOWNTOWN` on, White River State Park's: [Downtown
-events](#downtown-events)) into the shared `campus_events` table every 6 hours,
+(and, with `CAMPUS_EVENTS_DOWNTOWN` on, White River State Park's and the
+Central Library's: [Downtown events](#downtown-events)) into the shared
+`campus_events` table every 6 hours,
 with a dry run that writes
 nothing. `/events` and `/free-food` list the table behind `CAMPUS_EVENTS_FEED`,
 off by default: [campus-events-feed.md](campus-events-feed.md) is that read
@@ -42,6 +43,10 @@ exist.
      `wrsp_events`, only with `CAMPUS_EVENTS_DOWNTOWN` on. One request with no
      query string, since its robots.txt disallows every URL with one
      ([Downtown events](#downtown-events)).
+   - The Central Library's events (the Indianapolis Public Library's Communico
+     calendar file): `indypl_central`, only with `CAMPUS_EVENTS_DOWNTOWN` and
+     `CAMPUS_EVENTS_LIBRARY` both on. One request for its teen and adult events
+     over 60 days ([The Central Library](#the-central-library)).
 2. **Plan** (`src/sharedEvents.mjs`, pure). Each listing becomes a row, the
    Indianapolis filter keeps or drops it, one source's repeated ids merge, and
    one event listed twice collapses into one row ([Duplicates](#duplicates)).
@@ -318,10 +323,39 @@ the Canal Walk. Its rows are `venue_kind` `downtown` with `source_key`
 `wrsp_events`, so the read labels them "Downtown" and gives them a pill of
 their own ([campus-events-feed.md](campus-events-feed.md#downtown-events)).
 
-`CAMPUS_EVENTS_DOWNTOWN` (`on`, `1` or `true`; off by default) turns it on.
-With it off the ingest neither fetches the park nor names it in its summary,
-and every read leaves its rows out, so a run and its answer are what they were
-before the source existed.
+`CAMPUS_EVENTS_DOWNTOWN` (`on`, `1` or `true`; off by default) turns it on,
+and, with `CAMPUS_EVENTS_LIBRARY` on as well, the Central Library
+([The Central Library](#the-central-library)).
+With it off the ingest neither fetches a downtown source nor names one in its
+summary, and every read leaves their rows out, so a run and its answer are
+what they were before the sources existed.
+
+### The Central Library
+
+`indypl_central` reads the Indianapolis Public Library's calendar file for its
+Central Library, only with `CAMPUS_EVENTS_LIBRARY` on as well as the downtown
+switch: on 2026-10-18 the owner held this feed for a permission email to the
+library, so it stays off until the library has said yes (README's environment
+table). The file is Communico's "Subscribe" feed (40 E. St. Clair Street, 1.8
+km from campus): `https://attend.indypl.org/feeds?data=<base64 JSON>`, the JSON
+naming location 1590, the ages "Adults" and "Teens" (the owner's call: no
+children's programs), and 60 days (`communicoFeedPath` in
+`src/sharedEvents.mjs`). robots.txt blocks only its search pages; no key, and
+no reuse terms found. On 2026-10-26 it held 96 teen and adult events (130 for
+every age): author talks, the Indy Cinema Series, writing and conversation
+circles, STEM and technology workshops, teen hangouts.
+
+- Each event is placed by its coordinates (GEO, 1.8 km out: `near`) and is
+  `venue_kind` `downtown`, labeled "Downtown" under the Downtown pill like the
+  park's.
+- The file has no URL per event, so the link is the event's page,
+  `https://attend.indypl.org/event/<UID>` (the source's `eventUrl`). The
+  location reads "Central Library", the library's dangling " - " dropped.
+- A weekly program ("Explore STEM + More", 14 times in 60 days) is one series,
+  listed once at its next occurrence.
+- Free food comes from the keyword matcher alone, which reads "Bring your
+  favorite snacks" as food; with `CAMPUS_EVENTS_CLASSIFY` on, Jev's answer
+  replaces it.
 
 ### What a downtown row says
 
@@ -394,6 +428,17 @@ Back to `off`, the next deploy stops the fetch and hides the rows from every
 read. They stay in the table, since a source that is not fetched is not
 swept; `delete from campus_events where source_key = 'wrsp_events';` removes
 them.
+
+The Central Library, once the library has answered the permission email:
+
+1. With downtown on, set `CAMPUS_EVENTS_LIBRARY=on` on Render and redeploy.
+2. Run the dry run and read the `indypl_central` entry: about 96 rows, every
+   one `near`, `venue_kind` `downtown`.
+3. The next run writes them; `/events` lists them as "Downtown" with the park's.
+
+Back to `off`, the fetch stops and the rows age out of every read within 26
+hours; `delete from campus_events where source_key = 'indypl_central';` removes
+them at once.
 
 ## Jev classification
 
@@ -541,9 +586,11 @@ of two versions are never mixed.
 - IU Indianapolis's own events are open to Purdue Indianapolis students (the
   owner's call on #30, 2026-10-18); the rows carry `source_key = 'iu_events'`,
   and the read path labels them "IU event" to say where they come from.
-- Each source is ingested in full every run. At today's volumes that is 5 page
-  requests with Engage off and about 24 with it on, and one more for the park
-  with `CAMPUS_EVENTS_DOWNTOWN` on.
+- Each source is ingested in full every run. At today's volumes that is 11 page
+  requests with Engage off (Purdue's calendar, IU's 7 pages, PurdueME and the
+  Jaguars' file) and about 25 more with it on, one more for the park with
+  `CAMPUS_EVENTS_DOWNTOWN` on, and one for the Central Library with
+  `CAMPUS_EVENTS_LIBRARY` on too.
 - White River State Park is read as its one robots-allowed page, the 50
   soonest listings over two years (27 on 2026-10-24). A longer list reads as
   incomplete and is not swept; reading past it would take the park's leave

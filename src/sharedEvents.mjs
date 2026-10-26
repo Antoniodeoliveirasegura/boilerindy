@@ -158,6 +158,26 @@ export const SOURCES = Object.freeze([
     // Walk has no address) is taken at its word.
     indianapolisScope: true,
   }),
+  Object.freeze({
+    key: 'indypl_central',
+    platform: 'ics',
+    label: "Indianapolis Public Library's Central Library events (Communico calendar file)",
+    origin: 'https://attend.indypl.org',
+    // The library's calendar file for its Central Library (location 1590),
+    // teen and adult events only, 60 days out.
+    path: communicoFeedPath({ location: ['1590'], ages: ['Adults', 'Teens'], days: 60 }),
+    // The file has no URL per event; this is each event's page.
+    eventUrl: 'https://attend.indypl.org/event/{uid}',
+    days: 60,
+    engage: false,
+    downtown: true,
+    // Read only with CAMPUS_EVENTS_LIBRARY on as well: on 2026-10-18 the owner
+    // held this feed for a permission email to the library.
+    library: true,
+    // The library's own calendar for its own building: every event carries its
+    // coordinates, 1.8 km from campus.
+    indianapolisScope: true,
+  }),
 ])
 
 /** The keys of the downtown sources, which CAMPUS_EVENTS_DOWNTOWN turns on. */
@@ -794,14 +814,31 @@ export function normalizeTribeEvent(raw, source = sourceByKey('wrsp_events')) {
 const ICS_RESULT_RE = /^\s*\[[A-Z]\]\s*/
 
 /**
+ * The path of a Communico calendar file (the Indianapolis Public Library's
+ * "Subscribe" link): its filters as base64 JSON in `data`. The library's own
+ * subscribe links use these names for the ages ("Adults", "Teens").
+ */
+export function communicoFeedPath({ location, ages, days }) {
+  const filters = { location, ages, types: ['all'], tags: [], term: '', days }
+  const data = Buffer.from(JSON.stringify({ feedType: 'ical', filters })).toString('base64')
+  return `/feeds?data=${encodeURIComponent(data)}`
+}
+
+// A location that ends in its own separator: the library writes "Central
+// Library - " when an event names no room.
+const TRAILING_SEPARATOR_RE = /\s*[-,|]\s*$/
+
+/**
  * One event of a calendar file, as src/campusEventsIngest.mjs reads it out of
  * the parsed file (icsListings: `uid`, `summary`, `description`, `location`,
- * `url`, `start` and `end` as ISO, `allDay`, `status`), to a row keyed by its
- * UID. The game's result leaves the title, so a played game keeps its row and
- * its content hash; the description drops its first line when that line
- * repeats the title (Sidearm's does), keeping the TV, streaming and ticket
- * lines. The source's own category (`sports_fitness` for athletics). Null for
- * a cancelled event or one without a title or a start.
+ * `url`, `start` and `end` as ISO, `allDay`, `status`, `lat` and `lon`), to a
+ * row keyed by its UID. The game's result leaves the title, so a played game
+ * keeps its row and its content hash; the description drops its first line
+ * when that line repeats the title (Sidearm's does), keeping the TV, streaming
+ * and ticket lines. The link is the event's URL, or the source's `eventUrl`
+ * with the UID for a file without one (the library's). The source's own
+ * category (`sports_fitness` for athletics). Null for a cancelled event or
+ * one without a title or a start.
  */
 export function normalizeIcsEvent(raw, source) {
   if (!raw || typeof raw !== 'object' || !source) return null
@@ -810,15 +847,19 @@ export function normalizeIcsEvent(raw, source) {
   const lines = String(raw.description ?? '').split(/\r?\n/).map((line) => line.trim())
   if (lines.length && clean(lines[0].replace(ICS_RESULT_RE, '')) === title) lines.shift()
   const description = lines.filter(Boolean).join('\n')
+  const uid = String(raw.uid ?? '').trim()
+  const url = String(raw.url ?? '').trim()
   return buildEvent(source, {
-    externalUid: raw.uid,
+    externalUid: uid,
     title,
     description,
-    location: raw.location,
+    location: clean(raw.location).replace(TRAILING_SEPARATOR_RE, ''),
     startsAt: raw.start,
     endsAt: raw.end,
     allDay: raw.allDay === true,
-    sourceUrl: decodeEntities(String(raw.url ?? '')),
+    lat: raw.lat,
+    lon: raw.lon,
+    sourceUrl: url ? decodeEntities(url) : uid && source.eventUrl ? source.eventUrl.replace('{uid}', encodeURIComponent(uid)) : null,
     category: source.category ?? null,
     freeFood: hasFreeFood(title, description),
     sourceFreeFood: false,

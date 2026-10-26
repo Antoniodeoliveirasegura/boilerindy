@@ -596,7 +596,30 @@ test('planned with the campus sources, the park comes last: its rows are added, 
   const { rows, collapsed } = collapseDuplicates([fair, onCampus])
   assert.deepEqual(rows.map((row) => row.dedupe_key), ['iu_events:1'])
   assert.deepEqual(collapsed.map((c) => [c.kept, c.dropped]), [['iu_events:1', 'wrsp_events:6886']])
-  assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events'])
+  assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events', 'indypl_central'])
+})
+
+// ── Calendar files: the Central Library, downtown ───────────────────────────
+
+// Eight teen and adult events of the Central Library's calendar file, fetched
+// on 2026-10-26 and read as the ingest reads them.
+const LIBRARY = icsListings(readFileSync(new URL('./fixtures/campus-events-indypl.ics', import.meta.url), 'utf8'))
+const LIBRARY_SOURCE = sourceByKey('indypl_central')
+
+test("the Central Library's events are downtown rows, placed by their coordinates, linked to each event's page", () => {
+  const watchlist = one(normalizeListing(LIBRARY_SOURCE, LIBRARY.find((raw) => raw.uid === '17569512')))
+  assert.deepEqual(watchlist.indianapolis, { keep: true, by: 'near' })
+  assert.deepEqual(
+    [watchlist.row.dedupe_key, watchlist.row.title, watchlist.row.location, watchlist.row.venue_kind, watchlist.row.source_url],
+    ['indypl_central:17569512', 'Teen Watchlist', 'Central Library', 'downtown', 'https://attend.indypl.org/event/17569512'],
+  )
+  const plan = planCampusEvents({ indypl_central: LIBRARY })
+  assert.deepEqual(plan.sources[0], { key: 'indypl_central', listings: 8, skipped: 0, keptBy: { near: 8 }, droppedBy: {}, merged: 0, rows: 8 })
+  // Two different events at one minute in the same building stay two.
+  assert.deepEqual(plan.collapsed, [])
+  // A weekly program shares one series, so the read lists its next one.
+  const stem = plan.rows.filter((row) => row.title === 'Explore STEM + More')
+  assert.deepEqual([stem.length, new Set(stem.map((row) => row.series_key)).size], [2, 1])
 })
 
 // ── The Events Calendar: PurdueME ───────────────────────────────────────────
@@ -917,9 +940,9 @@ test('the vocabularies and columns match db/supabase-campus-events.sql and db/su
   }
   assert.deepEqual(checked('category'), [...CATEGORIES])
   assert.deepEqual(checked('venue_kind'), [...VENUE_KINDS])
-  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events'])
+  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events', 'indypl_central'])
   assert.deepEqual(SOURCES.filter((source) => source.engage).map((source) => source.key), ['boilerlink', 'thespot'])
-  assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events'])
+  assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events', 'indypl_central'])
 })
 
 // Issue #30: README step 49 is its own file, and leaves Jev's questions alone.
