@@ -83,14 +83,15 @@ const sweeps = (supabase) => supabase.queriesOf('campus_events').filter((q) => o
 
 // ── URLs ────────────────────────────────────────────────────────────────────
 
-test('the page URLs are the ones verified on 2026-10-17', () => {
+test('the page URLs are the ones verified on 2026-10-17, LiveWhale with no distance filter since 2026-10-26', () => {
   assert.equal(
     localistPageUrl(sourceByKey('purdue_events'), 1),
     'https://events.purdue.edu/api/2/events?group_id=46197580344207&days=120&pp=100&distinct=true&page=1',
   )
+  // near_location dropped every listing without coordinates, so the whole category is read.
   assert.equal(
     liveWhalePageUrl(sourceByKey('iu_events'), 2, NOW),
-    'https://events.iu.edu/live/json/events/category/IU%20Indianapolis/near_location/39.774,-86.1765/near_distance/1/start_date/2026-10-17/end_date/2026-11-17/response_fields/location,tags,summary,group_title,event_types?page=2',
+    'https://events.iu.edu/live/json/events/category/IU%20Indianapolis/start_date/2026-10-17/end_date/2026-11-17/response_fields/location,tags,summary,group_title,event_types?page=2',
   )
   assert.equal(
     engagePageUrl(sourceByKey('thespot'), 200, NOW),

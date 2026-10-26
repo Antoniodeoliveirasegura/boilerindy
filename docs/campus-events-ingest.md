@@ -86,7 +86,7 @@ reason:
    Kept, so an Indianapolis club's away game is kept too, with `venue_kind`
    `elsewhere`.
 5. `scope`: the source's own query is about Indianapolis (Purdue's "Purdue in
-   Indianapolis" group, IU's "IU Indianapolis" category within a mile, White
+   Indianapolis" group, IU's "IU Indianapolis" category, White
    River State Park's own calendar) and the listing has no coordinates to
    check: a deadline, a virtual event, a room named only by its building, the
    park's Canal Walk. Kept.
@@ -98,15 +98,30 @@ wrong (TheSpot puts University Hall in Texas).
 
 One more drop applies after those rules, to a LiveWhale listing they would
 keep: `group`, when its `group_title` is one of `LIVEWHALE_EXCLUDED_GROUPS` in
-`src/sharedEvents.mjs` (compared folded). Today those are three groups whose
-listings are not for Purdue students, 66 of the 320 IU listings on 2026-10-18:
+`src/sharedEvents.mjs` (compared folded). Those are the groups whose listings
+are not for Purdue students, 340 of the 647 IU listings in the 31 days from
+2026-10-26 (335 drop as `group`; the place rules drop the other 5 first, as
+`away` or `far`):
 
-- the IU School of Medicine Calendar (50): room bookings, exam sittings, grand
-  rounds and research seminars;
-- IU Indianapolis Faculty Crossing Events (13): development sessions for
+- the IU School of Medicine Calendar (110): room bookings, exam sittings, grand
+  rounds and research seminars; the cancer center's seminars (3);
+- IU Indianapolis Faculty Crossing Events (15): development sessions for
   faculty;
-- Kelley School of Business Executive Education Programs Events (3): paid
-  programs for working professionals.
+- Kelley School of Business Executive Education Programs Events (27): paid
+  programs for working professionals;
+- staff calendars: Human Resources' benefits webinars (31), financial system
+  training (18), institutional survey support (17), the Center for Teaching
+  and Learning (12), the UITS web team's office hours (5), research
+  administration, compliance and software (17, 2 and 1) and the veterans
+  faculty and staff council (1);
+- Hands in Autism Events (24): a community program's support groups;
+- the IU Alumni Association Calendar (18): alumni gatherings, most of them in
+  other cities;
+- IU Indianapolis University College Events (29): IU's own withdrawal and
+  refund deadlines, which are not Purdue's, and health program site visits;
+- IU Indianapolis Athletics Events (10): an away game reads "IU Indy Men's
+  Basketball at Austin Peay" in Clarksville, Tenn., and the team name in the
+  title passes the place rule as campus.
 
 A listing the place rules already drop keeps its own reason (`away`, `far`).
 Rows a run no longer plans are swept, so the first run after a change removes
@@ -446,7 +461,7 @@ of two versions are never mixed.
 Constants at the top of `src/campusEventsIngest.mjs` (`PAGE_DELAY_MS`,
 `PAGE_TIMEOUT_MS`, `MAX_PAGES`, `UPSERT_BATCH_SIZE`) and the source table in
 `src/sharedEvents.mjs` (`SOURCES`: the Localist window of 120 days, the LiveWhale
-window of 31 days and distance of 1 mile, the park's window of 60 days).
+window of 31 days, the park's window of 60 days).
 `MAX_PAGES.tribe` stays 1: a second page needs the query string the park's
 robots.txt disallows. `complete: false` with "more than N
 pages" means a source outgrew its page cap. The cron's `pg_net` timeout is 180

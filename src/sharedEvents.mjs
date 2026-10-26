@@ -86,7 +86,6 @@ export const SOURCES = Object.freeze([
     label: "IU's events calendar (LiveWhale)",
     origin: 'https://events.iu.edu',
     category: 'IU Indianapolis',
-    nearMiles: 1,
     days: 31,
     engage: false,
     indianapolisScope: true,
@@ -259,15 +258,41 @@ const LIVEWHALE_TYPE_CATEGORY = [
 ]
 const LIVEWHALE_FITNESS_TAG_RE = /^(?:fitness|fitness classes|group fitness classes)$/i
 // LiveWhale groups whose listings are not for Purdue students, compared after
-// foldText. Counts are of the 320 IU listings on 2026-10-18:
+// foldText. Counts are of the 647 IU listings in the 31 days from 2026-10-26:
 //   - the medical school's calendar: room bookings, exam sittings, grand rounds
-//     and research seminars (50);
-//   - Faculty Crossing: development sessions for faculty (13);
-//   - Kelley's Executive Education: paid programs for working professionals (3).
+//     and research seminars (110), and the cancer center's seminars (3);
+//   - Faculty Crossing: development sessions for faculty (15);
+//   - Kelley's Executive Education: paid programs for working professionals (27);
+//   - staff calendars: Human Resources' benefits webinars (31), financial
+//     system training (18), institutional survey support (17), the Center for
+//     Teaching and Learning (12), the UITS web team's office hours (5), research
+//     administration, compliance and software (17, 2 and 1) and the veterans
+//     faculty and staff council (1);
+//   - Hands in Autism: a community program's support groups (24);
+//   - the Alumni Association: alumni gatherings, most of them in other cities (18);
+//   - University College: IU's own withdrawal and refund deadlines, which are not
+//     Purdue's, and health program site visits (29);
+//   - athletics (10): an away game reads "IU Indy Men's Basketball at Austin
+//     Peay" in Clarksville, Tenn., and the team name in the title passes the
+//     place rule as campus.
 export const LIVEWHALE_EXCLUDED_GROUPS = Object.freeze([
   'iu school of medicine calendar',
   'iu indianapolis faculty crossing events',
   'kelley school of business executive education programs events',
+  'indiana university melvin and bren simon comprehensive cancer center events',
+  'iu human resources calendar',
+  'financial training communications events',
+  'institutional survey support events',
+  'iu indianapolis center for teaching and learning events',
+  'uits web team calendar',
+  'iu research events',
+  'office for research compliance events calendar',
+  'iu research software solutions events',
+  'iu indianapolis veterans faculty staff council events',
+  'hands in autism events',
+  'iu alumni association calendar',
+  'iu indianapolis university college events',
+  'iu indianapolis athletics events',
 ])
 const ENGAGE_THEME_CATEGORY = new Map([
   ['social', 'social'],

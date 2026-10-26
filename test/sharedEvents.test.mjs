@@ -240,6 +240,20 @@ test("the excluded LiveWhale groups drop as `group`; a listing the place rules d
     'iu school of medicine calendar',
     'iu indianapolis faculty crossing events',
     'kelley school of business executive education programs events',
+    'indiana university melvin and bren simon comprehensive cancer center events',
+    'iu human resources calendar',
+    'financial training communications events',
+    'institutional survey support events',
+    'iu indianapolis center for teaching and learning events',
+    'uits web team calendar',
+    'iu research events',
+    'office for research compliance events calendar',
+    'iu research software solutions events',
+    'iu indianapolis veterans faculty staff council events',
+    'hands in autism events',
+    'iu alumni association calendar',
+    'iu indianapolis university college events',
+    'iu indianapolis athletics events',
   ])
   const journalClub = normalizeLiveWhaleEvent(liveWhale(2138351)[0], IU) // ICMH Journal Club, VanNuys
   assert.deepEqual(journalClub.indianapolis, { keep: false, by: 'group' })
@@ -253,6 +267,25 @@ test("the excluded LiveWhale groups drop as `group`; a listing the place rules d
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: ' IU  SCHOOL of Medicine Calendar ' }, IU).indianapolis, { keep: false, by: 'group' })
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: 'IU School of Medicine &amp; Friends' }, IU).indianapolis, { keep: true, by: 'place' })
   assert.deepEqual(normalizeLiveWhaleEvent({ ...yoga, group_title: undefined }, IU).indianapolis, { keep: true, by: 'place' })
+})
+
+test('without the distance filter, a listing with no coordinates is kept on the category\'s word unless its group is excluded', () => {
+  // Since 2026-10-26 the IU query has no near_location, so listings without
+  // coordinates arrive: a staff webinar, a school's talk, an away game.
+  const unplaced = { ...liveWhale(2394594)[0], location: '', location_title: '', location_latitude: null, location_longitude: null }
+  const talk = normalizeLiveWhaleEvent({ ...unplaced, title: 'Coffee & Careers: Networking', group_title: 'IU Indianapolis School of Liberal Arts Events' }, IU)
+  assert.deepEqual(talk.indianapolis, { keep: true, by: 'scope' })
+  assert.equal(talk.row.venue_kind, 'unknown')
+  const webinar = normalizeLiveWhaleEvent({ ...unplaced, title: '2027 Benefits Open Enrollment: Overview Webinar', group_title: 'IU Human Resources Calendar' }, IU)
+  assert.deepEqual(webinar.indianapolis, { keep: false, by: 'group' })
+  // Entities decoded and punctuation folded: "Financial Training &amp; Communications Events".
+  const training = normalizeLiveWhaleEvent({ ...unplaced, title: 'eShipGlobal System Training', group_title: 'Financial Training &amp; Communications Events' }, IU)
+  assert.deepEqual(training.indianapolis, { keep: false, by: 'group' })
+  // The athletics group names away games after the team, which the place rule
+  // reads as campus; the group is excluded for that.
+  const awayGame = { ...unplaced, title: '10/27 8:00 PM IU Indy Men’s Basketball at Austin Peay (exh.)', location: 'Clarksville, Tenn.' }
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...awayGame, group_title: 'IU Indianapolis Athletics Events' }, IU).indianapolis, { keep: false, by: 'group' })
+  assert.deepEqual(normalizeLiveWhaleEvent({ ...awayGame, group_title: 'IU Indianapolis Student Affairs Events' }, IU).indianapolis, { keep: true, by: 'place' })
 })
 
 test("the source's own word on free food is kept apart from the keyword matcher, which Jev may overrule", () => {

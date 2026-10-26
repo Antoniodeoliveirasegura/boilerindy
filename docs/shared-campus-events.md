@@ -95,16 +95,23 @@ publishing schedule of its own to follow.
 
 ### IU's events calendar (LiveWhale), category "IU Indianapolis": on
 
-- URL: `https://events.iu.edu/live/json/events/category/IU%20Indianapolis/near_location/39.774,-86.1765/near_distance/1/start_date/<YYYY-MM-DD>/end_date/<YYYY-MM-DD>/response_fields/location,tags,summary,group_title,event_types?page=<n>`,
-  a 31-day window from today. `near_location` and `near_distance` keep events
-  within 1 mile of the campus at 39.774, -86.1765.
+- URL: `https://events.iu.edu/live/json/events/category/IU%20Indianapolis/start_date/<YYYY-MM-DD>/end_date/<YYYY-MM-DD>/response_fields/location,tags,summary,group_title,event_types?page=<n>`,
+  a 31-day window from today, with no distance filter. Until 2026-10-26 the
+  path also carried `near_location/39.774,-86.1765/near_distance/1`, which
+  LiveWhale applies to coordinates alone: it dropped every listing without any
+  (304 of the 647 that day, every athletics listing among them) along with the
+  32 placed more than a mile out, most of them the medical school's. The
+  Indianapolis rules place each listing instead, and `LIVEWHALE_EXCLUDED_GROUPS`
+  leaves out the groups that are not for students
+  ([campus-events-ingest.md](campus-events-ingest.md)).
 - Format: LiveWhale JSON, `{ meta: { total_pages }, data: [...] }`, 100 events a
   page.
 - Terms: no key. robots.txt allows everything.
-- Volume on 2026-10-17: 1,330 IU Indianapolis events in all, 320 within a mile
-  in the next 31 days. Student Affairs events are the core; Campus Recreation
-  fitness classes, Herron exhibits and School of Medicine seminars fill the
-  rest.
+- Volume on 2026-10-26: 647 listings in the next 31 days, 343 of them with
+  coordinates, which the plan turns into 234 rows (the distance filter left
+  182). Student Affairs events are the core (110 rows); the schools, Bepko's
+  study sessions, International Affairs and Student Employment fill the rest.
+  On 2026-10-17 the category held 1,330 events in all.
 - Ids: the LiveWhale event id. A multi-day event (an exhibit) repeats its id
   once per day, and those rows merge into one row spanning the days listed.
 - Owner decision still open: whether IU Indianapolis's own events are open to
