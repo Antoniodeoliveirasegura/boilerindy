@@ -3,6 +3,7 @@ import express from 'express'
 import ical from 'node-ical'
 import { createCalendarItemStore } from '../calendarItemStore.mjs'
 import { isTransientFailure, retryOnceIfTransient, runCronTick } from '../cronTick.mjs'
+import { buildDemoCalendar, demoCalendarFileOf, matchDemoCalendarUrl } from '../demoCalendars.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
 import {
   cancelCalendarCapture,
@@ -21,7 +22,9 @@ import { assertHostAllowed, assertSafeHttpUrl, safeFetchIcsText } from '../urlSa
 // server.mjs as a feature router (issue #191) with the handlers unchanged
 // apart from nowIso() and makeId() inlined. The re-sync route sat apart from
 // the others there, after the Sentry warnings; it now mounts with them, and
-// no route in between matched its path, so its answers are unchanged.
+// no route in between matched its path, so its answers are unchanged. The demo
+// calendars (src/demoCalendars.mjs, issue #521) are links on BoilerIndy's own
+// origin that these routes build in-process instead of fetching.
 
 function validateSourceUrl(sourceUrl) {
   return assertSafeHttpUrl(sourceUrl)
@@ -33,6 +36,37 @@ function validateSourceUrl(sourceUrl) {
 const SCHEDULE_SOURCE_HOSTS = {
   purdue_schedule_ical: ['purdue.edu'],
   brightspace_ical: ['brightspace.com', 'd2l.com', 'desire2learn.com'],
+}
+
+/**
+ * GET /api/demo/calendars/:file, a demo calendar's text (src/demoCalendars.mjs,
+ * issue #521), mounted by server.mjs in its public reads block: the feed is
+ * the same for everyone and needs no session. Nothing fetches it, since the
+ * routes below build a demo source's feed themselves; it lets a link open in a
+ * browser. With DEMO_CALENDARS off, or for any other file name, it answers 404.
+ *
+ * @param {object}   deps
+ * @param {Function} deps.publicReadIpRateLimit the public reads' per-address cap (public-read-ip)
+ * @param {Function} deps.publicReadRateLimit   the public reads' bucket (public-read)
+ * @param {boolean}  deps.demoCalendarsEnabled  DEMO_CALENDARS, on unless set to off
+ */
+export function createSourcesPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, demoCalendarsEnabled }) {
+  const router = express.Router()
+
+  function handleDemoCalendar(req, res) {
+    const text = demoCalendarsEnabled ? buildDemoCalendar(req.params.file) : null
+    if (!text) {
+      res.set('Cache-Control', 'no-store')
+      return res.status(404).json({ error: { message: 'Not found.', status: 404 } })
+    }
+    // A build changes once a day; an hour at the edge is never far behind.
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=3600')
+    res.type('text/calendar; charset=utf-8').send(text)
+  }
+
+  router.get('/api/demo/calendars/:file', publicReadIpRateLimit, publicReadRateLimit, handleDemoCalendar)
+
+  return router
 }
 
 /**
@@ -56,6 +90,10 @@ const SCHEDULE_SOURCE_HOSTS = {
  * @param {Function} deps.pushCronSecretMatches  checks an Authorization header against it
  * @param {Function} deps.warnCronTransient      server.mjs's warning for a transient failure that
  *   survived the tick's retry; the push router is handed these three too
+ * @param {boolean}  deps.demoCalendarsEnabled   DEMO_CALENDARS: off refuses a new demo source like
+ *   any other host and fails an existing one's sync, still without a fetch
+ * @param {string[]} deps.demoCalendarOrigins    the origins a new demo calendar link may use
+ *   (CLIENT_APP_URL and BACKEND_PUBLIC_URL)
  */
 export function createSourcesRouter({
   supabase,
@@ -69,6 +107,8 @@ export function createSourcesRouter({
   PUSH_CRON_SECRET,
   pushCronSecretMatches,
   warnCronTransient,
+  demoCalendarsEnabled,
+  demoCalendarOrigins,
 }) {
   const router = express.Router()
 
@@ -124,6 +164,15 @@ export function createSourcesRouter({
   // database writes (via calendarItemStore), and item identity stamping.
   const calendarItemStore = createCalendarItemStore(supabase)
 
+  // A demo calendar source is built here and never fetched, whatever
+  // DEMO_CALENDARS says: switched off, its sync fails as a dead feed would.
+  async function feedText(sourceUrl) {
+    const file = demoCalendarFileOf(sourceUrl)
+    if (!file) return safeFetchIcsText(sourceUrl)
+    if (!demoCalendarsEnabled) throw new Error('Demo calendars are turned off on this server.')
+    return buildDemoCalendar(file)
+  }
+
   // retryTransient: the background re-sync gives a transient feed failure one
   // more try before marking the source `error` (Sentry BOILERINDY-API-8). The
   // Sync buttons leave it off so a student is not kept waiting on a dead host.
@@ -133,7 +182,7 @@ export function createSourcesRouter({
 
     let eventsByKey
     try {
-      const fetchFeed = () => safeFetchIcsText(source.source_url)
+      const fetchFeed = () => feedText(source.source_url)
       const icsText = retryTransient
         ? await retryOnceIfTransient('[runScheduleSync] source=' + sourceId, fetchFeed)
         : await fetchFeed()
@@ -182,8 +231,17 @@ export function createSourcesRouter({
     if (!allowedHosts) {
       throw new Error('That calendar provider is not allowed.')
     }
-    assertHostAllowed(icsUrl, allowedHosts)
-    const sourceUrl = await validateSourceUrl(icsUrl)
+    // The demo calendar of this route's provider skips the host allowlist and
+    // the address checks, since nothing will fetch it. Any other link, the
+    // other provider's demo included, meets both as before.
+    const demo = demoCalendarsEnabled ? matchDemoCalendarUrl(icsUrl, demoCalendarOrigins) : null
+    let sourceUrl
+    if (demo && demo.sourceType === sourceType) {
+      sourceUrl = demo.url
+    } else {
+      assertHostAllowed(icsUrl, allowedHosts)
+      sourceUrl = await validateSourceUrl(icsUrl)
+    }
     const timestamp = new Date().toISOString()
     const id = crypto.randomUUID()
 
@@ -223,7 +281,7 @@ export function createSourcesRouter({
     }
 
     try {
-      const icsText = await safeFetchIcsText(source.source_url)
+      const icsText = await feedText(source.source_url)
       const eventsByKey = await ical.async.parseICS(icsText)
       const rawEvents = Object.values(eventsByKey).filter((item) => item?.type === 'VEVENT')
       const detectedTimezone = detectTimezoneFromFeed(eventsByKey)

@@ -47,4 +47,27 @@ describe('checkScheduleSourceUrl', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toMatch(/https:\/\//)
   })
+
+  // Issue #521 - the demo calendars the server builds itself, for the App Review account.
+  test("accepts the kind's demo calendar on this site's own origin", () => {
+    const purdue = `${location.origin}/api/demo/calendars/purdue-timetable.ics`
+    const brightspace = `${location.origin}/api/demo/calendars/brightspace.ics`
+    expect(checkScheduleSourceUrl('purdue', ` ${purdue} `)).toEqual({ ok: true, url: purdue })
+    expect(checkScheduleSourceUrl('brightspace', brightspace)).toEqual({ ok: true, url: brightspace })
+  })
+
+  test("refuses the other kind's demo calendar and the demo path anywhere else, with the usual hint", () => {
+    const wrongKind = checkScheduleSourceUrl('brightspace', `${location.origin}/api/demo/calendars/purdue-timetable.ics`)
+    expect(wrongKind.ok).toBe(false)
+    if (!wrongKind.ok) expect(wrongKind.reason).toMatch(/^Brightspace calendar links come from purdue\.brightspace\.com\./)
+
+    for (const link of [
+      'https://demo.example.com/api/demo/calendars/brightspace.ics',
+      `${location.origin}/api/demo/calendars/brightspace.ics?token=1`,
+      `${location.origin}/api/demo/calendars/brightspace.ics#week`,
+      `${location.origin}/api/demo/calendars/other.ics`,
+    ]) {
+      expect(checkScheduleSourceUrl('brightspace', link).ok, link).toBe(false)
+    }
+  })
 })

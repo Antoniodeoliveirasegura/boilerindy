@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-169 routes in 27 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminPhotoReview.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campusEvents.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/clubFollows.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+170 routes in 27 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminPhotoReview.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campusEvents.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/clubFollows.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -71,6 +71,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | PATCH | `/api/deals/:id` | `src/routes/deals.mjs` |
 | DELETE | `/api/deals/:id` | `src/routes/deals.mjs` |
 | GET | `/api/debug/source/:sourceId` | `src/routes/sources.mjs` |
+| GET | `/api/demo/calendars/:file` | `src/routes/sources.mjs` |
 | GET | `/api/dining` | `src/routes/dining.mjs` |
 | GET | `/api/dining/foods/:id` | `src/routes/dining.mjs` |
 | GET | `/api/dining/upcoming` | `src/routes/dining.mjs` |
