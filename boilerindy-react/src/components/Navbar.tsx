@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { usePresence } from '../hooks/usePresence'
 import BrandMark from './BrandMark'
 import Icon from './Icons'
 import { normalizeRoutePath } from '../lib/routePath'
@@ -51,6 +52,52 @@ export default function Navbar() {
   const avatarRef = useRef<HTMLButtonElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
   const drawerToggleRef = useRef<HTMLButtonElement>(null)
+  // The account menu plays its exit before it leaves the page (docs/motion.md).
+  const { attach: attachAccountMenu, mounted: accountMenuMounted, motion: accountMenuMotion } = usePresence(menuOpen)
+  const topnavRef = useRef<HTMLDivElement>(null)
+  const topnavSliderRef = useRef<HTMLSpanElement>(null)
+  const topnavPlaced = useRef(false)
+  // The tab bar's amber bar stays on the last tab while a page that is not a
+  // tab shows, so it slides from there when one is picked again.
+  const tabIndex = mobileNavItems.findIndex((item) => item.path === currentPath)
+  const [tabSpot, setTabSpot] = useState(Math.max(tabIndex, 0))
+  if (tabIndex >= 0 && tabIndex !== tabSpot) setTabSpot(tabIndex)
+
+  // The top bar's amber bar slides to the current stop. The links are as wide
+  // as their labels, so the current one is measured. The first placement and a
+  // resize (a font arriving, the bar appearing from md up) jump; a move to
+  // another page slides (index.css .topnav-slider).
+  useLayoutEffect(() => {
+    const nav = topnavRef.current
+    const slider = topnavSliderRef.current
+    if (!nav || !slider) return undefined
+    const place = (slide: boolean) => {
+      const link = nav.querySelector<HTMLElement>('[aria-current="page"]')
+      if (!link || link.offsetWidth === 0) {
+        slider.setAttribute('data-hidden', '')
+        return
+      }
+      if (!slide) slider.style.transition = 'none'
+      slider.removeAttribute('data-hidden')
+      slider.style.setProperty('--nav-x', `${link.offsetLeft}px`)
+      slider.style.setProperty('--nav-scale', String(link.offsetWidth / 100))
+      if (!slide) {
+        void slider.offsetWidth
+        slider.style.transition = ''
+      }
+    }
+    place(topnavPlaced.current)
+    topnavPlaced.current = true
+    if (typeof ResizeObserver !== 'function') return undefined
+    let width = nav.offsetWidth
+    const observer = new ResizeObserver(() => {
+      if (nav.offsetWidth === width) return
+      width = nav.offsetWidth
+      place(false)
+    })
+    observer.observe(nav)
+    return () => observer.disconnect()
+  }, [currentPath])
 
   // Closing the drawer by its button, the dimmed page or Escape hands focus
   // back to the menu button; inert would otherwise drop it on the page body.
@@ -147,7 +194,7 @@ export default function Navbar() {
 
             <span className="topbar-divider hidden md:block" aria-hidden="true" />
 
-            <div className="hidden md:flex items-stretch">
+            <div ref={topnavRef} className="relative hidden md:flex items-stretch">
               {navItems.map(({ path, label, icon }) => {
                 const isActive = currentPath === path
                 return (
@@ -163,6 +210,8 @@ export default function Navbar() {
                   </Link>
                 )
               })}
+              {/* Placed and shown by the layout effect above, before paint. */}
+              <span ref={topnavSliderRef} className="topnav-slider" aria-hidden="true" />
             </div>
           </div>
 
@@ -179,8 +228,14 @@ export default function Navbar() {
                 {user ? getInitials() : 'PI'}
               </button>
               <span className="avatar-online" />
-              {menuOpen && (
-                <div role="menu" className="menu-panel absolute right-0 top-[56px] z-[1501] min-w-[240px]">
+              {accountMenuMounted && (
+                <div
+                  ref={attachAccountMenu}
+                  role="menu"
+                  data-motion={accountMenuMotion}
+                  inert={!menuOpen}
+                  className="menu-panel motion-pop origin-top-right absolute right-0 top-[56px] z-[1501] min-w-[240px]"
+                >
                   <div className="px-3.5 pt-2 pb-2.5 mb-1 border-b border-[var(--color-border)]">
                     <div className="font-display text-[14px] font-extrabold text-[var(--color-txt-0)] truncate">
                       {user ? getDisplayName() : 'Guest'}
@@ -241,8 +296,10 @@ export default function Navbar() {
         </div>
       </nav>
 
+      {/* The drawer slides in on the sheet timing and leaves faster
+          (docs/motion.md), with no overshoot past the screen's edge. */}
       <div
-        className={`fixed inset-0 bg-black/50 z-[2000] md:hidden transition-opacity duration-200 ${mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/50 z-[2000] md:hidden transition-opacity ${mobileOpen ? 'opacity-100 duration-[var(--motion-scrim)]' : 'opacity-0 pointer-events-none duration-[var(--motion-base)]'}`}
         onClick={closeDrawer}
       />
 
@@ -255,7 +312,7 @@ export default function Navbar() {
         aria-modal="true"
         aria-label="Menu"
         inert={!mobileOpen}
-        className={`fixed top-0 right-0 h-full w-72 max-w-[85vw] overflow-y-auto overscroll-contain bg-[var(--color-surface)] border-l border-[var(--color-border-2)] z-[2001] md:hidden transition-transform duration-200 ease-[var(--ease-snap)] ${mobileOpen ? 'translate-x-0 shadow-[var(--shadow-xl)]' : 'translate-x-full'}`}
+        className={`fixed top-0 right-0 h-full w-72 max-w-[85vw] overflow-y-auto overscroll-contain bg-[var(--color-surface)] border-l border-[var(--color-border-2)] z-[2001] md:hidden transition-transform ${mobileOpen ? 'translate-x-0 shadow-[var(--shadow-xl)] duration-[var(--motion-slow)] ease-[var(--ease-out-expo)]' : 'translate-x-full duration-[var(--motion-base)] ease-[var(--ease-exit)]'}`}
       >
         {/* The drawer covers the menu button, so it carries its own close
             button in the same spot. Without it the first link (Home) sat
@@ -342,7 +399,7 @@ export default function Navbar() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="tabbar md:hidden fixed bottom-0 left-0 right-0 z-40 safe-bottom">
-        <div className="grid grid-cols-4">
+        <div className="relative grid grid-cols-4">
           {mobileNavItems.map(({ path, label, icon }) => {
             const isActive = currentPath === path
             return (
@@ -357,6 +414,12 @@ export default function Navbar() {
               </Link>
             )
           })}
+          <span
+            className="tabbar-slider"
+            aria-hidden="true"
+            data-hidden={tabIndex < 0 ? '' : undefined}
+            style={{ '--tab-index': tabSpot, '--tab-count': mobileNavItems.length } as CSSProperties}
+          />
         </div>
       </nav>
     </>

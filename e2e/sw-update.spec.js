@@ -42,6 +42,9 @@ test.describe('Service worker update prompt', () => {
     const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
     await expect(toast).toBeVisible({ timeout: 20000 })
     await expect(assistant).toBeVisible()
+    // The prompt rises in from below the edge (docs/motion.md): measure where
+    // it comes to rest, not where its entrance has got to.
+    await toast.evaluate((el) => Promise.all(el.getAnimations().map((rise) => rise.finished)))
 
     const toastBox = await toast.boundingBox()
     const assistantBox = await assistant.boundingBox()

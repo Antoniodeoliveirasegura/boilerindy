@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { usePresence } from '../hooks/usePresence'
 import Icon from './Icons'
 import { macroLine, nutritionRows, type MenuItem } from '../lib/dining'
 import { useDiningFood } from '../lib/queries/publicData'
@@ -28,13 +29,19 @@ type DishDialogProps = {
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export default function DishDialog({ item, date, station, isFavorite = false, onToggleFavorite, onClose, returnFocusTo }: DishDialogProps) {
-  const open = item != null
+export default function DishDialog({ item: openItem, date, station, isFavorite = false, onToggleFavorite, onClose, returnFocusTo }: DishDialogProps) {
+  const open = openItem != null
   const titleId = useId()
   const closeRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  // Closing plays the exit before the dialog leaves the page (docs/motion.md),
+  // still showing the dish the page has already let go of.
+  const { attach, mounted, motion } = usePresence(open)
+  const [shownItem, setShownItem] = useState(openItem)
+  if (openItem && openItem !== shownItem) setShownItem(openItem)
+  const item = openItem ?? shownItem
   // An item from a snapshot older than the compact facts has no id: show what it has.
-  const detail = useDiningFood(open ? item.id : null, date)
+  const detail = useDiningFood(mounted && item ? item.id : null, date)
 
   // Focus moves into the dialog and goes back to the dish's button on close,
   // like ConfirmDialog (issue #221). Both change only when a dish opens or
@@ -80,7 +87,7 @@ export default function DishDialog({ item, date, station, isFavorite = false, on
     }
   }, [open, onClose])
 
-  if (!open) return null
+  if (!mounted || !item) return null
 
   const food = detail.data?.food
   const image = food?.image || food?.thumb || item.thumb || null
@@ -92,11 +99,19 @@ export default function DishDialog({ item, date, station, isFavorite = false, on
   const facts = [station, serving, item.calories != null ? `${item.calories} cal` : null].filter(Boolean).join(' · ')
 
   return createPortal(
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div className="absolute inset-0 bg-black/55 animate-fade-in" onClick={onClose} aria-hidden="true" />
+    <div
+      ref={attach}
+      data-motion={motion}
+      inert={!open}
+      className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div className="motion-scrim absolute inset-0 bg-black/55" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
-        className="relative card w-full max-w-lg max-h-[88vh] overflow-y-auto shadow-[var(--shadow-xl)] animate-fade-in-up"
+        className="motion-sheet relative card w-full max-w-lg max-h-[88vh] overflow-y-auto shadow-[var(--shadow-xl)]"
         data-dish-dialog
       >
         {image && (

@@ -22,6 +22,7 @@ import {
   type SourceFilter,
 } from '../lib/campusEvents'
 import { CAMPUS_EVENTS_CALENDAR, useMyCalendar } from '../lib/queries/userData'
+import { useEntrance } from '../hooks/useEntrance'
 import PageTitle from '../components/PageTitle'
 import EventSourceFilter from '../components/EventSourceFilter'
 
@@ -292,6 +293,13 @@ export default function Events() {
     return groups
   }, [filteredItems])
 
+  // The day groups rise in when the calendar lands and when a filter swaps
+  // them (hooks/useEntrance).
+  const daysRef = useEntrance(
+    !loading && !loadFailed,
+    [selectedCategories.join(','), sourceFilter, showPast, freeFoodOnly].join('|'),
+  )
+
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const item of items) {
@@ -511,7 +519,7 @@ export default function Events() {
         </div>
       ) : (
         <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4 lg:gap-6 items-start">
-          <section className="card card-pad r-evt min-w-0">
+          <section ref={daysRef} className="card card-pad r-evt min-w-0">
             {Object.entries(groupedItems).map(([date, dateItems], groupIdx) => (
               <div key={date} className={groupIdx > 0 ? 'mt-2' : ''}>
                 <div className="eyebrow bare">

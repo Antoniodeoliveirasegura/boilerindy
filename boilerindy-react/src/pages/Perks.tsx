@@ -5,6 +5,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import PageTitle from '../components/PageTitle'
 
 // Campus Perks (issue #24): admin-curated local student deals.
@@ -150,6 +151,10 @@ export default function Perks() {
       )
     })
   }, [deals, activeCat, query])
+
+  // The deals rise in when they land and when a category or the search swaps
+  // them (hooks/useEntrance).
+  const cardsRef = useEntrance<HTMLDivElement>(!loading, `${activeCat}|${query.trim().toLowerCase()}`)
 
   function startCreate() {
     setForm(EMPTY_FORM)
@@ -313,7 +318,7 @@ export default function Perks() {
           </div>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+        <div ref={cardsRef} className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
           {filtered.map((deal) => (
             <div key={deal.id} className="card card-pad">
               <div className="card-head items-start last:mb-0">

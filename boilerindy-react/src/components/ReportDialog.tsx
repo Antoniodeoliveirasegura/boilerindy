@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { usePresence, type Presence } from '../hooks/usePresence'
 import Icon from './Icons'
 import StatusBanner from './StatusBanner'
 import { authRequest } from '../lib/authApi'
@@ -34,9 +35,23 @@ type ReportDialogProps = {
 }
 
 export default function ReportDialog(props: ReportDialogProps) {
-  if (!props.open) return null
-  // Mounted only while open, so every opening starts with a blank form.
-  return <ReportForm key={`${props.targetType}:${props.targetId}`} {...props} />
+  // Closing plays the exit before the form leaves the page (docs/motion.md).
+  const { attach, mounted, motion, opening } = usePresence(props.open)
+  // What it showed while open, so it reads the same while it animates out
+  // after the page has already cleared its target.
+  const [shown, setShown] = useState(props)
+  if (props.open && props !== shown) setShown(props)
+  if (!mounted) return null
+  const current = props.open ? props : { ...shown, open: false }
+  // A new form for every opening, so every opening starts blank.
+  return (
+    <ReportForm
+      key={`${current.targetType}:${current.targetId}:${opening}`}
+      {...current}
+      attach={attach}
+      motion={motion}
+    />
+  )
 }
 
 /**
@@ -58,7 +73,17 @@ function tabStops(root: HTMLElement | null): HTMLElement[] {
   })
 }
 
-function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose, onReported }: ReportDialogProps) {
+function ReportForm({
+  open,
+  targetType,
+  targetId,
+  targetLabel,
+  returnFocusTo,
+  onClose,
+  onReported,
+  attach,
+  motion,
+}: ReportDialogProps & Pick<Presence, 'attach' | 'motion'>) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [reason, setReason] = useState('')
   const [details, setDetails] = useState('')
@@ -68,20 +93,30 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
 
   // Focus the first reason on open, and hand focus back to the opener (the
   // Report button) on close instead of dropping it to <body> (issue #221).
-  // A layout effect, so focus moves back in the commit that closes the dialog,
-  // before its nodes leave the page. As a passive effect the hand-back ran a
-  // task after the dialog was gone whenever the close was the report's answer
-  // rather than a click, and focus sat on <body> until then.
+  // A layout effect keyed on `open`, so focus moves back in the commit that
+  // closes the dialog, as its exit starts and before its nodes leave the page.
+  // As a passive effect the hand-back ran a task after the dialog was gone
+  // whenever the close was the report's answer rather than a click, and focus
+  // sat on <body> until then. The cleanup hands it back when the dialog leaves
+  // in that commit. While it stays to animate out, React puts focus back on
+  // what had it before the commit (a reason, still on the page) after the
+  // cleanup has run, so the closed run hands it back once more.
+  const previousRef = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
-    const previous = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    if (!open) {
+      previousRef.current?.focus()
+      return undefined
+    }
+    previousRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     tabStops(panelRef.current)[0]?.focus()
     return () => {
-      previous?.focus()
+      previousRef.current?.focus()
     }
-  }, [returnFocusTo])
+  }, [open, returnFocusTo])
 
   // While a report is on its way the dialog stays open, so its answer lands.
   useEffect(() => {
+    if (!open) return undefined
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (!sending) onClose()
@@ -107,7 +142,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prevOverflow
     }
-  }, [onClose, sending])
+  }, [open, onClose, sending])
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -136,6 +171,9 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
 
   return createPortal(
     <div
+      ref={attach}
+      data-motion={motion}
+      inert={!open}
       className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
@@ -143,7 +181,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
       aria-describedby="report-dialog-message"
     >
       <div
-        className="absolute inset-0 bg-black/55 animate-fade-in"
+        className="motion-scrim absolute inset-0 bg-black/55"
         onClick={() => {
           if (!sending) onClose()
         }}
@@ -151,7 +189,7 @@ function ReportForm({ targetType, targetId, targetLabel, returnFocusTo, onClose,
       />
       <div
         ref={panelRef}
-        className="relative card w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto p-5 shadow-[var(--shadow-xl)] animate-fade-in-up"
+        className="motion-sheet relative card w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto p-5 shadow-[var(--shadow-xl)]"
       >
         <form onSubmit={(e) => void submit(e)} data-report-form>
           <div className="flex items-start gap-3">

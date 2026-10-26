@@ -161,11 +161,28 @@
   --radius-2xl: 8px;      /* boards, preview frames, the assistant button */
   --radius-3xl: 10px;     /* marketing panels only */
 
-  /* Motion: colour changes only, 120ms. */
+  /* Motion: the app's Option D motion spec, so the site and the iOS app move
+     alike (docs/motion.md). Colour changes stay 120ms on --ease-snap. Things
+     that open arrive on --ease-sheet or --ease-spring, a small overshoot, and
+     leave faster on --ease-exit; rows and page blocks rise on
+     --ease-out-expo; board digits roll on --ease-roll. The MOTION block below
+     holds the keyframes and the rules that use these. */
   --ease-snap: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-sheet: cubic-bezier(0.32, 1.18, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --ease-roll: cubic-bezier(0.34, 1.25, 0.64, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-fast: 150ms;     /* a menu leaving; the fades Reduce Motion keeps */
+  --motion-scrim: 200ms;    /* a dialog's backdrop fading in */
+  --motion-base: 260ms;     /* anything closing; a menu opening */
+  --motion-slow: 420ms;     /* rows and page blocks rising; the nav bar sliding */
+  --motion-sheet: 460ms;    /* a dialog, sheet or toast arriving */
+  --motion-roll: 560ms;     /* a board digit rolling over */
+  --motion-stagger: 40ms;   /* between rows, blocks and digits */
+  --motion-rise: 10px;      /* how far a row or block rises */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -349,9 +366,11 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ANIMATIONS
-   Motion rules: colour transitions and a 1px press only. No hover lifts, no
-   parallax, no drifting. Entrances are a short fade. The global
-   reduced-motion block at the end of this file stops all of it.
+   Hover changes colour only and a press moves 1px: no hover lifts, no
+   parallax, no drifting. What moves is in the MOTION block below: overlays,
+   page blocks, rows, the nav bar and board digits. Only transform and
+   opacity animate. The global reduced-motion block at the end of this file
+   stops all of it, except a short fade on dialogs, menus and toasts.
 ═══════════════════════════════════════════════════════════════════════════ */
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -423,13 +442,14 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   50% { opacity: 0.6; }
 }
 
-/* Animation classes */
+/* Animation classes. fade-in and fade-in-up are the two in use (a message
+   in the assistant, a panel a tap reveals); they run on the motion tokens. */
 .animate-fade-in {
-  animation: fadeIn 0.16s var(--ease-snap) both;
+  animation: motion-fade-in var(--motion-base) var(--ease-snap) backwards;
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.18s var(--ease-snap) both;
+  animation: motion-rise var(--motion-slow) var(--ease-out-expo) backwards;
 }
 
 .animate-fade-in-down {
@@ -487,15 +507,89 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   animation: spin 1s linear infinite;
 }
 
-/* Stagger delays: kept short so a list settles inside 200ms. */
-.stagger-1 { animation-delay: 0.02s; }
-.stagger-2 { animation-delay: 0.04s; }
-.stagger-3 { animation-delay: 0.06s; }
-.stagger-4 { animation-delay: 0.08s; }
-.stagger-5 { animation-delay: 0.1s; }
-.stagger-6 { animation-delay: 0.12s; }
-.stagger-7 { animation-delay: 0.14s; }
-.stagger-8 { animation-delay: 0.16s; }
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOTION (docs/motion.md)
+   Overlays: hooks/usePresence.ts puts data-motion="open" or "closed" on a
+   dialog, menu or toast; a closed one stays on the page while it plays its
+   exit and takes no taps. Inside a dialog root, .motion-scrim is the dimmed
+   page and .motion-sheet the card; .motion-pop is a menu hung off its button
+   and .motion-toast a toast. Things close faster than they open.
+═══════════════════════════════════════════════════════════════════════════ */
+@keyframes motion-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes motion-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes motion-sheet-in {
+  from { opacity: 0; transform: translateY(16px); }
+}
+
+@keyframes motion-sheet-out {
+  to { opacity: 0; transform: translateY(12px); }
+}
+
+@keyframes motion-pop-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.94); }
+}
+
+@keyframes motion-pop-out {
+  to { opacity: 0; transform: translateY(-6px) scale(0.94); }
+}
+
+@keyframes motion-toast-in {
+  from { opacity: 0; transform: translateY(calc(100% + 24px)); }
+}
+
+@keyframes motion-toast-out {
+  to { opacity: 0; transform: translateY(24px); }
+}
+
+@keyframes motion-rise {
+  from { opacity: 0; transform: translateY(var(--motion-rise)); }
+}
+
+@keyframes motion-roll {
+  to { transform: translateY(-50%); }
+}
+
+[data-motion="closed"] { pointer-events: none; }
+[data-motion="open"] > .motion-scrim { animation: motion-fade-in var(--motion-scrim) linear backwards; }
+[data-motion="closed"] > .motion-scrim { animation: motion-fade-out var(--motion-base) linear forwards; }
+[data-motion="open"] > .motion-sheet { animation: motion-sheet-in var(--motion-sheet) var(--ease-sheet) backwards; }
+[data-motion="closed"] > .motion-sheet { animation: motion-sheet-out var(--motion-base) var(--ease-exit) forwards; }
+.motion-pop[data-motion="open"] { animation: motion-pop-in var(--motion-base) var(--ease-spring) backwards; }
+.motion-pop[data-motion="closed"] { animation: motion-pop-out var(--motion-fast) var(--ease-exit) forwards; }
+.motion-toast[data-motion="open"] { animation: motion-toast-in var(--motion-sheet) var(--ease-sheet) backwards; }
+.motion-toast[data-motion="closed"] { animation: motion-toast-out var(--motion-base) var(--ease-exit) forwards; }
+
+/* Rows and page blocks rise in a few at a time, --motion-stagger apart; the
+   ninth and later arrive with the eighth. [data-entering] is a list's or a
+   grid's first content and a filter change (hooks/useEntrance.ts), and
+   main[data-route-enter] a move to another page (AppLayout), where the
+   page's blocks rise. Both attributes come off once the rise has finished,
+   so a refetch, a live update or a reorder never replays it. A row that
+   arrives later on its own rises by itself ([data-arrive]). */
+@media (prefers-reduced-motion: no-preference) {
+  [data-entering] > *,
+  main[data-route-enter] > .page > :not(.page-measure),
+  main[data-route-enter] > .page > .page-measure > *,
+  [data-arrive] {
+    /* Set here, not inherited: a list inside a rising block counts from 0. */
+    --motion-i: 0;
+    animation: motion-rise var(--motion-slow) var(--ease-out-expo) backwards;
+    animation-delay: calc(var(--motion-i) * var(--motion-stagger));
+  }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(2) { --motion-i: 1; }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(3) { --motion-i: 2; }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(4) { --motion-i: 3; }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(5) { --motion-i: 4; }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(6) { --motion-i: 5; }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(7) { --motion-i: 6; }
+  :is([data-entering], main[data-route-enter] > .page, main[data-route-enter] > .page > .page-measure) > :nth-child(n+8) { --motion-i: 7; }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    SHARED COMPONENTS
@@ -1378,7 +1472,8 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     display: grid;
     place-items: center;
     min-width: 52px;
-    padding: 10px 8px 8px;
+    --flap-pad: 10px 8px 8px;
+    padding: var(--flap-pad);
     font: 800 60px/0.9 var(--font-display);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
@@ -1394,6 +1489,31 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     top: calc(50% - 1px);
     height: 2px;
     background: var(--board-bg, var(--color-ink));
+  }
+  /* A digit rolling over (components/FlapDigit.tsx): the old and the new
+     digit, one tile tall each, in a strip that slides up one tile. The tile's
+     own digit hides meanwhile; the hinge line stays on top. A small tile sets
+     --flap-pad with its padding so the strip's digits sit where it does. */
+  .flap-roll {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    background: inherit;
+  }
+  .flap-roll > span {
+    position: absolute;
+    inset: 0 0 auto;
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    height: 200%;
+    animation: motion-roll var(--motion-roll) var(--ease-roll) both;
+    animation-delay: calc(var(--flap-i, 0) * var(--motion-stagger));
+  }
+  .flap-roll > span > span {
+    display: grid;
+    place-items: center;
+    padding: var(--flap-pad);
   }
   .flap-sep {
     align-self: center;
@@ -1797,15 +1917,22 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   }
   .topnav-link:hover { color: var(--color-txt-0); background: var(--color-surface-hover); }
   .topnav-link.is-active { color: var(--color-txt-0); }
-  .topnav-link.is-active::after {
-    content: "";
+  /* The 4px amber bar under the current stop is one bar that slides from stop
+     to stop. Navbar measures the current link into --nav-x and --nav-scale
+     (its width over this 100px); it fades out where no stop is current. */
+  .topnav-slider {
     position: absolute;
     left: 0;
-    right: 0;
     bottom: calc(-1 * var(--bar-rule, 4px));
+    width: 100px;
     height: 4px;
     background: var(--color-gold);
+    transform-origin: left center;
+    transform: translateX(var(--nav-x, 0px)) scaleX(var(--nav-scale, 0));
+    transition: transform var(--motion-slow) var(--ease-spring), opacity var(--motion-fast) linear;
+    pointer-events: none;
   }
+  .topnav-slider[data-hidden] { opacity: 0; }
   .dark .topnav-link { color: var(--color-ink-dim); }
   .dark .topnav-link:hover { color: var(--color-ink-txt); background: rgba(255, 255, 255, 0.06); }
   .dark .topnav-link.is-active { color: var(--color-ink-txt); }
@@ -1916,17 +2043,22 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
   }
   .tabbar-link.is-active { color: var(--color-txt-0); }
   .dark .tabbar-link.is-active { color: var(--color-ink-signal); }
-  .tabbar-link.is-active::before {
-    content: "";
+  /* One amber bar, a tab wide, that slides to the current tab (Navbar sets
+     --tab-index and --tab-count); it fades out where no tab is current. */
+  .tabbar-slider {
     position: absolute;
     top: -1px;
     left: 0;
-    right: 0;
+    width: calc(100% / var(--tab-count, 4));
     height: 3px;
     background: var(--color-gold);
     box-shadow: 0 1px 0 var(--color-txt-0);
+    transform: translateX(calc(var(--tab-index, 0) * 100%));
+    transition: transform var(--motion-slow) var(--ease-spring), opacity var(--motion-fast) linear;
+    pointer-events: none;
   }
-  .dark .tabbar-link.is-active::before { box-shadow: none; }
+  .tabbar-slider[data-hidden] { opacity: 0; }
+  .dark .tabbar-slider { box-shadow: none; }
 
   /* Legacy names for the same tab bar (no current markup). */
   .mobile-bottom-nav {
@@ -2458,5 +2590,16 @@ input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [typ
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Dialogs, menus and toasts keep a short fade with no movement, as in the
+     app's spec, so they still visibly open and close. */
+  [data-motion="open"] > :is(.motion-scrim, .motion-sheet),
+  [data-motion="open"]:is(.motion-pop, .motion-toast) {
+    animation: motion-fade-in var(--motion-fast) ease backwards !important;
+  }
+  [data-motion="closed"] > :is(.motion-scrim, .motion-sheet),
+  [data-motion="closed"]:is(.motion-pop, .motion-toast) {
+    animation: motion-fade-out var(--motion-fast) ease forwards !important;
   }
 }

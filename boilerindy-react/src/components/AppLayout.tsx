@@ -1,8 +1,9 @@
-import { Suspense, useEffect } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import AppErrorBoundary from './AppErrorBoundary'
 import { isAdFreePath } from '../lib/adFreeRoutes'
+import { riseOnce, routeEntranceKey } from '../lib/motion'
 import { isPreviewPath } from '../lib/publicPreview'
 import { syncScheduleOverridesFromServer } from '../lib/scheduleOverrideStore'
 import Navbar from './Navbar'
@@ -44,6 +45,19 @@ export default function AppLayout() {
     syncScheduleOverridesFromServer(userId)
   }, [userId])
 
+  // A move to another page lets its blocks rise in a few at a time (index.css
+  // main[data-route-enter], docs/motion.md). Not on the first page load, which
+  // paints as fast as it can, and not for a query string, a hash or another
+  // section of the admin console (lib/motion.ts routeEntranceKey).
+  const mainRef = useRef<HTMLElement>(null)
+  const entranceKey = routeEntranceKey(pathname)
+  const lastEntranceKey = useRef(entranceKey)
+  useLayoutEffect(() => {
+    if (lastEntranceKey.current === entranceKey) return undefined
+    lastEntranceKey.current = entranceKey
+    return mainRef.current ? riseOnce(mainRef.current, 'data-route-enter') : undefined
+  }, [entranceKey])
+
   return (
     <div className="min-h-screen flex flex-col">
       <SkipLink />
@@ -66,7 +80,7 @@ export default function AppLayout() {
           scroll container, so `sticky` panels keep sticking to the viewport and
           the fixed navbar, bottom nav and assistant are unaffected. It is also
           the page's main landmark and the skip link's target (issue #221). */}
-      <main id="main" tabIndex={-1} className="overflow-x-clip focus:outline-none">
+      <main ref={mainRef} id="main" tabIndex={-1} className="overflow-x-clip focus:outline-none">
         {/* Inner boundaries: navbar + rails stay mounted while a page chunk
             loads, and when a page crashes; the next navigation retries. */}
         <AppErrorBoundary resetKey={pathname}>

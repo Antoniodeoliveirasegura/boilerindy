@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
@@ -49,6 +50,9 @@ export default function Friends() {
   // What became of the last Connect: "Request sent", or why it failed (the
   // match comes back on a failure, which used to be the only sign of it).
   const [connectNotice, setConnectNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  // The suggested classmates rise in once the matches and the profile, which
+  // says whether they show, have both landed (hooks/useEntrance).
+  const rowsRef = useEntrance<HTMLUListElement>(!loadingMatches && profileState === 'ready')
 
   const [accepted, setAccepted] = useState<Connection[]>([])
   const [incoming, setIncoming] = useState<IncomingRequest[]>([])
@@ -423,7 +427,7 @@ export default function Friends() {
                 </div>
               </div>
             ) : (
-              <ul className="-mt-1">
+              <ul ref={rowsRef} className="-mt-1">
                 {matches.map((m) => (
                   <li key={m.userId} className="grid grid-cols-[36px_minmax(0,1fr)] gap-x-3.5 py-4 border-t border-[var(--color-border)] first:border-t-0">
                     <span className="ava" aria-hidden="true">{initial(m.displayName)}</span>

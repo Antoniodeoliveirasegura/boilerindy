@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState, type Ref } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import ShareButton from '../components/ShareButton'
 import { useAuth } from '../context/AuthContext'
+import { useEntrance } from '../hooks/useEntrance'
 import { track } from '../lib/usageStats'
 import { shareUrl } from '../lib/shareLinks'
 import { PAGE_PREVIEWS } from '../lib/pagePreviews'
@@ -216,11 +217,13 @@ type StationListProps = {
   favorites: Set<string>
   onToggleFavorite?: (name: string) => void
   onOpenItem?: (item: MenuItem, station: string, trigger: HTMLElement) => void
+  /** On the grid itself, whose children are the station cards (hooks/useEntrance). */
+  gridRef?: Ref<HTMLDivElement>
 }
 
-function StationGrid({ stations, firstIndex = 0, favorites, onToggleFavorite, onOpenItem }: StationListProps) {
+function StationGrid({ stations, firstIndex = 0, favorites, onToggleFavorite, onOpenItem, gridRef }: StationListProps) {
   return (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
+    <div ref={gridRef} className="grid sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4 items-start">
       {stations.map((station, i) => (
         <StationCard
           key={station.name}
@@ -475,6 +478,11 @@ export default function Dining() {
   const specials = filterStations(split.specials, dietFilters)
   const everyday = filterStations(split.everyday, dietFilters)
   const filteredOut = Boolean(activeMenu) && specials.length === 0 && everyday.length === 0
+
+  // The station cards rise in when the menus land and when another hall, meal
+  // or diet label is picked (hooks/useEntrance): the picks in the address, not
+  // the meal the clock defaults to, which a refetch could change.
+  const menuRef = useEntrance<HTMLDivElement>(!loading && live !== null, [view.hall, view.meal, dietFilters.join(',')].join('|'))
 
   // Today's headline dishes for the meal on screen (issue #469), only for the
   // snapshot of today. A headliner on the menu opens its details.
@@ -898,6 +906,7 @@ export default function Dining() {
                   )}
                   {specials.length > 0 && (
                     <StationGrid
+                      gridRef={menuRef}
                       stations={specials}
                       favorites={favorites}
                       onToggleFavorite={signedIn ? toggleFavorite : undefined}
@@ -908,6 +917,8 @@ export default function Dining() {
                     // Keyed by location and meal, so another tab starts collapsed again.
                     <EverydayStations
                       key={`${selected.id}:${activeMenu.meal}`}
+                      // The menu itself when the meal has nothing else.
+                      gridRef={specials.length === 0 ? menuRef : undefined}
                       stations={everyday}
                       firstIndex={specials.length}
                       defaultOpen={specials.length === 0}

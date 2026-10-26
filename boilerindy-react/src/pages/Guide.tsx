@@ -8,6 +8,7 @@ import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { writeFailureMessage } from '../lib/writeFailure'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import PageTitle from '../components/PageTitle'
 
@@ -194,6 +195,10 @@ export default function Guide() {
 
   const mapped = useMemo(() => recs.filter((r) => r.lat != null && r.lng != null), [recs])
 
+  // The tips rise in as they land (hooks/useEntrance). A category reads the
+  // guide again through `loading`, so it needs no key.
+  const cardsRef = useEntrance<HTMLDivElement>(!loading)
+
   return (
     <div className="page">
       <div className="page-measure r-map">
@@ -357,7 +362,7 @@ export default function Guide() {
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div ref={cardsRef} className="space-y-3">
             {recs.map((rec) => (
               <div key={rec.id} className="card card-pad">
                 <div className="flex items-start justify-between gap-4">
