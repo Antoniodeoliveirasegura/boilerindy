@@ -127,7 +127,5 @@ needs none.
 
 Edit `SECTIONS` or `courseworkOfWeek` in `src/demoCalendars.mjs`, then the
 timetable that `test/demoCalendars.test.mjs` pins. Keep rooms on the app's
-campus map (`src/lib/campus-buildings.json` in the app repository), and keep
-every class starting before 7 PM: `expandRecurringEvents` in
-`src/scheduleSync.mjs` dates a weekly meeting by its UTC day, which is the next
-day from 7 PM in winter and 8 PM in summer.
+campus map (`src/lib/campus-buildings.json` in the app repository). An evening
+class works too: since #523 a weekly meeting keeps its own Indianapolis day.
