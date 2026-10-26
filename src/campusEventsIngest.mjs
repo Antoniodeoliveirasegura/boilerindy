@@ -18,7 +18,7 @@
 import { queryError, retryOnceIfTransient } from './cronTick.mjs'
 import { DB_FEATURES, logSchemaMissingOnce } from './dbErrors.mjs'
 import { isMissingColumnError } from './moderation.mjs'
-import { CAMPUS, SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents, summarizeRows } from './sharedEvents.mjs'
+import { SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents, summarizeRows } from './sharedEvents.mjs'
 import { fetchUpstreamJson } from './upstreamFetch.mjs'
 
 export const PAGE_SIZE = 100
@@ -42,7 +42,8 @@ export function campusYmd(date) {
   return `${part('year')}-${part('month')}-${part('day')}`
 }
 
-// ── Page URLs, as verified on 2026-10-17 (docs/shared-campus-events.md) ─────
+// ── Page URLs, as verified on 2026-10-17, LiveWhale's on 2026-10-26 ─────────
+// (docs/shared-campus-events.md)
 
 export function localistPageUrl(source, page) {
   const url = new URL('/api/2/events', source.origin)
@@ -54,12 +55,17 @@ export function localistPageUrl(source, page) {
   return url.toString()
 }
 
+/**
+ * The whole "IU Indianapolis" category, with no distance filter: LiveWhale's
+ * `near_location` drops every listing without coordinates, which on
+ * 2026-10-26 was 304 of the 647 in the window (every athletics listing among
+ * them). The Indianapolis rules in src/sharedEvents.mjs place each listing
+ * instead.
+ */
 export function liveWhalePageUrl(source, page, now) {
   const path = [
     'live/json/events',
     'category', encodeURIComponent(source.category),
-    'near_location', `${CAMPUS.lat},${CAMPUS.lon}`,
-    'near_distance', String(source.nearMiles),
     'start_date', campusYmd(now),
     'end_date', campusYmd(new Date(now.getTime() + source.days * DAY_MS)),
     'response_fields', 'location,tags,summary,group_title,event_types',
