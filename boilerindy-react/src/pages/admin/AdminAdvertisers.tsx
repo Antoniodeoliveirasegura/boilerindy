@@ -44,7 +44,7 @@ export default function AdminAdvertisers() {
   const dialogRef = useRef<HTMLDivElement>(null)
   const emailRef = useRef<HTMLInputElement>(null)
   // Closing plays the exit before the dialog leaves the page (docs/motion.md).
-  const createDialog = usePresence(showForm)
+  const { attach: attachCreateDialog, mounted: createDialogMounted, motion: createDialogMotion } = usePresence(showForm)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -98,13 +98,20 @@ export default function AdminAdvertisers() {
   // send focus back out and in again. A layout effect, so focus comes back in
   // the commit that closes the dialog. As a passive effect the hand-back ran a
   // task after the dialog was gone whenever the close was the create's answer
-  // rather than a click or a key, and focus sat on <body> until then.
+  // rather than a click or a key, and focus sat on <body> until then. While
+  // the dialog stays to animate out, React puts focus back on what had it
+  // before that commit (a field, still on the page) after the cleanup has run,
+  // so the closed run hands it back once more.
+  const openerRef = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
-    if (!showForm) return undefined
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    if (!showForm) {
+      openerRef.current?.focus()
+      return undefined
+    }
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     emailRef.current?.focus()
     return () => {
-      opener?.focus()
+      openerRef.current?.focus()
     }
   }, [showForm])
 
@@ -203,10 +210,10 @@ export default function AdminAdvertisers() {
       {!showForm && <AlertBanner message={error} onDismiss={() => setError('')} />}
       <AlertBanner type="success" message={success} onDismiss={() => setSuccess('')} />
 
-      {createDialog.mounted && (
+      {createDialogMounted && (
         <div
-          ref={createDialog.ref}
-          data-motion={createDialog.motion}
+          ref={attachCreateDialog}
+          data-motion={createDialogMotion}
           inert={!showForm}
           className="fixed inset-0 z-[3000] flex items-center justify-center p-4"
         >

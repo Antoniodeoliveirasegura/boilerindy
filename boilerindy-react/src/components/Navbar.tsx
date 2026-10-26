@@ -53,7 +53,7 @@ export default function Navbar() {
   const drawerRef = useRef<HTMLDivElement>(null)
   const drawerToggleRef = useRef<HTMLButtonElement>(null)
   // The account menu plays its exit before it leaves the page (docs/motion.md).
-  const accountMenu = usePresence(menuOpen)
+  const { attach: attachAccountMenu, mounted: accountMenuMounted, motion: accountMenuMotion } = usePresence(menuOpen)
   const topnavRef = useRef<HTMLDivElement>(null)
   const topnavSliderRef = useRef<HTMLSpanElement>(null)
   const topnavPlaced = useRef(false)
@@ -228,11 +228,11 @@ export default function Navbar() {
                 {user ? getInitials() : 'PI'}
               </button>
               <span className="avatar-online" />
-              {accountMenu.mounted && (
+              {accountMenuMounted && (
                 <div
-                  ref={accountMenu.ref}
+                  ref={attachAccountMenu}
                   role="menu"
-                  data-motion={accountMenu.motion}
+                  data-motion={accountMenuMotion}
                   inert={!menuOpen}
                   className="menu-panel motion-pop origin-top-right absolute right-0 top-[56px] z-[1501] min-w-[240px]"
                 >

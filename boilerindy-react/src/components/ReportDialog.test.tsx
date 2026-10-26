@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import ReportDialog from './ReportDialog'
 import { authRequest } from '../lib/authApi'
+import { fakeAnimation, installFakeAnimations } from '../lib/fakeAnimations'
 
 // Issue #192 - one report dialog for every surface students post to. It
 // offers the server's reasons, asks for details on "Something else" and
@@ -238,5 +239,54 @@ describe('ReportDialog', () => {
     rerender(true)
     expect(screen.getByLabelText('Something else')).not.toBeChecked()
     expect(screen.queryByLabelText('Tell us more (optional)')).toBeNull()
+  })
+})
+
+// docs/motion.md: in a browser the dialog plays its exit before it leaves.
+// jsdom has no Web Animations API, so the exit here is a fake the test ends.
+describe('ReportDialog animating out', () => {
+  let exit = fakeAnimation()
+  let uninstall: () => void = () => {}
+  beforeEach(() => {
+    exit = fakeAnimation()
+    uninstall = installFakeAnimations((el) => (el.getAttribute('data-motion') === 'closed' ? [exit] : []))
+  })
+  afterEach(() => uninstall())
+
+  // useReportAndBlock clears its target as it closes the dialog.
+  const asThePageCloses = (
+    <ReportDialog open={false} targetType="user" targetId="" targetLabel="" onClose={vi.fn()} onReported={vi.fn()} />
+  )
+
+  test('still reads what it reported, takes no input, and has already given focus back', async () => {
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    opener.focus()
+    const onClose = vi.fn()
+    const page = render(
+      <ReportDialog open targetType="board_post" targetId="post-1" targetLabel="this post" onClose={onClose} onReported={vi.fn()} />,
+    )
+    page.rerender(asThePageCloses)
+
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog).toHaveAttribute('data-motion', 'closed')
+    expect(dialog).toHaveAttribute('inert')
+    expect(dialog).toHaveTextContent('Report this post')
+    expect(opener).toHaveFocus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => exit.finish())
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    opener.remove()
+  })
+
+  test('opening again while it animates out starts a blank form', () => {
+    const { rerender } = renderDialog()
+    fireEvent.click(screen.getByLabelText('Something else'))
+    rerender(false)
+    expect(document.querySelector('[role="dialog"]')).toHaveAttribute('data-motion', 'closed')
+    rerender(true)
+    expect(screen.getByLabelText('Something else')).not.toBeChecked()
   })
 })

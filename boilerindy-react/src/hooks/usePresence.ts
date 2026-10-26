@@ -1,11 +1,17 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { canAnimate, finiteAnimations, whenSettled } from '../lib/motion'
 
 type PresenceState = { open: boolean; mounted: boolean; opening: number }
 
-/** What usePresence hands an overlay's root. */
+/**
+ * What usePresence hands an overlay. Destructure it: the React Compiler's lint
+ * types whatever goes into a `ref` prop as a ref, and an object read for one
+ * (`presence.attach`) becomes a ref whose other fields it then refuses during
+ * render.
+ */
 export type Presence<T extends Element = HTMLDivElement> = {
-  ref: RefObject<T | null>
+  /** A callback ref for the overlay's root. */
+  attach: (el: T | null) => void
   mounted: boolean
   motion: 'open' | 'closed'
   opening: number
@@ -13,7 +19,7 @@ export type Presence<T extends Element = HTMLDivElement> = {
 
 /**
  * Keeps an overlay (a dialog, a menu, a toast) on the page while it animates
- * out (docs/motion.md). Put `ref` and `data-motion={motion}` on its root:
+ * out (docs/motion.md). Put `ref={attach}` and `data-motion={motion}` on its root:
  * "open" plays the entrance in index.css and "closed" the exit. While closed
  * it is still mounted but takes no taps; give it `inert` too. It unmounts once
  * the exit's animations finish, and at once without the Web Animations API, so
@@ -23,7 +29,10 @@ export type Presence<T extends Element = HTMLDivElement> = {
  * that gives every opening a fresh form.
  */
 export function usePresence<T extends Element = HTMLDivElement>(open: boolean): Presence<T> {
-  const ref = useRef<T | null>(null)
+  const node = useRef<T | null>(null)
+  const attach = useCallback((el: T | null) => {
+    node.current = el
+  }, [])
   const [state, setState] = useState<PresenceState>({ open, mounted: open, opening: open ? 1 : 0 })
   if (state.open !== open) {
     setState({ open, mounted: open || state.mounted, opening: open ? state.opening + 1 : state.opening })
@@ -33,7 +42,7 @@ export function usePresence<T extends Element = HTMLDivElement>(open: boolean): 
   useLayoutEffect(() => {
     if (!leaving) return undefined
     let live = true
-    void whenSettled(ref.current ? finiteAnimations(ref.current) : []).then(() => {
+    void whenSettled(node.current ? finiteAnimations(node.current) : []).then(() => {
       if (live) setState((s) => (s.open ? s : { ...s, mounted: false }))
     })
     return () => {
@@ -41,5 +50,5 @@ export function usePresence<T extends Element = HTMLDivElement>(open: boolean): 
     }
   }, [leaving])
 
-  return { ref, mounted: open || leaving, motion: open ? 'open' : 'closed', opening: state.opening }
+  return { attach, mounted: open || leaving, motion: open ? 'open' : 'closed', opening: state.opening }
 }

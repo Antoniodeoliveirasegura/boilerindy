@@ -36,19 +36,20 @@ type ReportDialogProps = {
 
 export default function ReportDialog(props: ReportDialogProps) {
   // Closing plays the exit before the form leaves the page (docs/motion.md).
-  const presence = usePresence(props.open)
+  const { attach, mounted, motion, opening } = usePresence(props.open)
   // What it showed while open, so it reads the same while it animates out
   // after the page has already cleared its target.
   const [shown, setShown] = useState(props)
   if (props.open && props !== shown) setShown(props)
-  if (!presence.mounted) return null
+  if (!mounted) return null
   const current = props.open ? props : { ...shown, open: false }
   // A new form for every opening, so every opening starts blank.
   return (
     <ReportForm
-      key={`${current.targetType}:${current.targetId}:${presence.opening}`}
+      key={`${current.targetType}:${current.targetId}:${opening}`}
       {...current}
-      presence={presence}
+      attach={attach}
+      motion={motion}
     />
   )
 }
@@ -80,8 +81,9 @@ function ReportForm({
   returnFocusTo,
   onClose,
   onReported,
-  presence,
-}: ReportDialogProps & { presence: Presence }) {
+  attach,
+  motion,
+}: ReportDialogProps & Pick<Presence, 'attach' | 'motion'>) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [reason, setReason] = useState('')
   const [details, setDetails] = useState('')
@@ -95,13 +97,20 @@ function ReportForm({
   // closes the dialog, as its exit starts and before its nodes leave the page.
   // As a passive effect the hand-back ran a task after the dialog was gone
   // whenever the close was the report's answer rather than a click, and focus
-  // sat on <body> until then.
+  // sat on <body> until then. The cleanup hands it back when the dialog leaves
+  // in that commit. While it stays to animate out, React puts focus back on
+  // what had it before the commit (a reason, still on the page) after the
+  // cleanup has run, so the closed run hands it back once more.
+  const previousRef = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
-    if (!open) return undefined
-    const previous = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    if (!open) {
+      previousRef.current?.focus()
+      return undefined
+    }
+    previousRef.current = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     tabStops(panelRef.current)[0]?.focus()
     return () => {
-      previous?.focus()
+      previousRef.current?.focus()
     }
   }, [open, returnFocusTo])
 
@@ -162,8 +171,8 @@ function ReportForm({
 
   return createPortal(
     <div
-      ref={presence.ref}
-      data-motion={presence.motion}
+      ref={attach}
+      data-motion={motion}
       inert={!open}
       className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
       role="dialog"

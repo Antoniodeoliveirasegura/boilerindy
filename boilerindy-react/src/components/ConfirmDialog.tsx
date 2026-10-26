@@ -38,7 +38,7 @@ export default function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement>(null)
   // Closing plays the exit before the dialog leaves the page; focus, the Tab
   // trap and the scroll lock below already let go when `open` turns false.
-  const presence = usePresence(open)
+  const { attach, mounted, motion } = usePresence(open)
 
   // Focus moves into the dialog while it is open and goes back afterwards
   // (issue #221): the element that had focus when the dialog opened, usually
@@ -79,7 +79,7 @@ export default function ConfirmDialog({
     }
   }, [open, onCancel])
 
-  if (!presence.mounted) return null
+  if (!mounted) return null
 
   const confirmTone =
     tone === 'danger'
@@ -88,8 +88,8 @@ export default function ConfirmDialog({
 
   return createPortal(
     <div
-      ref={presence.ref}
-      data-motion={presence.motion}
+      ref={attach}
+      data-motion={motion}
       inert={!open}
       className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
       role="dialog"

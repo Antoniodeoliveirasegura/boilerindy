@@ -36,12 +36,12 @@ export default function DishDialog({ item: openItem, date, station, isFavorite =
   const panelRef = useRef<HTMLDivElement>(null)
   // Closing plays the exit before the dialog leaves the page (docs/motion.md),
   // still showing the dish the page has already let go of.
-  const presence = usePresence(open)
+  const { attach, mounted, motion } = usePresence(open)
   const [shownItem, setShownItem] = useState(openItem)
   if (openItem && openItem !== shownItem) setShownItem(openItem)
   const item = openItem ?? shownItem
   // An item from a snapshot older than the compact facts has no id: show what it has.
-  const detail = useDiningFood(presence.mounted && item ? item.id : null, date)
+  const detail = useDiningFood(mounted && item ? item.id : null, date)
 
   // Focus moves into the dialog and goes back to the dish's button on close,
   // like ConfirmDialog (issue #221). Both change only when a dish opens or
@@ -87,7 +87,7 @@ export default function DishDialog({ item: openItem, date, station, isFavorite =
     }
   }, [open, onClose])
 
-  if (!presence.mounted || !item) return null
+  if (!mounted || !item) return null
 
   const food = detail.data?.food
   const image = food?.image || food?.thumb || item.thumb || null
@@ -100,8 +100,8 @@ export default function DishDialog({ item: openItem, date, station, isFavorite =
 
   return createPortal(
     <div
-      ref={presence.ref}
-      data-motion={presence.motion}
+      ref={attach}
+      data-motion={motion}
       inert={!open}
       className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
       role="dialog"

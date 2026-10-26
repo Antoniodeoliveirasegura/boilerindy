@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useCallback, useState, type CSSProperties } from 'react'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { canAnimate } from '../lib/motion'
 
@@ -28,6 +28,14 @@ export default function FlapDigit({ value, index = 0, className = '' }: FlapDigi
     setRoll({ value, from: rolls ? roll.value : null, turn: roll.turn + 1 })
   }
   const from = rolls ? roll.from : null
+  // The roll's end puts the tile at rest. A native listener, since React
+  // names the event after the browser's prefix (webkitAnimationEnd in jsdom).
+  const atRest = useCallback((strip: HTMLSpanElement | null) => {
+    if (!strip) return undefined
+    const settle = () => setRoll((r) => ({ ...r, from: null }))
+    strip.addEventListener('animationend', settle)
+    return () => strip.removeEventListener('animationend', settle)
+  }, [])
 
   return (
     <span className={`flap ${className}`} aria-hidden="true">
@@ -35,9 +43,9 @@ export default function FlapDigit({ value, index = 0, className = '' }: FlapDigi
       {from !== null && (
         <span
           key={roll.turn}
+          ref={atRest}
           className="flap-roll"
           style={{ '--flap-i': index } as CSSProperties}
-          onAnimationEnd={() => setRoll((r) => ({ ...r, from: null }))}
           data-testid="flap-roll"
         >
           <span>

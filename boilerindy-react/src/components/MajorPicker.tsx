@@ -62,7 +62,7 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   // The dropdown plays its exit before it leaves the page (docs/motion.md).
-  const dropdown = usePresence(open)
+  const { attach: attachDropdown, mounted: dropdownMounted, motion: dropdownMotion } = usePresence(open)
 
   const results = useMemo(() => {
     const q = normalize(query)
@@ -167,10 +167,10 @@ export default function MajorPicker({ value, onChange }: MajorPickerProps) {
         )}
       </div>
 
-      {dropdown.mounted && (
+      {dropdownMounted && (
         <div
-          ref={dropdown.ref}
-          data-motion={dropdown.motion}
+          ref={attachDropdown}
+          data-motion={dropdownMotion}
           inert={!open}
           className="menu-panel motion-pop origin-top absolute z-50 mt-1.5 w-full overflow-hidden p-0"
         >

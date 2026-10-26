@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePresence } from '../hooks/usePresence'
 import { applyUpdate, registerServiceWorker, type RegistrationLike } from '../lib/swUpdate'
 
@@ -25,7 +25,15 @@ export default function UpdateToast({
   const [dismissed, setDismissed] = useState(false)
   const shown = ready !== null && !dismissed
   // Later plays the exit before the toast leaves the page (docs/motion.md).
-  const toast = usePresence(shown)
+  const { attach: attachToast, mounted, motion } = usePresence(shown)
+  const toastRef = useRef<HTMLDivElement>(null)
+  const setToastNode = useCallback(
+    (el: HTMLDivElement | null) => {
+      toastRef.current = el
+      attachToast(el)
+    },
+    [attachToast],
+  )
 
   useEffect(() => {
     if (!enabled) return
@@ -48,7 +56,6 @@ export default function UpdateToast({
   // the toast is up, its height plus a gap goes on <html> as
   // --update-toast-lift, which the alert adds to its offset to stack above it.
   // Measured, not fixed, because the message wraps to more lines on phones.
-  const toastRef = toast.ref
   useLayoutEffect(() => {
     const el = toastRef.current
     if (!shown || !el) return undefined
@@ -63,9 +70,9 @@ export default function UpdateToast({
       ro.disconnect()
       root.style.removeProperty('--update-toast-lift')
     }
-  }, [shown, toastRef])
+  }, [shown])
 
-  if (!toast.mounted) return null
+  if (!mounted) return null
 
   // On phones the bottom offset clears the assistant button, which floats 76px
   // up over the 62px tab bar (56px tall), plus an 8px gap, so the toast never
@@ -82,11 +89,11 @@ export default function UpdateToast({
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+140px)] z-[46] flex justify-center px-4 md:bottom-6">
       <div
-        ref={toastRef}
+        ref={setToastNode}
         role="status"
         aria-live="polite"
         data-testid="sw-update-toast"
-        data-motion={toast.motion}
+        data-motion={motion}
         inert={!shown}
         className="motion-toast pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border-2)] border-l-4 border-l-[var(--color-txt-0)] bg-[var(--color-surface)] py-2.5 pl-4 pr-2.5 text-[13.5px] leading-snug text-[var(--color-txt-2)] shadow-[var(--shadow-lg)]"
       >

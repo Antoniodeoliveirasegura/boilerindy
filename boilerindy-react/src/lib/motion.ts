@@ -35,22 +35,27 @@ function risesIn(el: Element): Animation[] {
  * Puts `attribute` on `el`, which starts the rise index.css hangs on it, and
  * takes it off once every rise under `el` has finished, so a re-render, a
  * refetch or a reorder cannot replay it. Rises that start meanwhile (a block
- * that renders a moment later) are waited for too. Does nothing without the
- * Web Animations API. The returned cleanup takes the attribute off at once.
+ * that renders a moment later) are waited for too, each one once: an
+ * animation still listed after it finished (a forwards fill) cannot hold the
+ * attribute on. Does nothing without the Web Animations API. The returned
+ * cleanup takes the attribute off at once.
  */
 export function riseOnce(el: HTMLElement, attribute: string): () => void {
   if (!canAnimate()) return () => {}
   let live = true
+  const waited = new WeakSet<Animation>()
   el.setAttribute(attribute, '')
-  const settle = (running: Animation[]) => {
+  const settle = () => {
     if (!live) return
+    const running = risesIn(el).filter((animation) => !waited.has(animation))
     if (running.length === 0) {
       el.removeAttribute(attribute)
       return
     }
-    void whenSettled(running).then(() => settle(risesIn(el)))
+    for (const animation of running) waited.add(animation)
+    void whenSettled(running).then(settle)
   }
-  settle(risesIn(el))
+  settle()
   return () => {
     live = false
     el.removeAttribute(attribute)
