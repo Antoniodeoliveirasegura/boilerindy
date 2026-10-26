@@ -20,10 +20,13 @@ exist.
    other, a page at a time with a second between pages (Purdue's robots.txt
    asks for that delay; every source gets it). A page that fails transiently is
    retried once after 1.5 s. A source that still fails, or answers something
-   that is not its JSON, is reported in the summary and the run goes on with
-   the others.
+   that is not its JSON (or not a calendar file), is reported in the summary
+   and the run goes on with the others.
    - Purdue's events calendar (Localist): `purdue_events`, always on.
    - IU's events calendar (LiveWhale): `iu_events`, always on.
+   - IU Indy athletics' schedule (a Sidearm calendar file): `iu_athletics`,
+     always on. One request a run for the whole season's file; the home games
+     from today to 60 days out are kept ([IU Indy athletics](#iu-indy-athletics)).
    - BoilerLink and TheSpot (Anthology Engage): `boilerlink` and `thespot`, each
      only when `CAMPUS_EVENTS_ENGAGE` names it (`boilerlink`, `thespot`, a comma
      list, or `on` for both). Both sites' robots.txt disallow `/api/`. Purdue's
@@ -249,6 +252,34 @@ without it. The run otherwise writes and sweeps as before.
 | 409 | A run is already in flight. |
 | 503 | `campus_events_schema_missing`: the migration has not run (a dry run still works). Otherwise a database 5xx or timeout that survived its retry, logged as a warning; the next run retries. |
 | 500 | Any other database failure, logged as an error. |
+
+## IU Indy athletics
+
+`iu_athletics` reads `https://iuindyjags.com/calendar.ashx/calendar.ics?sport_id=0`,
+the Jaguars' whole season as one iCalendar file (Sidearm), parsed with
+`node-ical` like a student's own feed (`icsListings` in
+`src/campusEventsIngest.mjs`, `normalizeIcsEvent` in `src/sharedEvents.mjs`).
+Its robots.txt allows every path and asks for 30 seconds between requests; a
+run makes one. On 2026-10-26 the file held 207 events, 62 of them in the next
+60 days, 23 of those home games on campus (James T. Morris Arena, the IU
+Natatorium, Michael A. Carroll Stadium).
+
+- **Home games only, by location.** Every title names the team ("IU Indy Men's
+  Basketball at Austin Peay"), wherever the game is, so this source is placed
+  by its location alone (`placeFromLocation`): "Indianapolis, Ind., James T.
+  Morris Arena" is kept as `place`; "Clarksville, Tenn." drops as `unplaced`
+  and "Muncie, IN" as `away`. That is why IU's own calendar leaves out its
+  athletics group ([What a row says](#what-a-row-says)).
+- **Results leave the title.** Sidearm puts "[W]", "[L]", "[T]" or "[N]" in
+  front of a played game's title; the row keeps the plain title, so a result
+  never forks it. The description drops its first line, which repeats the
+  title, and keeps the TV, streaming and ticket lines.
+- **All-day meets** (a tournament, a swim meet) are date-only in the file.
+  `node-ical` builds those at midnight in the server's own time zone, UTC on
+  Render, so the date as written becomes midnight on the campus clock, ending
+  the next midnight, whatever the time zone.
+- Ids: the file's UID, `vcal_<game id>-iuindyjags.com`; the link is the game's
+  page. Category `sports_fitness`, never free food unless the text says so.
 
 ## Downtown events
 
@@ -498,9 +529,10 @@ of two versions are never mixed.
 Constants at the top of `src/campusEventsIngest.mjs` (`PAGE_DELAY_MS`,
 `PAGE_TIMEOUT_MS`, `MAX_PAGES`, `UPSERT_BATCH_SIZE`) and the source table in
 `src/sharedEvents.mjs` (`SOURCES`: the Localist window of 120 days, the LiveWhale
-window of 31 days, the park's window of 60 days).
+window of 31 days, the athletics and the park's windows of 60 days).
 `MAX_PAGES.tribe` stays 1: a second page needs the query string the park's
-robots.txt disallows. `complete: false` with "more than N
+robots.txt disallows. `MAX_PAGES.ics` is 1: a calendar file is one request.
+`complete: false` with "more than N
 pages" means a source outgrew its page cap. The cron's `pg_net` timeout is 180
 seconds. A run with Engage off took 14 s on 2026-10-17; with it on a run reads
 about 24 pages a second apart, so it should still finish well inside that.

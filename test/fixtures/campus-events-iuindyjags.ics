@@ -1,0 +1,105 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//SIDEARM Sports//NONSGML SIDEARM//EN
+X-WR-CALNAME:IU Indy Athletics
+X-PUBLISHED-TTL:PT120M
+BEGIN:VEVENT
+UID:vcal_17421-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART:20260926T190000Z
+DTEND:20260926T210000Z
+LOCATION:Indianapolis\, Ind., The Jungle
+SUMMARY:[W] IU Indy Volleyball vs Robert Morris
+DESCRIPTION:[W] IU Indy Volleyball vs Robert Morris\nW 3-2\nTV: ESPN+\nStreaming Video: https://www.espn.com/watch/player?id=92bd8756-8e4f-4c13-9eed-da0f85860a2f\nTickets: https://am.ticketmaster.com/iuindy/buy/2026-volleyball\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17421&amp;sport_id=14
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17386-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART:20260926T170000Z
+DTEND:20260926T190000Z
+LOCATION:Rochester\, Mich.
+SUMMARY:[L] IU Indy Men's Soccer at Oakland
+DESCRIPTION:[L] IU Indy Men's Soccer at Oakland\nL 0-1\nTV: ESPN+\nStreaming Video: https://www.espn.com/watch/player/_/id/89982089-d15b-48d2-bdca-c0df30bbb7e8\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17386&amp;sport_id=7
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17640-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART:20261028T000000Z
+DTEND:20261028T020000Z
+LOCATION:Clarksville\, Tenn.
+SUMMARY:IU Indy Men's Basketball at Austin Peay (exh.)
+DESCRIPTION:IU Indy Men's Basketball at Austin Peay (exh.)\nTV: ESPN+\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17640&amp;sport_id=1
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17430-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART:20261029T230000Z
+DTEND:20261030T010000Z
+LOCATION:Indianapolis\, Ind., James T. Morris Arena
+SUMMARY:IU Indy Volleyball vs Northern Kentucky
+DESCRIPTION:IU Indy Volleyball vs Northern Kentucky\nTV: ESPN+\nStreaming Video: https://www.espn.com/watch/player?id=54e0a32e-1d58-4782-b04d-9ae9db722cc7\nTickets: https://am.ticketmaster.com/iuindy/buy/2026-volleyball\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17430&amp;sport_id=14
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17374-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART:20261030T180000Z
+DTEND:20261030T200000Z
+LOCATION:Indianapolis\, Ind., Michael A. Carroll Stadium
+SUMMARY:IU Indy Women's Soccer vs Northern Illinois
+DESCRIPTION:IU Indy Women's Soccer vs Northern Illinois\nTV: ESPN+\nStreaming Video: https://www.espn.com/watch/player?id=f7447d82-de63-46a3-aeff-72ea9ff739b3\nTickets: https://am.ticketmaster.com/iuindy/buy/26-WSOC\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17374&amp;sport_id=8
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17608-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART;VALUE=DATE:20261030
+DTEND;VALUE=DATE:20261101
+LOCATION:DeKalb\, IL
+SUMMARY:IU Indy Women's Tennis at Northern Illinois Invite
+DESCRIPTION:IU Indy Women's Tennis at Northern Illinois Invite\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17608&amp;sport_id=13
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17604-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART;VALUE=DATE:20261106
+DTEND;VALUE=DATE:20261108
+LOCATION:Muncie\, IN
+SUMMARY:IU Indy Men's Tennis at Ball State Invite
+DESCRIPTION:IU Indy Men's Tennis at Ball State Invite\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17604&amp;sport_id=12
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17560-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART;VALUE=DATE:20261119
+DTEND;VALUE=DATE:20261120
+LOCATION:Indianapolis\, Ind., IU Natatorium
+SUMMARY:IU Indy Men's Swimming vs House of Champions
+DESCRIPTION:IU Indy Men's Swimming vs House of Champions\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17560&amp;sport_id=11
+PRIORITY:3
+END:VEVENT
+BEGIN:VEVENT
+UID:vcal_17472-iuindyjags.com
+DTSTAMP:20261026T090558Z
+DTSTART:20270103T190000Z
+DTEND:20270103T210000Z
+LOCATION:Indianapolis\, Ind., James T. Morris Arena
+SUMMARY:IU Indy Men's Basketball vs Youngstown State - Mascot Day
+DESCRIPTION:IU Indy Men's Basketball vs Youngstown State - Mascot Day\nTV: ESPN+\nRadio: Indy's Sports Ticket 1430 AM\nStreaming Audio: https://www.indysportsticket.com/listen/\nTickets: https://am.ticketmaster.com/iuindy/buy/JagsAthletics\n
+URL:https://iuindyjags.com/calendar.aspx?game_id=17472&amp;sport_id=1
+PRIORITY:3
+END:VEVENT
+END:VCALENDAR

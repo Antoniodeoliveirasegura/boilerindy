@@ -15,19 +15,22 @@
 // CAMPUS_EVENTS_DOWNTOWN on, and a real run before README step 49 leaves them
 // out with one log line (leaveOutDowntownWithoutStep49).
 
+import ical from 'node-ical'
 import { queryError, retryOnceIfTransient } from './cronTick.mjs'
 import { DB_FEATURES, logSchemaMissingOnce } from './dbErrors.mjs'
 import { isMissingColumnError } from './moderation.mjs'
-import { SOURCES, enabledEngageSources, engageOrgLookup, planCampusEvents, summarizeRows } from './sharedEvents.mjs'
-import { fetchUpstreamJson } from './upstreamFetch.mjs'
+import { icalText } from './scheduleSync.mjs'
+import { SOURCES, campusWallClockToIso, enabledEngageSources, engageOrgLookup, planCampusEvents, summarizeRows } from './sharedEvents.mjs'
+import { fetchUpstream, fetchUpstreamJson } from './upstreamFetch.mjs'
 
 export const PAGE_SIZE = 100
 // Purdue's robots.txt asks for a one-second crawl delay; every source gets it.
 export const PAGE_DELAY_MS = 1000
 export const PAGE_TIMEOUT_MS = 20_000
-// Today's volumes are 1, 4 and 13 pages (Localist, LiveWhale, BoilerLink).
-// The Events Calendar is read as its one robots-allowed page (tribePageUrl).
-export const MAX_PAGES = Object.freeze({ localist: 10, livewhale: 20, engage: 30, tribe: 1 })
+// Today's volumes are 1, 7 and 13 pages (Localist, LiveWhale, BoilerLink).
+// The Events Calendar is read as its one robots-allowed page (tribePageUrl),
+// and a calendar file is one file.
+export const MAX_PAGES = Object.freeze({ localist: 10, livewhale: 20, engage: 30, tribe: 1, ics: 1 })
 export const UPSERT_BATCH_SIZE = 500
 const USER_AGENT = 'BoilerIndy campus app (+https://www.boilerindy.app)'
 const CAMPUS_TIME_ZONE = 'America/Indiana/Indianapolis'
@@ -111,8 +114,72 @@ export function inTribeWindow(raw, source, now) {
   return end >= campusYmd(now) && start <= campusYmd(new Date(now.getTime() + source.days * DAY_MS))
 }
 
+/** A calendar file's URL: the source's own path on its origin. */
+export function icsPageUrl(source) {
+  return new URL(source.path, source.origin).toString()
+}
+
+const pad2 = (value) => String(value).padStart(2, '0')
+
+// node-ical builds a date-only value (DTSTART;VALUE=DATE) at local midnight of
+// the process's own time zone, which is UTC on Render, so its local parts are
+// the date as written: that date's midnight on the campus clock.
+function icsInstant(date, allDay) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null
+  if (!allDay) return date.toISOString()
+  return campusWallClockToIso(`${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} 00:00:00`)
+}
+
+/**
+ * The events of a calendar file as plain listings for normalizeIcsEvent in
+ * src/sharedEvents.mjs: `uid`, `summary`, `description`, `location`, `url`,
+ * `start` and `end` as ISO (an all-day one at campus midnight, its end the
+ * next day's as the file writes it), `allDay` and `status`. Null for text that
+ * is not a calendar. A repeating event gives its first occurrence: Sidearm's
+ * schedule has none.
+ */
+export function icsListings(text) {
+  if (typeof text !== 'string' || !/^\s*BEGIN:VCALENDAR/.test(text)) return null
+  let parsed
+  try {
+    parsed = ical.sync.parseICS(text)
+  } catch {
+    return null
+  }
+  const listings = []
+  for (const event of Object.values(parsed)) {
+    if (event?.type !== 'VEVENT') continue
+    const allDay = event.datetype === 'date' || event.start?.dateOnly === true
+    listings.push({
+      uid: icalText(event.uid),
+      summary: icalText(event.summary),
+      description: icalText(event.description),
+      location: icalText(event.location),
+      url: icalText(event.url),
+      start: icsInstant(event.start, allDay),
+      end: icsInstant(event.end, allDay),
+      allDay,
+      status: icalText(event.status),
+    })
+  }
+  return listings
+}
+
+/**
+ * Whether a calendar file's event is in the source's window: not over before
+ * today on the campus calendar, and starting within `days`. Sidearm's file is
+ * the whole season, played games included. One without a readable start is
+ * kept, for the plan to count it as skipped.
+ */
+export function inIcsWindow(raw, source, now) {
+  if (!raw?.start || Number.isNaN(Date.parse(raw.start))) return true
+  const end = raw.end && !Number.isNaN(Date.parse(raw.end)) ? raw.end : raw.start
+  return Date.parse(end) >= Date.parse(campusWallClockToIso(`${campusYmd(now)} 00:00:00`)) && Date.parse(raw.start) <= now.getTime() + source.days * DAY_MS
+}
+
 // Per platform: the URL of page `index` (from 0), and what a page body holds.
-// `read` answers null for a body that is not the platform's JSON.
+// `read` answers null for a body that is not the platform's JSON (or, for a
+// `text` platform, its text).
 const PLATFORMS = {
   localist: {
     url: (source, index) => localistPageUrl(source, index + 1),
@@ -149,6 +216,17 @@ const PLATFORMS = {
     },
     keep: inTribeWindow,
   },
+  // A calendar file, read as text: the whole of it in one request.
+  ics: {
+    text: true,
+    accept: 'text/calendar',
+    url: (source) => icsPageUrl(source),
+    read: (body) => {
+      const items = icsListings(body)
+      return items ? { items, more: false } : null
+    },
+    keep: inIcsWindow,
+  },
 }
 
 /**
@@ -168,17 +246,24 @@ export async function fetchSourceListings(
     if (index > 0) await sleep(pageDelayMs)
     const url = platform.url(source, index, now)
     let body
+    const init = { headers: { accept: platform.accept || 'application/json', 'user-agent': USER_AGENT } }
     try {
       body = await retryOnceIfTransient(
         `[campus-events] ${source.key} page ${index + 1}`,
-        () => fetchUpstreamJson(source.key, url, { init: { headers: { accept: 'application/json', 'user-agent': USER_AGENT } }, timeoutMs, fetchImpl }),
+        () =>
+          platform.text
+            ? fetchUpstream(source.key, url, { init, timeoutMs, fetchImpl }).then((response) => response.text())
+            : fetchUpstreamJson(source.key, url, { init, timeoutMs, fetchImpl }),
         { log, sleep },
       )
     } catch (error) {
       return { listings, pages, complete: false, error: String(error?.message || error) }
     }
     const page = platform.read(body, index)
-    if (!page) return { listings, pages, complete: false, error: `${source.key} answered something other than its JSON on page ${index + 1}` }
+    if (!page) {
+      const expected = platform.text ? 'a calendar file' : 'its JSON'
+      return { listings, pages, complete: false, error: `${source.key} answered something other than ${expected} on page ${index + 1}` }
+    }
     pages += 1
     // A platform asked for no window (The Events Calendar) keeps the listings inside one.
     listings.push(...(platform.keep ? page.items.filter((raw) => platform.keep(raw, source, now)) : page.items))
