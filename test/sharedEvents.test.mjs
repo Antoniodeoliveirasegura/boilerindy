@@ -599,6 +599,38 @@ test('planned with the campus sources, the park comes last: its rows are added, 
   assert.deepEqual([...DOWNTOWN_SOURCE_KEYS], ['wrsp_events'])
 })
 
+// ── The Events Calendar: PurdueME ───────────────────────────────────────────
+
+// PurdueME's "indianapolis" category as fetched on 2026-10-26: 24 listings,
+// 12 of them also tagged west-lafayette.
+const PURDUEME = fixture('campus-events-purdueme.json').events
+const PURDUEME_SOURCE = sourceByKey('purdueme')
+const meEvent = (id) => one(normalizeListing(PURDUEME_SOURCE, PURDUEME.find((raw) => raw.id === id)))
+
+test("PurdueME's Indianapolis listings are kept; the West Lafayette ones its category also carries are away unless online", () => {
+  const pizza = meEvent(25666) // Pizza with a Professor, SL 165
+  assert.deepEqual(pizza.indianapolis, { keep: true, by: 'place' })
+  assert.deepEqual(
+    [pizza.row.dedupe_key, pizza.row.venue_kind, pizza.row.starts_at, pizza.row.free_food, pizza.row.source_url],
+    ['purdueme:25666', 'indy_campus', '2026-10-27T16:00:00.000Z', true, 'https://purdueme.com/event/pizza-with-a-professor-6/'],
+  )
+  assert.equal(meEvent(24908).row.free_food, true) // Free Food Friday, ET Atrium
+  // The all-day Halloween Crawl has no venue: kept on the category's word.
+  assert.deepEqual(meEvent(25663).indianapolis, { keep: true, by: 'scope' })
+  // An exam review in West Lafayette's PHYS 223, tagged with both campuses.
+  assert.deepEqual(meEvent(25226).indianapolis, { keep: false, by: 'away' })
+  // The graduate school panel is tagged with both too, but it is on Zoom.
+  const panel = meEvent(25606)
+  assert.deepEqual([panel.indianapolis.keep, panel.row.venue_kind], [true, 'online'])
+  // The entity in "UL &#8211; Lilly Auditorium" is decoded.
+  assert.equal(meEvent(25700).row.location, `UL ${String.fromCharCode(0x2013)} Lilly Auditorium`)
+
+  const plan = planCampusEvents({ purdueme: PURDUEME })
+  assert.deepEqual(plan.sources[0], { key: 'purdueme', listings: 24, skipped: 0, keptBy: { place: 6, scope: 7 }, droppedBy: { away: 11 }, merged: 0, rows: 13 })
+  // The park's own listings carry no such tag, so none of its rows is away.
+  assert.equal(planCampusEvents({ wrsp_events: WRSP }).sources[0].droppedBy.away, undefined)
+})
+
 // ── Calendar files: IU Indy athletics ───────────────────────────────────────
 
 // Nine events of the Jaguars' calendar file, fetched on 2026-10-26 and read as
@@ -885,7 +917,7 @@ test('the vocabularies and columns match db/supabase-campus-events.sql and db/su
   }
   assert.deepEqual(checked('category'), [...CATEGORIES])
   assert.deepEqual(checked('venue_kind'), [...VENUE_KINDS])
-  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'iu_athletics', 'wrsp_events'])
+  assert.deepEqual(SOURCES.map((source) => source.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics', 'wrsp_events'])
   assert.deepEqual(SOURCES.filter((source) => source.engage).map((source) => source.key), ['boilerlink', 'thespot'])
   assert.deepEqual(SOURCES.filter((source) => source.downtown).map((source) => source.key), ['wrsp_events'])
 })

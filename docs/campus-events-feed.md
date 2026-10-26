@@ -56,9 +56,9 @@ adds `shared=1` to its read (a change in `boilerindy-app`).
 
 Each listed row carries `shared: true`, a source label and the listing's link,
 http(s) only. The labels are `SOURCE_LABELS` in `src/campusEventsFeed.mjs`:
-"Purdue event", "IU event", "BoilerLink", "TheSpot (IU)", "Jaguars (IU)" for IU
-Indy athletics' home games and, for White River State Park's listings,
-"Downtown". IU Indianapolis's
+"Purdue event", "IU event", "BoilerLink", "Purdue ME" for PurdueME's calendar,
+"TheSpot (IU)", "Jaguars (IU)" for IU Indy athletics' home games and, for White
+River State Park's listings, "Downtown". IU Indianapolis's
 own listings are open to Purdue Indianapolis students (the owner's call on #30,
 2026-10-18) and keep the "IU event" label to say where they come from. A shared
 row's id is `campus:` and the table's id, so
@@ -82,8 +82,8 @@ Faculty Crossing's writing session no longer reach the table; see
 `docs/campus-events-ingest.md`).
 
 Both pages filter by source once their rows come from two sources or more:
-All sources, Purdue (Purdue's calendar and BoilerLink), IU (IU's calendar,
-TheSpot and the Jaguars' home games) and My calendar (the student's own rows),
+All sources, Purdue (Purdue's calendar, BoilerLink and PurdueME), IU (IU's
+calendar, TheSpot and the Jaguars' home games) and My calendar (the student's own rows),
 each pill with its count, by
 `sourceKey` (`components/EventSourceFilter.tsx`, `lib/campusEvents.ts`). Events
 counts over every row, as its category pills do; Free Food over its free-food

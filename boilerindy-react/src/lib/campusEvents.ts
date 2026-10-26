@@ -98,13 +98,14 @@ export type SourceFilter = 'all' | EventSource | 'following'
 export type EventSourceCount = { id: EventSource; label: string; count: number }
 
 // The shared rows' sourceKey (SOURCES in src/sharedEvents.mjs) by school:
-// Purdue's calendar and BoilerLink are Purdue's; IU's calendar, TheSpot and
-// the Jaguars' home games IU's. White River State Park's calendar is no
-// school's: its rows are downtown (issue #30), with a pill of their own so a
-// museum night never reads as a campus event.
+// Purdue's calendar, BoilerLink and PurdueME are Purdue's; IU's calendar,
+// TheSpot and the Jaguars' home games IU's. White River State Park's calendar
+// is no school's: its rows are downtown (issue #30), with a pill of their own
+// so a museum night never reads as a campus event.
 const SCHOOL_BY_SOURCE_KEY: Record<string, EventSource> = {
   purdue_events: 'purdue',
   boilerlink: 'purdue',
+  purdueme: 'purdue',
   iu_events: 'iu',
   thespot: 'iu',
   iu_athletics: 'iu',

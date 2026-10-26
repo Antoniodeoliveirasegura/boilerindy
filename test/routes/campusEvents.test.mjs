@@ -27,11 +27,16 @@ const BODIES = {
   // IU Indy athletics' calendar file, fetched on 2026-10-26: three home games in
   // a run's window from either NOW.
   'iuindyjags.com': fixture('campus-events-iuindyjags.ics'),
+  // PurdueME's "indianapolis" category, fetched on 2026-10-26: 13 rows planned,
+  // its all-day Halloween Crawl collapsing into Purdue's "CoE Halloween Crawl".
+  'purdueme.com': fixture('campus-events-purdueme.json'),
   // Fetched at 17:30 in Indianapolis on 2026-10-24 (WRSP_NOW).
   'whiteriverstatepark.org': fixture('campus-events-wrsp.json'),
 }
 const WRSP_NOW = new Date('2026-10-24T21:30:00.000Z')
-const ATHLETICS_ROWS = 3
+// What the sources that are always on besides the two calendars add to a run:
+// three home games, and PurdueME's 13 rows less the one that collapses.
+const ALWAYS_ON_ROWS = 3 + 12
 
 function campusEventsTable({ upsert = () => ({ error: null }) } = {}) {
   return (chain) => {
@@ -132,13 +137,13 @@ test('a dry run, asked for in the query or the body, answers the rows and writes
       assert.equal(res.status, 200)
       assert.equal(res.body.ok, true)
       assert.equal(res.body.dryRun, true)
-      assert.equal(res.body.rows.length, 17 + ATHLETICS_ROWS)
+      assert.equal(res.body.rows.length, 17 + ALWAYS_ON_ROWS)
       assert.deepEqual(res.body.sources.map((s) => [s.key, s.enabled]), [
-        ['purdue_events', true], ['iu_events', true], ['boilerlink', false], ['thespot', false], ['iu_athletics', true],
+        ['purdue_events', true], ['iu_events', true], ['boilerlink', false], ['purdueme', true], ['thespot', false], ['iu_athletics', true],
       ])
     }
     assert.equal(supabase.queries.length, 0)
-    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'iuindyjags.com'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'purdueme.com', 'iuindyjags.com'])
     assert.equal(directoryReads(), 0, 'the club directory is read only with Engage on')
   })
 })
@@ -150,13 +155,13 @@ test('a run upserts, sweeps and answers its summary; the cron body {} is a run, 
     const res = await call(PATH, { body: {} })
     assert.equal(res.status, 200)
     assert.equal(res.body.dryRun, false)
-    assert.equal(res.body.upserted, 17 + ATHLETICS_ROWS)
+    assert.equal(res.body.upserted, 17 + ALWAYS_ON_ROWS)
     assert.equal(res.body.rows, undefined)
     const ops = supabase.queriesOf('campus_events').map((q) => operation(q.chain))
-    assert.deepEqual(ops, ['upsert', 'delete', 'delete', 'delete'])
+    assert.deepEqual(ops, ['upsert', 'delete', 'delete', 'delete', 'delete'])
   })
   assert.equal(lines.length, 1)
-  assert.match(lines[0], /^\[campus-events\] run: purdue_events=9 iu_events=8 iu_athletics=3, 20 rows, 20 upserted in \d+ ms$/)
+  assert.match(lines[0], /^\[campus-events\] run: purdue_events=9 iu_events=8 purdueme=13 iu_athletics=3, 32 rows, 32 upserted in \d+ ms$/)
 })
 
 test('with Engage on, the club directory is read and BoilerLink and TheSpot are fetched', async (t) => {
@@ -165,9 +170,10 @@ test('with Engage on, the club directory is read and BoilerLink and TheSpot are 
   await withApp({ engageEnabled: true, directory }, async ({ call, fetched, directoryReads }) => {
     const res = await call(`${PATH}?dryRun=true`)
     assert.equal(res.status, 200)
-    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'thespot.indianapolis.iu.edu', 'iuindyjags.com'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'purdueme.com', 'thespot.indianapolis.iu.edu', 'iuindyjags.com'])
     assert.equal(directoryReads(), 1)
-    assert.equal(res.body.collapsed.length, 1)
+    // The badminton cross-post, and PurdueME's Halloween Crawl.
+    assert.equal(res.body.collapsed.length, 2)
     // Club Volleyball's away game is kept on the directory's word.
     assert.ok(res.body.rows.some((row) => row.dedupe_key === 'boilerlink:12891899'))
   })
@@ -184,14 +190,14 @@ test('CAMPUS_EVENTS_ENGAGE=boilerlink reads BoilerLink and the directory only; t
   await withApp({ engageEnabled: ['boilerlink'] }, async ({ call, fetched, directoryReads }) => {
     const res = await call(`${PATH}?dryRun=1`)
     assert.equal(res.status, 200)
-    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'iuindyjags.com'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'boilerlink.purdue.edu', 'purdueme.com', 'iuindyjags.com'])
     assert.equal(directoryReads(), 1)
-    assert.deepEqual(res.body.sources.map((s) => s.enabled), [true, true, true, false, true])
+    assert.deepEqual(res.body.sources.map((s) => s.enabled), [true, true, true, true, false, true])
   })
   await withApp({ engageEnabled: ['thespot'] }, async ({ call, fetched, directoryReads }) => {
     const res = await call(`${PATH}?dryRun=1`)
     assert.equal(res.status, 200)
-    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'thespot.indianapolis.iu.edu', 'iuindyjags.com'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'purdueme.com', 'thespot.indianapolis.iu.edu', 'iuindyjags.com'])
     assert.equal(directoryReads(), 0, 'TheSpot needs no club directory')
   })
 })
@@ -211,7 +217,7 @@ test('with a classifier, a run hands it the rows and answers its summary; a dry 
 
     const res = await call(PATH)
     assert.equal(res.status, 200)
-    assert.deepEqual(calls, [{ rows: 17 + ATHLETICS_ROWS, client: true }])
+    assert.deepEqual(calls, [{ rows: 17 + ALWAYS_ON_ROWS, client: true }])
     assert.equal(res.body.classify.mode, 'shadow')
     assert.match(lines.at(-1), /, jev shadow: 3 reused, 14 asked, 0 failed, 0 left for the next run in \d+ ms$/)
   })
@@ -299,7 +305,7 @@ test('POST ?dryRun=1 with CAMPUS_EVENTS_DOWNTOWN on reads the park once, answers
     assert.equal(res.status, 200)
     assert.equal(res.body.dryRun, true)
     assert.deepEqual(res.body.sources.map((s) => [s.key, s.enabled]), [
-      ['purdue_events', true], ['iu_events', true], ['boilerlink', false], ['thespot', false], ['iu_athletics', true], ['wrsp_events', true],
+      ['purdue_events', true], ['iu_events', true], ['boilerlink', false], ['purdueme', true], ['thespot', false], ['iu_athletics', true], ['wrsp_events', true],
     ])
     const park = res.body.sources.at(-1)
     assert.deepEqual([park.ok, park.complete, park.pages, park.listings, park.rows], [true, true, 1, 19, 19])
@@ -310,15 +316,15 @@ test('POST ?dryRun=1 with CAMPUS_EVENTS_DOWNTOWN on reads the park once, answers
     assert.equal(supabase.queries.length, 0)
     // One request to the park, with no query string (robots.txt disallows /*?).
     assert.deepEqual(fetchedUrls.filter((url) => new URL(url).hostname === 'whiteriverstatepark.org'), ['https://whiteriverstatepark.org/wp-json/tribe/events/v1/events'])
-    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'iuindyjags.com', 'whiteriverstatepark.org'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'purdueme.com', 'iuindyjags.com', 'whiteriverstatepark.org'])
   })
-  assert.match(lines.at(-1), /^\[campus-events\] dry run: purdue_events=9 iu_events=8 iu_athletics=3 wrsp_events=19, 39 rows in \d+ ms$/)
+  assert.match(lines.at(-1), /^\[campus-events\] dry run: purdue_events=9 iu_events=8 purdueme=13 iu_athletics=3 wrsp_events=19, 51 rows in \d+ ms$/)
 
   // Off, the default, the park is neither read nor in the answer.
   await withApp({ now: WRSP_NOW }, async ({ call, fetched }) => {
     const res = await call(`${PATH}?dryRun=1`)
-    assert.deepEqual(res.body.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'thespot', 'iu_athletics'])
-    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'iuindyjags.com'])
+    assert.deepEqual(res.body.sources.map((s) => s.key), ['purdue_events', 'iu_events', 'boilerlink', 'purdueme', 'thespot', 'iu_athletics'])
+    assert.deepEqual([...new Set(fetched)], ['events.purdue.edu', 'events.iu.edu', 'purdueme.com', 'iuindyjags.com'])
   })
 })
 
@@ -334,13 +340,13 @@ test('a run with CAMPUS_EVENTS_DOWNTOWN on before README step 49 skips the park 
   await withApp({ downtownEnabled: true, now: WRSP_NOW, table: step49Missing }, async ({ call, supabase }) => {
     const res = await call(PATH)
     assert.equal(res.status, 200)
-    assert.equal(res.body.upserted, 17 + ATHLETICS_ROWS)
+    assert.equal(res.body.upserted, 17 + ALWAYS_ON_ROWS)
     const park = res.body.sources.at(-1)
     assert.deepEqual([park.key, park.ok, park.schemaMissing], ['wrsp_events', false, 'db/supabase-campus-events-downtown.sql'])
-    // The one row it tried, the campus rows, and the three campus sweeps.
-    assert.deepEqual(supabase.queriesOf('campus_events').map((q) => operation(q.chain)), ['upsert', 'upsert', 'delete', 'delete', 'delete'])
+    // The one row it tried, the campus rows, and the four campus sweeps.
+    assert.deepEqual(supabase.queriesOf('campus_events').map((q) => operation(q.chain)), ['upsert', 'upsert', 'delete', 'delete', 'delete', 'delete'])
   })
-  assert.match(lines.at(-1), /^\[campus-events\] run: purdue_events=9 iu_events=8 iu_athletics=3 wrsp_events=skipped, 20 rows, 20 upserted in \d+ ms$/)
+  assert.match(lines.at(-1), /^\[campus-events\] run: purdue_events=9 iu_events=8 purdueme=13 iu_athletics=3 wrsp_events=skipped, 32 rows, 32 upserted in \d+ ms$/)
 })
 
 // ── GET /api/campus-events/free-food (issue #366) ───────────────────────────

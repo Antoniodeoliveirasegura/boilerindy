@@ -3,7 +3,8 @@
 // docs/shared-campus-events.md settled the sources: Purdue's events calendar
 // (Localist, group "Purdue in Indianapolis"), IU's events calendar (LiveWhale,
 // category "IU Indianapolis"), IU Indy athletics' schedule (a calendar file,
-// its home games), behind CAMPUS_EVENTS_ENGAGE the Anthology
+// its home games), PurdueME's calendar (The Events Calendar, its
+// "indianapolis" category), behind CAMPUS_EVENTS_ENGAGE the Anthology
 // Engage event search on BoilerLink and TheSpot, and behind
 // CAMPUS_EVENTS_DOWNTOWN the first source beyond campus, White River State
 // Park's events calendar (The Events Calendar). This module turns their raw
@@ -101,6 +102,23 @@ export const SOURCES = Object.freeze([
     // say Indianapolis.
     indianapolisScope: false,
     everyOrgIsIndianapolis: false,
+  }),
+  Object.freeze({
+    key: 'purdueme',
+    platform: 'tribe',
+    label: "Purdue Mechanical Engineering's events calendar (The Events Calendar)",
+    origin: 'https://purdueme.com',
+    // Its robots.txt allows a query string (only /wp-admin/ is disallowed), so
+    // the site is asked for its "indianapolis" category, a page at a time.
+    query: Object.freeze({ categories: 'indianapolis' }),
+    maxPages: 5,
+    days: 60,
+    engage: false,
+    // That category also carries West Lafayette's events, tagged with both
+    // campuses (exam reviews in PHYS and WTHR): those count as away unless they
+    // are online or a place puts them on this campus.
+    awayCategories: Object.freeze(['west-lafayette']),
+    indianapolisScope: true,
   }),
   Object.freeze({
     key: 'thespot',
@@ -465,11 +483,14 @@ function buildEvent(source, listing) {
   else if (westLafayette) venueKind = 'west_lafayette'
   else if (otherCity || point) venueKind = 'elsewhere'
 
+  // A source may say a listing is another campus's (PurdueME's "west-lafayette"
+  // tag); that stands unless the listing is online.
+  const awayByListing = listing.away === true && !online
   const decision = indianapolisDecision({
     org: listing.org === true,
     place,
     near,
-    away: westLafayetteText || otherCity,
+    away: westLafayetteText || otherCity || awayByListing,
     hasCoordinates: point != null,
     scope: Boolean(source.indianapolisScope),
   })
@@ -641,12 +662,13 @@ export function engageOrgLookup(clubs) {
   }
 }
 
-// ── The Events Calendar (White River State Park) ────────────────────────────
+// ── The Events Calendar (White River State Park, PurdueME) ──────────────────
 
 // The park's site sets The Events Calendar's time zone to "UTC+0", and every
 // listing's utc_start_date repeats its start_date (a museum opening reads
 // 10:00 in both). Its times are the wall clock in Indianapolis, so they are
-// read in the campus zone and the "UTC" fields are ignored.
+// read in the campus zone and the "UTC" fields are ignored. PurdueME's site
+// says America/Indiana/Indianapolis, so its start_date reads the same way.
 const CAMPUS_TIME_ZONE = 'America/Indiana/Indianapolis'
 const WALL_CLOCK_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
 const CAMPUS_CLOCK = new Intl.DateTimeFormat('en-US', {
@@ -722,10 +744,12 @@ function tribeCategory(names) {
 
 /**
  * A listing of The Events Calendar's REST API (`events[]` of
- * /wp-json/tribe/events/v1/events) to a row: White River State Park's
- * calendar, keyed by the listing's post id, one per occurrence. Its times are
- * campus wall-clock times (campusWallClockToIso). A series is one title at one
- * venue (the two Twilight Tales nights at the Indiana State Museum).
+ * /wp-json/tribe/events/v1/events) to a row: White River State Park's or
+ * PurdueME's calendar, keyed by the listing's post id, one per occurrence.
+ * Its times are campus wall-clock times (campusWallClockToIso). A series is
+ * one title at one venue (the two Twilight Tales nights at the Indiana State
+ * Museum). A listing tagged with one of the source's `awayCategories`
+ * (PurdueME's "west-lafayette") is another campus's unless it is online.
  *
  * Free entry is never free food here, alone or with food in the text: the
  * park's "Free Event" category and a cost of "Free" mean admission, and its
@@ -741,7 +765,9 @@ export function normalizeTribeEvent(raw, source = sourceByKey('wrsp_events')) {
   const venue = raw.venue && typeof raw.venue === 'object' && !Array.isArray(raw.venue) ? raw.venue : {}
   const title = clean(raw.title)
   const description = tribeText(raw.description)
+  const slugs = toArray(raw.categories).map((term) => String(term?.slug ?? '').toLowerCase())
   return buildEvent(source, {
+    away: toArray(source.awayCategories).some((slug) => slugs.includes(slug)),
     externalUid: raw.id,
     title,
     description,

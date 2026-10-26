@@ -164,6 +164,25 @@ games passed the place rule by the team name, so that group is excluded).
   "Indianapolis, Ind." and its venue, an away game another city. The rows read
   "Jaguars (IU)" under the IU pill.
 
+### PurdueME's events calendar (The Events Calendar): on
+
+Added 2026-10-26 (issue #30): Purdue Mechanical Engineering's department
+calendar, a source Campus Bord reads and Purdue's calendar only partly
+repeats (17 of its 24 listings were not on Purdue's group that day).
+
+- URL: `https://purdueme.com/wp-json/tribe/events/v1/events?categories=indianapolis&start_date=<YYYY-MM-DD>&end_date=<YYYY-MM-DD>&per_page=50&page=<n>`,
+  a 60-day window.
+- Format: The Events Calendar's REST JSON, as the park's.
+- Terms: no key; robots.txt disallows only `/wp-admin/`, so the query string
+  is fine. No terms page on the site.
+- Volume on 2026-10-26: 24 listings, 12 also tagged `west-lafayette` (exam
+  reviews in West Lafayette's buildings), which drop as away unless online: 13
+  rows, 7 of which collapse into Purdue's calendar's.
+- Ids: the post id, one per occurrence.
+- Filter: a campus room ("SL 165", "ET Atrium", "IO 105"), or the category's
+  word for a listing with no venue; the rows read "Purdue ME" under the Purdue
+  pill.
+
 ### White River State Park's events calendar (The Events Calendar): off by default
 
 The first downtown source (issue #30): the park's museums, zoo and lawns are a

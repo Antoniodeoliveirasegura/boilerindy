@@ -81,6 +81,7 @@ describe('timing by the end', () => {
 describe('the source pills', () => {
   const purdue = { shared: true, sourceKey: 'purdue_events' }
   const boilerlink = { shared: true, sourceKey: 'boilerlink' }
+  const purdueme = { shared: true, sourceKey: 'purdueme' }
   const iu = { shared: true, sourceKey: 'iu_events' }
   const thespot = { shared: true, sourceKey: 'thespot' }
   const jaguars = { shared: true, sourceKey: 'iu_athletics' }
@@ -88,7 +89,7 @@ describe('the source pills', () => {
   const mine = {}
 
   it("sorts each row by school: Purdue's calendars, IU's, or the student's own", () => {
-    expect([purdue, boilerlink, iu, thespot, jaguars, mine].map(eventSourceOf)).toEqual(['purdue', 'purdue', 'iu', 'iu', 'iu', 'mine'])
+    expect([purdue, boilerlink, purdueme, iu, thespot, jaguars, mine].map(eventSourceOf)).toEqual(['purdue', 'purdue', 'purdue', 'iu', 'iu', 'iu', 'mine'])
     expect(eventSourceOf({ shared: true, sourceKey: 'somewhere_else' })).toBeNull()
     expect(eventSourceOf({ shared: true })).toBeNull()
   })

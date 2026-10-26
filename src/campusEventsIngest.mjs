@@ -88,15 +88,27 @@ export function engagePageUrl(source, skip, now) {
   return url.toString()
 }
 
+// The Events Calendar's largest page.
+export const TRIBE_PAGE_SIZE = 50
+
 /**
- * The Events Calendar's event list, with no query string: White River State
- * Park's robots.txt disallows every URL with one (`Disallow: /*?`). Without
- * one the site answers its defaults, every upcoming listing for two years, 50
- * a page (27 on one page on 2026-10-24), and the ingest keeps its own window
- * (inTribeWindow).
+ * The Events Calendar's event list. With no `query` on the source, no query
+ * string at all: White River State Park's robots.txt disallows every URL with
+ * one (`Disallow: /*?`). Without one the site answers its defaults, every
+ * upcoming listing for two years, 50 a page (27 on one page on 2026-10-24),
+ * and the ingest keeps its own window (inTribeWindow). A source whose
+ * robots.txt allows one (PurdueME) is asked for its `query` (a category), the
+ * window and page `index + 1` of TRIBE_PAGE_SIZE.
  */
-export function tribePageUrl(source) {
-  return new URL('/wp-json/tribe/events/v1/events', source.origin).toString()
+export function tribePageUrl(source, index = 0, now = new Date()) {
+  const url = new URL('/wp-json/tribe/events/v1/events', source.origin)
+  if (!source.query) return url.toString()
+  for (const [key, value] of Object.entries(source.query)) url.searchParams.set(key, value)
+  url.searchParams.set('start_date', campusYmd(now))
+  url.searchParams.set('end_date', campusYmd(new Date(now.getTime() + source.days * DAY_MS)))
+  url.searchParams.set('per_page', String(TRIBE_PAGE_SIZE))
+  url.searchParams.set('page', String(index + 1))
+  return url.toString()
 }
 
 /**
@@ -205,10 +217,11 @@ const PLATFORMS = {
       return { items: body.value, more: Number.isFinite(total) && (index + 1) * PAGE_SIZE < total }
     },
   },
-  // One page only (MAX_PAGES.tribe): a second one would need `?page=`, which
-  // robots.txt disallows, so a list that outgrows it reads as incomplete.
+  // The park gets one page only (MAX_PAGES.tribe): a second one would need
+  // `?page=`, which its robots.txt disallows, so a list that outgrows it reads
+  // as incomplete. A source with a `query` pages up to its `maxPages`.
   tribe: {
-    url: (source) => tribePageUrl(source),
+    url: (source, index, now) => tribePageUrl(source, index, now),
     read: (body, index) => {
       if (!Array.isArray(body?.events)) return null
       const total = Number(body.total_pages)
@@ -239,7 +252,7 @@ export async function fetchSourceListings(
   { fetchImpl = globalThis.fetch, now = new Date(), sleep = wait, pageDelayMs = PAGE_DELAY_MS, timeoutMs = PAGE_TIMEOUT_MS, log = console } = {},
 ) {
   const platform = PLATFORMS[source.platform]
-  const maxPages = MAX_PAGES[source.platform]
+  const maxPages = source.maxPages ?? MAX_PAGES[source.platform]
   const listings = []
   let pages = 0
   for (let index = 0; index < maxPages; index += 1) {

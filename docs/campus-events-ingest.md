@@ -27,6 +27,9 @@ exist.
    - IU Indy athletics' schedule (a Sidearm calendar file): `iu_athletics`,
      always on. One request a run for the whole season's file; the home games
      from today to 60 days out are kept ([IU Indy athletics](#iu-indy-athletics)).
+   - PurdueME's events calendar (The Events Calendar): `purdueme`, always on.
+     Its "indianapolis" category for the next 60 days, 50 a page
+     ([PurdueME](#purdueme)).
    - BoilerLink and TheSpot (Anthology Engage): `boilerlink` and `thespot`, each
      only when `CAMPUS_EVENTS_ENGAGE` names it (`boilerlink`, `thespot`, a comma
      list, or `on` for both). Both sites' robots.txt disallow `/api/`. Purdue's
@@ -252,6 +255,30 @@ without it. The run otherwise writes and sweeps as before.
 | 409 | A run is already in flight. |
 | 503 | `campus_events_schema_missing`: the migration has not run (a dry run still works). Otherwise a database 5xx or timeout that survived its retry, logged as a warning; the next run retries. |
 | 500 | Any other database failure, logged as an error. |
+
+## PurdueME
+
+`purdueme` reads Purdue Mechanical Engineering's calendar, the source Campus
+Bord's scrapers added: The Events Calendar's REST list on `purdueme.com`, the
+same platform as White River State Park's. Its robots.txt disallows only
+`/wp-admin/`, so unlike the park it is asked for what the ingest wants
+(`query` on the source, `tribePageUrl`): the "indianapolis" category, today to
+60 days out, 50 a page, up to `maxPages` (5).
+
+- **West Lafayette's listings.** The category also carries events tagged with
+  both campuses: on 2026-10-26, 12 of its 24, mostly exam reviews in PHYS,
+  WTHR and FRNY. A listing tagged with one of the source's `awayCategories`
+  (`west-lafayette`) counts as `away` unless it is online (the graduate school
+  panel on Zoom) or a place puts it on this campus, so 11 drop and 13 rows are
+  planned.
+- **Duplicates.** Seven of those 13 are on Purdue's calendar too, under other
+  titles or times ("Grad School Prep Panel", the all-day "Halloween Crawl"),
+  and collapse into Purdue's rows ([Duplicates](#duplicates)). What PurdueME
+  adds is its own: Pizza with a Professor, the Free Food Fridays in the ET
+  Atrium, Beyond the Track, a second study abroad drop-in, INDOT x Purdue.
+- Times are its wall clock in Indianapolis, as the park's; descriptions are
+  empty; the free food comes from the keyword matcher ("Free Food Friday",
+  "Pizza with a Professor"), never from a cost.
 
 ## IU Indy athletics
 
@@ -529,9 +556,10 @@ of two versions are never mixed.
 Constants at the top of `src/campusEventsIngest.mjs` (`PAGE_DELAY_MS`,
 `PAGE_TIMEOUT_MS`, `MAX_PAGES`, `UPSERT_BATCH_SIZE`) and the source table in
 `src/sharedEvents.mjs` (`SOURCES`: the Localist window of 120 days, the LiveWhale
-window of 31 days, the athletics and the park's windows of 60 days).
+window of 31 days, the athletics, PurdueME and the park's windows of 60 days).
 `MAX_PAGES.tribe` stays 1: a second page needs the query string the park's
-robots.txt disallows. `MAX_PAGES.ics` is 1: a calendar file is one request.
+robots.txt disallows; a source's own `maxPages` (PurdueME's 5) overrides its
+platform's. `MAX_PAGES.ics` is 1: a calendar file is one request.
 `complete: false` with "more than N
 pages" means a source outgrew its page cap. The cron's `pg_net` timeout is 180
 seconds. A run with Engage off took 14 s on 2026-10-17; with it on a run reads
