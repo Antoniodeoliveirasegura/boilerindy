@@ -100,8 +100,9 @@ export type EventSourceCount = { id: EventSource; label: string; count: number }
 // The shared rows' sourceKey (SOURCES in src/sharedEvents.mjs) by school:
 // Purdue's calendar, BoilerLink and PurdueME are Purdue's; IU's calendar,
 // TheSpot and the Jaguars' home games IU's. White River State Park's calendar
-// is no school's: its rows are downtown (issue #30), with a pill of their own
-// so a museum night never reads as a campus event.
+// and the Central Library's are no school's: their rows are downtown (issue
+// #30), with a pill of their own so a museum night never reads as a campus
+// event.
 const SCHOOL_BY_SOURCE_KEY: Record<string, EventSource> = {
   purdue_events: 'purdue',
   boilerlink: 'purdue',
@@ -110,6 +111,7 @@ const SCHOOL_BY_SOURCE_KEY: Record<string, EventSource> = {
   thespot: 'iu',
   iu_athletics: 'iu',
   wrsp_events: 'downtown',
+  indypl_central: 'downtown',
 }
 const EVENT_SOURCE_ORDER: EventSource[] = ['purdue', 'iu', 'downtown', 'mine']
 export const EVENT_SOURCE_LABEL: Record<EventSource, string> = { purdue: 'Purdue', iu: 'IU', downtown: 'Downtown', mine: 'My calendar' }

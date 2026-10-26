@@ -61,6 +61,7 @@ export const SOURCE_LABELS = Object.freeze({
   thespot: 'TheSpot (IU)',
   iu_athletics: 'Jaguars (IU)',
   wrsp_events: 'Downtown',
+  indypl_central: 'Downtown',
 })
 
 /**
