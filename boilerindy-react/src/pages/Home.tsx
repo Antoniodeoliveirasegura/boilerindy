@@ -30,6 +30,7 @@ import {
   useScheduleOverrides,
 } from '../lib/scheduleOverrideStore'
 import { useDashboardLayout } from '../hooks/useDashboardLayout'
+import { useEntrance } from '../hooks/useEntrance'
 import { allowedSizesFor } from '../lib/dashboardLayoutStore'
 import { useGradeTracker } from '../hooks/useGradeTracker'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
@@ -2023,6 +2024,12 @@ export default function Home() {
     .filter((w) => !w.visible && widgetRegistry[w.id])
     .map((w) => ({ id: w.id, title: widgetRegistry[w.id].title }))
 
+  // The board paints at once from the saved layout, and each widget loads
+  // inside its own card, so the grid never rises as a whole: a widget that
+  // shows up later (Heads up once something is due, one added back while
+  // customizing) rises by itself (hooks/useEntrance).
+  const widgetsRef = useEntrance<HTMLDivElement>(true)
+
   return (
     <div className="page">
       <PageTitle>Dashboard</PageTitle>
@@ -2106,6 +2113,7 @@ export default function Home() {
       )}
 
       <div
+        ref={widgetsRef}
         className={
           editing
             ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'

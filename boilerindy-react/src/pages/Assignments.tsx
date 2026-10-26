@@ -26,6 +26,7 @@ import {
   userKeys,
   type TaskMeta,
 } from '../lib/queries/userData'
+import { useEntrance } from '../hooks/useEntrance'
 import PageTitle from '../components/PageTitle'
 
 type Category = { id: string; label?: string; count?: number }
@@ -429,6 +430,13 @@ export default function Assignments() {
     }
     return groups
   }, [filteredItems])
+
+  // The day groups rise in when the tasks land and when a filter or the sort
+  // the student picked swaps them (hooks/useEntrance).
+  const daysRef = useEntrance(
+    !loading && !loadFailure,
+    [selectedCategories.join(','), showPast, hideCompleted, priorityFilter ?? '', sortByPriority].join('|'),
+  )
 
   const toggleCategory = (catId: string) => {
     setSelectedCategories(prev => 
@@ -901,7 +909,7 @@ export default function Assignments() {
         </div>
       ) : (
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6">
-          <section className="card card-pad r-tsk min-w-0">
+          <section ref={daysRef} className="card card-pad r-tsk min-w-0">
             {Object.entries(groupedItems).map(([date, dateItems], groupIndex) => (
               <div key={date} className={groupIndex > 0 ? 'mt-2' : ''}>
                 <div className="eyebrow bare">

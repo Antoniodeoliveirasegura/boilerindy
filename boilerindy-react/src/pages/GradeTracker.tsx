@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
+import { useEntrance } from '../hooks/useEntrance'
 import { useGradeTracker } from '../hooks/useGradeTracker'
 import { useMajor } from '../hooks/useMajor'
 import DegreeProgress, { type ReqCourse } from '../components/DegreeProgress'
@@ -81,6 +82,10 @@ export default function GradeTracker() {
   const courseInputRef = useRef<HTMLInputElement>(null)
   // A failed read with nothing cached has no numbers to show, not zeros.
   const nothingLoaded = loadFailed && grades.length === 0
+  // The term cards rise in when the courses land after "Loading your
+  // courses", not when the account's copy replaces the one this device
+  // cached, which was already on screen (hooks/useEntrance).
+  const termsRef = useEntrance<HTMLDivElement>(!loading || grades.length > 0)
 
   // Suggest terms the user has already used (for the datalist).
   const termOptions = useMemo(
@@ -348,7 +353,7 @@ export default function GradeTracker() {
         // template, the implicit column grew to fit a long course name on one
         // line (truncate is nowrap), and the term card ran off a 390px screen
         // with its GPA, Edit and Delete out of reach (R6).
-        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+        <div ref={termsRef} className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
           {summary.terms.map((term) => (
             <section key={term.term} className="card card-pad r-cls">
               <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">

@@ -6,6 +6,7 @@ import Icon from '../components/Icons'
 import ShareButton from '../components/ShareButton'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
+import { useEntrance } from '../hooks/useEntrance'
 import { track } from '../lib/usageStats'
 import { shareUrl } from '../lib/shareLinks'
 import { PAGE_PREVIEWS } from '../lib/pagePreviews'
@@ -871,6 +872,10 @@ export default function Transit() {
     return getOrderedStopsForRoute(stops, selectedRoute.id, routeIdToCanonical)
   }, [stops, selectedRoute, routeIdToCanonical])
 
+  // The stops rise in when the transit data lands and when another route is
+  // picked (hooks/useEntrance); the 10 s bus poll only moves their dots.
+  const stopsRef = useEntrance<HTMLDivElement>(!loading, currentRouteId)
+
   const trackingBus = useMemo(() => {
     if (!selectedRoute) return null
     const onRoute = vehicles.filter((v) => canonicalRouteId(v.RouteID) === selectedRoute.id)
@@ -1098,8 +1103,10 @@ export default function Transit() {
         </div>
       )}
 
+      {/* The route's stops rise in (stopsRef below); the card itself holds
+          still, so the two never stack. */}
       {selectedRoute && (
-        <section className="card card-pad mt-5 animate-fade-in-up" style={routeStyle}>
+        <section className="card card-pad mt-5" style={routeStyle}>
           <header className="card-head">
             <span className="route-badge lg">
               <Icon name="bus" size={20} />
@@ -1167,7 +1174,7 @@ export default function Transit() {
 
           {/* The route drawn as a line: one stop per row, the line in the
               route's colour running through every dot. */}
-          <div className="flex flex-col">
+          <div ref={stopsRef} className="flex flex-col">
             {orderedStops.map((s, idx) => {
               const mode = stopHighlights[s.id]
               const isHere = mode === 'here'

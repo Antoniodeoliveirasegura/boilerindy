@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icons'
 import { useAuth } from '../context/AuthContext'
+import { useEntrance } from '../hooks/useEntrance'
 import type { ApiRequestError } from '../lib/authApi'
 import {
   BOILERLINK_URL,
@@ -277,6 +278,14 @@ export default function Clubs() {
   const fetched = result ? formatFetched(result.fetchedAt) : null
   const showSkeleton = following ? followingLoading : !result && loading
 
+  // The cards rise in when a list lands (not while the last one stands in
+  // dimmed) and when the view, the search or the category swaps it
+  // (hooks/useEntrance).
+  const cardsRef = useEntrance<HTMLDivElement>(
+    following ? Boolean(followsData) : !loading && result !== null,
+    `${following ? 'following' : scope}|${q}|${category}`,
+  )
+
   return (
     <div className="page">
       <PageTitle>Clubs & Organizations</PageTitle>
@@ -440,6 +449,7 @@ export default function Clubs() {
         </div>
       ) : (
         <div
+          ref={cardsRef}
           className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 transition-opacity ${!following && loading ? 'opacity-60' : ''}`}
           aria-busy={!following && loading}
         >

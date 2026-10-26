@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { authRequest } from '../lib/authApi'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import PageTitle from '../components/PageTitle'
 import StatusBanner from '../components/StatusBanner'
@@ -140,6 +141,10 @@ export default function LostFound() {
     })
   }, [items, tab, showResolved, search])
 
+  // The posts rise in when the list lands and when a tab, Show resolved or the
+  // search swaps them (hooks/useEntrance).
+  const rowsRef = useEntrance<HTMLOListElement>(!loading, `${tab}|${showResolved}|${search.trim().toLowerCase()}`)
+
   function updateForm(field: keyof typeof EMPTY_FORM, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
@@ -277,7 +282,7 @@ export default function LostFound() {
             </div>
           ) : (
             <section className="card px-5 max-sm:px-4 py-1">
-              <ol className="dep">
+              <ol ref={rowsRef} className="dep">
                 {filtered.map((item) => {
                   const badge = TYPE_BADGE[item.type || 'lost'] || TYPE_BADGE.lost
                   const resolved = item.status === 'resolved'

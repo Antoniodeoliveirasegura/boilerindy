@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from '../components/Icons'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import { authRequest } from '../lib/authApi'
 import { track } from '../lib/usageStats'
@@ -45,6 +46,9 @@ export default function StudyGroups() {
   const [selectedCourse, setSelectedCourse] = useState('')
   const [groups, setGroups] = useState<StudyGroup[]>([])
   const [loadingGroups, setLoadingGroups] = useState(false)
+  // A course's groups rise in once they land (hooks/useEntrance). Picking
+  // another course reads them again through loadingGroups, so it needs no key.
+  const rowsRef = useEntrance<HTMLUListElement>(!loadingGroups)
 
   const [myGroups, setMyGroups] = useState<StudyGroup[]>([])
   // Join and Leave used to swallow every failure (a group that just filled,
@@ -446,7 +450,7 @@ export default function StudyGroups() {
                   </div>
                 </div>
               ) : (
-                <ul className="-mt-2">{groups.map((g) => renderGroupCard(g, 'course'))}</ul>
+                <ul ref={rowsRef} className="-mt-2">{groups.map((g) => renderGroupCard(g, 'course'))}</ul>
               )}
             </section>
           )}

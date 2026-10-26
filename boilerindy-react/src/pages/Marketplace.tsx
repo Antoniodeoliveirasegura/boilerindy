@@ -4,6 +4,7 @@ import Icon from '../components/Icons'
 import { authRequest, type ApiRequestError } from '../lib/authApi'
 import { track } from '../lib/usageStats'
 import { useConfirm } from '../hooks/useConfirm'
+import { useEntrance } from '../hooks/useEntrance'
 import { useReportAndBlock } from '../hooks/useReportAndBlock'
 import {
   FORM_DEFAULT_CATEGORY,
@@ -274,6 +275,11 @@ export default function Marketplace() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+
+  // The cards rise in when a page of listings lands and when the tab swaps
+  // the grid (hooks/useEntrance). A category, a search or another page reloads
+  // through `loading`; My listings has no loading state of its own.
+  const cardsRef = useEntrance<HTMLDivElement>(tab === 'mine' || !loading, tab)
 
   const [selected, setSelected] = useState<Listing | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -901,7 +907,7 @@ export default function Marketplace() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{listings.map((l) => listingCard(l, 'browse'))}</div>
+              <div ref={cardsRef} className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{listings.map((l) => listingCard(l, 'browse'))}</div>
               <div className="flex items-center justify-between gap-3 mt-5">
                 <button type="button" onClick={() => changePage(-1)} disabled={page === 0} className="btn btn-secondary btn-sm">
                   <Icon name="chevronLeft" size={15} />
@@ -938,7 +944,7 @@ export default function Marketplace() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{mine.map((l) => listingCard(l, 'mine'))}</div>
+        <div ref={cardsRef} className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">{mine.map((l) => listingCard(l, 'mine'))}</div>
       )}
     </div>
   )
