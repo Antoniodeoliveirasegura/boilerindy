@@ -45,4 +45,27 @@ test.describe('Connect calendar sources', () => {
     await page.getByRole('button', { name: 'Connect Schedule' }).click()
     await expect(page.getByRole('alert')).toContainText('That is the Personal Schedule page itself.')
   })
+
+  // Issue #521: the demo calendars for the App Review account are links on
+  // this site's own origin, which the server builds itself, so the check sends
+  // each one on to its provider's route.
+  test('sends the demo calendar links to the server', async ({ page, mockApi }) => {
+    mockApi.login()
+
+    await page.goto('/setup')
+    const origin = await page.evaluate(() => location.origin)
+    const box = page.getByLabel('iCalendar Feed URL')
+
+    for (const [option, button, path, file] of [
+      [/^Schedule/, 'Connect Schedule', '/api/sources/purdue/schedule', 'purdue-timetable.ics'],
+      [/^Brightspace/, 'Connect Brightspace', '/api/sources/brightspace/schedule', 'brightspace.ics'],
+    ]) {
+      await page.getByRole('button', { name: option }).click()
+      const link = `${origin}/api/demo/calendars/${file}`
+      await box.fill(link)
+      const sent = page.waitForRequest((request) => request.method() === 'POST' && new URL(request.url()).pathname === path)
+      await page.getByRole('button', { name: button }).click()
+      expect((await sent).postDataJSON()).toMatchObject({ icsUrl: link })
+    }
+  })
 })

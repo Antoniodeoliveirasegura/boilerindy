@@ -63,7 +63,7 @@ import { createAssistantRouter } from './src/routes/assistant.mjs'
 import { createAnalyticsRouter } from './src/routes/analytics.mjs'
 import { createCalendarFeedRouter } from './src/routes/calendarFeed.mjs'
 import { createMeRouter } from './src/routes/me.mjs'
-import { createSourcesRouter } from './src/routes/sources.mjs'
+import { createSourcesPublicRouter, createSourcesRouter } from './src/routes/sources.mjs'
 import { createCampusEventsPublicRouter, createCampusEventsRouter } from './src/routes/campusEvents.mjs'
 import { createClubFollowsRouter } from './src/routes/clubFollows.mjs'
 import { engageSourcesFromSetting } from './src/sharedEvents.mjs'
@@ -131,6 +131,12 @@ const loginTwoFactorSyncGate = envSwitch('LOGIN_TWO_FACTOR_SYNC_GATE')
 // before other students see them. Off until the owner turns it on, after README
 // step 46; the admin photo queue works either way.
 const marketplacePhotoReview = envSwitch('MARKETPLACE_PHOTO_REVIEW')
+// Demo calendars (issue #521, src/demoCalendars.mjs): a Purdue timetable and a
+// Brightspace calendar the server builds itself, for the App Review account. A
+// kill switch rather than an opt-in, since they fetch nothing: on unless set
+// to off (or 0 / false). Their links may use either of the server's origins.
+const demoCalendarsEnabled = !['off', '0', 'false'].includes(String(process.env.DEMO_CALENDARS || '').trim().toLowerCase())
+const demoCalendarOrigins = [clientAppUrl, publicBaseUrl]
 const adminEmails = new Set(
   (process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -543,10 +549,12 @@ try {
 // run. The campus events one is the signed-out /free-food's read (issue #366),
 // behind the same CAMPUS_EVENTS_FEED switch as the signed-in calendar read, and
 // lists the downtown rows only with CAMPUS_EVENTS_DOWNTOWN on, as that read does.
+// The sources one serves the demo calendars (issue #521).
 app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
 app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN') }))
+app.use(createSourcesPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, demoCalendarsEnabled }))
 
 // Everything below runs behind the cookie session.
 app.use(
@@ -687,7 +695,7 @@ app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, i
 // POST /api/internal/sources/resync are in src/routes/sources.mjs (issue
 // #191), with runScheduleSync and the host allowlist. warnFeedTransient and
 // warnCronTransient stay with the Sentry warnings and are handed in.
-app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinkingEnabled, onboardingSummaryCache, warnFeedTransient, sourceSyncRateLimit, userWriteRateLimit, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient }))
+app.use(createSourcesRouter({ supabase, requireAuth, isProduction, purdueLinkingEnabled, onboardingSummaryCache, warnFeedTransient, sourceSyncRateLimit, userWriteRateLimit, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, demoCalendarsEnabled, demoCalendarOrigins }))
 
 // ── Shared campus events (issue #30) ────────────────────────────────────────
 // The ingest cron route POST /api/internal/campus-events/ingest is in
