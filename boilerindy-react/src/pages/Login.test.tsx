@@ -255,6 +255,30 @@ describe('Login: controls and headings', () => {
     expect(headings[0]).toHaveTextContent('Welcome back')
   })
 
+  // Issue #526. The Terms rest on "by creating an account or using BoilerIndy",
+  // but the screen only linked Privacy, on the sign-up tab, and Google signs
+  // students up from either tab with no notice at all.
+  test('both tabs show the Terms and Privacy agreement and the age line above the email form', () => {
+    renderLogin()
+    const terms = screen.getByRole('link', { name: 'Terms of Service' })
+    expect(terms).toHaveAttribute('href', '/terms?from=signin')
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy?from=signin')
+    const notice = terms.closest('p') as HTMLParagraphElement
+    expect(notice).toHaveTextContent('By continuing you agree to the Terms of Service and Privacy Policy and confirm you are 13 or older.')
+    // Ahead of the email field in document order, so it is read before either action.
+    expect(notice.compareDocumentPosition(emailField()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create account', pressed: false }))
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms?from=signup')
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy?from=signup')
+  })
+
+  test('the reset-password form leaves the agreement out', () => {
+    renderLogin()
+    fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    expect(screen.queryByRole('link', { name: 'Terms of Service' })).not.toBeInTheDocument()
+  })
+
   // The button that had focus unmounts as the forms swap, so focus fell to
   // the page and a screen reader heard nothing of the new form.
   test('"Forgot password?" and "Back to sign in" move focus to the email field', async () => {
