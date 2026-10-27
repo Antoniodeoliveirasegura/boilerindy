@@ -193,3 +193,18 @@ test('the four issue #212 indexes are declared', () => {
     assert.ok(names.has(name), `${name} is missing from db/`)
   }
 })
+
+// The Data API lockdown (db/supabase-anon-lockdown.sql, README step 50) is the
+// second lock under the RLS posture above: it revokes the public-schema table
+// and sequence privileges from anon and authenticated, so a table that ever
+// ships without RLS by mistake is still denied to the Data API. db/ci/postcheck.sql
+// proves it at runtime in CI; this guards the file itself, so it cannot be
+// deleted or weakened without a test failing here too.
+test('db/supabase-anon-lockdown.sql revokes public tables from the Data API roles', () => {
+  const lockdown = stripComments(readFileSync(new URL('supabase-anon-lockdown.sql', DB_DIR), 'utf8'))
+  const tableRevoke = /REVOKE\s+ALL\s+PRIVILEGES\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+public\s+FROM\s+([^;]*);/i.exec(lockdown)
+  assert.ok(tableRevoke, 'no "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ..." statement found')
+  for (const role of ['anon', 'authenticated']) {
+    assert.ok(new RegExp(`\\b${role}\\b`, 'i').test(tableRevoke[1]), `the table REVOKE does not name ${role}`)
+  }
+})
