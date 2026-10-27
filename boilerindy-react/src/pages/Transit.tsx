@@ -742,7 +742,7 @@ export default function Transit() {
 
   // Vehicles, stops and the route map come through the shared query cache
   // (issue #251): the dashboard's transit card reads the same entries, the
-  // 10 s vehicle poll pauses while the tab is hidden, and a return visit
+  // 5 s vehicle poll pauses while the tab is hidden, and a return visit
   // paints the last positions before the network answers.
   const vehiclesQuery = useTransitVehicles()
   const stopsQuery = useTransitStops()
@@ -758,7 +758,7 @@ export default function Transit() {
   // Positions still cached from an earlier answer keep showing.
   // A read with no data goes back to pending, and drops its error, at the
   // start of every retry, so the failure is also read from errorUpdatedAt and
-  // the last error is kept: otherwise each 10 s poll during an outage swapped
+  // the last error is kept: otherwise each 5 s poll during an outage swapped
   // the notice for the loading screen and back, re-announcing the alert and
   // dropping focus from Try again.
   const [lastVehiclesError, setLastVehiclesError] = useState<unknown>(null)
@@ -874,7 +874,7 @@ export default function Transit() {
   }, [stops, selectedRoute, routeIdToCanonical])
 
   // The stops rise in when the transit data lands and when another route is
-  // picked (hooks/useEntrance); the 10 s bus poll only moves their dots.
+  // picked (hooks/useEntrance); the 5 s bus poll only moves their dots.
   const stopsRef = useEntrance<HTMLDivElement>(!loading, currentRouteId)
 
   const trackingBus = useMemo(() => {

@@ -70,8 +70,10 @@ export function errorMessage(error: unknown, fallback: string): string {
 
 /** Stale times: how long a cached answer is served without a background refetch. */
 export const TRANSIT_STATIC_STALE_MS = 10 * 60_000
-export const TRANSIT_VEHICLES_STALE_MS = 10_000
-export const TRANSIT_VEHICLES_POLL_MS = 10_000
+export const TRANSIT_VEHICLES_STALE_MS = 4_000
+// Every 5 s (owner, 2026-10-28; it was 10 s), with the server's 4 s cache and
+// Cache-Control just under it so each poll can bring new positions.
+export const TRANSIT_VEHICLES_POLL_MS = 5_000
 export const DINING_STALE_MS = 5 * 60_000
 export const PARKING_STALE_MS = 60_000
 /** The parking page and the map's garage layer refresh on this interval while the tab is visible. */
@@ -97,7 +99,7 @@ export const transitStopsQuery = queryOptions({
   gcTime: PUBLIC_GC_TIME_MS,
 })
 
-// Live positions: polled every 10 s while a Transit screen or the dashboard is
+// Live positions: polled every 5 s while a Transit screen or the dashboard is
 // open and the tab is visible. refetchIntervalInBackground is false, so a
 // hidden tab stops the poll and spends neither battery nor the
 // transit-vehicles budget; TanStack resumes it when the tab shows again.

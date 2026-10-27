@@ -274,7 +274,7 @@ describe('Transit when the vehicles read fails', () => {
   })
 
   // During an outage TanStack resets a read with no data to pending, with no
-  // error, at the start of every 10 s retry. The page took that for a first
+  // error, at the start of every 5 s retry. The page took that for a first
   // load: the notice gave way to the loading screen and came back, so it was
   // announced again and focus on Try again was lost on every poll.
   test('keeps the same notice, and focus on Try again, while the failed feed retries', () => {

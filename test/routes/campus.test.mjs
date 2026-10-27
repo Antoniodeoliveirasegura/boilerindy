@@ -103,7 +103,7 @@ test('the transit routes proxy TransLoc with the key through the shared cache an
     async (urls) => {
       await withApp({}, async ({ base, cacheCalls }) => {
         const expected = [
-          ['/api/transit/vehicles', 'GetMapVehiclePoints', 'public, max-age=10, s-maxage=10, stale-while-revalidate=20'],
+          ['/api/transit/vehicles', 'GetMapVehiclePoints', 'public, max-age=4, s-maxage=4, stale-while-revalidate=8'],
           ['/api/transit/stops', 'GetStops', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600'],
           ['/api/transit/routes', 'GetRoutes', 'public, max-age=60, s-maxage=600, stale-while-revalidate=600'],
         ]
@@ -119,7 +119,7 @@ test('the transit routes proxy TransLoc with the key through the shared cache an
           `${TRANSLOC}/GetRoutes?apiKey=transloc-test-key`,
         ])
         assert.deepEqual(cacheCalls, [
-          { key: 'transit:vehicles', ttlMs: 5 * 1000 },
+          { key: 'transit:vehicles', ttlMs: 4 * 1000 },
           { key: 'transit:stops', ttlMs: 10 * 60 * 1000 },
           { key: 'transit:routes', ttlMs: 10 * 60 * 1000 },
         ])

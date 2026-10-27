@@ -14,7 +14,7 @@ import { UpstreamError, fetchUpstreamJson } from '../upstreamFetch.mjs'
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
 const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY
 const TRANSLOC_STATIC_TTL_MS = 10 * 60 * 1000 // routes/stops barely change
-const TRANSLOC_VEHICLES_TTL_MS = 5 * 1000 // live positions: short, just dedupes bursts
+const TRANSLOC_VEHICLES_TTL_MS = 4 * 1000 // live positions: just under the 5 s poll, so each poll can bring new ones
 const TRANSLOC_TIMEOUT_MS = 8000
 
 // A TransLoc failure after the first successful fill is served from the cache
@@ -90,11 +90,14 @@ export function createCampusPublicRouter({
           timeoutMs: TRANSLOC_TIMEOUT_MS,
         }),
       )
-      // Public data, cached 5 s here anyway: let browsers and Vercel's edge (the
-      // /api rewrite) absorb the 10 s polling so repeats never reach this process.
-      // stale-while-revalidate lets the edge answer a poll from the expired copy
-      // while it refreshes, so a Render cold start does not stall every open map.
-      res.set('Cache-Control', 'public, max-age=10, s-maxage=10, stale-while-revalidate=20')
+      // Public data, cached 4 s here anyway: let browsers and Vercel's edge (the
+      // /api rewrite) absorb repeats so they never reach this process. The window
+      // stays under the 5 s poll of the website and the app (which calls Render
+      // directly, where only the phone's own HTTP cache applies), so each poll can
+      // bring new positions. stale-while-revalidate lets the edge answer a poll
+      // from the expired copy while it refreshes, so a Render cold start does not
+      // stall every open map.
+      res.set('Cache-Control', 'public, max-age=4, s-maxage=4, stale-while-revalidate=8')
       res.json(data)
     } catch (error) {
       respondTranslocError(res, 'vehicles', error)
