@@ -6,3 +6,14 @@ Licensed under the Apache License, Version 2.0; the full text is in the LICENSE 
 This repository also carries Plus Jakarta Sans (boilerindy-react/scripts/fonts/),
 Copyright 2020 The Plus Jakarta Sans Project Authors, under the SIL Open Font
 License, Version 1.1, whose text is in boilerindy-react/scripts/fonts/OFL.txt.
+
+Many interface icons in boilerindy-react/src/components/Icons.tsx reuse path
+data from Feather (Copyright (c) 2013-2017 Cole Bemis, MIT License) and Lucide
+(Copyright (c) Lucide Contributors, ISC License); both licences are in
+boilerindy-react/src/components/ICON-LICENSES.txt. The Google, Apple, GitHub
+and Discord marks there belong to their owners.
+
+The website's maps show Esri ArcGIS Online basemap tiles (sources: Esri, HERE,
+Garmin and OpenStreetMap contributors; OpenStreetMap data is available under
+the Open Database License). Other third-party content the app shows, and the
+terms it is used under, is listed in docs/third-party-content.md.
