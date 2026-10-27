@@ -42,7 +42,7 @@ test.describe('Marketplace photo review', () => {
     await expect(page.locator('[data-review-listing]')).toHaveCount(2)
     await expect(page.locator('[data-review-listing]').first()).toContainText('Calculus textbook, 9th edition')
     const textbook = queueRow(page, 'Calculus textbook')
-    await expect(textbook.getByRole('img', { name: /^Calculus textbook, 9th edition photo \d$/ })).toHaveCount(2)
+    await expect(textbook.getByRole('img', { name: /^Calculus textbook, 9th edition, \d of \d$/ })).toHaveCount(2)
     await expect(textbook).toContainText('Posted by Riley Boilermaker')
     await expect(textbook).toContainText('(1 day ago)')
 

@@ -406,6 +406,7 @@ export default function StudyGroups() {
                     onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                     maxLength={120}
                     placeholder="Group name (e.g. Exam 2 review crew)"
+                    aria-label="Group name"
                     className="input"
                   />
                   <input
@@ -413,6 +414,7 @@ export default function StudyGroups() {
                     onChange={(e) => setForm((f) => ({ ...f, meetingInfo: e.target.value }))}
                     maxLength={200}
                     placeholder="When/where (optional) - e.g. Tue 4pm, Library 2nd floor"
+                    aria-label="When and where (optional)"
                     className="input"
                   />
                   <textarea
@@ -421,6 +423,7 @@ export default function StudyGroups() {
                     maxLength={1000}
                     rows={3}
                     placeholder="Details (optional)"
+                    aria-label="Details (optional)"
                     className="input resize-y"
                   />
                   <input
@@ -428,6 +431,7 @@ export default function StudyGroups() {
                     onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))}
                     inputMode="numeric"
                     placeholder="Max size (optional, 2-100)"
+                    aria-label="Max size (optional, 2 to 100)"
                     className="input tnum"
                   />
                   {formError && <p className="text-[13px] text-[var(--color-error)]">{formError}</p>}

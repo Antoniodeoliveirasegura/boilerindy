@@ -70,8 +70,8 @@ it('lists each waiting listing with its photos, its seller and how long it has w
   expect(fridge.getByText(/Waiting since .* \(2 h ago\)/)).toBeInTheDocument()
   // Every photo, each opening at full size.
   const photos = within(fridge.getByRole('group', { name: 'Photos of Mini fridge' }))
-  expect(photos.getByAltText('Mini fridge photo 1')).toHaveAttribute('src', 'https://cdn.example/fridge-1.jpg')
-  expect(photos.getByAltText('Mini fridge photo 2')).toHaveAttribute('src', 'https://cdn.example/fridge-2.jpg')
+  expect(photos.getByAltText('Mini fridge, 1 of 2')).toHaveAttribute('src', 'https://cdn.example/fridge-1.jpg')
+  expect(photos.getByAltText('Mini fridge, 2 of 2')).toHaveAttribute('src', 'https://cdn.example/fridge-2.jpg')
   expect(photos.getAllByRole('link')[0]).toHaveAttribute('href', 'https://cdn.example/fridge-1.jpg')
 
   const lamp = within(rowFor('Desk lamp'))
@@ -121,7 +121,7 @@ it('reads the queue again when the seller changed the listing since it loaded', 
   fireEvent.click(within(rowFor('Mini fridge')).getByRole('button', { name: 'Approve' }))
   expect(await screen.findByText('The seller changed this listing after the queue loaded. Reload to see the latest photos.')).toBeInTheDocument()
   // The new photo is what the admin now sees.
-  await waitFor(() => expect(screen.getByAltText('Mini fridge photo 1')).toHaveAttribute('src', 'https://cdn.example/fridge-3.jpg'))
+  await waitFor(() => expect(screen.getByAltText('Mini fridge, 1 of 1')).toHaveAttribute('src', 'https://cdn.example/fridge-3.jpg'))
   expect(listPhotoReview).toHaveBeenCalledTimes(2)
   expect(screen.getByText('The seller changed this listing after the queue loaded. Reload to see the latest photos.')).toBeInTheDocument()
   expect(screen.queryByText('Desk lamp')).not.toBeInTheDocument()

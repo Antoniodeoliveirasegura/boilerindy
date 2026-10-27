@@ -817,7 +817,13 @@ export default function Schedule() {
                           <span className="tnum block text-[15px] text-[var(--color-txt-1)] sm:text-[16px]">{gutter.hm}</span>
                           <span className="mt-1 block text-[10.5px] tracking-[0.12em] text-[var(--color-txt-3)]">{gutter.half}</span>
                         </div>
+                        {/* A click anywhere on the card is a mouse shortcut;
+                            the class name below is the button a keyboard or
+                            screen reader uses. The card cannot be the button
+                            itself, since it holds the room and edit buttons
+                            (issue #529). */}
                         <div
+                          role="presentation"
                           onClick={() => setSelectedClass(cls)}
                           className={`min-w-0 cursor-pointer rounded-[var(--radius-md)] bg-[var(--color-cls-bg)] py-3 pl-4 pr-1.5 transition-shadow sm:pl-5 sm:pr-2
                             ${isSelected
@@ -837,9 +843,17 @@ export default function Schedule() {
                                 {cls.isManual ? <span className="badge bg-[var(--color-surface)]">Added</span> : null}
                                 {cls.hasOverride && !cls.isManual ? <span className="badge bg-[var(--color-surface)]">Edited</span> : null}
                               </div>
-                              <div className="mt-1.5 font-display text-[16px] font-bold leading-snug text-[var(--color-txt-0)]">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedClass(cls)
+                                }}
+                                aria-pressed={isSelected}
+                                className="mt-1.5 block rounded-[var(--radius-xs)] text-left font-display text-[16px] font-bold leading-snug text-[var(--color-txt-0)]"
+                              >
                                 {cls.name}
-                              </div>
+                              </button>
                               <div className="tnum mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-[var(--color-txt-2)]">
                                 <span className="flex items-center gap-1.5">
                                   <Icon name="clock" size={13} />

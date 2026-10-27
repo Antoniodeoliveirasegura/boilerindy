@@ -183,7 +183,7 @@ test.describe('Mobile layout (390px)', () => {
     const moreLink = page.getByRole('link', { name: 'More', exact: true })
     const bottomNav = page.getByRole('navigation').filter({ has: moreLink })
     const more = bottomNav.getByRole('link', { name: 'More', exact: true })
-    const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
+    const assistant = page.getByRole('button', { name: 'Campus Assistant', exact: true })
     await expect(more).toBeVisible()
     await expect(assistant).toBeVisible()
 
@@ -213,7 +213,7 @@ test.describe('Mobile layout (390px)', () => {
     await page.goto('/dashboard')
 
     const topBar = page.getByRole('navigation').first()
-    const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
+    const assistant = page.getByRole('button', { name: 'Campus Assistant', exact: true })
     const panel = page.getByTestId('assistant-panel')
     const input = page.getByPlaceholder('Ask about campus...')
     await expect(assistant).toBeVisible()

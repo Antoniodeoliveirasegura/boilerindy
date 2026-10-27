@@ -60,7 +60,7 @@ test.describe('Marketplace photos', () => {
     await expect(detail).toContainText('Calculus textbook, 9th edition')
     // The detail shows the whole gallery, the way the app does.
     await expect(detail.locator('[data-listing-gallery]')).toHaveAttribute('data-listing-gallery', '1')
-    await expect(detail.getByAltText('Calculus textbook, 9th edition photo 1')).toBeVisible()
+    await expect(detail.getByAltText(/^Calculus textbook, 9th edition, 1 of \d+$/)).toBeVisible()
     await expect(detail.getByRole('link', { name: 'riley@purdue.edu' })).toBeVisible()
   })
 
@@ -164,7 +164,7 @@ test.describe('Marketplace photos', () => {
     // Best offer shows as such on the card and in the detail.
     await card(page, created.id).getByRole('button').first().click()
     await expect(page.locator(`[data-listing-detail="${created.id}"] [data-listing-gallery]`)).toHaveAttribute('data-listing-gallery', '2')
-    await expect(page.getByAltText('Bike lock photo 2')).toHaveAttribute('src', 'https://example.test/lock-2.jpg')
+    await expect(page.getByAltText(/^Bike lock, 2 of \d+$/)).toHaveAttribute('src', 'https://example.test/lock-2.jpg')
   })
 
   test('Best offer posts a null price and reads as Best offer', async ({ page, mockApi }) => {

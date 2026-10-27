@@ -1339,6 +1339,7 @@ function ReplyInput({
           readOnly={sending}
           maxLength={MAX_BOARD_REPLY}
           placeholder="Share what you know…"
+          aria-label="Write a reply"
           className="input flex-1 min-w-0 text-[14px]"
         />
         <button

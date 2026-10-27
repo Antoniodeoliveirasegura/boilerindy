@@ -39,7 +39,7 @@ test.describe('Service worker update prompt', () => {
     await page.evaluate(() => navigator.serviceWorker.register('/sw.js?v=e2e-next'))
 
     const toast = page.getByTestId('sw-update-toast')
-    const assistant = page.getByRole('button', { name: 'BoilerIndy', exact: true })
+    const assistant = page.getByRole('button', { name: 'Campus Assistant', exact: true })
     await expect(toast).toBeVisible({ timeout: 20000 })
     await expect(assistant).toBeVisible()
     // The prompt rises in from below the edge (docs/motion.md): measure where

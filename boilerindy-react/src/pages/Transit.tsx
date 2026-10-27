@@ -484,7 +484,9 @@ function LiveMap({
         iconAnchor: [8, 8],
       })
 
-      const marker = L.marker([stop.Latitude ?? 0, stop.Longitude ?? 0], { icon })
+      // Leaflet makes each marker a focusable button; the title is its name,
+      // which a divIcon otherwise lacks (issue #529).
+      const marker = L.marker([stop.Latitude ?? 0, stop.Longitude ?? 0], { icon, title: `${stop.Description ?? 'Stop'}, ${route.name}` })
         .addTo(map)
         .bindPopup(
           `<div style="font-family:var(--font-sans);min-width:120px;">
@@ -586,7 +588,7 @@ function LiveMap({
         iconAnchor: [15, 15],
       })
 
-      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon })
+      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon, title: `Bus ${vehicle.Name}, ${route.name}` })
         .addTo(map)
         .on('click', () => onSelectBus(vehicle))
 

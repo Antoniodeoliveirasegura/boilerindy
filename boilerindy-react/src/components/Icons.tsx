@@ -476,8 +476,12 @@ export default function Icon({ name, size = 16, className = '', strokeWidth = 2 
     return null
   }
 
+  // Decorative everywhere: the control or text beside an icon carries the
+  // name, so screen readers skip the drawing itself (issue #529).
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

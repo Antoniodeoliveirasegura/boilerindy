@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate, useSearchParams } from 'react-router-dom'
 import CampusAssistant from './CampusAssistant'
 
@@ -69,10 +69,26 @@ function renderOnSchedule() {
   )
 }
 
-const fab = () => screen.getByRole('button', { name: 'BoilerIndy' })
+const fab = () => screen.getByRole('button', { name: 'Campus Assistant' })
 // The panel is always rendered; closing it only fades its wrapper and stops
 // it taking pointer events.
 const panelOpen = () => screen.getByTestId('assistant-panel').parentElement!.classList.contains('opacity-100')
+
+// Issue #529 - the floating button was named only by its "BoilerIndy" title,
+// Send and the input had no name, and the panel was no dialog.
+describe('CampusAssistant: names and roles', () => {
+  test('the open panel is a named dialog with a named input and Send; closed, there is no dialog', () => {
+    renderOnSchedule()
+    expect(fab()).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.click(fab())
+    expect(fab()).toHaveAttribute('aria-expanded', 'true')
+    const panel = screen.getByRole('dialog', { name: 'Campus Assistant' })
+    expect(within(panel).getByRole('textbox', { name: 'Ask the Campus Assistant' })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Send message' })).toBeInTheDocument()
+  })
+})
 
 describe('CampusAssistant: navigation closes the panel', () => {
   test('Back closes the panel and keeps the conversation', async () => {
