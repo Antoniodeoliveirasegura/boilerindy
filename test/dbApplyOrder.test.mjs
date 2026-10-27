@@ -41,6 +41,16 @@ test('the shared campus events table follows the core schema, and its cron snipp
   assert.ok(at('supabase-campus-events-ingest.sql') > at('supabase-keep-warm.sql'))
 })
 
+test('the retention jobs follow pg_cron and the three tables they prune', () => {
+  // db/supabase-retention.sql calls cron.schedule() from step 29 and deletes
+  // from user_sessions, analytics_events and push_deliveries (issue #528).
+  const at = (file) => order.indexOf(file)
+  assert.ok(at('supabase-retention.sql') >= 0, 'supabase-retention.sql is missing from README "Database setup"')
+  for (const before of ['supabase-keep-warm.sql', 'supabase-sessions.sql', 'supabase-analytics.sql', 'supabase-push.sql']) {
+    assert.ok(at('supabase-retention.sql') > at(before), `supabase-retention.sql must come after ${before}`)
+  }
+})
+
 test('readmeApplyOrder reads only the Database setup section, in order of appearance', () => {
   const readme = [
     '## Local Development Setup',
