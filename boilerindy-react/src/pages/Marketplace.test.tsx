@@ -103,6 +103,14 @@ it('distinguishes Free, Best offer and unspecified prices and displays the entir
   expect(screen.getByAltText('Chair photo 2')).toHaveAttribute('src', free.images[1])
 })
 
+// Issue #527 - the listing detail shows the seller's name and email to every
+// signed-in student, and only the Privacy page said so.
+it('says on the form who sees the seller name and email', async () => {
+  render(<Marketplace />)
+  fireEvent.click(await screen.findByText('Post a listing'))
+  expect(screen.getByText('Signed-in students see your name and email on this listing. Photos are shared by link.')).toBeInTheDocument()
+})
+
 it('posts a structured best offer and ordered image links', async () => {
   render(<Marketplace />)
   fireEvent.click(await screen.findByText('Post a listing'))

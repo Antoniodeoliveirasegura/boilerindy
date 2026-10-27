@@ -313,6 +313,22 @@ describe('AdvertiserDashboard: editing', () => {
     ).toBeInTheDocument()
   })
 
+  // Issue #527 - Dining, Transit and Events were offered although nothing
+  // serves them; an older campaign keeps its value and says it is not shown.
+  test('offers only the served placements, and an unserved one says it is not shown', async () => {
+    stubCampaigns([ALPHA, BRAVO])
+    renderDashboard()
+
+    fireEvent.click(within(await findCard('Campaign Alpha')).getByRole('button', { name: 'Edit' }))
+    const options = () => within(screen.getByLabelText('Placement')).getAllByRole('option').map((o) => o.textContent)
+    expect(options()).toEqual(['Desktop side banners (recommended)', 'Home dashboard widget'])
+
+    fireEvent.click(within(cardOf('Campaign Bravo')).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Placement')).toHaveValue('dining')
+    expect(options()).toEqual(['Desktop side banners (recommended)', 'Home dashboard widget', 'Dining (not shown to students)'])
+    expect(within(cardOf('Campaign Bravo')).getByText('Dining (not shown to students)')).toBeInTheDocument()
+  })
+
   test('a draft gets no such notice', async () => {
     stubCampaigns([ALPHA])
     renderDashboard()

@@ -24,7 +24,7 @@ const asideFeatures = [
   ['user', 'Create an account with your email'],
   ['graduation', 'Link Purdue separately inside setup'],
   ['calendar', 'Import class data from sources you connect'],
-  ['sparkles', 'Secure authentication powered by Supabase'],
+  ['lock', 'Sign-in handled by Supabase'],
 ]
 
 type PendingCode = { email: string; flow: 'signin' | 'signup' }
@@ -440,8 +440,9 @@ export default function Login() {
               <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">For all students</div>
             </div>
             <div className="border-l border-[var(--color-ink-edge)] pt-4 pl-6">
-              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Secure</div>
-              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Supabase auth</div>
+              {/* Not "Secure": the Terms promise no such thing (issue #527). */}
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Private</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">No ad trackers</div>
             </div>
           </div>
         </div>

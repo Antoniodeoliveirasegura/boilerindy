@@ -44,7 +44,7 @@ const bentoTiles = [
     span: '',
     icon: 'dining',
     title: 'Live dining',
-    desc: 'Menus, hours, and what’s open right now.',
+    desc: 'Today’s menus and dish details for every dining hall.',
     route: 'r-din',
   },
   {
@@ -103,7 +103,7 @@ const bentoTiles = [
 
 const dayTimeline = [
   { time: '8:05 AM', icon: 'schedule', route: 'r-cls', title: 'Heads up: CS 30200 in 25 min', body: 'Your dashboard greets you with the next class, the room, and the walk time.' },
-  { time: '11:15 AM', icon: 'sparkles', route: 'r-ai', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block - and tells you Tower Dining is open until 2.' },
+  { time: '11:15 AM', icon: 'sparkles', route: 'r-ai', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block - and what’s on the menu at Tower Dining.' },
   { time: '12:30 PM', icon: 'dining', route: 'r-din', title: 'Lunch, sorted', body: 'Live menu shows what’s actually being served. Ask AI for the high-protein pick.' },
   { time: '2:00 PM', icon: 'bus', route: 'r-bus', title: 'Catch the shuttle', body: 'Your bus moves live on the map, and a chime tells you when it reaches your stop.' },
   { time: '4:30 PM', icon: 'coffee', route: 'r-din', title: 'Free pizza in ET', body: 'Campus events that mention free food, in one feed. You detour for a slice.' },
@@ -117,7 +117,7 @@ const integrations = [
   ['calendar', 'Events Feed', 'r-evt'],
   ['mapPin', 'Campus Map', 'r-map'],
   ['sparkles', 'Groq AI', 'r-ai'],
-  ['book', 'University Library', 'r-ink'],
+  ['users', 'BoilerLink Clubs', 'r-evt'],
   ['document', 'Task Tracker', 'r-tsk'],
   ['message', 'Community Board', 'r-ink'],
   ['bell', 'Smart Alerts', 'r-ink'],
@@ -430,7 +430,10 @@ export default function Landing() {
         <section id="stack" className="scroll-mt-28 lg:scroll-mt-20 py-16 md:py-[88px]">
           <div className={wrap}>
             <div className="max-w-[720px] mb-8 md:mb-9">
-              <div className="eyebrow">Real data, real-time</div>
+              {/* Only sources that are live on the site (issue #527): the library
+                  events source waits behind CAMPUS_EVENTS_LIBRARY, and dining is
+                  a daily menu, not a real-time feed. */}
+              <div className="eyebrow">Real campus data</div>
               <h2 className="section-title">Plugged into the systems you already use</h2>
             </div>
             <ul className="list-none m-0 p-0 grid grid-cols-2 lg:grid-cols-5 gap-2.5">

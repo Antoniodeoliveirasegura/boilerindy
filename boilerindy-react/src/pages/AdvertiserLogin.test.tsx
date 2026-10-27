@@ -91,6 +91,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// Issue #527 - the page sold campus-wide daily reach, dining, transit and
+// events placements and "reach - measured", none of which the portal has: two
+// placements are served and the stats are impressions, taps and tap rate.
+describe('AdvertiserLogin claims', () => {
+  test('promise only the placements, review and numbers the portal has', async () => {
+    stubAdvertiserApi({ passwordOk: false })
+    const { container } = renderAt('/advertise')
+    await screen.findByText('Reviewed and labeled')
+    const text = container.textContent || ''
+    for (const claim of [/Reach the whole campus/, /Campus-wide/, /Active student use/, /daily home screen/, /reach - measured/, /next to dining, transit, or events/]) {
+      expect(text).not.toMatch(claim)
+    }
+    expect(text).toMatch(/Impressions, taps, and tap rate/)
+    expect(text).toMatch(/A sponsored card on the home dashboard, plus the side banners on wide screens/)
+  })
+})
+
 describe('AdvertiserLogin sign-in', () => {
   test('replaces the sign-in entry with the dashboard, so one Back leaves the portal', async () => {
     stubAdvertiserApi({ passwordOk: true })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import SideSpotlightRail from './SideSpotlightRail'
 import { getActiveAds } from '../../lib/spotlightApi'
 
@@ -47,6 +47,19 @@ describe('SideSpotlightRail', () => {
     await waitFor(() => expect(getActiveAds).toHaveBeenCalledTimes(1))
     expect(getActiveAds).toHaveBeenCalledWith('side-rail', 10)
     await screen.findByRole('complementary', { name: 'left sponsor banner' })
+  })
+
+  // Issue #527 - the rail card put a 10px "Sponsored" under its 220px photo,
+  // so the ad was seen before the label.
+  test('labels the rail card Sponsored before its photo, at the home card size', async () => {
+    auth.current = { user: { id: 'u1' }, loading: false }
+    vi.mocked(getActiveAds).mockResolvedValue([AD])
+    render(<SideSpotlightRail side="left" />)
+    const rail = await screen.findByRole('complementary', { name: 'left sponsor banner' })
+    const label = within(rail).getByText('Sponsored')
+    const photo = within(rail).getByRole('img', { name: 'Sponsor one' })
+    expect(label.compareDocumentPosition(photo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(label.className).toContain('text-[11px]')
   })
 
   test('drops the pool on sign-out instead of showing a stale sponsor', async () => {

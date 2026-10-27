@@ -13,6 +13,24 @@ vi.mock('../context/ThemeContext', () => ({ useTheme: () => ({ dark: false, togg
 
 afterEach(cleanup)
 
+// Issue #527 - the page promised real-time data over a list that includes the
+// daily dining menu and a library source that is still off, and two dining
+// lines promised a hall was open, which lib/pagePreviews.ts rules out.
+describe('Landing claims', () => {
+  test('promise no real-time data, no open hall and no source that is not live', () => {
+    const { container } = render(
+      <MemoryRouter useTransitions={false}>
+        <Landing />
+      </MemoryRouter>,
+    )
+    const text = container.textContent || ''
+    expect(text).not.toMatch(/real-time/i)
+    expect(text).not.toMatch(/open right now|is open until/)
+    expect(text).not.toMatch(/University Library/)
+    expect(screen.getByText('Real campus data')).toBeInTheDocument()
+  })
+})
+
 describe('Landing closing CTA', () => {
   test('links to sign-up and to the live dining preview', () => {
     render(

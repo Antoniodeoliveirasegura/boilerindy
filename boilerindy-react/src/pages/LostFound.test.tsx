@@ -39,6 +39,16 @@ function card(title: string) {
   return within(screen.getByText(title).closest('li') as HTMLElement)
 }
 
+// Issue #527 - the contact line shows on the report card for every signed-in
+// student, and the form never said so.
+describe('Lost & Found contact field', () => {
+  it('says who sees it, tied to the field', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('Post an item'))
+    expect(screen.getByLabelText('How to reach you (optional)')).toHaveAccessibleDescription('Shown to every signed-in student on your report.')
+  })
+})
+
 describe('Lost & Found report and block', () => {
   it('offers Report and Block author on someone else\'s post only', async () => {
     renderPage()
