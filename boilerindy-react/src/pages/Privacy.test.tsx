@@ -157,6 +157,65 @@ describe('Privacy sign-up links', () => {
   })
 })
 
+// Issue #526 - the policy named one cookie and six providers while the app set
+// two cookies, mailed sign-in codes through Resend, ran on Render and Expo and
+// loaded map tiles from Esri, and it had none of the sections the app stores
+// look for.
+describe('Privacy against what the app does (issue #526)', () => {
+  const body = (heading: string) => {
+    const section = screen.getByRole('heading', { name: heading }).closest('section') as HTMLElement
+    return section.textContent || ''
+  }
+
+  test('has a section for each part the app stores look for', () => {
+    renderAt('/privacy')
+    for (const heading of [
+      'Push notifications',
+      'The BoilerIndy app',
+      'Cookies and storage on your device',
+      'How long we keep data',
+      'Security',
+      'Children',
+      'Your choices',
+      'Changes to this policy',
+    ]) {
+      expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
+    }
+  })
+
+  test('names every service provider and what Resend sends', () => {
+    renderAt('/privacy')
+    const providers = body('Who we share data with')
+    for (const name of ['Supabase', 'Render', 'Vercel', 'Groq', 'Sentry', 'Resend', 'Cloudflare', 'Expo', 'TypeSafe', 'Esri']) {
+      expect(providers).toContain(name)
+    }
+    expect(providers).toMatch(/the one-time sign-in code, the code that verifies a Purdue email/)
+    expect(providers).toMatch(/protect your data at least as well as this policy does/)
+  })
+
+  test('lists both cookies by name', () => {
+    renderAt('/privacy')
+    const cookies = body('Cookies and storage on your device')
+    expect(cookies).toMatch(/two cookies/)
+    expect(cookies).toContain('pih.sid')
+    expect(cookies).toContain('pih.td')
+  })
+
+  test('states the minimum age and how to get a child account deleted', () => {
+    renderAt('/privacy')
+    const children = body('Children')
+    expect(children).toMatch(/13 or\s+older/)
+    expect(children).toContain('privacy@boilerindy.app')
+  })
+
+  test('says who runs BoilerIndy and that one policy covers the website and the app', () => {
+    renderAt('/privacy')
+    const who = body('Who we are')
+    expect(who).toMatch(/independent student project based in Indianapolis, Indiana/)
+    expect(who).toMatch(/the website at\s+boilerindy.app and the BoilerIndy app for iPhone and Android/)
+  })
+})
+
 // Issue #504 - new marketplace photos wait for an admin before other students
 // see them, so the policy says a person looks at them first.
 describe('Privacy marketplace photos', () => {

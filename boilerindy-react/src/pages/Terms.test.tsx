@@ -55,6 +55,34 @@ describe('Terms back link', () => {
   })
 })
 
+// Issue #526 - Apple asks apps with user posts for terms that rule out
+// objectionable content and abusive users (guideline 1.2), students can be
+// 17, and a copyright owner had no way to ask for a takedown.
+describe('Terms rules (issue #526)', () => {
+  const body = (heading: string) =>
+    (screen.getByRole('heading', { name: heading }).closest('section') as HTMLElement).textContent || ''
+
+  test('say there is zero tolerance for objectionable content and abusive users', () => {
+    renderAt('/terms')
+    const rules = body('Acceptable use')
+    expect(rules).toMatch(/zero tolerance for objectionable content and\s+abusive users/)
+    expect(rules).toMatch(/report posts, listings and\s+people, and block anyone/)
+  })
+
+  test('ask for a parent or guardian under 18', () => {
+    renderAt('/terms')
+    expect(body('Who can use BoilerIndy')).toMatch(/under 18 you need a parent or guardian's permission/)
+  })
+
+  test('give copyright owners a takedown path and a repeat-infringer rule', () => {
+    renderAt('/terms')
+    const copyright = body('Copyright complaints')
+    expect(copyright).toContain('legal@boilerindy.app')
+    expect(copyright).toMatch(/under penalty of perjury/)
+    expect(copyright).toMatch(/repeatedly post content that infringes/)
+  })
+})
+
 // Issue #221 - the page renders outside AppLayout and PublicLayout, so it
 // carries its own skip link, as the first stop, and main landmark.
 describe('Terms skip link', () => {

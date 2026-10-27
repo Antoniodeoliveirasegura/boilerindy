@@ -524,6 +524,20 @@ export default function Login() {
                     <Icon name="google" size={18} />
                     {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
                   </button>
+                  {/* Both tabs and both ways in (Google above, the email form
+                      below) create or use an account, so the agreement sits
+                      next to the first action (issue #526). */}
+                  <p className="mt-3 text-center text-[12px] leading-relaxed text-[var(--color-txt-3)]">
+                    By continuing you agree to the{' '}
+                    <Link to={`/terms?from=${isSignup ? 'signup' : 'signin'}`} className={textLink}>
+                      Terms of Service
+                    </Link>{' '}
+                    and{' '}
+                    <Link to={`/privacy?from=${isSignup ? 'signup' : 'signin'}`} className={textLink}>
+                      Privacy Policy
+                    </Link>{' '}
+                    and confirm you are 13 or older.
+                  </p>
 
                   <div className="my-5 flex items-center gap-3" aria-hidden="true">
                     <span className="h-px flex-1 bg-[var(--color-border-2)]" />

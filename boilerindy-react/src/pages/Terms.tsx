@@ -9,6 +9,8 @@ import SkipLink from '../components/SkipLink'
 // Terms of Service page (issue #115). Plain-language, grounded in what the app
 // actually does. Contact is support@boilerindy.app. Have counsel review the
 // wording before a public launch if possible.
+// Issue #526 added the under-18 line, the zero-tolerance rule Apple asks apps
+// with user posts to state (guideline 1.2) and the copyright complaint path.
 
 // Reading column type: Jakarta section heads over 15px/1.6 prose.
 const SECTION_TITLE = 'text-[18px] leading-[1.3] text-[var(--color-txt-0)]'
@@ -23,8 +25,9 @@ our Privacy Policy. If you do not agree, please do not use the app.`,
   {
     title: 'Who can use BoilerIndy',
     body: `BoilerIndy is built for Purdue University Indianapolis students. You must be at least 13
-years old to use it. You are responsible for keeping your account information accurate and your
-login secure, and for everything that happens under your account.`,
+years old to use it, and if you are under 18 you need a parent or guardian's permission. You are
+responsible for keeping your account information accurate and your login secure, and for
+everything that happens under your account.`,
   },
   {
     title: 'Not affiliated with Purdue',
@@ -36,9 +39,10 @@ University; we use them only to describe the campus this app serves.`,
     title: 'Acceptable use',
     body: `Do not use BoilerIndy to break the law, harass or threaten others, post someone else's
 private information, spam, upload malware, scrape or overload the service, or try to bypass its
-security or access other users' data. Keep posts civil - an automated filter and human moderation
-apply, and we may remove content or accounts that violate these rules. Report abuse to
-abuse@boilerindy.app.`,
+security or access other users' data. There is zero tolerance for objectionable content and
+abusive users: an automated filter and human moderation apply, and we remove content that breaks
+these rules and suspend or remove the accounts behind it. You can report posts, listings and
+people, and block anyone you no longer want to see. Report abuse to abuse@boilerindy.app.`,
   },
   {
     title: 'Your content',
@@ -76,6 +80,17 @@ Purdue's trademarks belong to Purdue. Do not copy, resell, or misuse the app or 
 Trademark or other intellectual-property concerns: legal@boilerindy.app.`,
   },
   {
+    title: 'Copyright complaints',
+    body: `If you believe something on BoilerIndy infringes your copyright, email legal@boilerindy.app
+with: the work you believe is infringed; where it appears on BoilerIndy (a link or a
+description); your name and contact details; a statement that you believe in good faith the use
+is not authorized by you, your agent, or the law; and a statement that your notice is accurate
+and, under penalty of perjury, that you own the work or may act for its owner, signed with your
+full name. When a notice is complete we remove the content and tell the person who posted it. If
+your content was removed and you believe that was a mistake, reply to that email. We remove the
+accounts of people who repeatedly post content that infringes others' rights.`,
+  },
+  {
     title: 'Service provided "as is"',
     body: `BoilerIndy is a free student project provided "as is" and "as available," without
 warranties of any kind. We do not guarantee that it will be accurate, secure, uninterrupted, or
@@ -94,8 +109,8 @@ users. You can stop using BoilerIndy and delete your account at any time.`,
   },
   {
     title: 'Changes to these terms',
-    body: `We may update these terms as the app evolves. We will update the date below, and
-continued use after a change means you accept the updated terms.`,
+    body: `We may update these terms as the app evolves. We will update the date at the top of this
+page, and continued use after a change means you accept the updated terms.`,
   },
   {
     title: 'Governing law',
@@ -143,7 +158,7 @@ export default function Terms() {
             <div>
               <h1 className="page-title">Terms of Service</h1>
               <p className="page-sub">
-                Last updated July 16, 2026. The short version: BoilerIndy is a free, independent student
+                Last updated October 27, 2026. The short version: BoilerIndy is a free, independent student
                 app for Purdue Indianapolis - be respectful, don't misuse it, campus data may be
                 imperfect, and it's provided as-is.
               </p>
