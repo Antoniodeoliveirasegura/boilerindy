@@ -57,21 +57,22 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 
 ## Retention: 12 months
 
-Raw events are deleted after 12 months. Until a Supabase scheduled query (cron)
-is configured, run this manually about once a month in the SQL Editor:
+Raw events are deleted after 12 months, which the Privacy page promises.
+`db/supabase-retention.sql` (README "Database setup" step 51, issue #528)
+schedules the `boilerindy-retention-analytics` `pg_cron` job that runs the
+delete every day at 04:00 UTC, beside the weekly `push_deliveries` and daily
+`user_sessions` jobs. Check it:
+
+```sql
+SELECT jobname, schedule, active FROM cron.job WHERE jobname LIKE 'boilerindy-retention-%';
+```
+
+If an older hand-made `analytics-retention` job exists, remove it with
+`SELECT cron.unschedule('analytics-retention');` so only one runs. Without the
+job (a local database, or before step 51 runs), the same delete by hand:
 
 ```sql
 DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months';
-```
-
-With `pg_cron` enabled it can be scheduled instead:
-
-```sql
-SELECT cron.schedule(
-  'analytics-retention',
-  '0 4 1 * *', -- 04:00 on the 1st of every month
-  $$DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months'$$
-);
 ```
 
 ## Sign-up source
