@@ -54,9 +54,15 @@ It renders on every route:
 `PublicLayout.test.tsx` pins both the coverage and the wording. Terms and
 Privacy repeat the disclaimer in their own text.
 
-## Open decision (owner)
+## Owner decision (2026-10-27)
 
-Purdue Trademarks and Licensing has not been asked whether "BoilerIndy" and the
-gold accent need permission or a rename before public marketing. Record the
-answer, or the conscious decision to proceed without asking, here and in
-issue #112.
+The owner looked into the trademark question and kept the name and the accent:
+"asked abt purdue trademark, its fine for us to do it as much as people do with
+boilerexams." So "BoilerIndy" and the amber stay, for the website and for the
+store listings. What keeps that use in line with peer student projects such as
+Boilerexams is the posture on this page: an own name and own colours, Purdue
+named only to say who the app is for, and the disclaimer on every route. The
+native app is getting the same line (Antoniodeoliveirasegura/boilerindy-app#151).
+
+If Purdue Trademarks and Licensing ever objects, open a new issue and follow
+`.claude/commands/rebranding-across-codebase.md` (issue #112).
