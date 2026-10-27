@@ -153,7 +153,7 @@ export default function AdminPhotoReview() {
                     >
                       <img
                         src={url}
-                        alt={`${title} photo ${i + 1}`}
+                        alt={`${title}, ${i + 1} of ${listing.images.length}`}
                         loading="lazy"
                         decoding="async"
                         className="h-28 w-28 sm:h-32 sm:w-32 object-cover bg-[var(--color-stat)]"

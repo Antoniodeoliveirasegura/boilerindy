@@ -170,6 +170,7 @@ export default function Install() {
             {/* The steps as stops on a line: numbered squares joined by a rule.
                 role="list" keeps the list semantics Safari drops once
                 list-style is none; the visible numbers are decorative. */}
+            {/* eslint-disable-next-line jsx-a11y/no-redundant-roles -- the Safari list fix above */}
             <ol role="list">
               {INSTALL_STEPS[platform].map((step, index, steps) => (
                 <li key={step} className="relative pb-6 pl-10 last:pb-0 sm:pl-12">

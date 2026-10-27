@@ -222,6 +222,10 @@ export default function Navbar() {
                 type="button"
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="avatar"
+                // The initials alone were the button's name (issue #529). The
+                // name starts with them, so a voice-control user who says
+                // what they see still reaches it (WCAG 2.5.3).
+                aria-label={user ? `${getInitials()}, account menu for ${getDisplayName()}` : 'PI, account menu'}
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
               >
@@ -297,8 +301,11 @@ export default function Navbar() {
       </nav>
 
       {/* The drawer slides in on the sheet timing and leaves faster
-          (docs/motion.md), with no overshoot past the screen's edge. */}
+          (docs/motion.md), with no overshoot past the screen's edge. The scrim
+          is a mouse shortcut; Escape and the drawer's Close button are the
+          other ways out, so it stays out of the accessibility tree. */}
       <div
+        aria-hidden="true"
         className={`fixed inset-0 bg-black/50 z-[2000] md:hidden transition-opacity ${mobileOpen ? 'opacity-100 duration-[var(--motion-scrim)]' : 'opacity-0 pointer-events-none duration-[var(--motion-base)]'}`}
         onClick={closeDrawer}
       />

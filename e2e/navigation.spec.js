@@ -122,7 +122,7 @@ test.describe('Menus close when the student navigates', () => {
   test('Escape closes the account menu and returns focus to its button', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/dashboard')
-    const avatar = page.getByRole('button', { name: 'TS' })
+    const avatar = page.getByRole('button', { name: 'TS, account menu for Test Student' })
     await avatar.click()
     await page.getByRole('menuitem', { name: 'Settings' }).focus()
     await page.keyboard.press('Escape')

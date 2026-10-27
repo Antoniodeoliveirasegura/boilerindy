@@ -113,7 +113,10 @@ export default function ShareButton({ page, getUrl, title, text, kind, label, in
           the header's buttons wrap to the left edge, where a popover would
           run off the screen. Above the map's own controls (z 1000). */}
       {manualUrl && (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the dialog from either control inside it
         <div
+          role="dialog"
+          aria-label="Share link"
           className="card fixed left-1/2 top-20 z-[1050] w-[min(360px,calc(100vw-32px))] -translate-x-1/2 p-3 shadow-[var(--shadow-lg)]"
           onKeyDown={(e) => {
             if (e.key === 'Escape') closeManual()

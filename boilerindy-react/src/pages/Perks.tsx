@@ -250,20 +250,20 @@ export default function Perks() {
         <form onSubmit={submitForm} className="card card-pad mb-6 space-y-3 max-w-[760px]">
           <div className="card-title mb-1">{form.id ? 'Edit deal' : 'New deal'}</div>
           <div className="grid sm:grid-cols-2 gap-3">
-            <input value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} maxLength={120} placeholder="Business name" className="input" />
-            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="input">
+            <input value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} maxLength={120} placeholder="Business name" aria-label="Business name" className="input" />
+            <select aria-label="Category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="input">
               {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
-          <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} maxLength={2000} rows={2} placeholder="Description / offer details" className="input resize-y" />
+          <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} maxLength={2000} rows={2} placeholder="Description / offer details" aria-label="Description or offer details" className="input resize-y" />
           <div className="grid sm:grid-cols-2 gap-3">
-            <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="Image URL (optional)" className="input" />
-            <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} maxLength={200} placeholder="Address (optional)" className="input" />
+            <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="Image URL (optional)" aria-label="Image URL (optional)" className="input" />
+            <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} maxLength={200} placeholder="Address (optional)" aria-label="Address (optional)" className="input" />
           </div>
           <div className="grid sm:grid-cols-3 gap-3">
-            <input value={form.lat} onChange={(e) => setForm((f) => ({ ...f, lat: e.target.value }))} inputMode="decimal" placeholder="Lat (optional)" className="input tnum" />
-            <input value={form.lng} onChange={(e) => setForm((f) => ({ ...f, lng: e.target.value }))} inputMode="decimal" placeholder="Lng (optional)" className="input tnum" />
-            <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} className="input tnum" />
+            <input value={form.lat} onChange={(e) => setForm((f) => ({ ...f, lat: e.target.value }))} inputMode="decimal" placeholder="Lat (optional)" aria-label="Latitude (optional)" className="input tnum" />
+            <input value={form.lng} onChange={(e) => setForm((f) => ({ ...f, lng: e.target.value }))} inputMode="decimal" placeholder="Lng (optional)" aria-label="Longitude (optional)" className="input tnum" />
+            <input type="date" aria-label="Expires on (optional)" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} className="input tnum" />
           </div>
           <div className="flex items-center gap-5 text-[13px] font-semibold text-[var(--color-txt-1)]">
             <label className="flex items-center gap-2 min-h-[40px]"><input type="checkbox" className="w-4 h-4 accent-[var(--color-txt-0)]" checked={form.featured} onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))} /> Featured</label>
@@ -296,6 +296,7 @@ export default function Perks() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search deals…"
+            aria-label="Search deals"
             className="input pl-10"
           />
         </div>

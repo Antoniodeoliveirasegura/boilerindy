@@ -99,8 +99,8 @@ it('distinguishes Free, Best offer and unspecified prices and displays the entir
   expect(screen.getByText('Best offer')).toBeInTheDocument()
   expect(screen.getByText('Contact for price')).toBeInTheDocument()
   fireEvent.click(screen.getByText('Chair'))
-  expect(await screen.findByAltText('Chair photo 1')).toHaveAttribute('src', free.images[0])
-  expect(screen.getByAltText('Chair photo 2')).toHaveAttribute('src', free.images[1])
+  expect(await screen.findByAltText('Chair, 1 of 2')).toHaveAttribute('src', free.images[0])
+  expect(screen.getByAltText('Chair, 2 of 2')).toHaveAttribute('src', free.images[1])
 })
 
 it('posts a structured best offer and ordered image links', async () => {
@@ -356,7 +356,7 @@ it('tells the owner their photos wait for review, or that an admin removed them,
   await waitFor(() => expect(document.querySelector('[data-listing-detail="wait"]')).not.toBeNull())
   const detail = within(document.querySelector('[data-listing-detail="wait"]') as HTMLElement)
   expect(detail.getByText(/Your photos are waiting for review/)).toBeInTheDocument()
-  expect(detail.getByAltText('Bike lock photo 1')).toHaveAttribute('src', 'https://example.com/lock.jpg')
+  expect(detail.getByAltText(/^Bike lock, 1 of \d+$/)).toHaveAttribute('src', 'https://example.com/lock.jpg')
 })
 
 // An explicit behavior: 'smooth' overrode the reduced-motion rule's

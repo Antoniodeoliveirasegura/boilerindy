@@ -1938,7 +1938,7 @@ export default function Home() {
               </span>
               <p>
                 Nothing due right now. Add tasks on the{' '}
-                <Link to="/assignments" className="text-[var(--color-accent)] hover:underline">Tasks page</Link>.
+                <Link to="/assignments" className="text-[var(--color-accent)] underline underline-offset-2">Tasks page</Link>.
               </p>
             </div>
           ) : (

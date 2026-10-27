@@ -305,7 +305,11 @@ export default function CampusAssistant() {
     <>
       {/* Backdrop. The panel and its backdrop open on the sheet timing and
           close faster (docs/motion.md). */}
+      {/* A mouse shortcut only: Escape and the Close button are the keyboard
+          and screen reader ways out, so the scrim stays out of the
+          accessibility tree (issue #529). */}
       <div
+        aria-hidden="true"
         className={`fixed inset-0 bg-black/30 z-40 transition-opacity ${open ? 'opacity-100 duration-[var(--motion-scrim)]' : 'opacity-0 pointer-events-none duration-[var(--motion-base)]'}`}
         onClick={() => setOpen(false)}
       />
@@ -320,6 +324,10 @@ export default function CampusAssistant() {
           order and focus cannot stay in it. */}
       <div
         ref={panelRef}
+        // A dialog only while open: closed, the panel stays mounted but inert,
+        // and should not be announced or found as a second dialog (issue #529).
+        role={open ? 'dialog' : undefined}
+        aria-label={open ? 'Campus Assistant' : undefined}
         inert={!open}
         className={`fixed bottom-[calc(144px+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 [@media(max-height:32rem)]:bottom-[calc(70px+env(safe-area-inset-bottom))] [@media(max-height:32rem)]:right-[80px] md:[@media(max-height:32rem)]:bottom-6 md:[@media(max-height:32rem)]:right-[88px] z-50 w-[360px] max-w-[calc(100vw-32px)] [@media(max-height:32rem)]:max-w-[calc(100vw-96px)] transition-[opacity,transform] ${open ? 'opacity-100 translate-y-0 duration-[var(--motion-sheet)] ease-[var(--ease-sheet)]' : 'opacity-0 translate-y-4 pointer-events-none duration-[var(--motion-base)] ease-[var(--ease-exit)]'}`}
       >
@@ -422,6 +430,7 @@ export default function CampusAssistant() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
                 placeholder={listening ? 'Listening…' : 'Ask about campus...'}
+                aria-label="Ask the Campus Assistant"
                 className="input flex-1 min-w-0 text-[14px]"
                 disabled={isTyping}
               />
@@ -445,6 +454,7 @@ export default function CampusAssistant() {
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isTyping}
+                aria-label="Send message"
                 className="btn btn-primary w-11 px-0 shrink-0"
               >
                 <Icon name="send" size={16} />
@@ -461,7 +471,9 @@ export default function CampusAssistant() {
         ref={fabRef}
         onClick={() => setOpen(!open)}
         className={`fab ${open ? 'is-open' : ''}`}
-        title="BoilerIndy"
+        aria-label="Campus Assistant"
+        aria-expanded={open}
+        title="Campus Assistant"
       >
         {open ? (
           <Icon name="close" size={22} />

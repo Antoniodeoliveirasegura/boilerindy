@@ -30,7 +30,7 @@ function renderNavbar() {
 }
 
 function accountMenuItems() {
-  fireEvent.click(screen.getByRole('button', { name: 'PP' }))
+  fireEvent.click(screen.getByRole('button', { name: 'PP, account menu for Pete Purdue' }))
   return within(screen.getByRole('menu')).getAllByRole('menuitem')
 }
 
@@ -103,7 +103,7 @@ describe('Navbar motion', () => {
     const uninstall = installFakeAnimations((el) => (el.getAttribute('data-motion') === 'closed' ? [exit] : []))
     try {
       renderNavbar()
-      const avatar = screen.getByRole('button', { name: 'PP' })
+      const avatar = screen.getByRole('button', { name: 'PP, account menu for Pete Purdue' })
       fireEvent.click(avatar)
       const menu = screen.getByRole('menu')
       expect(menu).toHaveAttribute('data-motion', 'open')

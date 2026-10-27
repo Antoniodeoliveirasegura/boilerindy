@@ -416,6 +416,7 @@ export default function Map() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search buildings..."
+            aria-label="Search buildings"
             className="input"
           />
           <MapLayerToggle layers={layers} onToggle={toggleLayer} />
@@ -554,6 +555,7 @@ export default function Map() {
               </div>
               <button
                 onClick={() => setSelectedId(null)}
+                aria-label="Close building details"
                 className="icon-btn -mr-2 -mt-2 shrink-0"
               >
                 <Icon name="close" size={18} />
@@ -564,16 +566,21 @@ export default function Map() {
       </div>
 
       {/* Mobile: Bottom Sheet Sidebar */}
+      {/* The scrim is a mouse shortcut; Escape and Close are the other ways
+          out, so it stays out of the accessibility tree (issue #529). */}
       {sidebarOpen && (
         <div
+          aria-hidden="true"
           className="lg:hidden fixed inset-0 bg-black/40 z-[1001]"
           onClick={() => setSidebarOpen(false)}
         />
       )}
       {/* The sheet stays mounted and only slides off screen, so closed it is
           inert: its close button, search box and building list used to stay
-          in the Tab order, focus moving through them out of sight. */}
-      <div ref={sheetRef} inert={!sidebarOpen} className={`r-map lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] border-t border-[var(--color-border-2)] rounded-t-[var(--radius-2xl)] shadow-[var(--shadow-xl)] z-[1002] transition-transform duration-300 ${
+          in the Tab order, focus moving through them out of sight. Open, it is
+          a modal dialog named by its heading (issue #529); focus already moves
+          into it and back, and Escape closes it. */}
+      <div ref={sheetRef} inert={!sidebarOpen} role={sidebarOpen ? 'dialog' : undefined} aria-modal={sidebarOpen ? true : undefined} aria-labelledby={sidebarOpen ? 'map-sheet-title' : undefined} className={`r-map lg:hidden fixed bottom-0 left-0 right-0 bg-[var(--color-surface)] border-t border-[var(--color-border-2)] rounded-t-[var(--radius-2xl)] shadow-[var(--shadow-xl)] z-[1002] transition-transform duration-300 ${
         sidebarOpen ? 'translate-y-0' : 'translate-y-full'
       }`} style={{ maxHeight: '75vh' }}>
         {/* Handle */}
@@ -586,10 +593,11 @@ export default function Map() {
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-2.5">
               <span className="route-badge sm"><Icon name="mapPin" size={14} /></span>
-              <h2 className="card-title text-[18px]">Find Building</h2>
+              <h2 id="map-sheet-title" className="card-title text-[18px]">Find Building</h2>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
+              aria-label="Close the building list"
               className="icon-btn -mr-2"
             >
               <Icon name="close" size={20} />
@@ -601,6 +609,7 @@ export default function Map() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search buildings..."
+            aria-label="Search buildings"
             className="input"
           />
           <BuildingsStatus loading={loading} error={error} className="mt-2.5" />
