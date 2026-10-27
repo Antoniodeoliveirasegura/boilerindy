@@ -20,15 +20,22 @@ const STATS_STATUSES = new Set(['active', 'paused', 'ended'])
 // Activation is owner-gated: advertisers submit for review, they don't go live
 // on their own. Analytics (impressions/taps) arrive in M3.
 
+// Only the two placements something serves: SponsoredWidget asks for
+// home-widget and the side rails for side-rail. Dining, Transit and Events stay
+// valid on the API (CAMPAIGN_PLACEMENTS), so an older campaign keeps its value
+// and says it is not shown, but they are not offered: nothing renders them, and
+// the events pages carry no ads (lib/adFreeRoutes.ts) (issue #527).
 const PLACEMENTS = [
   { value: 'side-rail', label: 'Desktop side banners (recommended)' },
   { value: 'home-widget', label: 'Home dashboard widget' },
-  { value: 'dining', label: 'Dining' },
-  { value: 'transit', label: 'Transit' },
-  { value: 'events', label: 'Events' },
+]
+const UNSERVED_PLACEMENTS = [
+  { value: 'dining', label: 'Dining (not shown to students)' },
+  { value: 'transit', label: 'Transit (not shown to students)' },
+  { value: 'events', label: 'Events (not shown to students)' },
 ]
 const PLACEMENT_LABELS: Record<string, string> = Object.fromEntries(
-  PLACEMENTS.map((p) => [p.value, p.label]),
+  [...PLACEMENTS, ...UNSERVED_PLACEMENTS].map((p) => [p.value, p.label]),
 )
 
 type CampaignFormData = {
@@ -220,7 +227,7 @@ function CampaignForm({
         <div>
           <label className={labelCls} htmlFor="cmp-placement">Placement</label>
           <select id="cmp-placement" className={inputCls} value={form.placement} onChange={set('placement')}>
-            {PLACEMENTS.map((p) => (
+            {[...PLACEMENTS, ...UNSERVED_PLACEMENTS.filter((p) => p.value === form.placement)].map((p) => (
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>

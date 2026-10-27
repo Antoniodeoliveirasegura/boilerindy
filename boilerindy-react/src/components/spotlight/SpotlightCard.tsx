@@ -59,12 +59,12 @@ export default function SpotlightCard({
 
   const body = (
     <>
-      {!isRail && (
-        <div className="flex items-center gap-2 mb-3">
-          <Icon name="briefcase" size={13} className="text-[var(--color-txt-2)]" />
-          <span className="font-display text-[11px] font-extrabold text-[var(--color-txt-2)] uppercase tracking-[0.12em]">Sponsored</span>
-        </div>
-      )}
+      {/* One label, first, on both cards (issue #527): the rail's used to sit
+          under its 220px photo at 10px, after the ad had already been seen. */}
+      <div className={`flex items-center gap-2 ${isRail ? 'mb-2' : 'mb-3'}`}>
+        <Icon name="briefcase" size={13} className="text-[var(--color-txt-2)]" />
+        <span className="font-display text-[11px] font-extrabold text-[var(--color-txt-2)] uppercase tracking-[0.12em]">Sponsored</span>
+      </div>
 
       {photos.length > 0 && (
         <div className={`relative ${imageHeight} rounded-[var(--radius-md)] overflow-hidden mb-3 border border-[var(--color-border)] bg-[var(--color-bg-2)]`}>
@@ -87,9 +87,6 @@ export default function SpotlightCard({
         </div>
       )}
 
-      {isRail && (
-        <div className="font-display text-[10px] font-extrabold text-[var(--color-txt-2)] uppercase tracking-[0.12em] mb-1.5">Sponsored</div>
-      )}
 
       {ad.headline && (
         <h3 className={`tracking-[-0.01em] text-[var(--color-txt-0)] ${isRail ? 'text-[13px] leading-snug' : 'text-[15px]'}`}>

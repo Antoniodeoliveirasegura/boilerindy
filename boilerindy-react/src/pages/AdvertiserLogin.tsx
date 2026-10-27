@@ -20,11 +20,14 @@ import PageTitle from '../components/PageTitle'
 // session (never a student session), and "Request access" persists a lead.
 // A successful sign-in (or an existing session) routes to /advertise/dashboard.
 
+// Only what the portal does today (issue #527): the two placements that are
+// served, the review step, and the three numbers the stats endpoint returns.
+// No audience size, no reach, no dining, transit or events slots.
 const ADVERTISER_PERKS = [
-  { icon: 'users', title: 'Reach the whole campus', desc: 'Get in front of Purdue Indianapolis students where they already plan their day.' },
-  { icon: 'mapPin', title: 'Context & place targeting', desc: 'Show up next to dining, transit, or events - when intent is highest.' },
-  { icon: 'grid', title: 'Native dashboard placements', desc: 'Sponsored widgets that fit the home dashboard instead of fighting it.' },
-  { icon: 'star', title: 'Transparent analytics', desc: 'Impressions, taps, and reach - measured, not estimated.' },
+  { icon: 'users', title: 'Reach BoilerIndy students', desc: 'Get in front of Purdue Indianapolis students where they already plan their day.' },
+  { icon: 'grid', title: 'Native dashboard placements', desc: 'A sponsored card on the home dashboard, plus the side banners on wide screens.' },
+  { icon: 'check', title: 'Reviewed and labeled', desc: 'Every campaign is approved before it runs and always carries a Sponsored label.' },
+  { icon: 'star', title: 'Transparent analytics', desc: 'Impressions, taps, and tap rate for each campaign, counted as they happen.' },
 ]
 
 // StatusBanner's info and error plates. Every notice here is role="status"
@@ -182,7 +185,7 @@ export default function AdvertiserLogin() {
               Put your brand where students actually look.
             </p>
             <p className="mt-5 max-w-[460px] text-[16px] leading-relaxed text-[var(--color-ink-dim)]">
-              BoilerIndy is the daily home screen for Purdue Indianapolis student life. Reach them in context - without the noise of social feeds.
+              BoilerIndy puts schedules, dining, transit and campus events in one place for Purdue Indianapolis students. Reach them in context - without the noise of social feeds.
             </p>
 
             <ul className="mt-10 space-y-5">
@@ -202,12 +205,12 @@ export default function AdvertiserLogin() {
 
           <div className="grid max-w-[400px] grid-cols-[auto_minmax(0,1fr)] border-t-4 border-[var(--color-ink-txt)]">
             <div className="pt-4 pr-6">
-              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Campus-wide</div>
-              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Purdue Indianapolis</div>
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Labeled</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Sponsored on every ad</div>
             </div>
             <div className="border-l border-[var(--color-ink-edge)] pt-4 pl-6">
-              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Daily</div>
-              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Active student use</div>
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Reviewed</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Before it goes live</div>
             </div>
           </div>
         </div>

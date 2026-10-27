@@ -787,6 +787,12 @@ export default function Marketplace() {
               {formError}
             </p>
           ) : null}
+          {/* The listing detail shows the seller's name and email to every
+              signed-in student (src/routes/marketplace.mjs), so the form says so
+              before the post (issue #527). */}
+          <p className="text-[12.5px] leading-snug text-[var(--color-txt-2)]" data-listing-visibility>
+            Signed-in students see your name and email on this listing. Photos are shared by link.
+          </p>
           <div className="pt-1">
             <button type="submit" disabled={busy} className="btn btn-primary">
               {submitting ? (editing ? 'Saving…' : 'Posting…') : editing ? 'Save changes' : 'Post listing'}
