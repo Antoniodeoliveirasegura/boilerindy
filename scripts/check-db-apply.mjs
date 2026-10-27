@@ -5,7 +5,10 @@
 // container after db/ci/prelude.sql has stood in for what Supabase provides
 // (roles, auth schema, pg_cron and pg_net objects; see that file). It proves
 // what a diff cannot show: every file parses, every file's dependencies come
-// earlier in the list, and the list covers all of db/.
+// earlier in the list, and the list covers all of db/. Finally it runs
+// db/ci/postcheck.sql on the built schema to prove the Data API lockdown: row
+// level security on every public table, and nothing granted to anon or
+// authenticated.
 //
 // Locally, against any throwaway Postgres named by the usual PG* variables:
 //   PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres pnpm run check:db
@@ -61,6 +64,9 @@ order.forEach((file, i) => {
   psql(DATABASE, sql, `${i + 1}. db/${file}`)
   console.log(`${String(i + 1).padStart(2)}. db/${file} applied`)
 })
+
+psql(DATABASE, readFileSync(`${DB_DIR}ci/postcheck.sql`, 'utf8'), 'db/ci/postcheck.sql')
+console.log('    db/ci/postcheck.sql passed (anon and authenticated denied on every public table)')
 
 const version = spawnSync('psql', ['-X', '-A', '-t', '-d', DATABASE, '-c', 'show server_version'], { encoding: 'utf8' }).stdout.trim()
 psql('postgres', `drop database ${DATABASE};`, `drop database ${DATABASE}`)
