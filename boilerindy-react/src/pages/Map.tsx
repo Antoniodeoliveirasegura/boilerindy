@@ -11,7 +11,7 @@ import MapLayerToggle from '../components/map/MapLayerToggle'
 import ParkingGarageLayer from '../components/map/ParkingGarageLayer'
 import { useMapLayers, type MapLayerId } from '../components/map/mapLayers'
 import PageTitle from '../components/PageTitle'
-import { INK_BUTTON } from '../components/map/mapChrome'
+import { ESRI_TILE_ATTRIBUTION as TILE_ATTRIBUTION, INK_BUTTON } from '../components/map/mapChrome'
 
 const CAMPUS_CENTER: [number, number] = [39.7740, -86.1720]
 const DEFAULT_ZOOM = 16
@@ -27,7 +27,6 @@ type FlyRequest = { lat: number; lng: number; zoom: number } | { bounds: LatLngB
 // canvases only have real data to zoom 16, so the layer upscales past that.
 const TILE_DARK = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
 const TILE_LIGHT = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
-const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
 const TILE_MAX_NATIVE_ZOOM = 16
 
 // Official Purdue Indianapolis Building Shapes - has BUILDING_NAME, PU_ABBR, BuildingLabels

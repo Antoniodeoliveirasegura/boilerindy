@@ -26,7 +26,7 @@ import {
 } from '../lib/transitShared'
 import { errorMessage, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import PageTitle from '../components/PageTitle'
-import { INK_BUTTON } from '../components/map/mapChrome'
+import { ESRI_TILE_ATTRIBUTION as TILE_ATTRIBUTION, INK_BUTTON } from '../components/map/mapChrome'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -124,7 +124,6 @@ function RouteNum({ route, small = false, muted = false }: { route: TransitRoute
 // carry an "API KEY REQUIRED" watermark). Streets and landmarks are what a
 // rider reads a shuttle's position against, so the shuttle map keeps them.
 const TILE_STREET = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
-const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
 
 // Dark theme: the same street map turned to night. Inverted with the hues
 // turned back, then drained of most colour so the ground is a neutral near

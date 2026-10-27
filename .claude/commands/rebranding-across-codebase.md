@@ -18,7 +18,6 @@ Systematically update all references to a product or brand name throughout the e
 - `**/pnpm-lock.yaml`
 - `**/public/favicon.svg`
 - `**/public/app-icon.svg`
-- `**/public/icons.svg`
 - `**/public/brand/*.svg` (written by `scripts/render-icons.mjs` from `app-icon.svg`; re-run it, never edit them by hand)
 - `**/src/components/BrandMark.tsx`
 - `**/src/components/**/*.tsx`
