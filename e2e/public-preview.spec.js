@@ -195,21 +195,24 @@ test.describe('Public preview, signed out', () => {
     await expectPreviewBar(page, '/map')
     await expect(page.getByTestId('preview-bar')).toContainText(MAP_MESSAGE)
 
-    // The building list, search and selection all work from Purdue's public layer.
-    const list = page.locator('aside')
-    await list.getByPlaceholder('Search buildings...').fill('library')
-    await expect(list.getByRole('button', { name: /Engineering and Technology/ })).toHaveCount(0)
-    await list.getByRole('button', { name: /University Library/ }).click()
-    await expect(page.getByRole('heading', { level: 3, name: 'University Library' })).toBeVisible()
-
     // The live garages layer reads the public parking feed; a pin's popup has
-    // directions, and no link to /parking, which needs an account.
+    // directions, and no link to /parking, which needs an account. This comes
+    // before a building is picked: the pick flies the map in to the building
+    // (Map.tsx), the garage pins end up outside the view, and a click aimed at one
+    // only landed when it beat the flight (failed on release #541's CI).
     await page.getByRole('button', { name: 'Parking' }).first().click()
     await expect(page.locator('.parking-count-tooltip')).toHaveCount(3)
     await garagePins(page).first().click({ force: true })
     const popup = page.locator('.leaflet-popup')
     await expect(popup.getByRole('link', { name: 'Directions' })).toBeVisible()
     await expect(popup.getByRole('link', { name: 'All garages' })).toHaveCount(0)
+
+    // The building list, search and selection all work from Purdue's public layer.
+    const list = page.locator('aside')
+    await list.getByPlaceholder('Search buildings...').fill('library')
+    await expect(list.getByRole('button', { name: /Engineering and Technology/ })).toHaveCount(0)
+    await list.getByRole('button', { name: /University Library/ }).click()
+    await expect(page.getByRole('heading', { level: 3, name: 'University Library' })).toBeVisible()
 
     await page.waitForLoadState('networkidle')
     await expect(page).toHaveURL(/\/map$/)
