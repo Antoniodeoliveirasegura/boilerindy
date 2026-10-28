@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { linkifyText, stripHtml } from '../lib/linkifyText'
 import Icon from '../components/Icons'
 import ShareButton from '../components/ShareButton'
+import ShareQrButton from '../components/ShareQrButton'
 import { eventLinkParam, linkedEventId, shareUrl } from '../lib/shareLinks'
 import { PAGE_PREVIEWS } from '../lib/pagePreviews'
 import {
@@ -169,6 +170,8 @@ export default function FreeFood() {
   // Signed out, onboarding is the empty default (no linked source), and the
   // card's link to /setup would only bounce a visitor to sign in.
   const hasNoSources = signedIn && onboarding?.linkedSourceCount === 0
+  const shareList = () => shareUrl('free-food', window.location.href, { event: null })
+  const shareText = 'Free food at campus events, on BoilerIndy'
 
   return (
     <div className="page r-din">
@@ -190,14 +193,11 @@ export default function FreeFood() {
               : `${freeFoodItems.length} upcoming event${freeFoodItems.length === 1 ? '' : 's'} ${sourcesLine(items, signedIn, hasNoSources)} that mention free food - pizza, snacks, refreshments, and more.`}
           </p>
         </div>
-        {/* The whole list, never the event a link opened it on. */}
+        {/* The whole list, never the event a link opened it on: as a link
+            from Share, or as a code to scan from the QR button. */}
         <div className="flex flex-wrap items-center gap-2">
-          <ShareButton
-            page="free-food"
-            getUrl={() => shareUrl('free-food', window.location.href, { event: null })}
-            title={PAGE_PREVIEWS['free-food'].title}
-            text="Free food at campus events, on BoilerIndy"
-          />
+          <ShareButton page="free-food" getUrl={shareList} title={PAGE_PREVIEWS['free-food'].title} text={shareText} />
+          <ShareQrButton page="free-food" getUrl={shareList} text={shareText} />
         </div>
       </header>
 

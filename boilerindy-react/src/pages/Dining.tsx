@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import ShareButton from '../components/ShareButton'
+import ShareQrButton from '../components/ShareQrButton'
 import { useAuth } from '../context/AuthContext'
 import { useEntrance } from '../hooks/useEntrance'
 import { track } from '../lib/usageStats'
@@ -465,6 +466,10 @@ export default function Dining() {
   // What a shared link opens (docs/share-links.md): this hall and this meal,
   // whether the address has them yet or not.
   const sharedMeal = activeMenu && activeMenu.meal !== ALL_MEALS ? activeMenu.meal : null
+  const shareLink = () => shareUrl('dining', window.location.href, { hall: selected?.slug, meal: sharedMeal })
+  const shareText = selected
+    ? `${sharedMeal ? `${mealLabel(sharedMeal)} at ` : ''}${selected.name}, on BoilerIndy`
+    : "Today's campus dining menu, on BoilerIndy"
 
   // Diet filters (issue #468), remembered on this device. A dish shows when it
   // carries every chosen label; stations left empty are hidden.
@@ -528,17 +533,10 @@ export default function Dining() {
           )}
           {/* The hall and meal on screen, for a friend signed in or not. The
               menu, never whether the hall is open: the feed's hours are
-              unreliable (docs/dining.md, "Weekend hours"). */}
-          <ShareButton
-            page="dining"
-            getUrl={() => shareUrl('dining', window.location.href, { hall: selected?.slug, meal: sharedMeal })}
-            title={PAGE_PREVIEWS.dining.title}
-            text={
-              selected
-                ? `${sharedMeal ? `${mealLabel(sharedMeal)} at ` : ''}${selected.name}, on BoilerIndy`
-                : "Today's campus dining menu, on BoilerIndy"
-            }
-          />
+              unreliable (docs/dining.md, "Weekend hours"). Share sends it as
+              a link, the QR button shows it as a code to scan. */}
+          <ShareButton page="dining" getUrl={shareLink} title={PAGE_PREVIEWS.dining.title} text={shareText} />
+          <ShareQrButton page="dining" getUrl={shareLink} text={shareText} />
           <button
             type="button"
             onClick={() => void refreshMenu()}
