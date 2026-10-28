@@ -300,7 +300,7 @@ export default function AdminCampaigns() {
                         rel="noopener noreferrer"
                         className="shrink-0 w-20 h-14 rounded-md overflow-hidden border border-[var(--color-border-2)] bg-[var(--color-stat)] hover:border-[var(--color-border-3)]"
                       >
-                        <img src={url} alt={`Photo ${index + 1} of ${campaign.name}`} className="w-full h-full object-cover" loading="lazy" />
+                        <img src={url} alt={`${campaign.name}, ${index + 1} of ${Math.min(photos.length, 6)}`} className="w-full h-full object-cover" loading="lazy" />
                       </a>
                     ))}
                   </div>

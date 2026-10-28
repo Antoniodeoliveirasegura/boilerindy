@@ -87,6 +87,21 @@ test.describe('A shared dining link', () => {
     )
   })
 
+  test('a signed-out visitor can show the hall and meal on screen as a QR code', async ({ page, mockApi }) => {
+    mockApi.logout()
+    await page.goto('/dining')
+    await expect(page.locator('[data-dining-meal="breakfast"]')).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Show QR code' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Breakfast at Tower Dining, on BoilerIndy' })
+    await expect(dialog.getByRole('img', { name: 'QR code' })).toBeVisible()
+    await expect(dialog.getByLabel('Or send the link')).toHaveValue(
+      new URL('/dining?hall=tower-dining&meal=breakfast&ref=share-dining', page.url()).href,
+    )
+    await dialog.getByRole('button', { name: 'Done' }).click()
+    await expect(dialog).toBeHidden()
+  })
+
   test.describe('on a phone', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
@@ -153,6 +168,52 @@ test.describe('A shared bus link', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL('/transit?route=31&ref=share-bus', page.url()).href)
     // A signed-in student keeps the bell and gets no invitation.
     await expect(page.locator('[data-transit-chime-invite]')).toHaveCount(0)
+  })
+
+  // The code itself is read back by a decoder in lib/qrCode.test.ts; here the
+  // dialog shows it for the route on screen, with the share link under it.
+  test('the QR button shows the route on screen as a code, with the share link to copy', async ({ page, context, mockApi }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    mockApi.login()
+    await page.goto('/transit')
+    await page.locator('button.pill', { hasText: 'Crimson' }).click()
+    const qrButton = page.getByRole('button', { name: 'Show QR code' })
+    await qrButton.click()
+
+    const dialog = page.getByRole('dialog', { name: 'The Crimson route, live on BoilerIndy' })
+    await expect(dialog).toBeVisible()
+    const code = dialog.getByRole('img', { name: 'QR code' })
+    await expect(code).toBeVisible()
+    expect(await code.locator('path').getAttribute('d')).toMatch(/^(M\d+ \d+h\d+v1h-\d+z)+$/)
+    const link = new URL('/transit?route=31&ref=share-bus', page.url()).href
+    await expect(dialog.getByLabel('Or send the link')).toHaveValue(link)
+    await dialog.getByRole('button', { name: 'Copy link' }).click()
+    await expect(dialog.getByRole('button', { name: 'Link copied' })).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link)
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(qrButton).toBeFocused()
+  })
+
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('the QR code is large enough to scan, and the page stays the width of the screen', async ({ page, mockApi }) => {
+      mockApi.logout()
+      await page.goto('/transit?route=31&ref=share-bus')
+      await expect(page.getByRole('heading', { name: 'Route 1 - Crimson' })).toBeVisible()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+      await page.getByRole('button', { name: 'Show QR code' }).click()
+      const code = page.getByRole('dialog', { name: 'The Crimson route, live on BoilerIndy' }).getByRole('img', { name: 'QR code' })
+      await expect(code).toBeVisible()
+      const box = await code.boundingBox()
+      expect(box.width).toBeGreaterThanOrEqual(240)
+      expect(box.height).toBeCloseTo(box.width, 0)
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(390)
+    })
   })
 })
 

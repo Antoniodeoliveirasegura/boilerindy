@@ -131,7 +131,9 @@ function ListingGallery({ listing }: { listing: Listing }) {
         <img
           key={url}
           src={url}
-          alt={`${title} photo ${i + 1}`}
+          // "photo" in the alt was read twice ("image, Chair photo 1"); the
+          // position is what tells pictures apart (issue #529).
+          alt={`${title}, ${i + 1} of ${images.length}`}
           loading={i === 0 ? 'eager' : 'lazy'}
           decoding="async"
           className={`rounded-[var(--radius-lg)] object-cover bg-[var(--color-stat)] shrink-0 ${images.length === 1 ? 'w-full h-56 sm:h-72' : 'h-48 sm:h-64 max-w-[85%]'}`}
@@ -787,6 +789,12 @@ export default function Marketplace() {
               {formError}
             </p>
           ) : null}
+          {/* The listing detail shows the seller's name and email to every
+              signed-in student (src/routes/marketplace.mjs), so the form says so
+              before the post (issue #527). */}
+          <p className="text-[12.5px] leading-snug text-[var(--color-txt-2)]" data-listing-visibility>
+            Signed-in students see your name and email on this listing. Photos are shared by link.
+          </p>
           <div className="pt-1">
             <button type="submit" disabled={busy} className="btn btn-primary">
               {submitting ? (editing ? 'Saving…' : 'Posting…') : editing ? 'Save changes' : 'Post listing'}
@@ -889,7 +897,7 @@ export default function Marketplace() {
               className="relative lg:ml-auto"
             >
               <Icon name="search" size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-txt-2)] pointer-events-none" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="input pl-10 lg:w-[240px] lg:min-h-[40px] lg:py-2" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" aria-label="Search listings" className="input pl-10 lg:w-[240px] lg:min-h-[40px] lg:py-2" />
             </form>
           </div>
 

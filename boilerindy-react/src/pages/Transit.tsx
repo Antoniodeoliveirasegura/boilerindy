@@ -4,6 +4,7 @@ import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
 import ShareButton from '../components/ShareButton'
+import ShareQrButton from '../components/ShareQrButton'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { useEntrance } from '../hooks/useEntrance'
@@ -26,7 +27,7 @@ import {
 } from '../lib/transitShared'
 import { errorMessage, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
 import PageTitle from '../components/PageTitle'
-import { INK_BUTTON } from '../components/map/mapChrome'
+import { ESRI_TILE_ATTRIBUTION as TILE_ATTRIBUTION, INK_BUTTON } from '../components/map/mapChrome'
 
 // Leaflet is bundled (imported above) instead of injected from a CDN at runtime;
 // expose it on window.L to match the existing usage across this component.
@@ -124,7 +125,6 @@ function RouteNum({ route, small = false, muted = false }: { route: TransitRoute
 // carry an "API KEY REQUIRED" watermark). Streets and landmarks are what a
 // rider reads a shuttle's position against, so the shuttle map keeps them.
 const TILE_STREET = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
-const TILE_ATTRIBUTION = 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
 
 // Dark theme: the same street map turned to night. Inverted with the hues
 // turned back, then drained of most colour so the ground is a neutral near
@@ -485,7 +485,9 @@ function LiveMap({
         iconAnchor: [8, 8],
       })
 
-      const marker = L.marker([stop.Latitude ?? 0, stop.Longitude ?? 0], { icon })
+      // Leaflet makes each marker a focusable button; the title is its name,
+      // which a divIcon otherwise lacks (issue #529).
+      const marker = L.marker([stop.Latitude ?? 0, stop.Longitude ?? 0], { icon, title: `${stop.Description ?? 'Stop'}, ${route.name}` })
         .addTo(map)
         .bindPopup(
           `<div style="font-family:var(--font-sans);min-width:120px;">
@@ -587,7 +589,7 @@ function LiveMap({
         iconAnchor: [15, 15],
       })
 
-      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon })
+      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon, title: `Bus ${vehicle.Name}, ${route.name}` })
         .addTo(map)
         .on('click', () => onSelectBus(vehicle))
 
@@ -741,7 +743,7 @@ export default function Transit() {
 
   // Vehicles, stops and the route map come through the shared query cache
   // (issue #251): the dashboard's transit card reads the same entries, the
-  // 10 s vehicle poll pauses while the tab is hidden, and a return visit
+  // 5 s vehicle poll pauses while the tab is hidden, and a return visit
   // paints the last positions before the network answers.
   const vehiclesQuery = useTransitVehicles()
   const stopsQuery = useTransitStops()
@@ -757,7 +759,7 @@ export default function Transit() {
   // Positions still cached from an earlier answer keep showing.
   // A read with no data goes back to pending, and drops its error, at the
   // start of every retry, so the failure is also read from errorUpdatedAt and
-  // the last error is kept: otherwise each 10 s poll during an outage swapped
+  // the last error is kept: otherwise each 5 s poll during an outage swapped
   // the notice for the loading screen and back, re-announcing the alert and
   // dropping focus from Try again.
   const [lastVehiclesError, setLastVehiclesError] = useState<unknown>(null)
@@ -873,7 +875,7 @@ export default function Transit() {
   }, [stops, selectedRoute, routeIdToCanonical])
 
   // The stops rise in when the transit data lands and when another route is
-  // picked (hooks/useEntrance); the 10 s bus poll only moves their dots.
+  // picked (hooks/useEntrance); the 5 s bus poll only moves their dots.
   const stopsRef = useEntrance<HTMLDivElement>(!loading, currentRouteId)
 
   const trackingBus = useMemo(() => {
@@ -991,6 +993,8 @@ export default function Transit() {
   const routeStyle = cardLine
     ? ({ '--route': cardLine, '--route-on': onRouteColor(cardLine) } as CSSProperties)
     : undefined
+  const shareLink = () => shareUrl('transit', window.location.href, { route: selectedRoute ? String(selectedRoute.id) : null })
+  const shareText = selectedRoute ? `The ${selectedRoute.shortName} route, live on BoilerIndy` : 'Every JAGLINE bus, live on BoilerIndy'
 
   return (
     <div className="page">
@@ -1007,13 +1011,10 @@ export default function Transit() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* The view on screen, for a friend signed in or not: the route
-              picked, or All Routes (docs/share-links.md). */}
-          <ShareButton
-            page="transit"
-            getUrl={() => shareUrl('transit', window.location.href, { route: selectedRoute ? String(selectedRoute.id) : null })}
-            title={PAGE_PREVIEWS.transit.title}
-            text={selectedRoute ? `The ${selectedRoute.shortName} route, live on BoilerIndy` : 'Every JAGLINE bus, live on BoilerIndy'}
-          />
+              picked, or All Routes (docs/share-links.md). Share sends it as
+              a link, the QR button shows it as a code to scan. */}
+          <ShareButton page="transit" getUrl={shareLink} title={PAGE_PREVIEWS.transit.title} text={shareText} />
+          <ShareQrButton page="transit" getUrl={shareLink} text={shareText} />
           <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary">
             <Icon name="refresh" size={15} />
             Refresh

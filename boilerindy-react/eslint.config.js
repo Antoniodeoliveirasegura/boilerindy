@@ -3,6 +3,7 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 // React Compiler advisory rules (perf hints, not bug detectors) - kept at
@@ -46,6 +47,7 @@ export default defineConfig([
       tseslint.configs.recommended,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
+      jsxA11y.flatConfigs.recommended,
     ],
     languageOptions,
     rules: {
@@ -58,6 +60,14 @@ export default defineConfig([
       // blocking, until those two pages are typed properly.
       '@typescript-eslint/no-explicit-any': 'warn',
       ...reactAdvisoryRules,
+      // jsx-a11y's recommended set (issue #529), with two adjustments.
+      // autoFocus appears only where focus has to move into something that
+      // just opened (a dialog, the sign-in code step, the campaign form, the
+      // share fallback), which is what WCAG 2.4.3 asks for, so the blanket ban
+      // is off.
+      'jsx-a11y/no-autofocus': 'off',
+      // The Settings switches nest their text two spans deep inside the label.
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
     },
   },
   // Every router runs without transitions, the tests' MemoryRouters included,

@@ -57,13 +57,13 @@ describe('AppLayout chrome', () => {
     expect(screen.getByRole('main')).toBeInTheDocument()
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
     expect(screen.queryByTestId('spotlight-rail')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'BoilerIndy' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Campus Assistant' })).toBeNull()
   })
 
   test('signed out after loading: still no app chrome', () => {
     renderLayout({ loading: false, user: null })
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
-    expect(screen.queryByRole('button', { name: 'BoilerIndy' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Campus Assistant' })).toBeNull()
     expect(screen.queryByTestId('preview-bar')).toBeNull()
   })
 
@@ -71,7 +71,7 @@ describe('AppLayout chrome', () => {
     renderLayout({ loading: false, user: { id: 'user-1' } }, '/clubs')
     expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0)
     expect(screen.getAllByTestId('spotlight-rail')).toHaveLength(2)
-    expect(screen.getByRole('button', { name: 'BoilerIndy' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Campus Assistant' })).toBeInTheDocument()
   })
 
   // Issue #30: the pages that list the shared campus events carry no sponsor
@@ -81,7 +81,7 @@ describe('AppLayout chrome', () => {
     expect(screen.getByText('page outlet')).toBeInTheDocument()
     expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0)
     expect(screen.queryByTestId('spotlight-rail')).toBeNull()
-    expect(screen.getByRole('button', { name: 'BoilerIndy' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Campus Assistant' })).toBeInTheDocument()
   })
 })
 
@@ -97,7 +97,7 @@ describe('AppLayout on a preview route', () => {
     expect(screen.getByRole('link', { name: 'BoilerIndy' })).toHaveAttribute('href', '/')
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
     expect(screen.queryByTestId('spotlight-rail')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'BoilerIndy' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Campus Assistant' })).toBeNull()
   })
 
   test('signed out on transit: sign-in comes back to transit', () => {
@@ -117,7 +117,7 @@ describe('AppLayout on a preview route', () => {
     expect(screen.getByRole('link', { name: 'Create account' })).toHaveAttribute('href', '/login?tab=signup')
     expect(screen.queryAllByRole('navigation')).toHaveLength(0)
     expect(screen.queryByTestId('spotlight-rail')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'BoilerIndy' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Campus Assistant' })).toBeNull()
   })
 
   // The map fills a phone's screen and stops above the pitch card, whose

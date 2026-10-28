@@ -84,7 +84,7 @@ describe('AdminCampaigns filters', () => {
     render(<AdminCampaigns />)
     await screen.findByText('Finals coffee')
     for (const n of [1, 2, 3]) {
-      expect(screen.getByRole('link', { name: `Photo ${n} of Finals coffee` })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: `Finals coffee, ${n} of 3` })).toHaveAttribute(
         'href',
         `https://img.example/${n}.jpg`,
       )

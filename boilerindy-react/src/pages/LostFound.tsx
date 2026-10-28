@@ -446,8 +446,13 @@ export default function LostFound() {
                     onChange={(e) => updateForm('contact', e.target.value)}
                     maxLength={MAX_CONTACT}
                     placeholder="e.g. DM on the board, or email"
+                    aria-describedby="lf-contact-hint"
                     className="input"
                   />
+                  {/* The report card shows it to every signed-in student (issue #527). */}
+                  <p id="lf-contact-hint" className="mt-1 text-[12.5px] leading-snug text-[var(--color-txt-2)]">
+                    Shown to every signed-in student on your report.
+                  </p>
                 </div>
               </div>
             </div>

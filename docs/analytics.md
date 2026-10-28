@@ -41,7 +41,7 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 | `marketplace_viewed` | Marketplace page opened |
 | `friends_viewed` | Friends page opened |
 | `study_groups_viewed` | Study groups page opened |
-| `share_clicked` | A Share button on Transit, Dining or Free Food is pressed, before the share sheet opens or the link is copied (`page` prop: `transit`, `dining` or `free-food`, plus `kind: event` when one free-food event is shared rather than the list; never the link or the event). See [share-links.md](share-links.md) |
+| `share_clicked` | A Share button on Transit, Dining or Free Food is pressed, before the share sheet opens or the link is copied (`page` prop: `transit`, `dining` or `free-food`, plus `kind: event` when one free-food event is shared rather than the list, or `via: qr` when the QR button beside Share shows the view as a code; never the link or the event). See [share-links.md](share-links.md) |
 
 ## Privacy guarantees
 
@@ -57,21 +57,22 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 
 ## Retention: 12 months
 
-Raw events are deleted after 12 months. Until a Supabase scheduled query (cron)
-is configured, run this manually about once a month in the SQL Editor:
+Raw events are deleted after 12 months, which the Privacy page promises.
+`db/supabase-retention.sql` (README "Database setup" step 51, issue #528)
+schedules the `boilerindy-retention-analytics` `pg_cron` job that runs the
+delete every day at 04:00 UTC, beside the weekly `push_deliveries` and daily
+`user_sessions` jobs. Check it:
+
+```sql
+SELECT jobname, schedule, active FROM cron.job WHERE jobname LIKE 'boilerindy-retention-%';
+```
+
+If an older hand-made `analytics-retention` job exists, remove it with
+`SELECT cron.unschedule('analytics-retention');` so only one runs. Without the
+job (a local database, or before step 51 runs), the same delete by hand:
 
 ```sql
 DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months';
-```
-
-With `pg_cron` enabled it can be scheduled instead:
-
-```sql
-SELECT cron.schedule(
-  'analytics-retention',
-  '0 4 1 * *', -- 04:00 on the 1st of every month
-  $$DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months'$$
-);
 ```
 
 ## Sign-up source
@@ -99,6 +100,8 @@ has both.
 | A class group chat | `gc-<course>`, for example `gc-cs180` |
 | A student ambassador | `amb-<name>`, for example `amb-jane` |
 | A Share button: the bus map, the dining menu, free food (the list or one event) | `share-bus`, `share-dining`, `share-free-food`, set by the button ([share-links.md](share-links.md)) |
+| The QR button beside Share: a code a student shows a friend to scan | `qr-bus`, `qr-dining`, `qr-free-food`, set by the button ([share-links.md](share-links.md)) |
+| A printed QR poster (made outside this repo, 2026-10-28): any JAGLINE stop, one route's stops, the dining menu, a hall, free food | `poster-bus`; `poster-bus-<route>` for crimson, gray, yellow, blue, purple and orange; `poster-dining`, `poster-dining-tower`, `poster-dining-campus-center`; `poster-free-food` |
 
 ### How it works
 

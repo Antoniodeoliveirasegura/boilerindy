@@ -33,6 +33,7 @@ coding conventions live in the root [README.md](../README.md).
 - [shared-campus-events.md](shared-campus-events.md) - the design for campus events that are shared rather than owned by one student's feed, and the public sources chosen for it; the table, the ingest and the read path are built, the read path behind a switch (issue #30).
 - [sign-in-with-apple.md](sign-in-with-apple.md) - how deleting the account of a student who signs in with Apple revokes their Sign in with Apple token through Apple's REST API, which Apple asks of every app that offers it, with the token the native app sends, the four Apple settings and how to check them.
 - [source-resync.md](source-resync.md) - the cron job that re-imports every connected calendar feed on a schedule, instead of only when the student presses Sync (issue #12).
+- [third-party-content.md](third-party-content.md) - where the maps, pictures, listings and data that BoilerIndy shows come from, how each reaches the student, and the terms it is used under, with the open questions the owner still has to settle (issue #530).
 
 ## History
 

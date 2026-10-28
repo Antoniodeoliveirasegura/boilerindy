@@ -24,7 +24,7 @@ const asideFeatures = [
   ['user', 'Create an account with your email'],
   ['graduation', 'Link Purdue separately inside setup'],
   ['calendar', 'Import class data from sources you connect'],
-  ['sparkles', 'Secure authentication powered by Supabase'],
+  ['lock', 'Sign-in handled by Supabase'],
 ]
 
 type PendingCode = { email: string; flow: 'signin' | 'signup' }
@@ -440,8 +440,9 @@ export default function Login() {
               <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">For all students</div>
             </div>
             <div className="border-l border-[var(--color-ink-edge)] pt-4 pl-6">
-              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Secure</div>
-              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">Supabase auth</div>
+              {/* Not "Secure": the Terms promise no such thing (issue #527). */}
+              <div className="font-display text-[30px] xl:text-[34px] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-ink-txt)]">Private</div>
+              <div className="mt-2 text-[13px] text-[var(--color-ink-dim)]">No ad trackers</div>
             </div>
           </div>
         </div>
@@ -524,6 +525,20 @@ export default function Login() {
                     <Icon name="google" size={18} />
                     {oauthSubmitting ? 'Redirecting to Google…' : 'Continue with Google'}
                   </button>
+                  {/* Both tabs and both ways in (Google above, the email form
+                      below) create or use an account, so the agreement sits
+                      next to the first action (issue #526). */}
+                  <p className="mt-3 text-center text-[12px] leading-relaxed text-[var(--color-txt-3)]">
+                    By continuing you agree to the{' '}
+                    <Link to={`/terms?from=${isSignup ? 'signup' : 'signin'}`} className={textLink}>
+                      Terms of Service
+                    </Link>{' '}
+                    and{' '}
+                    <Link to={`/privacy?from=${isSignup ? 'signup' : 'signin'}`} className={textLink}>
+                      Privacy Policy
+                    </Link>{' '}
+                    and confirm you are 13 or older.
+                  </p>
 
                   <div className="my-5 flex items-center gap-3" aria-hidden="true">
                     <span className="h-px flex-1 bg-[var(--color-border-2)]" />

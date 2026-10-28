@@ -281,5 +281,7 @@ it. Browsers are unchanged.
   tables for when keys return.
 - Pause reminders only: `select cron.unschedule('boilerindy-push-reminders');`
   or unset `PUSH_CRON_SECRET`.
-- Prune the ledger occasionally:
+- The ledger prunes itself: `db/supabase-retention.sql` (README step 51,
+  issue #528) schedules `boilerindy-retention-push-deliveries`, which deletes
+  rows older than 60 days every Sunday. Without it, by hand:
   `DELETE FROM push_deliveries WHERE sent_at < NOW() - INTERVAL '60 days';`
