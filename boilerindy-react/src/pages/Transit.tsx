@@ -4,6 +4,7 @@ import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../components/Icons'
 import ShareButton from '../components/ShareButton'
+import ShareQrButton from '../components/ShareQrButton'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { useEntrance } from '../hooks/useEntrance'
@@ -992,6 +993,8 @@ export default function Transit() {
   const routeStyle = cardLine
     ? ({ '--route': cardLine, '--route-on': onRouteColor(cardLine) } as CSSProperties)
     : undefined
+  const shareLink = () => shareUrl('transit', window.location.href, { route: selectedRoute ? String(selectedRoute.id) : null })
+  const shareText = selectedRoute ? `The ${selectedRoute.shortName} route, live on BoilerIndy` : 'Every JAGLINE bus, live on BoilerIndy'
 
   return (
     <div className="page">
@@ -1008,13 +1011,10 @@ export default function Transit() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* The view on screen, for a friend signed in or not: the route
-              picked, or All Routes (docs/share-links.md). */}
-          <ShareButton
-            page="transit"
-            getUrl={() => shareUrl('transit', window.location.href, { route: selectedRoute ? String(selectedRoute.id) : null })}
-            title={PAGE_PREVIEWS.transit.title}
-            text={selectedRoute ? `The ${selectedRoute.shortName} route, live on BoilerIndy` : 'Every JAGLINE bus, live on BoilerIndy'}
-          />
+              picked, or All Routes (docs/share-links.md). Share sends it as
+              a link, the QR button shows it as a code to scan. */}
+          <ShareButton page="transit" getUrl={shareLink} title={PAGE_PREVIEWS.transit.title} text={shareText} />
+          <ShareQrButton page="transit" getUrl={shareLink} text={shareText} />
           <button onClick={() => void vehiclesQuery.refetch()} className="btn btn-secondary">
             <Icon name="refresh" size={15} />
             Refresh

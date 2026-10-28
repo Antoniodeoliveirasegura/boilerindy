@@ -1,7 +1,8 @@
 # Share links
 
-The Share buttons on `/transit`, `/dining` and `/free-food`, the link each one
-sends, and the link preview cards a chat app shows for it. All three pages
+The Share buttons on `/transit`, `/dining` and `/free-food`, the QR button
+beside each header's Share, the link each one sends, and the link preview
+cards a chat app shows for it. All three pages
 open signed out (the public preview, issue #366), so a shared link is a free
 sample for a friend: the same live map, menu or free food, under the preview
 bar.
@@ -12,11 +13,11 @@ bar.
 site the student is on, the view on screen, and a `ref` that says where the
 visit came from.
 
-| Page | View in the link | `ref` |
-|---|---|---|
-| `/transit` | `route`, the route picked (`?route=31`), none for All Routes | `share-bus` |
-| `/dining` | `hall`, a location slug, and `meal` (`?hall=tower-dining&meal=dinner`) | `share-dining` |
-| `/free-food` | `event`, one campus event's id, from that event's own Share; none from the header's | `share-free-food` |
+| Page | View in the link | `ref` | `ref` in a QR code |
+|---|---|---|---|
+| `/transit` | `route`, the route picked (`?route=31`), none for All Routes | `share-bus` | `qr-bus` |
+| `/dining` | `hall`, a location slug, and `meal` (`?hall=tower-dining&meal=dinner`) | `share-dining` | `qr-dining` |
+| `/free-food` | `event`, one campus event's id, from that event's own Share; none from the header's | `share-free-food` | `qr-free-food` |
 
 Anything else in the address is left out: an earlier `ref` (a friend who
 reshares a shared link sends `share-bus` again, not the ref they arrived
@@ -92,6 +93,36 @@ has not opted out, so a signed-out friend who reshares is not counted; the
 On `/transit`, a signed-out visitor who picks a route sees, above the stops
 where a student's "my stop" bells would be, an invitation to sign in for the
 chime, with a link that comes back to the same route.
+
+## The QR code
+
+`components/ShareQrButton.tsx`, the square button with the QR glyph just after
+Share in each page's header ("Show QR code"), for every visitor. It is for a
+friend standing there, who scans it with their camera, and for moving the page
+from a laptop to a phone. The free-food rows have none: the list's code is one
+button away.
+
+- It opens a dialog with the view on screen as a QR code, the share line as
+  its heading ("Dinner at Tower Dining, on BoilerIndy"), "Point a phone's
+  camera at the code to open it. No account needed.", and the share link in a
+  read-only field with Copy link, for a chat after all. A clipboard that
+  refuses selects the field, to copy by hand. Done, Escape or the backdrop
+  closes it, and focus goes back to the QR button.
+- The code carries the Share link's view with the page's QR ref (`QR_REFS`
+  in `shareLinks.ts`), so a sign-up from a scan counts apart from one from a
+  chat. The link in the field keeps the share ref: it goes to a chat.
+- It is drawn on the device and nothing is fetched. `lib/qrCode.ts` encodes the
+  link with `uqr` (error correction M: these links make a code 33 to 37
+  modules wide, so the modules stay large) and draws it as one SVG path, black
+  on white in either theme inside the four-module quiet zone the standard asks
+  for, since not every camera reads a light code on a dark ground. The encoder
+  ships with the page (about 4 KB gzipped) rather than loading on the first
+  press, so the code still shows with no signal at a bus stop.
+- Each press records `share_clicked` with the page and `via: qr`; copying
+  from the dialog records nothing more.
+
+`lib/qrCode.test.ts` paints each code from its path and reads it back with
+jsQR, a decoder that shares no code with the encoder.
 
 ## Link previews
 

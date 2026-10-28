@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { SHARE_REFS, eventLinkParam, linkedEventId, shareUrl } from './shareLinks'
+import { QR_REFS, SHARE_REFS, eventLinkParam, linkedEventId, shareUrl } from './shareLinks'
 import { readDiningView, writeDiningView } from './dining'
 
 const SITE = 'https://www.boilerindy.app'
@@ -45,7 +45,28 @@ describe('shareUrl', () => {
   })
 
   test('the refs are slugs the sign-up source accepts', () => {
-    for (const ref of Object.values(SHARE_REFS)) expect(ref).toMatch(/^[a-z0-9-]{1,40}$/)
+    for (const ref of [...Object.values(SHARE_REFS), ...Object.values(QR_REFS)]) expect(ref).toMatch(/^[a-z0-9-]{1,40}$/)
+  })
+})
+
+describe('a QR code link', () => {
+  test('carries the QR ref in place of the share ref', () => {
+    expect(shareUrl('transit', `${SITE}/transit?route=31&ref=share-bus`, {}, 'qr')).toBe(`${SITE}/transit?route=31&ref=qr-bus`)
+    expect(shareUrl('dining', `${SITE}/dining`, { hall: 'tower-dining', meal: 'dinner' }, 'qr')).toBe(
+      `${SITE}/dining?hall=tower-dining&meal=dinner&ref=qr-dining`,
+    )
+    expect(shareUrl('free-food', `${SITE}/free-food?ref=share-free-food`, {}, 'qr')).toBe(`${SITE}/free-food?ref=qr-free-food`)
+  })
+
+  test('made from the share link, keeps its view and nothing else', () => {
+    for (const page of ['transit', 'dining', 'free-food'] as const) {
+      const onScreen = `${SITE}/${page}?route=27&hall=campus-center&meal=lunch&event=fuel-up&utm_source=instagram`
+      const link = shareUrl(page, onScreen)
+      const qr = new URL(shareUrl(page, link, {}, 'qr'))
+      const shared = new URL(link)
+      shared.searchParams.set('ref', QR_REFS[page])
+      expect(qr.href).toBe(shared.href)
+    }
   })
 })
 
