@@ -411,8 +411,8 @@ const publicReadIpRateLimit = createRateLimiter({
   keyBy: 'ip',
   message: 'Too many requests. Please try again shortly.',
 })
-// Live vehicle positions poll every 10 to 20 s per open Transit screen and are
-// cached 5 s server-side, so they get their own bucket sized for polling
+// Live vehicle positions poll every 5 s per open Transit screen (180 per 15 min,
+// under the 240 below) and are cached 4 s server-side, so they get their own bucket sized for polling
 // instead of eating the shared public-read budget (#215). Same keying and the
 // same kind of outer per-address cap as public-read.
 const transitVehiclesRateLimit = createRateLimiter({

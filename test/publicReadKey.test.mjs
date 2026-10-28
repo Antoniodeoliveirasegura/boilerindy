@@ -121,7 +121,7 @@ function handlerSource(name) {
 
 test('every public read answers with the cache header the edge needs', () => {
   const expected = {
-    handleTransitVehicles: "'public, max-age=10, s-maxage=10, stale-while-revalidate=20'",
+    handleTransitVehicles: "'public, max-age=4, s-maxage=4, stale-while-revalidate=8'",
     handleTransitStops: "'public, max-age=60, s-maxage=600, stale-while-revalidate=600'",
     handleTransitRoutes: "'public, max-age=60, s-maxage=600, stale-while-revalidate=600'",
     handleParkingGarages: "'public, max-age=15, s-maxage=30'",

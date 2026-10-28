@@ -55,7 +55,7 @@ describe('per-dataset defaults', () => {
     expect(transitStopsQuery.staleTime).toBe(TRANSIT_STATIC_STALE_MS)
     expect(TRANSIT_STATIC_STALE_MS).toBe(10 * 60_000)
     expect(transitVehiclesQuery.staleTime).toBe(TRANSIT_VEHICLES_STALE_MS)
-    expect(TRANSIT_VEHICLES_STALE_MS).toBe(10_000)
+    expect(TRANSIT_VEHICLES_STALE_MS).toBe(4_000)
     expect(diningQuery.queryKey).toEqual(['dining'])
     expect(diningQuery.staleTime).toBe(DINING_STALE_MS)
     expect(DINING_STALE_MS).toBe(5 * 60_000)
@@ -90,9 +90,9 @@ describe('per-dataset defaults', () => {
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual(['/api/campus-events/free-food'])
   })
 
-  test('the vehicle poll runs every 10 s and pauses while the tab is hidden', () => {
+  test('the vehicle poll runs every 5 s and pauses while the tab is hidden', () => {
     expect(transitVehiclesQuery.refetchInterval).toBe(TRANSIT_VEHICLES_POLL_MS)
-    expect(TRANSIT_VEHICLES_POLL_MS).toBe(10_000)
+    expect(TRANSIT_VEHICLES_POLL_MS).toBe(5_000)
     expect(transitVehiclesQuery.refetchIntervalInBackground).toBe(false)
   })
 
