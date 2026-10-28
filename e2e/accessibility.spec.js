@@ -22,6 +22,12 @@ async function blockingViolations(page, include) {
 const PUBLIC_PAGES = ['/', '/login', '/login?tab=signup', '/privacy', '/terms', '/support', '/delete-account', '/advertise', '/install']
 
 test.describe('Accessibility (axe)', () => {
+  // axe checks the page as it settles. Rows and page blocks fade in as they rise
+  // (index.css, motion-rise), and text caught mid-fade read as low contrast: the
+  // dashboard failed on .alerts-label and a bus row once in release #541's CI.
+  // Reduce Motion shows every block at full opacity straight away.
+  test.use({ reducedMotion: 'reduce' })
+
   for (const path of PUBLIC_PAGES) {
     test(`${path} has no serious or critical violations`, async ({ page }) => {
       await page.goto(path)
