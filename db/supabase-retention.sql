@@ -11,6 +11,13 @@
 --   boilerindy-retention-push-deliveries  weekly, push_deliveries older than 60 days
 --   boilerindy-retention-sessions         daily, user_sessions past their expiry
 --
+-- A fourth keeps pg_cron's own run log in check. Every run of every job adds a
+-- row to cron.job_run_details and pg_cron never removes them; the keep-warm and
+-- push-reminder jobs alone add close to 600 a day, which is disk written and
+-- kept for nothing:
+--
+--   boilerindy-retention-cron-history     daily, cron.job_run_details older than 7 days
+--
 -- Plain SQL: no HTTP call, no secret, nothing for the server to do. Needs the
 -- pg_cron extension from db/supabase-keep-warm.sql (README step 29) and the
 -- tables from steps 4, 11 and 30. Creates no tables.
@@ -27,7 +34,7 @@
 --     from cron.job_run_details d join cron.job j using (jobid)
 --     where j.jobname like 'boilerindy-retention-%'
 --     order by d.start_time desc limit 10;
--- Expect three active jobs and "succeeded" runs; return_message says how many
+-- Expect four active jobs and "succeeded" runs; return_message says how many
 -- rows each DELETE removed ("DELETE 0" on a quiet day).
 --
 -- Remove one (the others keep running):
@@ -49,4 +56,12 @@ select cron.schedule(
   'boilerindy-retention-sessions',
   '30 4 * * *', -- 04:30 UTC every day
   $$DELETE FROM user_sessions WHERE expire < NOW()$$
+);
+
+-- Seven days is enough to debug a failing job with the Verify queries above
+-- and in db/supabase-keep-warm.sql.
+select cron.schedule(
+  'boilerindy-retention-cron-history',
+  '45 4 * * *', -- 04:45 UTC every day
+  $$DELETE FROM cron.job_run_details WHERE start_time < NOW() - INTERVAL '7 days'$$
 );
