@@ -101,6 +101,7 @@ has both.
 | A student ambassador | `amb-<name>`, for example `amb-jane` |
 | A Share button: the bus map, the dining menu, free food (the list or one event) | `share-bus`, `share-dining`, `share-free-food`, set by the button ([share-links.md](share-links.md)) |
 | The QR button beside Share: a code a student shows a friend to scan | `qr-bus`, `qr-dining`, `qr-free-food`, set by the button ([share-links.md](share-links.md)) |
+| A printed QR poster (made outside this repo, 2026-10-28): any JAGLINE stop, one route's stops, the dining menu, a hall, free food | `poster-bus`; `poster-bus-<route>` for crimson, gray, yellow, blue, purple and orange; `poster-dining`, `poster-dining-tower`, `poster-dining-campus-center`; `poster-free-food` |
 
 ### How it works
 
