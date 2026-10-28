@@ -130,9 +130,13 @@ website, and everything in this policy applies to it. It asks for one thing the 
 not: the photo you pick when you add one to a listing (never the camera, the microphone or your
 location). It keeps your session and settings in the phone's secure storage. Expo delivers app
 updates and push notifications, and sees an anonymous id for your install when the app checks for
-an update. Maps are drawn by Apple Maps on iPhone and by the Google Maps SDK on Android, which
-collects some device and usage data under Google's own privacy policy. In the app you can also
-sign in with Apple; deleting your account revokes that sign-in.`,
+an update. Expo's EAS Observe also receives, with that same id and never your account, how long the
+app takes to start and to open each screen, the phone's model and system version, its battery,
+network and memory state, and reports of crashes; we use them to find what makes the app slow or
+crash. Turning off usage analytics does not stop it. Maps are drawn by Apple Maps on iPhone and by
+the Google Maps SDK on Android, which collects some device and usage data under Google's own
+privacy policy. In the app you can also sign in with Apple; deleting your account revokes that
+sign-in.`,
   },
   {
     title: 'Who we share data with',
@@ -143,8 +147,8 @@ and anonymous page-performance metrics), Groq (only the AI-assistant requests de
 Sentry (crash and error reports, with emails, tokens, and cookies stripped out before they are
 sent), Resend (email delivery: the one-time sign-in code, the code that verifies a Purdue email,
 and advertiser account mail), Cloudflare (routes the mail you send to our @boilerindy.app
-addresses), Expo (app updates and push delivery, described above), and TypeSafe (which
-reads the public campus event listings to sort them, for example whether one offers free food;
+addresses), Expo (app updates, push delivery, and app performance and crash reports, described
+above), and TypeSafe (which reads the public campus event listings to sort them, for example whether one offers free food;
 nothing about you is sent to it). Each provider gets only what its job needs, and we only use
 providers that protect your data at least as well as this policy does. Public info shown in the
 app - transit, dining menus, campus events, and map buildings - is fetched by our server from
@@ -170,8 +174,9 @@ across other sites, which is why there is no cookie banner.`,
 delete is hidden from the app immediately and is removed for good when an admin clears it or when
 your account is deleted. Raw usage analytics events are kept at most 12 months. Sign-in and
 Purdue verification codes expire within minutes. Server logs and database backups roll over
-within 30 days, and crash reports expire on Sentry's retention schedule. You can request deletion
-of your account and the data tied to it at any time (see Contact); deleting your account removes
+within 30 days, and crash reports expire on Sentry's retention schedule. Expo deletes the app's
+performance data and crash reports after 90 days, in monthly batches; they are not tied to your
+account. You can request deletion of your account and the data tied to it at any time (see Contact); deleting your account removes
 your analytics events along with it.`,
   },
   {
@@ -243,7 +248,7 @@ export default function Privacy() {
             <div>
               <h1 className="page-title">Privacy policy</h1>
               <p className="page-sub">
-                Last updated October 27, 2026. The short version: your data stays in our own database, we
+                Last updated October 28, 2026. The short version: your data stays in our own database, we
                 use no advertising trackers, we never store your Purdue password, and you can opt out of
                 analytics or delete your account anytime.
               </p>
