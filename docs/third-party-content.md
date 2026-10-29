@@ -16,7 +16,7 @@ icons) are in the root `NOTICE`.
 | Campus and downtown events | Purdue's and IU's public calendars, White River State Park, Ticketmaster ([shared-campus-events.md](shared-campus-events.md)) | Through our server | Ticketmaster's API terms bar revenue from pages its listings reach, so `/events` and `/free-food` carry no ads (`lib/adFreeRoutes.ts`). |
 | Campus news | The Circuit, Purdue Indy's student newspaper ([campus-news.md](campus-news.md)) | Through our server | Headlines, excerpts and links only. |
 | Parking garages | IU's public garage status page ([parking-status.md](parking-status.md)) | Through our server | Public page, read only. |
-| Shuttle positions | TransLoc's JagLine feed | Through our server | Public feed. |
+| Shuttle positions and arrival estimates | TransLoc's JagLine feed ([widget-reads.md](widget-reads.md) for the estimates) | Through our server | Public feed. |
 | Sponsor images | The image link each advertiser gives (`imageUrl`, `imageUrls`) | The browser loads it from the advertiser's host | Advertisers are approved by hand; no written warranty that they own the image. |
 
 ## Open questions (owner)

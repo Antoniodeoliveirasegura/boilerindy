@@ -232,6 +232,76 @@ test('an unavailable look-ahead is never cached, and a failure answers the envel
   })
 })
 
+// ── GET /api/dining/today (issue #549) ──────────────────────────────────────
+// The answer itself is tested in test/diningToday.test.mjs; here, the route.
+
+const TOWER_DAY = {
+  ok: true,
+  date: '2026-10-14',
+  locations: [
+    {
+      slug: 'tower-dining',
+      name: 'Tower Dining',
+      kind: 'dining-hall',
+      is_open: true,
+      weekly_hours: { Wednesday: '7:00 AM - 9:00 PM' },
+      menus: [{ meal: 'lunch', stations: [{ name: 'Homestyle', everyday: false, items: [{ name: 'Chicken Fried Steak' }] }] }],
+    },
+    { slug: 'campus-center', name: 'Campus Center', kind: 'retail', is_open: false, weekly_hours: {}, menus: [] },
+  ],
+}
+
+test('one hall\'s day is served through both public-read limiters and cached like the snapshot', async () => {
+  await withPublicApp({ snapshot: async () => TOWER_DAY }, async ({ base, limiterHits, snapshotCalls }) => {
+    const res = await fetch(`${base}/api/dining/today?hall=tower`)
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=120, s-maxage=300')
+    assert.equal(res.headers.get('set-cookie'), null)
+    const body = await res.json()
+    assert.equal(body.date, '2026-10-14')
+    assert.deepEqual(body.hall, { slug: 'tower-dining', name: 'Tower Dining', kind: 'dining-hall' })
+    assert.equal(body.open, true)
+    assert.equal(body.closesAt, '2026-10-15T01:00:00Z')
+    assert.deepEqual(body.meals, [
+      { meal: 'lunch', from: '2026-10-14T11:00:00Z', until: '2026-10-15T01:00:00Z', headliners: [{ station: 'Homestyle', dish: 'Chicken Fried Steak' }] },
+    ])
+    assert.deepEqual(snapshotCalls[0], {})
+    assert.deepEqual(limiterHits, ['public-read-ip GET /api/dining/today', 'public-read GET /api/dining/today'])
+  })
+})
+
+test('a missing or bad hall is a 400, an unknown one a 404, no snapshot a 503 and a failure a 500, never cached', async (t) => {
+  await withPublicApp({ snapshot: async () => TOWER_DAY }, async ({ base, snapshotCalls }) => {
+    for (const query of ['', '?hall=', '?hall=tower%20dining', '?hall=a&hall=b']) {
+      const res = await fetch(`${base}/api/dining/today${query}`)
+      assert.equal(res.status, 400, query)
+      assert.equal(res.headers.get('cache-control'), 'no-store')
+      assert.deepEqual(await res.json(), { error: { message: 'Pick a dining hall.', status: 400, code: 'dining_bad_hall' } })
+    }
+    assert.equal(snapshotCalls.length, 0, 'a rejected hall never reaches the snapshot')
+    const unknown = await fetch(`${base}/api/dining/today?hall=wright-quad`)
+    assert.equal(unknown.status, 404)
+    assert.equal(unknown.headers.get('cache-control'), 'no-store')
+    assert.equal((await unknown.json()).error.code, 'dining_hall_not_found')
+  })
+  await withPublicApp({ snapshot: async () => ({ ok: false, error: 'schools_fetch_failed', locations: [] }) }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/today?hall=tower-dining`)
+    assert.equal(res.status, 503)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.equal((await res.json()).error.code, 'dining_unavailable')
+  })
+  t.mock.method(console, 'error', () => {})
+  const snapshot = async () => {
+    throw new Error('Nutrislice down')
+  }
+  await withPublicApp({ snapshot }, async ({ base }) => {
+    const res = await fetch(`${base}/api/dining/today?hall=tower-dining`)
+    assert.equal(res.status, 500)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.equal((await res.json()).error.code, 'dining_internal')
+  })
+})
+
 // ── /api/me/dining/favorites ────────────────────────────────────────────────
 
 test('favorites need a signed-in student', async () => {

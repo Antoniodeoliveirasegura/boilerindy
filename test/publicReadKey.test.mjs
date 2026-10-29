@@ -53,12 +53,17 @@ const PUBLIC_READS = [
   '/api/transit/vehicles',
   '/api/transit/stops',
   '/api/transit/routes',
+  // The app widgets' stop list and arrivals (issue #549).
+  '/api/transit/places',
+  '/api/transit/arrivals',
   '/api/parking/garages',
   '/api/clubs',
   '/api/push/config',
   '/api/dining',
   '/api/dining/foods/:id',
   '/api/dining/upcoming',
+  // One hall's day for the app's Dining widget (issue #549).
+  '/api/dining/today',
   '/api/campus-news',
   // The signed-out Free Food page's read (issue #366).
   '/api/campus-events/free-food',
@@ -124,10 +129,13 @@ test('every public read answers with the cache header the edge needs', () => {
     handleTransitVehicles: "'public, max-age=4, s-maxage=4, stale-while-revalidate=8'",
     handleTransitStops: "'public, max-age=60, s-maxage=600, stale-while-revalidate=600'",
     handleTransitRoutes: "'public, max-age=60, s-maxage=600, stale-while-revalidate=600'",
+    handleTransitPlaces: "'public, max-age=60, s-maxage=600, stale-while-revalidate=600'",
+    handleTransitArrivals: "'public, max-age=15'",
     handleParkingGarages: "'public, max-age=15, s-maxage=30'",
     handleClubs: "'public, max-age=300'",
     handlePushConfig: "'no-store'",
     handleDining: "'public, max-age=120, s-maxage=300'",
+    handleDiningToday: "'public, max-age=120, s-maxage=300'",
     handlePublicFreeFood: "'public, max-age=60, s-maxage=300, stale-while-revalidate=600'",
     handleDemoCalendar: "'public, max-age=300, s-maxage=3600'",
   }
