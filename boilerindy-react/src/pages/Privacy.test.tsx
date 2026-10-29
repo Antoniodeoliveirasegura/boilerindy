@@ -251,3 +251,17 @@ describe('Privacy app performance data (EAS Observe)', () => {
     expect(body('How long we keep data')).toMatch(/Expo deletes the app's\s+performance data and crash reports after 90 days/)
   })
 })
+
+// boilerindy-app #157 - the app's optional Face ID lock asks the phone, which
+// answers only whether it matched, so the policy names it beside the photo and
+// says no face or fingerprint data reaches BoilerIndy.
+describe('Privacy app lock (Face ID)', () => {
+  test('name the lock as something the app asks for, and say the phone keeps the face or fingerprint', () => {
+    renderAt('/privacy')
+    const section = screen.getByRole('heading', { name: 'The BoilerIndy app' }).closest('section') as HTMLElement
+    const app = section.textContent || ''
+    expect(app).toMatch(/It asks for two things the website does\s+not, each only when you use it/)
+    expect(app).toMatch(/Face ID, Touch ID or your fingerprint if you turn\s+on Unlock with Face ID in Profile/)
+    expect(app).toMatch(/no face or fingerprint data reaches us or leaves the phone/)
+  })
+})
