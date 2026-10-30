@@ -30,6 +30,8 @@ type AuthUser = {
   /** The linked Purdue address (CAS, the dev mock or an emailed code, issue #181). */
   purdueEmail?: string | null
   hasPurdueLinked?: boolean
+  /** True only after the student turns on AI suggestions in Settings. */
+  aiOptIn?: boolean
   [key: string]: unknown
 }
 

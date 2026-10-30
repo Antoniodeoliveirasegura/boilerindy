@@ -8,7 +8,7 @@ import { authRequest } from '../lib/authApi'
 
 vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
 vi.mock('../components/AiMarkdown', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }))
-const auth = vi.hoisted(() => ({ user: { id: 'user-1' }, onboarding: { linkedSourceCount: 1 } }))
+const auth = vi.hoisted(() => ({ user: { id: 'user-1', aiOptIn: false }, onboarding: { linkedSourceCount: 1 } }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 
 const HOUR = 60 * 60 * 1000
@@ -493,6 +493,25 @@ describe('Get Picks', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Get Picks' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Thinking…' })).not.toBeInTheDocument())
   }
+
+  beforeEach(() => {
+    auth.user.aiOptIn = true
+  })
+
+  afterEach(() => {
+    auth.user.aiOptIn = false
+  })
+
+  // AI suggestions are opt-in (Settings): without them the card is not there.
+  it('is not shown until the student turns on AI suggestions', async () => {
+    auth.user.aiOptIn = false
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answer(200, {}))
+    renderPage()
+    expect((await screen.findAllByText('Career fair prep workshop')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Recommended for You')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Get Picks' })).toBeNull()
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === '/api/assistant')).toHaveLength(0)
+  })
 
   // The button used to go busy, then back to "Get Picks" with nothing said.
   it("shows the limiter's message on a 429", async () => {

@@ -36,7 +36,7 @@ vi.mock('../components/SourceErrorNotice', () => ({ default: () => null }))
 vi.mock('../components/FeaturedDeal', () => ({ default: () => null }))
 vi.mock('../components/dashboard/SponsoredWidget', () => ({ default: () => null }))
 const auth = vi.hoisted(() => ({
-  user: { id: 'user-1' },
+  user: { id: 'user-1', aiOptIn: false },
   authConfig: {},
   getFirstName: () => 'Pete',
   onboarding: { linkedSourceCount: 0, classCount: 0, hasPurdueLinked: false, needsPurdueConnection: true, needsScheduleSource: false },
@@ -62,6 +62,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   auth.onboarding.linkedSourceCount = 0
+  auth.user.aiOptIn = false
   classes.items = []
   calendar.items = []
   calendar.down = false
@@ -91,11 +92,28 @@ it('shows a connect-your-schedule empty state and skips the digest when no calen
   expect(assistantCalls()).toHaveLength(0)
 })
 
-it('still asks for the digest once a calendar source is linked', async () => {
+it('with AI suggestions on, asks for the digest once a calendar source is linked', async () => {
   auth.onboarding.linkedSourceCount = 1
+  auth.user.aiOptIn = true
   renderHome()
   await waitFor(() => expect(assistantCalls()).toHaveLength(1))
   expect(screen.queryByRole('link', { name: /connect your schedule/i })).toBeNull()
+  expect(screen.getByText(/AI · from your linked schedule/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /ask ai/i })).toBeInTheDocument()
+})
+
+// AI suggestions are opt-in (Settings): until the student turns them on, Home
+// sends nothing to the assistant and the Week ahead card is the day strip alone.
+it('leaves AI out of Home until the student turns on AI suggestions', async () => {
+  auth.onboarding.linkedSourceCount = 1
+  renderHome()
+  expect(await screen.findByRole('list', { name: 'Your next seven days' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Week ahead' })).toBeInTheDocument()
+  expect(screen.queryByText(/AI · from your linked schedule/)).toBeNull()
+  expect(screen.queryByText(/Generating your week summary/)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /ask ai/i })).toBeNull()
+  expect(assistantCalls()).toHaveLength(0)
 })
 
 // The next-class board's Get Directions linked to plain /map, so the map
@@ -302,6 +320,7 @@ it('counts a class added by hand on the days it meets and shows tomorrow\'s on t
 // card with no summary and nothing said.
 it('says why the week ahead could not be generated', async () => {
   auth.onboarding.linkedSourceCount = 1
+  auth.user.aiOptIn = true
   fetchMock.mockImplementation(async (url: unknown) =>
     String(url) === '/api/assistant'
       ? new Response(JSON.stringify({ error: 'You have hit the hourly assistant limit. Try again in a little while.' }), { status: 429 })
