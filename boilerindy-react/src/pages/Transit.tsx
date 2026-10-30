@@ -23,6 +23,7 @@ import {
   getOrderedStopsForRoute,
   isRouteActiveNow,
   isRouteRunningForDisplay,
+  newestReportAt,
   type TransitRoute,
 } from '../lib/transitShared'
 import { errorMessage, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
@@ -833,9 +834,11 @@ export default function Transit() {
   // retrying, and the map with its notice stays up meanwhile (see feedError).
   const firstLoad = (q: { isPending: boolean; errorUpdateCount?: number }) => q.isPending && !q.errorUpdateCount
   const loading = firstLoad(vehiclesQuery) || firstLoad(stopsQuery) || firstLoad(routesQuery)
+  // When TransLoc last heard from a bus, not when this page last asked: while
+  // TransLoc is down the server sends its last copy again, and this stops.
   const lastUpdate = useMemo(
-    () => (vehiclesQuery.dataUpdatedAt ? new Date(vehiclesQuery.dataUpdatedAt) : null),
-    [vehiclesQuery.dataUpdatedAt],
+    () => (vehiclesQuery.dataUpdatedAt ? new Date(newestReportAt(vehiclesQuery.data, vehiclesQuery.dataUpdatedAt)) : null),
+    [vehiclesQuery.data, vehiclesQuery.dataUpdatedAt],
   )
   const [visitedStopIds, setVisitedStopIds] = useState<Set<string>>(() => new Set())
   // Last bus position folded into visitedStopIds - see the accumulation block below.

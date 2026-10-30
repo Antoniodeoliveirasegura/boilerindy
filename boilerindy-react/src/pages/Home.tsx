@@ -17,6 +17,7 @@ import {
   getOrderedStopsForRoute,
   haversineMeters,
   isRouteActiveNow,
+  newestReportAt,
 } from '../lib/transitShared'
 import { placeForStop, translocEtaText, type TransitPlace } from '../lib/transitArrivals'
 import {
@@ -654,9 +655,10 @@ export default function Home() {
   // A failed refetch keeps the last vehicles on screen; the widget only shows
   // the message when it has nothing else to show.
   const transitError = vehiclesQuery.isError ? errorMessage(vehiclesQuery.error, 'Could not load live buses.') : ''
+  // When TransLoc last heard from a bus, as on the Transit page.
   const transitUpdated = useMemo(
-    () => (vehiclesQuery.dataUpdatedAt ? new Date(vehiclesQuery.dataUpdatedAt) : null),
-    [vehiclesQuery.dataUpdatedAt],
+    () => (vehiclesQuery.dataUpdatedAt ? new Date(newestReportAt(vehiclesQuery.data, vehiclesQuery.dataUpdatedAt)) : null),
+    [vehiclesQuery.data, vehiclesQuery.dataUpdatedAt],
   )
   // Cached, prompt-frugal location: paints the last known position instantly and
   // asks for permission at most once (see useUserLocation) instead of nagging on
