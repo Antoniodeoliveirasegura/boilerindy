@@ -128,9 +128,10 @@ test('Riverwalk Apartments: TransLoc for Gray and Crimson, the position estimate
     place: { key: 'riverwalk-apartments', name: 'Riverwalk Apartments', routes: [crimson, gray, orange] },
     fetchedAt: '2026-10-30T10:40:26Z',
     arrivals: [
-      { ...orange, at: '2026-10-30T10:50:26Z', source: 'position' },
-      { ...gray, at: '2026-10-30T10:50:33Z', source: 'transloc' },
-      { ...crimson, at: '2026-10-30T10:51:43Z', source: 'transloc' },
+      // Each names its bus: the vehicles feed's VehicleID, or TransLoc's VehicleId.
+      { ...orange, at: '2026-10-30T10:50:26Z', source: 'position', vehicleId: 41 },
+      { ...gray, at: '2026-10-30T10:50:33Z', source: 'transloc', vehicleId: 12 },
+      { ...crimson, at: '2026-10-30T10:51:43Z', source: 'transloc', vehicleId: 28 },
     ],
   })
 })
@@ -149,11 +150,17 @@ test('Michigan and Blackford at the sample\'s moment: TransLoc for the three rou
   const { arrivals } = buildArrivals({ place: BLACKFORD, index: INDEX, estimates, vehicles, now: NOW })
   const { crimson, gray, yellow } = routes
   assert.deepEqual(arrivals, [
-    { ...gray, at: '2026-10-30T10:41:57Z', source: 'transloc' },
-    { ...crimson, at: '2026-10-30T10:46:37Z', source: 'transloc' },
-    { ...yellow, at: '2026-10-30T10:48:01Z', source: 'transloc' },
-    { ...yellow, at: '2026-10-30T10:56:12Z', source: 'transloc' },
+    { ...gray, at: '2026-10-30T10:41:57Z', source: 'transloc', vehicleId: 12 },
+    { ...crimson, at: '2026-10-30T10:46:37Z', source: 'transloc', vehicleId: 28 },
+    { ...yellow, at: '2026-10-30T10:48:01Z', source: 'transloc', vehicleId: 26 },
+    { ...yellow, at: '2026-10-30T10:56:12Z', source: 'transloc', vehicleId: 9 },
   ])
+})
+
+test('an arrival with no bus named says vehicleId null', () => {
+  const estimates = [{ routeId: 31, routeStopId: 369, at: NOW + 5 * MIN, vehicleId: null, arriving: false }]
+  const { arrivals } = buildArrivals({ place: RIVERWALK, index: INDEX, estimates, vehicles: [{ RouteID: 34, Latitude: 39.774493, Longitude: -86.170475 }], now: NOW })
+  assert.deepEqual(arrivals.map((a) => [a.routeName, a.source, a.vehicleId]), [['Crimson', 'transloc', null], ['Orange', 'position', null]])
 })
 
 test('when the parser finds nothing, every route falls back to the bus positions', () => {

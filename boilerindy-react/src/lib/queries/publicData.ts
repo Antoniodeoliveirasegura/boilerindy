@@ -1,10 +1,11 @@
-import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery, useQuery, type QueryClient } from '@tanstack/react-query'
+import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery, useQueries, useQuery, type QueryClient } from '@tanstack/react-query'
 import { QUERY_CACHE_MAX_AGE_MS } from '../queryClient'
 import { buildClubsQuery, CLUBS_PAGE_SIZE, type ClubSearchParams, type ClubSearchResult } from '../clubs'
 import type { CampusEventFields } from '../campusEvents'
 import type { CampusNews } from '../campusNews'
 import type { DiningSnapshot, DiningUpcoming, DishDetail } from '../dining'
 import type { ParkingSnapshot } from '../parking'
+import type { TransitArrivals, TransitPlace } from '../transitArrivals'
 
 // The public reads through the query cache (issue #251). Keys, stale
 // times and polling live here so Home, Transit, Dining, Parking, the map's
@@ -74,6 +75,8 @@ export const TRANSIT_VEHICLES_STALE_MS = 4_000
 // Every 5 s (owner, 2026-10-28; it was 10 s), with the server's 4 s cache and
 // Cache-Control just under it so each poll can bring new positions.
 export const TRANSIT_VEHICLES_POLL_MS = 5_000
+// A place's arrival times: the server fills them once per 15 s per place.
+export const TRANSIT_ARRIVALS_POLL_MS = 15_000
 export const DINING_STALE_MS = 5 * 60_000
 export const PARKING_STALE_MS = 60_000
 /** The parking page and the map's garage layer refresh on this interval while the tab is visible. */
@@ -111,6 +114,26 @@ export const transitVehiclesQuery = queryOptions({
   refetchIntervalInBackground: false,
   gcTime: PUBLIC_GC_TIME_MS,
 })
+
+// The stops grouped into places (issue #549), keyed for the arrivals read.
+export const transitPlacesQuery = queryOptions({
+  queryKey: ['transit', 'places'] as const,
+  queryFn: ({ signal }) => fetchJson<{ places: TransitPlace[] }>('/api/transit/places', { signal }),
+  staleTime: TRANSIT_STATIC_STALE_MS,
+  gcTime: PUBLIC_GC_TIME_MS,
+})
+
+// TransLoc's next buses at one place (issue #549), polled like the vehicles
+// while the tab is visible. Never persisted (queryClient.ts).
+export function transitArrivalsQuery(key: string) {
+  return queryOptions({
+    queryKey: ['transit', 'arrivals', key] as const,
+    queryFn: ({ signal }) => fetchJson<TransitArrivals>(`/api/transit/arrivals?stop=${encodeURIComponent(key)}`, { signal }),
+    staleTime: TRANSIT_ARRIVALS_POLL_MS,
+    refetchInterval: TRANSIT_ARRIVALS_POLL_MS,
+    refetchIntervalInBackground: false,
+  })
+}
 
 export const diningQuery = queryOptions({
   queryKey: ['dining'] as const,
@@ -236,6 +259,14 @@ export function clubSearchQuery(params: Omit<ClubSearchParams, 'page'>) {
 export const useTransitRoutes = () => useQuery(transitRoutesQuery)
 export const useTransitStops = () => useQuery(transitStopsQuery)
 export const useTransitVehicles = () => useQuery(transitVehiclesQuery)
+export const useTransitPlaces = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...transitPlacesQuery, enabled })
+/** Each place's arrivals, by key; a place still loading or failed has none. */
+export function useTransitArrivals(keys: readonly string[]): Record<string, TransitArrivals | undefined> {
+  return useQueries({
+    queries: keys.map((key) => transitArrivalsQuery(key)),
+    combine: (results) => Object.fromEntries(keys.map((key, i) => [key, results[i]?.data])),
+  })
+}
 export const useDining = () => useQuery(diningQuery)
 export const useDiningUpcoming = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...diningUpcomingQuery, enabled })
 /** A dish's details; nothing is fetched until there is an id and a date. */

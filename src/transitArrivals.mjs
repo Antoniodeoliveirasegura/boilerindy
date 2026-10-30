@@ -78,14 +78,15 @@ export function unreadTimes(payload, parsed) {
  * The arrivals answer for `place` (an entry of buildTransitIndex's places):
  *
  *   { place: { key, name, routes }, fetchedAt,
- *     arrivals: [{ routeId, routeNum, routeName, color, at, source }] }
+ *     arrivals: [{ routeId, routeNum, routeName, color, at, source, vehicleId }] }
  *
  * `estimates` are parseStopArrivalTimes rows (an empty list when TransLoc
  * gave none), `vehicles` GetMapVehiclePoints rows; a route at the place with
  * no estimate from TransLoc gets the position-based ones instead. Sorted by
  * `at`, at most MAX_PER_ROUTE per route and MAX_ARRIVALS in all; `at` and
- * `fetchedAt` are ISO 8601 to the second. A place with no bus coming answers
- * `arrivals: []`.
+ * `fetchedAt` are ISO 8601 to the second. `vehicleId` is the bus, the vehicles
+ * feed's VehicleID (TransLoc's estimates name it too), or null when neither
+ * did. A place with no bus coming answers `arrivals: []`.
  */
 export function buildArrivals({ place, index, estimates, vehicles, now }) {
   const placeStops = new Set(place.stops.map((stop) => stop.routeStopId))
@@ -94,7 +95,7 @@ export function buildArrivals({ place, index, estimates, vehicles, now }) {
   for (const route of place.routes) {
     const fromTransloc = estimates
       .filter((e) => placeStops.has(e.routeStopId) && canonical(e.routeId) === route.routeId)
-      .map((e) => ({ route, at: e.at, source: 'transloc' }))
+      .map((e) => ({ route, at: e.at, source: 'transloc', vehicleId: e.vehicleId }))
     if (fromTransloc.length) {
       candidates.push(...fromTransloc)
       continue
@@ -103,19 +104,19 @@ export function buildArrivals({ place, index, estimates, vehicles, now }) {
     const targetIndexes = routeStops.flatMap((stop, i) => (stop.placeKey === place.key ? [i] : []))
     const onRoute = vehicles.filter((vehicle) => canonical(vehicle?.RouteID) === route.routeId)
     for (const arrival of positionArrivals({ routeStops, targetIndexes, vehicles: onRoute, now })) {
-      candidates.push({ route, at: arrival.at, source: 'position' })
+      candidates.push({ route, at: arrival.at, source: 'position', vehicleId: arrival.vehicleId })
     }
   }
 
   candidates.sort((a, b) => a.at - b.at)
   const perRoute = new Map()
   const arrivals = []
-  for (const { route, at, source } of candidates) {
+  for (const { route, at, source, vehicleId } of candidates) {
     const count = perRoute.get(route.routeId) ?? 0
     if (count >= MAX_PER_ROUTE) continue
     perRoute.set(route.routeId, count + 1)
     const { routeId, routeNum, routeName, color } = route
-    arrivals.push({ routeId, routeNum, routeName, color, at: isoSeconds(at), source })
+    arrivals.push({ routeId, routeNum, routeName, color, at: isoSeconds(at), source, vehicleId: finite(vehicleId) })
     if (arrivals.length === MAX_ARRIVALS) break
   }
 

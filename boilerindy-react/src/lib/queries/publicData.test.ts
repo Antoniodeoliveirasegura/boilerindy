@@ -8,6 +8,7 @@ import {
   FREE_FOOD_STALE_MS,
   PARKING_REFRESH_MS,
   PARKING_STALE_MS,
+  TRANSIT_ARRIVALS_POLL_MS,
   TRANSIT_STATIC_STALE_MS,
   TRANSIT_VEHICLES_POLL_MS,
   TRANSIT_VEHICLES_STALE_MS,
@@ -21,6 +22,8 @@ import {
   parkingQuery,
   refreshDining,
   retryAfterMsFromHeader,
+  transitArrivalsQuery,
+  transitPlacesQuery,
   transitRoutesQuery,
   transitStopsQuery,
   transitVehiclesQuery,
@@ -182,6 +185,18 @@ describe('what reaches localStorage', () => {
     expect(isPersistedQueryKey(['transit', 'vehicles'])).toBe(false)
     expect(isPersistedQueryKey(['transit', 'stops'])).toBe(true)
     expect(shouldDehydrateQuery({ queryKey: ['transit', 'vehicles'], state: { status: 'success' } } as never)).toBe(false)
+  })
+
+  test('arrival times (issue #549) are public but never persisted; the places are kept like the stops', () => {
+    expect(transitArrivalsQuery('riverwalk-apartments').queryKey).toEqual(['transit', 'arrivals', 'riverwalk-apartments'])
+    expect(transitArrivalsQuery('riverwalk-apartments').refetchInterval).toBe(TRANSIT_ARRIVALS_POLL_MS)
+    expect(TRANSIT_ARRIVALS_POLL_MS).toBe(15_000)
+    expect(transitArrivalsQuery('riverwalk-apartments').refetchIntervalInBackground).toBe(false)
+    expect(isPublicQueryKey(['transit', 'arrivals', 'riverwalk-apartments'])).toBe(true)
+    expect(isPersistedQueryKey(['transit', 'arrivals', 'riverwalk-apartments'])).toBe(false)
+    expect(transitPlacesQuery.queryKey).toEqual(['transit', 'places'])
+    expect(transitPlacesQuery.staleTime).toBe(TRANSIT_STATIC_STALE_MS)
+    expect(isPersistedQueryKey(['transit', 'places'])).toBe(true)
   })
 
   test('a dish\'s details are public but stay in memory (issue #468): they would only pile up in storage', () => {

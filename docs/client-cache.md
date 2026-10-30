@@ -28,6 +28,8 @@ answer stays on screen.
 | `['transit', 'routes']` | `GET /api/transit/routes` | 10 min | none |
 | `['transit', 'stops']` | `GET /api/transit/stops` | 10 min | none |
 | `['transit', 'vehicles']` | `GET /api/transit/vehicles` | 4 s | every 5 s while a Transit screen or the dashboard is open and the tab is visible |
+| `['transit', 'places']` | `GET /api/transit/places` (#549) | 10 min | none; Home reads it only once it has the student's location |
+| `['transit', 'arrivals', key]` | `GET /api/transit/arrivals?stop=` (#549) | 15 s | every 15 s, the server's per-place fill, while Home shows a bus whose route stops near the student and the tab is visible; kept in memory only (see below) |
 | `['dining']` | `GET /api/dining` | 5 min | none; the Dining page's Refresh button fetches `?refresh=1` and writes the answer into this entry |
 | `['dining', 'food', id, date]` | `GET /api/dining/foods/:id?date=` (#468) | 10 min | none; fetched when a dish is opened, kept in memory only (see below) |
 | `['dining', 'upcoming']` | `GET /api/dining/upcoming` (#469) | 30 min | none; the Dining page's headliners and favorites coming up, and Home's favorite alert |
@@ -36,7 +38,7 @@ answer stays on screen.
 | `['news', 'circuit']` | `GET /api/campus-news` | 30 min, or none for an answer with `ok: false` | none; read by the Campus news widget and the Clubs page (issue #470, [campus-news.md](campus-news.md)) |
 | `['events', 'free-food']` | `GET /api/campus-events/free-food` | 60 s | none; the signed-out Free Food page's list, read only once auth has settled with no user (issue #366, [campus-events-feed.md](campus-events-feed.md#signed-out)). A signed-in student's page reads the calendar window below instead |
 
-`refetchIntervalInBackground` is off for the two polls, so a hidden tab stops
+`refetchIntervalInBackground` is off for the polls, so a hidden tab stops
 them (and stops spending the `transit-vehicles` budget); TanStack resumes them
 when the tab is visible again. Public entries stay in memory for 24 hours
 rather than TanStack's five-minute default, because the point is that a
@@ -116,10 +118,11 @@ Only successful queries whose key starts with `transit`, `dining`, `parking`,
 `clubs` or `news` are written to localStorage (`shouldDehydrateQuery` in
 `queryClient.ts`), under the key `boilerindy-query-cache`. This is public data,
 identical for every student, so a device can hold it without knowing who is
-signed in. Two public entries are left out on purpose. `['transit', 'vehicles']`:
+signed in. Three public entries are left out on purpose. `['transit', 'vehicles']`:
 live positions are stale after 4 s, so persisting them would only paint
 yesterday's buses on the map for a moment, and re-serialising the whole cache
-on every 5 s poll is work nobody benefits from. `['dining', 'food', ...]`
+on every 5 s poll is work nobody benefits from. `['transit', 'arrivals', ...]`
+(issue #549) is the same: arrival times are stale within seconds. `['dining', 'food', ...]`
 (issue #468): a dish's details are opened a few at a time, and keeping each
 would only pile them up in storage. The per-user reads above carry the user id in their keys, are excluded from
 persistence, and go with the rest of the client on sign-out, the same rule the

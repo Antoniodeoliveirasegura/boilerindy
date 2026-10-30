@@ -49,6 +49,13 @@ function turnDegrees(heading, bearing) {
  * `heading` (degrees from north), a stop of the route within
  * PAIRED_STOP_METERS of the nearest is the same spot on another pass, and the
  * pass whose way into or out of its stop lies closest to the heading wins.
+ * (The types below are for the website's Home, which imports this.)
+ *
+ * @param {{ lat: number, lon: number }[]} routeStops
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number | null} [heading]
+ * @returns {number}
  */
 export function findStopIndex(routeStops, lat, lon, heading = null) {
   let bestIdx = -1
