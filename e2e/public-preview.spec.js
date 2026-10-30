@@ -337,12 +337,21 @@ test.describe('Public preview pages, signed in', () => {
     await page.route(/server\.arcgisonline\.com/, (route) => route.abort())
   })
 
-  test('dining keeps the navbar, the stars and the AI pick', async ({ page }) => {
+  // The AI pick is opt-in: only a student who turned on AI suggestions in
+  // Settings gets it.
+  test('dining keeps the navbar, the stars and the AI pick', async ({ page, mockApi }) => {
+    mockApi.setUser({ aiOptIn: true })
     await page.goto('/dining')
     await expect(page.getByRole('button', { name: 'Add Silver Star Burger to favorites' })).toBeVisible()
     await expect(page.getByRole('button', { name: /What should I eat/ })).toBeVisible()
     await expect(page.getByRole('navigation').first()).toBeVisible()
     await expect(page.getByTestId('preview-bar')).toHaveCount(0)
+  })
+
+  test('dining leaves out the AI pick until the student turns on AI suggestions', async ({ page }) => {
+    await page.goto('/dining')
+    await expect(page.getByRole('button', { name: 'Add Silver Star Burger to favorites' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /What should I eat/ })).toHaveCount(0)
   })
 
   test('free food reads the calendar window, with the My calendar pill, and never the public read', async ({ page, mockApi }) => {

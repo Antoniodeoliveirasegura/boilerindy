@@ -417,8 +417,8 @@ export default function Events() {
         </div>
       )}
 
-      {/* AI Event Recommendations */}
-      {!hasNoSources && !loading && items.length > 0 && (
+      {/* AI Event Recommendations, only with AI suggestions on in Settings */}
+      {user?.aiOptIn === true && !hasNoSources && !loading && items.length > 0 && (
         <section className="card card-pad r-ai mb-6">
           <div className="card-head mb-2">
             <span className="route-badge">

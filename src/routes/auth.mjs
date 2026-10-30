@@ -2,7 +2,15 @@ import crypto from 'node:crypto'
 import express from 'express'
 import { createAppleTokenRevoker, readAppleTokenFields } from '../appleTokenRevoke.mjs'
 import { buildCasServiceUrl, createCasState, spendCasState } from '../casLinkState.mjs'
-import { DB_FEATURES, badRequest, isSchemaMissingError, logRouteError, logSchemaMissingOnce, respondDbError } from '../dbErrors.mjs'
+import {
+  DB_FEATURES,
+  badRequest,
+  isSchemaMissingError,
+  logRouteError,
+  logSchemaMissingOnce,
+  respondDbError,
+  respondSchemaMissing,
+} from '../dbErrors.mjs'
 import { maskEmail, signInCodeEmail } from '../email.mjs'
 import { onboardingFlags } from '../onboardingFlags.mjs'
 import { verifyPassword } from '../passwordHash.mjs'
@@ -442,7 +450,7 @@ export function createAuthRouter({
     }
   }
 
-  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, providerConfirmed = false }) {
+  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, aiOptIn, providerConfirmed = false }) {
     const user = await getUserById(userId)
     if (!user) throw new Error('User not found.')
 
@@ -522,13 +530,22 @@ export function createAuthRouter({
         password_hash: wantsPasswordChange ? '' : user.password_hash,
         // Analytics opt-out (issue #51): only touch it when the request says so.
         ...(typeof analyticsOptOut === 'boolean' ? { analytics_opt_out: analyticsOptOut } : {}),
+        // AI suggestions opt-in (db/supabase-ai-opt-in.sql): the same rule.
+        ...(typeof aiOptIn === 'boolean' ? { ai_opt_in: aiOptIn } : {}),
         updated_at: new Date().toISOString()
       })
       .eq('id', userId)
       .select()
       .single()
 
-    if (error) throw new Error(error.message)
+    if (error) {
+      // Until db/supabase-ai-opt-in.sql runs the column is missing; the route
+      // answers 503 ai_opt_in_schema_missing instead of the database text.
+      if (typeof aiOptIn === 'boolean' && isSchemaMissingError(error)) {
+        throw Object.assign(new Error('AI suggestions are not set up yet.'), { code: 'ai_opt_in_schema_missing', cause: error })
+      }
+      throw new Error(error.message)
+    }
 
     if (wantsPasswordChange) {
       // Stamp the credential-change time so sessions established earlier are rejected
@@ -697,6 +714,9 @@ export function createAuthRouter({
         purdueUsername: user.purdue_username,
         hasPurdueLinked: Boolean(user.purdue_email),
         analyticsOptOut: Boolean(user.analytics_opt_out),
+        // False until the student turns on AI suggestions in Settings, and for
+        // every account before db/supabase-ai-opt-in.sql runs.
+        aiOptIn: Boolean(user.ai_opt_in),
         isAdmin: isUserAdmin(user),
       },
       onboarding: summary,
@@ -1501,6 +1521,7 @@ export function createAuthRouter({
         currentPassword: req.body.currentPassword,
         newPassword: req.body.newPassword,
         analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
+        aiOptIn: typeof req.body.aiOptIn === 'boolean' ? req.body.aiOptIn : undefined,
         providerConfirmed: hasRecentProviderSignIn(req.session),
       })
       // The user just changed their own password: refresh this session's
@@ -1511,6 +1532,9 @@ export function createAuthRouter({
       const payload = await buildSessionPayload(user, req)
       res.json({ user: payload.user })
     } catch (error) {
+      if (error.code === 'ai_opt_in_schema_missing') {
+        return respondSchemaMissing(res, DB_FEATURES.ai_opt_in, error.cause)
+      }
       res.status(400).json({
         error: {
           message: error.message || 'Could not update profile.',

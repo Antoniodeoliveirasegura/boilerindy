@@ -74,12 +74,15 @@ stored at a direct link, so anyone who is given a photo's link can open it.`,
   },
   {
     title: 'AI assistant',
-    body: `When you use the Campus Assistant, your message is sent to Groq's inference API along
-with context from your own account: your class schedule (including classes you have edited,
-hidden, or added yourself), upcoming assignments and deadlines, the to-do list you keep in the
-app and which items you have checked off, campus events on your calendar, and the public dining
-menu for the day. We do not send your email, password, grades or GPA, device location, or
-anything you post on the campus board. If you don't use the assistant, nothing is sent to it.`,
+    body: `When you use the Campus Assistant, or turn on AI suggestions in Settings (summaries and
+picks on Home, Tasks, Events and Dining, and writing help on the campus board), the request is sent
+to Groq's inference API along with context from your own account: your class schedule (including
+classes you have edited, hidden, or added yourself), upcoming assignments and deadlines, the to-do
+list you keep in the app and which items you have checked off, campus events on your calendar, and
+the public dining menu for the day. With AI suggestions on, the campus board also sends the post or
+reply you are writing, and a thread you ask to summarize. We do not send your email, password,
+grades or GPA, or device location. AI suggestions are off unless you turn them on, and if you use
+neither, nothing is sent.`,
   },
   {
     title: 'Location',

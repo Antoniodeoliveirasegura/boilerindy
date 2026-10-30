@@ -68,6 +68,39 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// AI suggestions are opt-in: the box starts off, and checking it saves aiOptIn
+// alone, then refreshes the session that Home, Tasks and Events read.
+describe('Settings: AI suggestions', () => {
+  test('starts off, and checking it saves aiOptIn and refreshes the session', async () => {
+    const refreshSession = vi.spyOn(auth, 'refreshSession')
+    renderSettings()
+    const box = screen.getByRole('checkbox', { name: /show ai suggestions/i })
+    expect(box).not.toBeChecked()
+
+    fireEvent.click(box)
+    expect(await screen.findByText('AI suggestions turned on.')).toBeInTheDocument()
+    expect(mocks.authRequest).toHaveBeenCalledWith('/api/me/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({ aiOptIn: true }),
+    })
+    expect(refreshSession).toHaveBeenCalled()
+  })
+
+  test('shows why the choice could not be saved', async () => {
+    mocks.authRequest.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === '/api/me/calendar-feed') return { feedUrl: null }
+      if (url === '/api/me/profile' && init?.method === 'PATCH') {
+        throw new Error('The AI suggestions setting is not set up yet. Please try again later.')
+      }
+      return {}
+    })
+    renderSettings()
+    fireEvent.click(screen.getByRole('checkbox', { name: /show ai suggestions/i }))
+    expect(await screen.findByText('The AI suggestions setting is not set up yet. Please try again later.')).toBeInTheDocument()
+    expect(screen.queryByText('AI suggestions turned on.')).toBeNull()
+  })
+})
+
 // The account fields had labels with no htmlFor and inputs with no id, so a
 // screen reader named them by their placeholders: the Display name field was
 // announced as someone else's name.

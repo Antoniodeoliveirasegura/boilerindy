@@ -806,8 +806,8 @@ export default function Assignments() {
         </div>
       )}
 
-      {/* AI Insights Panel */}
-      {!hasNoSources && !loading && filteredItems.length > 0 && (
+      {/* AI Insights Panel, only with AI suggestions on in Settings */}
+      {user?.aiOptIn === true && !hasNoSources && !loading && filteredItems.length > 0 && (
         <section className="card card-pad r-ai mb-5">
           {/* card-head as on Events' Recommended card. The title row is the
               collapse toggle (a real button, so it works from the keyboard);
