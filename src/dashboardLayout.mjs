@@ -36,15 +36,17 @@ export const DEFAULT_LAYOUT = [
   { id: 'smart-alerts', size: 'full', visible: true },
   { id: 'quick-actions', size: 'full', visible: true },
   { id: 'next-class', size: 'half', visible: true },
-  { id: 'gpa', size: 'half', visible: true },
+  // The Circuit's headlines (issue #470), beside the next class so news is seen
+  // without scrolling. Existing layouts get it appended hidden.
+  { id: 'campus-news', size: 'half', visible: true },
   { id: 'free-time', size: 'half', visible: true },
   { id: 'todays-events', size: 'half', visible: true },
   { id: 'tasks-due', size: 'half', visible: true },
   { id: 'live-shuttles', size: 'half', visible: true },
   { id: 'dining', size: 'half', visible: true },
   { id: 'board', size: 'half', visible: true },
-  // The Circuit's headlines (issue #470). Existing layouts get it appended hidden.
-  { id: 'campus-news', size: 'half', visible: true },
+  // GPA traded places with Campus News: a number that changes once a term.
+  { id: 'gpa', size: 'half', visible: true },
   { id: 'sponsored', size: 'half', visible: true },
   { id: 'calendar-feed', size: 'half', visible: false },
 ]
