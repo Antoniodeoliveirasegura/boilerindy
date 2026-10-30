@@ -150,6 +150,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-dining-favorite-alerts.sql',
     'Could not save notification settings.',
   ),
+  // The "Show AI suggestions" switch in Settings, users.ai_opt_in.
+  ai_opt_in: dbFeature(
+    'ai_opt_in',
+    'The AI suggestions setting',
+    'db/supabase-ai-opt-in.sql',
+    'Could not update your profile.',
+  ),
   // The shared campus events table the ingest cron writes (#30).
   campus_events: dbFeature(
     'campus_events',
