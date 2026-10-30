@@ -439,10 +439,14 @@ test('POST /api/sources/purdue/schedule stores a pending source for the student,
     assert.ok(hasCall(insert.chain, 'select'))
     assert.ok(hasCall(insert.chain, 'single'))
 
-    // The feed was checked and fetched once, and its two classes upserted.
+    // The feed was checked and fetched once, the new source's stored items read
+    // (none yet, so nothing to delete), and its two classes upserted.
     assert.deepEqual(feedUrls, [PURDUE_FEED])
     assert.deepEqual(lookups, ['timetable.mypurdue.purdue.edu', 'timetable.mypurdue.purdue.edu'])
-    const [upsert, sweep] = supabase.queriesOf('calendar_items')
+    const itemQueries = supabase.queriesOf('calendar_items')
+    assert.deepEqual(itemQueries.map((q) => operation(q.chain)), ['select', 'upsert'])
+    const [read, upsert] = itemQueries
+    assert.ok(hasCall(read.chain, 'eq', 'source_id', row.id))
     const [items, options] = upsert.chain.find((c) => c.method === 'upsert').args
     assert.deepEqual(options, { onConflict: 'source_id,external_uid' })
     assert.deepEqual(
@@ -452,8 +456,6 @@ test('POST /api/sources/purdue/schedule stores a pending source for the student,
         [STUDENT.id, row.id, 'class', 'Lab 2 - ENGR 13300'],
       ],
     )
-    assert.equal(operation(sweep.chain), 'delete')
-    assert.ok(hasCall(sweep.chain, 'eq', 'source_id', row.id))
 
     // The cache is dropped when the source is added and again after the sync.
     assert.deepEqual(invalidated.map((i) => i.userId), [STUDENT.id, STUDENT.id])
@@ -481,7 +483,7 @@ test('POST /api/sources/brightspace/schedule needs no Purdue link and labels the
     assert.equal(row.label, 'Brightspace Calendar')
     assert.equal(row.status, 'pending')
     assert.deepEqual(feedUrls, [BRIGHTSPACE_FEED])
-    const [upsert] = supabase.queriesOf('calendar_items')
+    const upsert = supabase.queriesOf('calendar_items').find((q) => operation(q.chain) === 'upsert')
     const [items] = upsert.chain.find((c) => c.method === 'upsert').args
     assert.deepEqual(items.map((item) => [item.category, item.title]), [
       ['assignment', 'Homework 5 - ENGR 13300'],

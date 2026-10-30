@@ -225,3 +225,29 @@ describe('Privacy marketplace photos', () => {
     expect(body).toMatch(/Photos you add to a\s+marketplace listing are reviewed by an admin before other students see them\./)
   })
 })
+
+// boilerindy-app PR #170 - the app sends Expo's EAS Observe its launch and
+// screen timings, device state and crash reports, so the policy says what goes,
+// that the account never does, that the analytics switch does not stop it, and
+// how long Expo keeps it.
+describe('Privacy app performance data (EAS Observe)', () => {
+  const body = (heading: string) => {
+    const section = screen.getByRole('heading', { name: heading }).closest('section') as HTMLElement
+    return section.textContent || ''
+  }
+
+  test('say what EAS Observe receives, never with the account, and that the analytics switch does not stop it', () => {
+    renderAt('/privacy')
+    const app = body('The BoilerIndy app')
+    expect(app).toMatch(/EAS Observe also receives, with that same id and never your account/)
+    expect(app).toMatch(/how long the\s+app takes to start and to open each screen/)
+    expect(app).toMatch(/reports of crashes/)
+    expect(app).toMatch(/Turning off usage analytics does not stop it\./)
+  })
+
+  test('name Expo for performance and crash reports, and say Expo deletes them after 90 days', () => {
+    renderAt('/privacy')
+    expect(body('Who we share data with')).toMatch(/Expo \(app updates, push delivery, and app performance and crash reports/)
+    expect(body('How long we keep data')).toMatch(/Expo deletes the app's\s+performance data and crash reports after 90 days/)
+  })
+})
