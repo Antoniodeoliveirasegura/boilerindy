@@ -74,12 +74,15 @@ stored at a direct link, so anyone who is given a photo's link can open it.`,
   },
   {
     title: 'AI assistant',
-    body: `When you use the Campus Assistant, your message is sent to Groq's inference API along
-with context from your own account: your class schedule (including classes you have edited,
-hidden, or added yourself), upcoming assignments and deadlines, the to-do list you keep in the
-app and which items you have checked off, campus events on your calendar, and the public dining
-menu for the day. We do not send your email, password, grades or GPA, device location, or
-anything you post on the campus board. If you don't use the assistant, nothing is sent to it.`,
+    body: `When you use the Campus Assistant, or turn on AI suggestions in Settings (summaries and
+picks on Home, Tasks, Events and Dining, and writing help on the campus board), the request is sent
+to Groq's inference API along with context from your own account: your class schedule (including
+classes you have edited, hidden, or added yourself), upcoming assignments and deadlines, the to-do
+list you keep in the app and which items you have checked off, campus events on your calendar, and
+the public dining menu for the day. With AI suggestions on, the campus board also sends the post or
+reply you are writing, and a thread you ask to summarize. We do not send your email, password,
+grades or GPA, or device location. AI suggestions are off unless you turn them on, and if you use
+neither, nothing is sent.`,
   },
   {
     title: 'Location',
@@ -126,9 +129,12 @@ regenerate the link at any time, which immediately disables the old one.`,
   {
     title: 'The BoilerIndy app',
     body: `The iPhone and Android app uses the same account, database and service providers as the
-website, and everything in this policy applies to it. It asks for one thing the website does
-not: the photo you pick when you add one to a listing (never the camera, the microphone or your
-location). It keeps your session and settings in the phone's secure storage. Expo delivers app
+website, and everything in this policy applies to it. It asks for two things the website does
+not, each only when you use it: the photo you pick when you add one to a listing (never the
+camera, the microphone or your location), and Face ID, Touch ID or your fingerprint if you turn
+on Unlock with Face ID in Profile. The phone checks your face or fingerprint itself and tells the
+app only whether it matched, so no face or fingerprint data reaches us or leaves the phone. It
+keeps your session and settings in the phone's secure storage. Expo delivers app
 updates and push notifications, and sees an anonymous id for your install when the app checks for
 an update. Expo's EAS Observe also receives, with that same id and never your account, how long the
 app takes to start and to open each screen, the phone's model and system version, its battery,
@@ -248,7 +254,7 @@ export default function Privacy() {
             <div>
               <h1 className="page-title">Privacy policy</h1>
               <p className="page-sub">
-                Last updated October 28, 2026. The short version: your data stays in our own database, we
+                Last updated October 30, 2026. The short version: your data stays in our own database, we
                 use no advertising trackers, we never store your Purdue password, and you can opt out of
                 analytics or delete your account anytime.
               </p>

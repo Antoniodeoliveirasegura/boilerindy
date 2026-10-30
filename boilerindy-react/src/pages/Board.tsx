@@ -85,6 +85,9 @@ function canBlockAuthor(item: { isMine?: boolean; anon?: boolean }) {
 export default function Board() {
   const { user } = useAuth()
   const userId = user?.id as string | undefined
+  // AI suggestions are opt-in (Settings). Without them no draft or thread goes
+  // to the assistant: no live suggestions, Polish, thread summary or reply tip.
+  const aiOn = user?.aiOptIn === true
   const { confirm, confirmDialog } = useConfirm()
   const { report, blockAuthor, moderationUi } = useReportAndBlock()
   const [posts, setPosts] = useState<Post[]>([])
@@ -250,7 +253,7 @@ export default function Board() {
        Intentional synchronous UI sync: clear stale AI compose suggestions the
        moment the composer closes or the draft becomes too short, and flag loading
        before the debounced request. These are cleanup resets, not derived state. */
-    if (!showForm) {
+    if (!showForm || !aiOn) {
       setLiveCompose(null)
       setLiveComposeLoading(false)
       return
@@ -296,7 +299,7 @@ export default function Board() {
       clearTimeout(timer)
       ac.abort()
     }
-  }, [newTitle, newBody, showForm])
+  }, [newTitle, newBody, showForm, aiOn])
 
   // ── Upvote ─────────────────────────────────────────────────────────────────
   const handleUpvote = async (id: string) => {
@@ -654,16 +657,18 @@ export default function Board() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <AnonCheckbox label="Post anonymously" checked={isAnon} onChange={setIsAnon} />
               <div className="flex items-center gap-2 flex-wrap justify-end">
-                <button
-                  type="button"
-                  onClick={handleImprovePost}
-                  disabled={!newTitle.trim() || improving}
-                  className="btn btn-secondary"
-                  title="Let AI rewrite your post to be clearer"
-                >
-                  <Icon name="sparkles" size={15} />
-                  {improving ? 'Improving…' : 'Polish with AI'}
-                </button>
+                {aiOn && (
+                  <button
+                    type="button"
+                    onClick={handleImprovePost}
+                    disabled={!newTitle.trim() || improving}
+                    className="btn btn-secondary"
+                    title="Let AI rewrite your post to be clearer"
+                  >
+                    <Icon name="sparkles" size={15} />
+                    {improving ? 'Improving…' : 'Polish with AI'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleSubmitPost}
@@ -981,7 +986,7 @@ export default function Board() {
                             order and the accessibility tree (R21). */}
                         <div className="overflow-hidden min-h-0" inert={!repliesOpen.has(post.id)}>
                           <div className="border-l-2 border-[var(--color-border-2)] pl-4 pr-1 pb-1">
-                            {replyCountOf(post) >= 5 && (
+                            {aiOn && replyCountOf(post) >= 5 && (
                               <div className="pt-1 mb-2">
                                 {threadSummaries[post.id] ? (
                                   <div className="r-ai rounded-[var(--radius-lg)] bg-[var(--color-stat)] px-4 py-3.5">
@@ -1076,6 +1081,7 @@ export default function Board() {
                                 signed with your name it unmasked you as the poster (R19). */}
                             <ReplyInput
                               userId={userId}
+                              aiOn={aiOn}
                               postId={post.id}
                               threadTitle={post.title}
                               threadBody={post.body || ''}
@@ -1198,6 +1204,7 @@ function AnonCheckbox({ label, checked, onChange }: { label: string; checked: bo
 
 function ReplyInput({
   userId,
+  aiOn,
   postId,
   onSubmit,
   threadTitle = '',
@@ -1205,6 +1212,8 @@ function ReplyInput({
   defaultAnon,
 }: {
   userId: string | undefined
+  /** AI suggestions on in Settings: only then does a reply draft ask for a tip. */
+  aiOn: boolean
   postId: string
   onSubmit: (text: string, anon: boolean) => Promise<void> | void
   threadTitle?: string
@@ -1241,7 +1250,7 @@ function ReplyInput({
        draft becomes too short, and flag loading before the debounced request.
        These are cleanup resets, not derived state. */
     const d = text.trim()
-    if (d.length < 8) {
+    if (d.length < 8 || !aiOn) {
       setReplyTip(null)
       setReplyTipLoading(false)
       return
@@ -1282,7 +1291,7 @@ function ReplyInput({
       clearTimeout(timer)
       ac.abort()
     }
-  }, [text, threadTitle, threadBody])
+  }, [text, threadTitle, threadBody, aiOn])
 
   const handleSubmit = async () => {
     if (!text.trim() || sendingRef.current) return
