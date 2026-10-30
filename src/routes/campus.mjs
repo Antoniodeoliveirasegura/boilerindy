@@ -4,6 +4,7 @@ import { fetchCircuitNews } from '../circuitNews.mjs'
 import { fetchParkingStatus } from '../parkingStatus.mjs'
 import { MAX_PER_ROUTE, buildArrivals, parseStopArrivalTimes, unreadTimes } from '../transitArrivals.mjs'
 import { buildTransitIndex, normalizePlaceKey, publicPlace } from '../transitPlaces.mjs'
+import { vehiclesAsOf } from '../transitVehicles.mjs'
 import { UpstreamError, fetchUpstreamJson } from '../upstreamFetch.mjs'
 
 // Campus: the TransLoc shuttle proxies, the widgets' stop list and arrivals
@@ -167,7 +168,7 @@ export function createCampusPublicRouter({
   async function handleTransitVehicles(_req, res) {
     if (!translocReady(res)) return
     try {
-      const { rows: data } = await loadVehicles()
+      const { fetchedAt, rows } = await loadVehicles()
       // Public data, cached 4 s here anyway: let browsers and Vercel's edge (the
       // /api rewrite) absorb repeats so they never reach this process. The window
       // stays under the 5 s poll of the website and the app (which calls Render
@@ -176,7 +177,9 @@ export function createCampusPublicRouter({
       // from the expired copy while it refreshes, so a Render cold start does not
       // stall every open map.
       res.set('Cache-Control', 'public, max-age=4, s-maxage=4, stale-while-revalidate=8')
-      res.json(data)
+      // Each Seconds as of now, so the last good copy served while TransLoc is
+      // down ages instead of reading as just reported (src/transitVehicles.mjs).
+      res.json(vehiclesAsOf(rows, fetchedAt))
     } catch (error) {
       respondTranslocError(res, 'vehicles', error)
     }

@@ -116,9 +116,13 @@ and in `test/fixtures/transloc-stop-arrival-times.json`):
 - With no bus running the answer is `[]`, and a place whose routes have not
   started yet gets `[]` too.
 - `EstimateTime` agreed with `Seconds` to the second. The vehicles feed's
-  `TimeStamp` (`/Date(ms-0600)/`) runs six hours ahead of the real time, so
-  the parser still reads `Seconds` first: it does not lean on the relay's
-  clock.
+  `TimeStamp` (`/Date(ms-0600)/`) is no clock: its ms is six hours plus that
+  row's `Seconds` past the answer (30 answers of 9 buses, 2026-10-30), so the
+  parser still reads `Seconds` first: it does not lean on the relay's clock.
+  A vehicles row's own `Seconds` is how long before the answer the bus last
+  reported, and `/api/transit/vehicles` grows it by the age of the copy it
+  sends (`src/transitVehicles.mjs`), so a copy served while TransLoc is down
+  reads as old.
 
 The parser (`src/transitArrivals.mjs`) keeps a time only for a tracked bus
 (an `EstimateTime` or a `VehicleId`: a schedule-only time would be left out),
