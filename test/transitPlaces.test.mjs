@@ -11,6 +11,7 @@ import {
   tidyStopName,
 } from '../src/transitPlaces.mjs'
 import { haversineMeters } from '../src/transitEta.mjs'
+import { ROUTE_HOURS } from '../src/transitHours.mjs'
 
 // Issue #549: TransLoc's stops feed lists one row per stop per route, and a
 // widget's stop is a place. The fixtures are the JagLine feeds as BoilerIndy's
@@ -29,16 +30,16 @@ const routeLabel = (route) => `${route.routeNum} ${route.routeName}`
 
 test('the route table names every RouteID and folds hidden variants onto the route shown on the map', () => {
   const table = buildRouteTable(ROUTES)
-  assert.deepEqual(table.get(31), { routeId: 31, routeNum: '1', routeName: 'Crimson', color: '#990000' })
-  assert.deepEqual(table.get(19), { routeId: 19, routeNum: '2', routeName: 'Gray', color: '#83786F' })
-  assert.deepEqual(table.get(34), { routeId: 34, routeNum: '7', routeName: 'Orange', color: '#E68217' })
+  assert.deepEqual(table.get(31), { routeId: 31, routeNum: '1', routeName: 'Crimson', color: '#990000', hours: ROUTE_HOURS[1] })
+  assert.deepEqual(table.get(19), { routeId: 19, routeNum: '2', routeName: 'Gray', color: '#83786F', hours: ROUTE_HOURS[2] })
+  assert.deepEqual(table.get(34), { routeId: 34, routeNum: '7', routeName: 'Orange', color: '#E68217', hours: ROUTE_HOURS[7] })
   // "Route 1 - Crimson Estimated Times_april2025", hidden: a bus reporting it is on Crimson.
   assert.deepEqual(table.get(18), table.get(31))
   assert.deepEqual(table.get(29), table.get(34))
   assert.equal(table.get(3).routeId, 32)
-  // Hidden with no shown route of its number, and a charter with no number: their own.
-  assert.deepEqual(table.get(6), { routeId: 6, routeNum: '6', routeName: 'Green', color: '#008264' })
-  assert.deepEqual(table.get(16), { routeId: 16, routeNum: null, routeName: 'Charter 1', color: '#A800A8' })
+  // Hidden with no shown route of its number, and a charter with no number: their own, with no hours on file.
+  assert.deepEqual(table.get(6), { routeId: 6, routeNum: '6', routeName: 'Green', color: '#008264', hours: null })
+  assert.deepEqual(table.get(16), { routeId: 16, routeNum: null, routeName: 'Charter 1', color: '#A800A8', hours: null })
   assert.equal(table.size, ROUTES.length)
 })
 
@@ -48,8 +49,8 @@ test('route descriptions read with the en dash TransLoc writes, and every row is
     { RouteID: 18, Description: `Route 1 ${EN_DASH} Crimson Estimated Times_april2025`, MapLineColor: 'not a color' },
     { RouteID: 'x', Description: 'No id' },
   ])
-  assert.deepEqual(table.get(31), { routeId: 31, routeNum: '1', routeName: 'Crimson', color: '#990000' })
-  assert.deepEqual(table.get(18), { routeId: 18, routeNum: '1', routeName: 'Crimson', color: null })
+  assert.deepEqual(table.get(31), { routeId: 31, routeNum: '1', routeName: 'Crimson', color: '#990000', hours: ROUTE_HOURS[1] })
+  assert.deepEqual(table.get(18), { routeId: 18, routeNum: '1', routeName: 'Crimson', color: null, hours: ROUTE_HOURS[1] })
   assert.equal(table.size, 2)
   assert.equal(buildRouteTable(null).size, 0)
 })
@@ -123,6 +124,23 @@ test('one name far apart makes separate places with numbered keys, and bad rows 
   )
 })
 
+test('each route at a place carries the hours of its printed number, and an unnamed route none', () => {
+  const { byKey } = buildTransitIndex(STOPS, ROUTES)
+  assert.deepEqual(
+    byKey.get('michigan-and-blackford').routes.map((r) => [routeLabel(r), r.hours.label]),
+    [
+      ['1 Crimson', 'Mon-Fri 6:30a-10:00p'],
+      ['2 Gray', 'Mon-Fri 6:30a-10:00p'],
+      ['3 Yellow', 'Mon-Fri 5:30a-12:00a'],
+      ['5 Purple', 'Mon-Fri 7:00a-10:00p'],
+      ['7 Orange', 'Sat-Sun 9:00a-8:00p'],
+    ],
+  )
+  // A stop on a RouteID the routes feed does not list.
+  const { places } = buildTransitIndex([{ Description: 'Somewhere New', Latitude: 39.77, Longitude: -86.17, RouteID: 999, RouteStopID: 1 }], ROUTES)
+  assert.deepEqual(places[0].routes, [{ routeId: 999, routeNum: null, routeName: null, color: null, hours: null }])
+})
+
 test('each route keeps its stops in feed order with their places, for the position estimate', () => {
   const { routeStops } = buildTransitIndex(STOPS, ROUTES)
   const crimson = routeStops.get(31)
@@ -151,7 +169,7 @@ test('publicPlace leaves the route stop ids out', () => {
     name: 'Campus Center',
     lat: 39.774177,
     lon: -86.17567,
-    routes: [{ routeId: 33, routeNum: '5', routeName: 'Purple', color: '#66435A' }],
+    routes: [{ routeId: 33, routeNum: '5', routeName: 'Purple', color: '#66435A', hours: ROUTE_HOURS[5] }],
   })
 })
 

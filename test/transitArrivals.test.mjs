@@ -10,6 +10,7 @@ import {
   parseStopArrivalTimes,
   unreadTimes,
 } from '../src/transitArrivals.mjs'
+import { routeHours } from '../src/transitHours.mjs'
 import { buildTransitIndex } from '../src/transitPlaces.mjs'
 
 // Issue #549: the arrivals answer. TransLoc's own estimates come first; a
@@ -124,8 +125,10 @@ test('Riverwalk Apartments: TransLoc for Gray and Crimson, the position estimate
   const estimates = parseStopArrivalTimes(ARRIVALS, { now: NOW, routeStopIds: RIVERWALK.stops.map((s) => s.routeStopId) })
   const answer = buildArrivals({ place: RIVERWALK, index: INDEX, estimates, vehicles: [ORANGE_AT_BLACKFORD, CRIMSON_AT_LONG_HALL], now: NOW })
   const { crimson, gray, orange } = routes
+  // The place's routes carry their hours, as in places; an arrival names its route without them.
+  const withHours = (route) => ({ ...route, hours: routeHours(route.routeNum) })
   assert.deepEqual(answer, {
-    place: { key: 'riverwalk-apartments', name: 'Riverwalk Apartments', routes: [crimson, gray, orange] },
+    place: { key: 'riverwalk-apartments', name: 'Riverwalk Apartments', routes: [crimson, gray, orange].map(withHours) },
     fetchedAt: '2026-10-30T10:40:26Z',
     arrivals: [
       // Each names its bus: the vehicles feed's VehicleID, or TransLoc's VehicleId.
