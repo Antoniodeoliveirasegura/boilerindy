@@ -351,7 +351,7 @@ export default function CampusAssistant() {
                 <div className="font-display text-[15px] font-extrabold tracking-[-0.01em] text-[var(--color-ink-txt)]">BoilerIndy</div>
                 <div className="text-[11.5px] text-[var(--color-ink-dim)] flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#3FCB78]" />
-                  Powered by Groq
+                  Campus assistant
                 </div>
               </div>
             </div>

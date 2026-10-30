@@ -11,7 +11,9 @@ import { authRequest } from '../lib/authApi'
 
 vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }))
+// AI suggestions on, so the AI helpers below are there; one describe turns them off.
+const auth = vi.hoisted(() => ({ user: { id: 'u1', aiOptIn: true } }))
+vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 
 const reply = (id: string, body: string, fields: { user: string; anon: boolean; isMine: boolean }) => ({
   id,
@@ -63,6 +65,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  auth.user.aiOptIn = true
 })
 
 function renderBoard() {
@@ -438,5 +441,37 @@ describe('Board AI helpers', () => {
     fireEvent.click(within(thread).getByRole('button', { name: 'Summarize long thread' }))
     expect(await within(thread).findByRole('alert')).toHaveTextContent('The assistant is unavailable right now.')
     expect(within(thread).getByRole('button', { name: 'Summarize long thread' })).toBeEnabled()
+  })
+})
+
+// AI suggestions are opt-in (Settings). With them off the board shows none of
+// its AI helpers, and no draft or thread goes to the assistant while typing.
+describe('Board without AI suggestions', () => {
+  it('shows no AI helpers and sends nothing to the assistant', async () => {
+    auth.user.aiOptIn = false
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    posts[0] = { ...posts[0], replyCount: 6 }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
+    const aiRequests = () =>
+      fetchSpy.mock.calls.filter(([url]) => url === '/api/board/ai-suggestions' || url === '/api/assistant')
+
+    renderBoard()
+    const thread = await article('Where is the quiet floor?')
+    fireEvent.click(within(thread).getByRole('button', { name: /6 replies/ }))
+    expect(within(thread).queryByRole('button', { name: 'Summarize long thread' })).toBeNull()
+    fireEvent.change(within(thread).getByPlaceholderText('Share what you know…'), {
+      target: { value: 'The third floor has outlets by the windows' },
+    })
+
+    openComposer()
+    fireEvent.change(screen.getByLabelText('Question title'), { target: { value: 'Where can I print near the library?' } })
+    expect(screen.queryByRole('button', { name: 'Polish with AI' })).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    expect(aiRequests()).toHaveLength(0)
+    expect(screen.queryByText(/Thinking/)).toBeNull()
+    expect(screen.queryByText('Live suggestions')).toBeNull()
   })
 })

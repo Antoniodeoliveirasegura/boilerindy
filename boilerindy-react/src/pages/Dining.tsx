@@ -278,6 +278,8 @@ export default function Dining() {
   const { user, loading: authLoading } = useAuth()
   const userId = authLoading ? null : ((user?.id as string | undefined) ?? null)
   const signedIn = userId !== null
+  // The AI pick is opt-in (AI suggestions in Settings), on top of the session it needs.
+  const aiOn = signedIn && user?.aiOptIn === true
 
   // Once auth settles, so a signed-in cold load records the view after
   // UsageListener has switched tracking on (signed out it records nothing).
@@ -400,7 +402,7 @@ export default function Dining() {
   )
 
   const askWhatToEat = () => {
-    if (!signedIn) return
+    if (!aiOn) return
     setAiLoading(true)
     setAiError('')
     fetch('/api/assistant', {
@@ -518,8 +520,9 @@ export default function Dining() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* The AI pick posts /api/assistant, which needs a session. */}
-          {signedIn && (
+          {/* The AI pick posts /api/assistant, which needs a session, and
+              shows only with AI suggestions on. */}
+          {aiOn && (
             <button
               type="button"
               onClick={askWhatToEat}
@@ -617,7 +620,7 @@ export default function Dining() {
       )}
 
       {/* AI Suggestion */}
-      {signedIn && aiSuggestion && (
+      {aiOn && aiSuggestion && (
         <div className="card card-pad r-ai mb-4 animate-fade-in-up">
           <div className="flex items-start gap-3">
             <span className="route-badge sm mt-0.5">
@@ -633,7 +636,7 @@ export default function Dining() {
         </div>
       )}
 
-      {signedIn && aiError && (
+      {aiOn && aiError && (
         <div
           role="alert"
           className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-border-2)] bg-[var(--color-stat)] px-4 py-3 text-[13.5px] text-[var(--color-txt-1)]"

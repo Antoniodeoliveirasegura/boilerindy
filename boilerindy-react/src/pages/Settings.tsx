@@ -85,6 +85,7 @@ export default function Settings() {
   const [status, setStatus] = useState('')
   const [saving, setSaving] = useState(false)
   const [analyticsSaving, setAnalyticsSaving] = useState(false)
+  const [aiSaving, setAiSaving] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -192,6 +193,27 @@ export default function Settings() {
       setBanner(error instanceof Error ? error.message : 'Could not update your analytics preference.')
     } finally {
       setAnalyticsSaving(false)
+    }
+  }
+
+  // AI suggestions (db/supabase-ai-opt-in.sql): off until the student turns
+  // them on here. Every page with an AI part reads aiOptIn from the refreshed session.
+  async function handleAiToggle(e: React.ChangeEvent<HTMLInputElement>) {
+    const nextEnabled = e.target.checked
+    setAiSaving(true)
+    setBanner('')
+    setStatus('')
+    try {
+      await authRequest('/api/me/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ aiOptIn: nextEnabled }),
+      })
+      await refreshSession()
+      setStatus(nextEnabled ? 'AI suggestions turned on.' : 'AI suggestions turned off.')
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'Could not update your AI suggestions setting.')
+    } finally {
+      setAiSaving(false)
     }
   }
 
@@ -624,6 +646,22 @@ export default function Settings() {
                 <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
                   Help prioritize features by sharing which pages and features you use. Stored only in
                   BoilerIndy&apos;s own database - no third-party trackers, deleted with your account.
+                </span>
+              </span>
+            </label>
+            <label className="mt-4 flex cursor-pointer select-none items-start gap-3">
+              <input
+                type="checkbox"
+                checked={user?.aiOptIn === true}
+                onChange={handleAiToggle}
+                disabled={aiSaving}
+                className={CHECKBOX}
+              />
+              <span>
+                <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Show AI suggestions</span>
+                <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+                  Summaries and picks on Home, Tasks, Events and Dining, and writing help on the Board.
+                  They send your schedule, tasks or drafts to an AI service, as the privacy policy explains.
                 </span>
               </span>
             </label>

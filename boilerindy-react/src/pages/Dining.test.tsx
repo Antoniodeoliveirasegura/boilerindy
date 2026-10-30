@@ -15,9 +15,10 @@ vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
 
 // The page reads the session from useAuth (issue #366), which throws outside
-// AuthProvider; each test sets the state it needs, signed in by default.
-type AuthState = { loading: boolean; user: null | { id: string } }
-const SIGNED_IN: AuthState = { loading: false, user: { id: 'user-1' } }
+// AuthProvider; each test sets the state it needs, signed in by default, with
+// AI suggestions on so the AI pick is there.
+type AuthState = { loading: boolean; user: null | { id: string; aiOptIn?: boolean } }
+const SIGNED_IN: AuthState = { loading: false, user: { id: 'user-1', aiOptIn: true } }
 const auth = vi.hoisted(() => ({ value: { loading: false, user: { id: 'user-1' } } as AuthState }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth.value }))
 
@@ -186,6 +187,15 @@ describe('signed in', () => {
     expect(await star()).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('button', { name: /What should I eat/ })).toBeInTheDocument()
     expect(authRequest).toHaveBeenCalledWith('/api/me/dining/favorites')
+  })
+
+  // AI suggestions are opt-in (Settings): without them the stars stay and the
+  // AI pick goes.
+  it('leaves out the AI pick until the student turns on AI suggestions', async () => {
+    auth.value = { loading: false, user: { id: 'user-1', aiOptIn: false } }
+    renderDining()
+    expect(await star()).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /What should I eat/ })).toBeNull()
   })
 
   it('reads favorites only once auth has settled', async () => {

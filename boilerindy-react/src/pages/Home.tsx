@@ -603,6 +603,9 @@ export default function Home() {
   const firstName = getFirstName()
   const reducedMotion = usePrefersReducedMotion()
   const userId = user?.id as string | undefined
+  // AI suggestions are opt-in (Settings, db/supabase-ai-opt-in.sql). Without
+  // them Home never asks the assistant for anything and shows no AI.
+  const aiOn = user?.aiOptIn === true
   const overrides = useScheduleOverrides(userId)
   const { layout, editing, setEditing, move, moveToTop, reorder, setVisible, setSize, reset, saveError } = useDashboardLayout(userId)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
@@ -717,7 +720,7 @@ export default function Home() {
   // Start loading when there is no cached digest: the mount effect will fetch
   // one. Deriving the initial value here means the effect never has to flip the
   // flag synchronously (which trips react-hooks/set-state-in-effect).
-  const [weekAheadLoading, setWeekAheadLoading] = useState(() => hasScheduleData && !readCachedWeekDigest())
+  const [weekAheadLoading, setWeekAheadLoading] = useState(() => aiOn && hasScheduleData && !readCachedWeekDigest())
   // A digest that lands after sign-out has unmounted the page must not write the
   // cache back once sign-out has cleared it (issue #219).
   const mountedRef = useRef(true)
@@ -765,7 +768,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (hasScheduleData && !weekAheadText) fetchWeekAheadSummary()
+    if (aiOn && hasScheduleData && !weekAheadText) fetchWeekAheadSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1125,14 +1128,15 @@ export default function Home() {
             {weekAheadError}
           </p>
         )
+        // Without AI suggestions the card is the day strip alone.
         const summary = !hasScheduleData ? (
           <p className="text-[14px] text-[var(--color-txt-2)]">
             <Link to="/setup" className="font-display font-bold text-[var(--color-accent)] hover:underline">
               Connect your schedule
             </Link>{' '}
-            to get a weekly briefing.
+            to see your week here.
           </p>
-        ) : weekAheadLoading && !weekAheadText ? (
+        ) : !aiOn ? null : weekAheadLoading && !weekAheadText ? (
           <div className="flex items-center gap-2 text-[14px] text-[var(--color-txt-2)]">
             <div className="w-3.5 h-3.5 border-2 border-[var(--color-txt-2)] border-t-transparent rounded-full animate-spin shrink-0" />
             Generating your week summary…
@@ -1154,16 +1158,16 @@ export default function Home() {
         // strip waits for a schedule or for something landing this week.
         const showStrip = hasScheduleData || weekDays.some((day) => day.tags.length > 0)
         return (
-          <div className="card card-pad r-ai @container">
+          <div className={`card card-pad ${aiOn ? 'r-ai' : 'r-cls'} @container`}>
             <div className="card-head">
               <span className="route-badge">
-                <Icon name="sparkles" size={18} />
+                <Icon name={aiOn ? 'sparkles' : 'calendar'} size={18} />
               </span>
               <div>
-                <h2 className="card-title">{now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}</h2>
-                <p className="card-sub">AI · from your linked schedule & calendar</p>
+                <h2 className="card-title">{aiOn && now.getDay() === 1 ? 'Monday briefing' : 'Week ahead'}</h2>
+                {aiOn && <p className="card-sub">AI · from your linked schedule & calendar</p>}
               </div>
-              {hasScheduleData && (
+              {aiOn && hasScheduleData && (
                 <button
                   type="button"
                   onClick={generateWeekAheadSummary}
@@ -1521,16 +1525,18 @@ export default function Home() {
                   Ideas from your schedule, dining, and today&apos;s events
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => window.dispatchEvent(new CustomEvent('open-campus-assistant', {
-                  detail: { message: 'What should I do right now? Consider my free time, dining hours, any upcoming events or classes, and give me a specific personalized suggestion.' }
-                }))}
-                className="btn btn-secondary btn-sm shrink-0"
-              >
-                <Icon name="sparkles" size={14} />
-                Ask AI
-              </button>
+              {aiOn && (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-campus-assistant', {
+                    detail: { message: 'What should I do right now? Consider my free time, dining hours, any upcoming events or classes, and give me a specific personalized suggestion.' }
+                  }))}
+                  className="btn btn-secondary btn-sm shrink-0"
+                >
+                  <Icon name="sparkles" size={14} />
+                  Ask AI
+                </button>
+              )}
             </div>
             <ul className="rows mt-2">
               {suggestions.map(({ icon, text, time, sub }, idx) => (

@@ -19,7 +19,7 @@ vi.mock('../lib/authApi', () => ({ authRequest: vi.fn() }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
 vi.mock('../components/SourceErrorNotice', () => ({ default: () => null }))
 vi.mock('../components/TaskCompleteReward', () => ({ default: () => null }))
-const auth = vi.hoisted(() => ({ user: { id: 'user-1' }, onboarding: { linkedSourceCount: 1 } }))
+const auth = vi.hoisted(() => ({ user: { id: 'user-1', aiOptIn: false }, onboarding: { linkedSourceCount: 1 } }))
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 
 const LIMITED = 'You are making changes too quickly. Please wait a moment and try again.'
@@ -373,7 +373,22 @@ describe('AI Insights', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })))
   }
 
-  afterEach(() => vi.unstubAllGlobals())
+  beforeEach(() => {
+    auth.user.aiOptIn = true
+  })
+
+  afterEach(() => {
+    auth.user.aiOptIn = false
+    vi.unstubAllGlobals()
+  })
+
+  // AI suggestions are opt-in (Settings): without them the card is not there.
+  it('is not shown until the student turns on AI suggestions', async () => {
+    auth.user.aiOptIn = false
+    await renderPage()
+    expect(screen.queryByText('AI Insights')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+  })
 
   // Generate used to read only `reply`, so a refusal or a failure put the
   // button back with the original hint and nothing said.

@@ -578,6 +578,7 @@ test('the session payload: two head counts on a cache miss and none on a hit, is
       purdueUsername: 'pete',
       hasPurdueLinked: true,
       analyticsOptOut: false,
+      aiOptIn: false,
       isAdmin: true,
     })
     assert.deepEqual(payload.onboarding, {
@@ -1759,6 +1760,60 @@ test('PATCH profile refuses a bad name and an email or password change without t
     assert.deepEqual(wrong.body, { error: { message: 'Current password is incorrect.', status: 400 } })
     assert.deepEqual(authCalls, [])
     assert.equal(db.users[0].email, 'pete@example.com')
+  })
+})
+
+// AI suggestions are opt-in (db/supabase-ai-opt-in.sql): off for every account
+// until the student turns them on, and only a boolean changes the choice.
+test('PATCH profile turns AI suggestions on and off, and the session says so', async () => {
+  await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    assert.equal((await call('GET', '/api/me/profile', { cookie })).body.user.aiOptIn, false)
+
+    const on = await call('PATCH', '/api/me/profile', { cookie, body: { aiOptIn: true } })
+    assert.equal(on.status, 200)
+    assert.equal(on.body.user.aiOptIn, true)
+    assert.equal(db.users[0].ai_opt_in, true)
+
+    const rename = await call('PATCH', '/api/me/profile', { cookie, body: { name: 'Purdue Pete', aiOptIn: 'yes' } })
+    assert.equal(rename.status, 200)
+    assert.equal(rename.body.user.aiOptIn, true)
+
+    const off = await call('PATCH', '/api/me/profile', { cookie, body: { aiOptIn: false } })
+    assert.equal(off.body.user.aiOptIn, false)
+    assert.equal(db.users[0].ai_opt_in, false)
+  })
+})
+
+test('turning AI suggestions on before README step 52 runs answers 503 ai_opt_in_schema_missing and names the file once', async () => {
+  await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, db, failures }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    failures.users = (chain) =>
+      operation(chain) === 'update' && 'ai_opt_in' in updatePatch(chain)
+        ? { code: 'PGRST204', message: "Could not find the 'ai_opt_in' column of 'users' in the schema cache" }
+        : null
+    const lines = await quietly(async () => {
+      for (let i = 0; i < 2; i += 1) {
+        const res = await call('PATCH', '/api/me/profile', { cookie, body: { aiOptIn: true } })
+        assert.equal(res.status, 503)
+        assert.deepEqual(res.body, {
+          error: {
+            message: 'The AI suggestions setting is not set up yet. Please try again later.',
+            code: 'ai_opt_in_schema_missing',
+            status: 503,
+          },
+        })
+      }
+    })
+    const named = lines.filter((l) => l.includes('db/supabase-ai-opt-in.sql'))
+    assert.equal(named.length, 1, lines.join('\n'))
+    assert.match(named[0], /\[ai_opt_in\] schema missing/)
+
+    // A save that leaves the switch alone never touches the column.
+    const rename = await call('PATCH', '/api/me/profile', { cookie, body: { name: 'Purdue Pete' } })
+    assert.equal(rename.status, 200)
+    assert.equal(rename.body.user.aiOptIn, false)
+    assert.equal(db.users[0].display_name, 'Purdue Pete')
   })
 })
 

@@ -35,10 +35,10 @@ const bentoTiles = [
   },
   {
     span: '',
-    icon: 'sparkles',
-    title: 'Ask anything',
-    desc: '“What should I work on tonight?” the assistant answers from your classes, deadlines, and dining.',
-    route: 'r-ai',
+    icon: 'book',
+    title: 'Campus news',
+    desc: 'Headlines from The Circuit, Purdue Indy’s student newspaper.',
+    route: 'r-ink',
   },
   {
     span: '',
@@ -103,8 +103,8 @@ const bentoTiles = [
 
 const dayTimeline = [
   { time: '8:05 AM', icon: 'schedule', route: 'r-cls', title: 'Heads up: CS 30200 in 25 min', body: 'Your dashboard greets you with the next class, the room, and the walk time.' },
-  { time: '11:15 AM', icon: 'sparkles', route: 'r-ai', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block - and what’s on the menu at Tower Dining.' },
-  { time: '12:30 PM', icon: 'dining', route: 'r-din', title: 'Lunch, sorted', body: 'Live menu shows what’s actually being served. Ask AI for the high-protein pick.' },
+  { time: '11:15 AM', icon: 'clock', route: 'r-cls', title: '“You’ve got 90 free minutes”', body: 'BoilerIndy suggests a study block - and what’s on the menu at Tower Dining.' },
+  { time: '12:30 PM', icon: 'dining', route: 'r-din', title: 'Lunch, sorted', body: 'Live menu shows what’s actually being served, with calories and diet filters.' },
   { time: '2:00 PM', icon: 'bus', route: 'r-bus', title: 'Catch the shuttle', body: 'Your bus moves live on the map, and a chime tells you when it reaches your stop.' },
   { time: '4:30 PM', icon: 'coffee', route: 'r-din', title: 'Free pizza in ET', body: 'Campus events that mention free food, in one feed. You detour for a slice.' },
   { time: '9:00 PM', icon: 'message', route: 'r-ink', title: 'Wind down on the board', body: 'Someone answered your “best quiet study spot?” thread. You upvote and bookmark.' },
@@ -116,7 +116,7 @@ const integrations = [
   ['bus', 'JAGLINE Shuttle', 'r-bus'],
   ['calendar', 'Events Feed', 'r-evt'],
   ['mapPin', 'Campus Map', 'r-map'],
-  ['sparkles', 'Groq AI', 'r-ai'],
+  ['book', 'Campus News', 'r-ink'],
   ['users', 'BoilerLink Clubs', 'r-evt'],
   ['document', 'Task Tracker', 'r-tsk'],
   ['message', 'Community Board', 'r-ink'],
@@ -185,7 +185,6 @@ export default function Landing() {
               Sign in
             </Link>
             <Link to={SIGN_UP_HREF} className="btn btn-primary btn-sm no-underline">
-              <Icon name="sparkles" size={15} className="max-[359px]:hidden" />
               Get started
             </Link>
           </div>
@@ -216,11 +215,10 @@ export default function Landing() {
             <div className="min-w-0">
               <p className="text-[16.5px] md:text-[19px] text-[var(--color-txt-1)] max-w-[500px] leading-[1.55]">
                 Classes, dining, live buses, deadlines, events and a campus board -
-                stitched together and quietly organized by AI. Stop juggling ten apps.
+                stitched together in one place. Stop juggling ten apps.
               </p>
               <div className="flex flex-wrap gap-3 mt-7 mb-8 md:mb-10">
                 <Link to={SIGN_UP_HREF} className="btn btn-primary btn-lg no-underline max-sm:w-full">
-                  <Icon name="sparkles" size={18} />
                   Get started - it’s free
                 </Link>
                 <a href="#features" className="btn btn-secondary btn-lg no-underline max-sm:w-full">
@@ -239,7 +237,7 @@ export default function Landing() {
               <div className="grid grid-cols-2 sm:grid-cols-4 max-w-[560px] border-t-4 border-[var(--color-txt-0)]">
                 <Stat value="12+" label="Campus features" className="pr-3.5" />
                 <Stat value="Live" label="Bus & dining" className="px-3.5 border-l border-[var(--color-border-2)]" />
-                <Stat value="AI" label="by Groq" className="pr-3.5 max-sm:pt-4 sm:px-3.5 sm:border-l sm:border-[var(--color-border-2)]" />
+                <Stat value="5 s" label="Bus refresh" className="pr-3.5 max-sm:pt-4 sm:px-3.5 sm:border-l sm:border-[var(--color-border-2)]" />
                 <Stat value="$0" label="For students" className="px-3.5 max-sm:pt-4 border-l border-[var(--color-border-2)]" />
               </div>
             </div>
@@ -315,9 +313,9 @@ export default function Landing() {
                     <div className="text-[11px] text-[var(--color-txt-2)]">Live on the map</div>
                   </div>
                 </div>
-                <div className="card r-ai flex items-center gap-2.5 py-2 pl-2 pr-3 lg:absolute lg:-left-7 lg:-bottom-10 lg:max-w-[240px] lg:border-[1.5px] lg:border-[var(--color-txt-0)] lg:shadow-[var(--shadow-lg)]">
+                <div className="card r-cls flex items-center gap-2.5 py-2 pl-2 pr-3 lg:absolute lg:-left-7 lg:-bottom-10 lg:max-w-[240px] lg:border-[1.5px] lg:border-[var(--color-txt-0)] lg:shadow-[var(--shadow-lg)]">
                   <span className="route-badge sm">
-                    <Icon name="sparkles" size={14} />
+                    <Icon name="clock" size={14} />
                   </span>
                   <div className="font-display text-[12px] font-bold leading-snug text-[var(--color-txt-0)]">
                     “Good window for a study block before SWE.”
