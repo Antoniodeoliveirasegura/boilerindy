@@ -142,6 +142,16 @@ describe('Transit live map', () => {
     renderAt('/transit')
     await waitFor(() => expect(busesOnMap()).toBe(3))
   })
+
+  // While TransLoc is down the server sends its last copy again with each
+  // Seconds grown by its age, so the time stops instead of following the poll.
+  test('says it was updated when TransLoc last heard from a bus, not when the page last asked', () => {
+    const answered = Date.parse('2026-10-30T12:43:39Z')
+    const reported = VEHICLES.map((bus, i) => ({ ...bus, Seconds: [15, 9, 17][i] }))
+    feed.vehicles = { ...settled(reported), dataUpdatedAt: answered }
+    renderAt('/transit')
+    expect(screen.getByText(`· Updated ${new Date(answered - 9000).toLocaleTimeString()}`)).toBeInTheDocument()
+  })
 })
 
 describe('Transit selected route in the URL', () => {

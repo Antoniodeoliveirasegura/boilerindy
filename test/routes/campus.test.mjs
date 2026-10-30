@@ -199,6 +199,32 @@ test('a TransLoc failure answers 502 when the upstream failed and 500 for anythi
   )
 })
 
+test('vehicles: while TransLoc is down the last good copy goes out with each Seconds grown by its age', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-30T12:43:39Z') })
+  let up = true
+  const cache = createStaleCache({ log: { warn() {} } })
+  // Two buses that last reported 15 and 9 s before TransLoc answered.
+  const rows = [{ ...ORANGE_AT_BLACKFORD, Seconds: 15 }, { VehicleID: 5, RouteID: 33, Latitude: 39.76941, Longitude: -86.17134, IsOnRoute: true, Seconds: 9 }]
+  await withFakeTransloc(
+    () => (up ? json(rows) : new Response('Service Unavailable', { status: 503 })),
+    async (urls) => {
+      await withApp({ cache }, async ({ base }) => {
+        const read = async () => (await fetch(`${base}/api/transit/vehicles`)).json()
+        assert.deepEqual(await read(), rows)
+
+        up = false
+        t.mock.timers.tick(3 * 60 * 1000)
+        const sent = await read()
+        assert.equal(urls.length, 2, 'TransLoc was asked again')
+        assert.deepEqual(sent.map((row) => row.Seconds), [195, 189])
+        assert.deepEqual(sent.map(({ Seconds, ...rest }) => rest), rows.map(({ Seconds, ...rest }) => rest))
+        // The cached copy keeps TransLoc's own Seconds for the next request.
+        assert.deepEqual(cache.peek('transit:vehicles').rows.map((row) => row.Seconds), [15, 9])
+      })
+    },
+  )
+})
+
 // ── The widget reads (issue #549) ──────────────────────────────────────────
 
 test('places lists the stops grouped into places, from the cached stops and routes feeds', async () => {

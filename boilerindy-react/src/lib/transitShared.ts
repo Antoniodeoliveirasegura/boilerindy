@@ -243,3 +243,18 @@ export function nearestStopForVehicle(
   if (!best) return null
   return { description: best.Description, meters: bestD }
 }
+
+/**
+ * When TransLoc last heard from any bus in a vehicles answer: the moment the
+ * answer came, less the smallest Seconds (each row's age of its last report,
+ * which the server grows by its copy's age while TransLoc is down, so this
+ * stops moving then). The answer's own time when no row carries Seconds.
+ */
+export function newestReportAt(vehicles: unknown, answeredAt: number): number {
+  const ages = Array.isArray(vehicles)
+    ? vehicles
+        .map((v) => (v as { Seconds?: unknown } | null)?.Seconds)
+        .filter((s): s is number => typeof s === 'number' && Number.isFinite(s) && s >= 0)
+    : []
+  return ages.length ? answeredAt - Math.min(...ages) * 1000 : answeredAt
+}
