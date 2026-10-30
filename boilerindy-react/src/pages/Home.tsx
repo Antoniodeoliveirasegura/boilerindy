@@ -60,6 +60,7 @@ import {
 import { favoritesComingUp, locationMenus, openState, splitStations, todaysMealHeading } from '../lib/dining'
 import { favoritesOnTodaysMenu, normalizeItemName } from '../lib/diningFavorites'
 import { defaultMeal } from '../../../src/diningMeals.mjs'
+import { AVG_STOP_MINUTES, findStopIndex } from '../../../src/transitEta.mjs'
 import { useMyCalendar, useMyClasses, useMyDiningFavorites, useTaskMeta, type TaskMeta } from '../lib/queries/userData'
 import { taskMetaFromLocalStore } from '../lib/taskLocalStore'
 import PageTitle from '../components/PageTitle'
@@ -354,25 +355,6 @@ function deriveScheduleState(items: any[], now: Date) {
   }
 }
 
-const AVG_STOP_MINUTES = 2
-
-/**
- * Find the index of the stop closest to a given lat/lon within the ordered
- * stop list. Returns -1 if no stop is within 300m.
- */
-function findStopIndex(routeStops: any[], lat: number, lon: number) {
-  let bestIdx = -1
-  let bestD = 300
-  for (let i = 0; i < routeStops.length; i++) {
-    const d = haversineMeters(routeStops[i].lat, routeStops[i].lon, lat, lon)
-    if (d < bestD) {
-      bestD = d
-      bestIdx = i
-    }
-  }
-  return bestIdx
-}
-
 /** The user's nearest stop on a route, within 2 km, and its index in the route's order. */
 function userStopOnRoute(routeStops: any[], userLoc: { lat: number; lon: number } | null) {
   if (!userLoc || !routeStops?.length) return null
@@ -408,7 +390,11 @@ function describeBusEta(
     return `${route.shortName} bus is moving at ${Math.round(speed)} mph`
   }
 
-  const busIdx = findStopIndex(routeStops, vehicle.Latitude, vehicle.Longitude)
+  // The stop the bus is at, as the server's arrivals fallback places it
+  // (src/transitEta.mjs): the nearest within 300 m, except that where the
+  // route passes one spot twice (404 Lot, 16 Tech) a moving bus's heading
+  // picks the pass. A stopped bus reports heading 0, so it gets none.
+  const busIdx = findStopIndex(routeStops, vehicle.Latitude, vehicle.Longitude, moving ? Number(vehicle.Heading) : null)
 
   // The user's closest stop on this route
   const userStop = userStopOnRoute(routeStops, userLoc)
