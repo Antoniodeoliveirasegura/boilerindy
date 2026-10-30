@@ -23,12 +23,11 @@ const load = (name) => JSON.parse(readFileSync(new URL(`../fixtures/${name}`, im
 const FIXTURE = load('boilerlink-organizations.json')
 const DIRECTORY = buildClubDirectory(FIXTURE.value, { now: new Date('2026-09-08T12:00:00.000Z') })
 const TRANSLOC = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
-// The JagLine stops and routes feeds of 2026-10-29, and the made-up
-// GetStopArrivalTimes answer (see test/transitArrivals.test.mjs: no real one
-// has been seen yet).
+// The JagLine stops and routes feeds of 2026-10-29, and its trimmed
+// GetStopArrivalTimes answer of 2026-10-30 (see test/transitArrivals.test.mjs).
 const STOPS = load('transloc-stops.json')
 const ROUTES = load('transloc-routes.json')
-const ARRIVALS = load('transloc-stop-arrival-times.UNVERIFIED.json')
+const ARRIVALS = load('transloc-stop-arrival-times.json')
 const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
 // An Orange bus at Michigan and Blackford: five stops from Riverwalk Apartments.
 const ORANGE_AT_BLACKFORD = { VehicleID: 41, RouteID: 34, Latitude: 39.774493, Longitude: -86.170475, IsOnRoute: true }
@@ -255,14 +254,14 @@ test('arrivals: TransLoc\'s estimates for the place\'s route stops, positions fo
         const answer = await res.json()
         assert.equal(answer.place.key, 'riverwalk-apartments')
         assert.match(answer.fetchedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
-        const minutes = (at) => (Date.parse(at) - Date.parse(answer.fetchedAt)) / 60000
+        const seconds = (at) => (Date.parse(at) - Date.parse(answer.fetchedAt)) / 1000
+        // The relay answers every row; only Riverwalk Apartments' count.
         assert.deepEqual(
-          answer.arrivals.map((a) => [a.routeNum, a.routeName, minutes(a.at), a.source]),
+          answer.arrivals.map((a) => [a.routeNum, a.routeName, seconds(a.at), a.source]),
           [
-            ['1', 'Crimson', 4, 'transloc'],
-            ['7', 'Orange', 10, 'position'],
-            ['2', 'Gray', 13, 'transloc'],
-            ['1', 'Crimson', 19, 'transloc'],
+            ['7', 'Orange', 600, 'position'],
+            ['2', 'Gray', 607, 'transloc'],
+            ['1', 'Crimson', 677, 'transloc'],
           ],
         )
         assert.deepEqual(urls.sort(), [
@@ -303,7 +302,7 @@ test('arrivals: estimates the relay will not give or the parser cannot read leav
 
   // Times in a shape the parser does not know.
   await withFakeTransloc(
-    (url) => (url.includes('/GetStopArrivalTimes?') ? json([{ RouteID: 31, RouteStopID: 369, Times: [{ Minutes: 4 }] }]) : json([])),
+    (url) => (url.includes('/GetStopArrivalTimes?') ? json([{ RouteId: 31, RouteStopId: 369, Times: [{ Minutes: 4 }] }]) : json([])),
     async () => {
       await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base }) => {
         const res = await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)
@@ -341,7 +340,7 @@ test('arrivals: with TransLoc down and no answer yet, 503 never stored; a bug an
 })
 
 test('arrivals: while TransLoc is down the last good answer keeps serving, with its fetchedAt', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-28T12:42:00Z') })
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-30T10:40:26Z') })
   t.mock.method(console, 'warn', () => {})
   let up = true
   const cache = createStaleCache({ log: { warn() {} } })
@@ -355,8 +354,8 @@ test('arrivals: while TransLoc is down the last good answer keeps serving, with 
     async (urls) => {
       await withApp({ cache }, async ({ base }) => {
         const first = await (await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)).json()
-        assert.equal(first.fetchedAt, '2026-10-28T12:42:00Z')
-        assert.equal(first.arrivals.length, 4)
+        assert.equal(first.fetchedAt, '2026-10-30T10:40:26Z')
+        assert.equal(first.arrivals.length, 3)
 
         // Within 15 s the cached answer is served without asking TransLoc.
         const asked = urls.length

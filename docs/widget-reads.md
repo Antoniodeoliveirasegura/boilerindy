@@ -53,15 +53,17 @@ number, as the website's route map does. Built in `src/transitPlaces.mjs`.
 ```json
 {
   "place": { "key": "riverwalk-apartments", "name": "Riverwalk Apartments", "routes": ["...as in places"] },
-  "fetchedAt": "2026-10-28T12:42:00Z",
+  "fetchedAt": "2026-10-30T10:40:26Z",
   "arrivals": [
-    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000", "at": "2026-10-28T12:46:00Z", "source": "transloc" },
-    { "routeId": 34, "routeNum": "7", "routeName": "Orange", "color": "#E68217", "at": "2026-10-28T12:52:00Z", "source": "position" },
-    { "routeId": 19, "routeNum": "2", "routeName": "Gray", "color": "#83786F", "at": "2026-10-28T12:55:00Z", "source": "transloc" },
-    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000", "at": "2026-10-28T13:01:00Z", "source": "transloc" }
+    { "routeId": 34, "routeNum": "7", "routeName": "Orange", "color": "#E68217", "at": "2026-10-30T10:50:26Z", "source": "position" },
+    { "routeId": 19, "routeNum": "2", "routeName": "Gray", "color": "#83786F", "at": "2026-10-30T10:50:33Z", "source": "transloc" },
+    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000", "at": "2026-10-30T10:51:43Z", "source": "transloc" }
   ]
 }
 ```
+
+(Gray and Crimson are TransLoc's estimates of that morning; the Orange bus
+five stops away is made up, as Orange had not started.)
 
 - Sorted by `at`, at most the next two per route and eight in all. A place
   with no bus coming answers `arrivals: []`.
@@ -70,7 +72,12 @@ number, as the website's route map does. Built in `src/transitPlaces.mjs`.
   position-based one, `source: "position"`: the stops between each bus on the
   route and the place, times two minutes (`src/transitEta.mjs`, ported from
   the website's `describeBusEta`). A bus more than 300 m from every stop of
-  its route, or flagged off its route, gets none.
+  its route, or flagged off its route, gets none. It is rough: a bus counts as
+  at its route's nearest stop, so where a route passes the same spot twice,
+  as at 404 Lot, whose inbound and outbound stops are 13 m apart, it can be
+  put on the wrong pass of the loop. On 2026-10-30 a Yellow bus arriving at
+  404 Lot-Inbound read 18 minutes from Michigan and Blackford, where TransLoc
+  said 5. How far off it runs is #549 item 3's shadow week.
 - One fill per place every 15 seconds at most, through the server's shared
   cache, however many widgets show it; the bus positions come from the same
   4 s cache as `/api/transit/vehicles`.
@@ -81,40 +88,34 @@ number, as the website's route map does. Built in `src/transitPlaces.mjs`.
 - A failing or unreadable estimates call is logged (`TransLoc arrivals: ...`,
   a warning, not a Sentry event) at most every 10 minutes.
 
-### TransLoc's estimates are not verified yet
+### TransLoc's answer
 
-No `GetStopArrivalTimes` answer from the JagLine relay has been seen: it
-needs `TRANSLOC_API_KEY`, and without one the relay answers 200 with an
-empty body. The parser (`src/transitArrivals.mjs`) follows the RideSystems
-shape that public clients of other agencies' `JSONPRelay.svc` read: rows with
-`RouteID` and `RouteStopID` (some spell them `RouteId` and `RouteStopId`) and
-a `Times` list whose entries carry `Seconds`, `EstimateTime`, `IsArriving`,
-`IsDeparted` and `VehicleId`. It keeps a time only for a tracked bus (an
-`EstimateTime` or a `VehicleId`), drops departed buses and anything more than a
-minute past or two hours ahead, prefers the relative `Seconds` to the absolute
-times, and never throws: a shape it does not read leaves every route to the
-position estimate. The request is
-`GetStopArrivalTimes?apiKey=<key>&routeStopIDs=<the place's RouteStopIDs>&timesPerStop=2`,
-and rows for other stops are ignored in case the relay ignores the filter.
+The request is
+`GetStopArrivalTimes?apiKey=<key>&routeStopIDs=<the place's RouteStopIDs>&timesPerStop=2`.
+As the JagLine relay answered it on 2026-10-30 (the trimmed sample is on #549
+and in `test/fixtures/transloc-stop-arrival-times.json`):
 
-Its tests run against `test/fixtures/transloc-stop-arrival-times.UNVERIFIED.json`,
-which is made up. What waits for the real sample:
+- One row per route stop with a bus coming: `RouteId`, `RouteStopId` (the
+  stops feed's `RouteStopID`, the same numbers), `StopId`, the stop and route
+  names and a `Times` list with one entry per bus: `Seconds` to the arrival,
+  `EstimateTime` and `Time` (the same `/Date(ms)/`), `IsArriving` (with
+  `Text: "Arriving"`, a second or so out), `IsDeparted` and `VehicleId`. The
+  `Scheduled...` fields were all null.
+- The filter is honoured: Michigan and Blackford's five route stops brought
+  back the one row of 29 with a bus coming. Whether `timesPerStop` caps the
+  list could not be told, since no route had more than two buses out.
+- With no bus running the answer is `[]`, and a place whose routes have not
+  started yet gets `[]` too.
+- `EstimateTime` agreed with `Seconds` to the second. The vehicles feed's
+  `TimeStamp` (`/Date(ms-0600)/`) runs six hours ahead of the real time, so
+  the parser still reads `Seconds` first: it does not lean on the relay's
+  clock.
 
-1. Call `GetStopArrivalTimes` with the server's key for two or three places,
-   for example Riverwalk Apartments (route stops 243, 369, 409) and Michigan
-   and Blackford (214, 365, 375, 397, 404), and post a trimmed sample on #549
-   without the key.
-2. Check it against the parser: the parameter names (`routeStopIDs`,
-   `timesPerStop`), the spelling of the id fields, whether `Seconds` is the
-   countdown, whether schedule-only rows come back, and what `IsDeparted`
-   means. Also check the relay's `/Date(ms-0600)/` times: in the vehicles
-   feed on 2026-10-29, `TimeStamp` decoded six hours ahead of the real time,
-   which is why the parser prefers `Seconds`.
-3. Replace the fixture with the trimmed sample, fix the parser and the tests
-   until they describe it, and drop the UNVERIFIED notes here and in
-   `src/transitArrivals.mjs`.
-
-Until then, an arrival marked `transloc` is only as good as that guess.
+The parser (`src/transitArrivals.mjs`) keeps a time only for a tracked bus
+(an `EstimateTime` or a `VehicleId`: a schedule-only time would be left out),
+drops departed buses and anything more than a minute past or two hours
+ahead, and never throws. An answer it cannot read leaves every route to the
+position estimate and logs a warning.
 
 ## One hall's day
 
@@ -172,7 +173,8 @@ it loads `/api/dining`.
 `test/transitPlaces.test.mjs`, `test/transitEta.test.mjs`,
 `test/transitArrivals.test.mjs`, `test/diningToday.test.mjs` and
 `test/campusTime.test.mjs` cover the pure parts against the JagLine feeds of
-2026-10-29 (`test/fixtures/transloc-stops.json`, `transloc-routes.json`) and
-the saved Nutrislice weeks; `test/routes/campus.test.mjs` and
+2026-10-29 (`test/fixtures/transloc-stops.json`, `transloc-routes.json`), its
+arrival estimates of 2026-10-30 (`transloc-stop-arrival-times.json`) and the
+saved Nutrislice weeks; `test/routes/campus.test.mjs` and
 `test/routes/dining.test.mjs` the routes, their limiters, cache headers and
 the stale answer.
