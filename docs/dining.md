@@ -312,6 +312,15 @@ an answer to a refresh request carries `refreshed`; `?date=YYYY-MM-DD` builds a
 snapshot for another day in the window. Both go through the `public-read` rate
 limiter.
 
+## One hall's day for the app's widget (issue #549)
+
+`GET /api/dining/today?hall=tower-dining` answers one hall's day in about a
+kilobyte, built from this snapshot by `src/diningToday.mjs`: open or closed,
+today's service window and the next opening as instants, and each meal's
+stretch of the day by the meal windows above with up to three headline
+dishes. The app's Dining widget reads it instead of the whole snapshot; the
+answer, its rules and its errors are in [widget-reads.md](widget-reads.md).
+
 ## The page
 
 `boilerindy-react/src/pages/Dining.tsx` with the pure helpers in

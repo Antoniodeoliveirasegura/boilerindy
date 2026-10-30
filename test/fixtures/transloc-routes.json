@@ -1,0 +1,23 @@
+[
+  {"Description":"Route 1 - Crimson Estimated Times","IsVisibleOnMap":true,"MapLineColor":"#990000","RouteID":31},
+  {"Description":"Route 2 - Gray Estimated Times","IsVisibleOnMap":true,"MapLineColor":"#83786F","RouteID":19},
+  {"Description":"Route 3 - Yellow Estimated Times","IsVisibleOnMap":true,"MapLineColor":"#F1BE48","RouteID":32},
+  {"Description":"Route 4 - Blue Estimated Times","IsVisibleOnMap":true,"MapLineColor":"#006298","RouteID":27},
+  {"Description":"Route 5 - Purple Estimated Times","IsVisibleOnMap":true,"MapLineColor":"#66435A","RouteID":33},
+  {"Description":"Route 6 - Green","IsVisibleOnMap":false,"MapLineColor":"#008264","RouteID":6},
+  {"Description":"Route 7 - Orange Estimated Times","IsVisibleOnMap":true,"MapLineColor":"#e68217","RouteID":34},
+  {"Description":"Charter 1","IsVisibleOnMap":false,"MapLineColor":"#a800a8","RouteID":16},
+  {"Description":"Charter 2","IsVisibleOnMap":false,"MapLineColor":"#3b9199","RouteID":17},
+  {"Description":"Route 3 - Yellow_dec2021","IsVisibleOnMap":false,"MapLineColor":"#F1BE48","RouteID":3},
+  {"Description":"Route 4 - Blue_dec2021","IsVisibleOnMap":false,"MapLineColor":"#006298","RouteID":20},
+  {"Description":"Route 5 - Purple_dec2021","IsVisibleOnMap":false,"MapLineColor":"#66435A","RouteID":13},
+  {"Description":"Route 3 - Yellow Estimated Times_apr2024","IsVisibleOnMap":false,"MapLineColor":"#F1BE48","RouteID":22},
+  {"Description":"Route 4 - Blue Estimated Times_apr2024","IsVisibleOnMap":false,"MapLineColor":"#006298","RouteID":23},
+  {"Description":"Route 3 - Yellow Estimated Times_july2024","IsVisibleOnMap":false,"MapLineColor":"#F1BE48","RouteID":25},
+  {"Description":"Route 4 - Blue Estimated Times_july2024","IsVisibleOnMap":false,"MapLineColor":"#006298","RouteID":24},
+  {"Description":"Route 5 - Purple Estimated Times_nov2024","IsVisibleOnMap":false,"MapLineColor":"#66435A","RouteID":21},
+  {"Description":"Route 1 - Crimson Estimated Times_april2025","IsVisibleOnMap":false,"MapLineColor":"#990000","RouteID":18},
+  {"Description":"Route 3 - Yellow Estimated Times_april2025","IsVisibleOnMap":false,"MapLineColor":"#F1BE48","RouteID":26},
+  {"Description":"Route 5 - Purple Estimated Times_april2025","IsVisibleOnMap":false,"MapLineColor":"#66435A","RouteID":28},
+  {"Description":"Route 7 - Orange Estimated Times_april2025","IsVisibleOnMap":false,"MapLineColor":"#e68217","RouteID":29}
+]
