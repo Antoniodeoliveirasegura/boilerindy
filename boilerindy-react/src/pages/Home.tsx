@@ -18,6 +18,7 @@ import {
   haversineMeters,
   isRouteActiveNow,
 } from '../lib/transitShared'
+import { placeForStop, translocEtaText, type TransitPlace } from '../lib/transitArrivals'
 import {
   getHomeClassItems,
   isLikelyExamItem,
@@ -46,7 +47,16 @@ import { localIsoDate, startOfWeek } from '../lib/localDate'
 import { splitCourseCode } from '../lib/courseCode'
 import { dueSoonHours, dueSoonLabel } from '../lib/urgency'
 import { aiCacheKey, readAiCache, writeAiCache } from '../lib/aiInsightCache'
-import { errorMessage, useDining, useDiningUpcoming, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import {
+  errorMessage,
+  useDining,
+  useDiningUpcoming,
+  useTransitArrivals,
+  useTransitPlaces,
+  useTransitRoutes,
+  useTransitStops,
+  useTransitVehicles,
+} from '../lib/queries/publicData'
 import { favoritesComingUp, locationMenus, openState, splitStations, todaysMealHeading } from '../lib/dining'
 import { favoritesOnTodaysMenu, normalizeItemName } from '../lib/diningFavorites'
 import { defaultMeal } from '../../../src/diningMeals.mjs'
@@ -363,9 +373,26 @@ function findStopIndex(routeStops: any[], lat: number, lon: number) {
   return bestIdx
 }
 
+/** The user's nearest stop on a route, within 2 km, and its index in the route's order. */
+function userStopOnRoute(routeStops: any[], userLoc: { lat: number; lon: number } | null) {
+  if (!userLoc || !routeStops?.length) return null
+  let best = -1
+  let bestD = Infinity
+  for (let i = 0; i < routeStops.length; i++) {
+    const d = haversineMeters(routeStops[i].lat, routeStops[i].lon, userLoc.lat, userLoc.lon)
+    if (d < bestD) {
+      bestD = d
+      best = i
+    }
+  }
+  return best !== -1 && bestD < 2000 ? { index: best, stop: routeStops[best] } : null
+}
+
 /**
- * Plain-language ETA from this bus to the user's nearest stop on its route.
- * Falls back to a generic description when user location or stop data is missing.
+ * Plain-language ETA from this bus to the user's nearest stop on its route,
+ * counted in stops. Falls back to a generic description when user location or
+ * stop data is missing. A row shows TransLoc's own time instead when it has
+ * one (issue #549, translocEtaText).
  */
 function describeBusEta(
   vehicle: any,
@@ -383,24 +410,10 @@ function describeBusEta(
 
   const busIdx = findStopIndex(routeStops, vehicle.Latitude, vehicle.Longitude)
 
-  // Find user's closest stop on this route
-  let userIdx = -1
-  let userStopName = null
-  if (userLoc) {
-    let bestD = Infinity
-    for (let i = 0; i < routeStops.length; i++) {
-      const d = haversineMeters(routeStops[i].lat, routeStops[i].lon, userLoc.lat, userLoc.lon)
-      if (d < bestD) {
-        bestD = d
-        userIdx = i
-      }
-    }
-    if (bestD < 2000) {
-      userStopName = routeStops[userIdx].name
-    } else {
-      userIdx = -1
-    }
-  }
+  // The user's closest stop on this route
+  const userStop = userStopOnRoute(routeStops, userLoc)
+  const userIdx = userStop ? userStop.index : -1
+  const userStopName = userStop ? userStop.stop.name : null
 
   // If we know both positions, compute stops between bus and user
   if (busIdx !== -1 && userIdx !== -1 && userStopName) {
@@ -863,7 +876,16 @@ export default function Home() {
     return `${transitVehicles.length} bus${transitVehicles.length === 1 ? '' : 'es'} live`
   }, [transitLoading, transitVehicles.length, transitError])
 
-  const transitDashboardRows = useMemo(() => {
+  // TransLoc's own times for the rows (issue #549): each bus's row looks up the
+  // place the user's stop on its route is part of, and that place's arrivals.
+  // Only with a location, as the stop count needs one too.
+  const placesQuery = useTransitPlaces({ enabled: Boolean(userLocation) })
+  const transitPlaces = useMemo<TransitPlace[]>(
+    () => (Array.isArray(placesQuery.data?.places) ? placesQuery.data.places : []),
+    [placesQuery.data],
+  )
+
+  const transitRowsBase = useMemo(() => {
     const mapped = (transitVehicles || []).map((v) => {
       let canon = canonicalFromMap(transitRouteMap, v.RouteID)
       const reportedRoute = transitRoutes.find((r) => r.id === canon)
@@ -881,6 +903,8 @@ export default function Home() {
 
       const routeStops = getOrderedStopsForRoute(transitStops, canon ?? -1, transitRouteMap)
       const eta = describeBusEta(v, route, near, routeStops, speed, moving, userLocation)
+      const userStop = userStopOnRoute(routeStops, userLocation)
+      const place = userStop ? placeForStop(transitPlaces, userStop.stop.lat, userStop.stop.lon) : null
 
       return {
         key: v.VehicleID ?? `${v.Latitude},${v.Longitude},${v.RouteID}`,
@@ -890,6 +914,7 @@ export default function Home() {
         speed,
         moving,
         eta,
+        place,
       }
     })
     mapped.sort((a, b) => {
@@ -898,7 +923,19 @@ export default function Home() {
       return String(a.vehicle.Name || '').localeCompare(String(b.vehicle.Name || ''))
     })
     return mapped.slice(0, 5)
-  }, [transitVehicles, transitStops, transitRouteMap, userLocation])
+  }, [transitVehicles, transitStops, transitRouteMap, userLocation, transitPlaces])
+  const arrivalPlaces = useMemo(
+    () => [...new Set(transitRowsBase.flatMap((row) => (row.place ? [row.place.key] : [])))],
+    [transitRowsBase],
+  )
+  const arrivalsByPlace = useTransitArrivals(arrivalPlaces)
+  // The clock for the countdown: the last vehicle poll (every 5 s) or the
+  // minute tick, whichever is later.
+  const etaNow = Math.max(now.getTime(), vehiclesQuery.dataUpdatedAt || 0)
+  const transitDashboardRows = transitRowsBase.map((row) => {
+    const transloc = row.place ? translocEtaText(arrivalsByPlace[row.place.key], row.vehicle.VehicleID, etaNow) : null
+    return transloc ? { ...row, eta: transloc } : row
+  })
 
   // A favorite dish on today's or tomorrow's menu (issue #469): the starred
   // names against today's snapshot, then tomorrow in the look-ahead.

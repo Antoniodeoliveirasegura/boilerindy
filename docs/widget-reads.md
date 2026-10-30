@@ -55,9 +55,9 @@ number, as the website's route map does. Built in `src/transitPlaces.mjs`.
   "place": { "key": "riverwalk-apartments", "name": "Riverwalk Apartments", "routes": ["...as in places"] },
   "fetchedAt": "2026-10-30T10:40:26Z",
   "arrivals": [
-    { "routeId": 34, "routeNum": "7", "routeName": "Orange", "color": "#E68217", "at": "2026-10-30T10:50:26Z", "source": "position" },
-    { "routeId": 19, "routeNum": "2", "routeName": "Gray", "color": "#83786F", "at": "2026-10-30T10:50:33Z", "source": "transloc" },
-    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000", "at": "2026-10-30T10:51:43Z", "source": "transloc" }
+    { "routeId": 34, "routeNum": "7", "routeName": "Orange", "color": "#E68217", "at": "2026-10-30T10:50:26Z", "source": "position", "vehicleId": 41 },
+    { "routeId": 19, "routeNum": "2", "routeName": "Gray", "color": "#83786F", "at": "2026-10-30T10:50:33Z", "source": "transloc", "vehicleId": 12 },
+    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000", "at": "2026-10-30T10:51:43Z", "source": "transloc", "vehicleId": 28 }
   ]
 }
 ```
@@ -67,6 +67,9 @@ five stops away is made up, as Orange had not started.)
 
 - Sorted by `at`, at most the next two per route and eight in all. A place
   with no bus coming answers `arrivals: []`.
+- `vehicleId` is the bus: the vehicles feed's `VehicleID`, which TransLoc's
+  estimates name too, so a client can put a time on a bus it draws (the
+  website's Home does). `null` when neither named one.
 - `source: "transloc"` is TransLoc's own estimate (`GetStopArrivalTimes` for
   the place's route stops). A route TransLoc gives no estimate for gets the
   position-based one, `source: "position"`: the stops between each bus on the

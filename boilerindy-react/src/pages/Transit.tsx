@@ -26,6 +26,7 @@ import {
   type TransitRoute,
 } from '../lib/transitShared'
 import { errorMessage, useTransitRoutes, useTransitStops, useTransitVehicles } from '../lib/queries/publicData'
+import { compassPoint, pathArrows, travelHeading } from '../lib/transitDirection'
 import PageTitle from '../components/PageTitle'
 import { ESRI_TILE_ATTRIBUTION as TILE_ATTRIBUTION, INK_BUTTON } from '../components/map/mapChrome'
 
@@ -194,6 +195,8 @@ type Vehicle = {
   Latitude?: number
   Longitude?: number
   GroundSpeed?: number
+  /** Degrees clockwise from north; 0 while the bus is stopped. */
+  Heading?: number
   Name?: string
 }
 type Stop = {
@@ -264,7 +267,7 @@ function LiveMap({
   const legendRef = useRef<HTMLDivElement | null>(null)
   const mapInstanceRef = useRef<import('leaflet').Map | null>(null)
   const markersRef = useRef<Record<string, import('leaflet').Marker>>({})
-  const routeLinesRef = useRef<import('leaflet').Polyline[]>([])
+  const routeLinesRef = useRef<import('leaflet').Layer[]>([])
   const stopMarkersRef = useRef<import('leaflet').Marker[]>([])
   const userMarkerRef = useRef<import('leaflet').Marker | null>(null)
   const [mapReady, setMapReady] = useState(false)
@@ -433,6 +436,24 @@ function LiveMap({
     }).addTo(map)
 
     routeLinesRef.current.push(hairline, casing, polyline)
+
+    // Arrowheads along the line, the way its buses run (2026-10-30), as
+    // narrow as the line and in the ink that reads on its colour. Drawing
+    // only: no focus, no click, under the stops and buses.
+    for (const arrow of pathArrows(points)) {
+      const head = L.marker([arrow.lat, arrow.lon], {
+        icon: L.divIcon({
+          html: `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="display:block;transform:rotate(${arrow.bearing}deg)"><path d="M6 2.5 L9.5 8.5 L2.5 8.5 Z" fill="${onRouteColor(selectedRoute.color)}"/></svg>`,
+          className: 'transit-line-arrow',
+          iconSize: [12, 12],
+          iconAnchor: [6, 6],
+        }),
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: -1000,
+      }).addTo(map)
+      routeLinesRef.current.push(head)
+    }
     map.fitBounds(polyline.getBounds(), { padding: [30, 30] })
   }, [stops, selectedRoute, mapReady, canonicalRouteId])
 
@@ -522,12 +543,23 @@ function LiveMap({
       const route = routes.find((r) => r.id === canon) || UNKNOWN_ROUTE
       const isSelected = selectedBus?.VehicleID === vehicle.VehicleID
       const isMoving = (vehicle.GroundSpeed ?? 0) > 0
+      const heading = travelHeading(vehicle)
 
       // A bus is a square route badge in its line's colour with the line's
       // edge (near white, then an ink hairline), its fleet number on a small
-      // ink plate underneath, and a green dot while it moves. Selection is
+      // ink plate underneath, and a green dot while it moves. While it moves
+      // the badge holds an arrow turned to its heading, so the way it is
+      // going shows on the map; stopped, it holds the bus glyph. Selection is
       // not amber (amber is for now): the selected bus adds a ring in its own
       // line colour, framed by the edge again so it holds on the dark map.
+      const glyph =
+        heading == null
+          ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 6v6M16 6v6M2 12h2M20 12h2M5 18v2M19 18v2M5 6a3 3 0 013-3h8a3 3 0 013 3v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6z"/>
+          </svg>`
+          : `<svg class="transit-bus-heading" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(${heading}deg)">
+            <path d="M12 2.5 L19.5 20 L12 15.5 L4.5 20 Z" fill="currentColor"/>
+          </svg>`
       const edge = isSelected
         ? `0 0 0 2.5px ${EDGE}, 0 0 0 5.5px ${route.color}, 0 0 0 7.5px ${EDGE}, 0 0 0 8.5px ${HAIRLINE}`
         : `0 0 0 2.5px ${EDGE}, 0 0 0 3.5px ${HAIRLINE}`
@@ -544,9 +576,7 @@ function LiveMap({
           justify-content: center;
           box-shadow: ${edge};
         ">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M8 6v6M16 6v6M2 12h2M20 12h2M5 18v2M19 18v2M5 6a3 3 0 013-3h8a3 3 0 013 3v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6z"/>
-          </svg>
+          ${glyph}
         </div>
         <div style="
           position: absolute;
@@ -589,7 +619,8 @@ function LiveMap({
         iconAnchor: [15, 15],
       })
 
-      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon, title: `Bus ${vehicle.Name}, ${route.name}` })
+      const way = heading == null ? '' : `, heading ${compassPoint(heading)}`
+      const marker = L.marker([vehicle.Latitude ?? 0, vehicle.Longitude ?? 0], { icon, title: `Bus ${vehicle.Name}, ${route.name}${way}` })
         .addTo(map)
         .on('click', () => onSelectBus(vehicle))
 
