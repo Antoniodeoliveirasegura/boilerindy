@@ -72,12 +72,16 @@ five stops away is made up, as Orange had not started.)
   position-based one, `source: "position"`: the stops between each bus on the
   route and the place, times two minutes (`src/transitEta.mjs`, ported from
   the website's `describeBusEta`). A bus more than 300 m from every stop of
-  its route, or flagged off its route, gets none. It is rough: a bus counts as
-  at its route's nearest stop, so where a route passes the same spot twice,
-  as at 404 Lot, whose inbound and outbound stops are 13 m apart, it can be
-  put on the wrong pass of the loop. On 2026-10-30 a Yellow bus arriving at
-  404 Lot-Inbound read 18 minutes from Michigan and Blackford, where TransLoc
-  said 5. How far off it runs is #549 item 3's shadow week.
+  its route, or flagged off its route, gets none. A bus counts as at its
+  route's nearest stop, except where the route passes the same spot twice:
+  Blue and Yellow serve 404 Lot (inbound and outbound stops 13 m apart) and
+  16 Tech (31 m) on two passes of the loop. There a moving bus's `Heading`
+  picks the pass whose way into or out of its stop lies closest to it; a
+  stopped bus reports heading 0, which says nothing, so it keeps the nearest
+  stop. On 2026-10-30 a Yellow bus arriving at 404 Lot-Inbound was counted
+  from the outbound stop, 18 minutes from Michigan and Blackford where
+  TransLoc said 5; with its heading it reads 6. It is still a rough estimate;
+  how far off it runs is #549 item 3's shadow week.
 - One fill per place every 15 seconds at most, through the server's shared
   cache, however many widgets show it; the bus positions come from the same
   4 s cache as `/api/transit/vehicles`.
@@ -99,11 +103,13 @@ and in `test/fixtures/transloc-stop-arrival-times.json`):
   stops feed's `RouteStopID`, the same numbers), `StopId`, the stop and route
   names and a `Times` list with one entry per bus: `Seconds` to the arrival,
   `EstimateTime` and `Time` (the same `/Date(ms)/`), `IsArriving` (with
-  `Text: "Arriving"`, a second or so out), `IsDeparted` and `VehicleId`. The
-  `Scheduled...` fields were all null.
+  `Text: "Arriving"`, up to about 30 seconds out: a second sampler saw it at 0
+  to 30 s in 23 of 723 times, and never from 35 s), `IsDeparted` and
+  `VehicleId`. The `Scheduled...` fields were all null.
 - The filter is honoured: Michigan and Blackford's five route stops brought
-  back the one row of 29 with a bus coming. Whether `timesPerStop` caps the
-  list could not be told, since no route had more than two buses out.
+  back the one row of 29 with a bus coming. `timesPerStop` does not cap the
+  list: with `timesPerStop=1`, Yellow at Michigan and Blackford still came
+  back with both its buses, so the two per route is the server's own cap.
 - With no bus running the answer is `[]`, and a place whose routes have not
   started yet gets `[]` too.
 - `EstimateTime` agreed with `Seconds` to the second. The vehicles feed's
