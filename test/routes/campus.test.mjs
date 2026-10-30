@@ -236,7 +236,10 @@ test('places lists the stops grouped into places, from the cached stops and rout
     const { places } = await res.json()
     assert.deepEqual(places, buildTransitIndex(STOPS, ROUTES).places.map(publicPlace))
     assert.equal(places.length, 41)
-    assert.deepEqual(places.find((p) => p.key === 'riverwalk-apartments').routes.map((r) => r.routeName), ['Crimson', 'Gray', 'Orange'])
+    const riverwalk = places.find((p) => p.key === 'riverwalk-apartments')
+    assert.deepEqual(riverwalk.routes.map((r) => r.routeName), ['Crimson', 'Gray', 'Orange'])
+    // Each route carries its hours (src/transitHours.mjs), for the widget's off-hours state.
+    assert.deepEqual(riverwalk.routes.map((r) => r.hours.label), ['Mon-Fri 6:30a-10:00p', 'Mon-Fri 6:30a-10:00p', 'Sat-Sun 9:00a-8:00p'])
     assert.ok(places.every((p) => !('stops' in p)))
     assert.deepEqual(cacheCalls, [
       { key: 'transit:stops', ttlMs: 10 * 60 * 1000 },

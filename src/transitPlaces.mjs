@@ -7,6 +7,7 @@
 // survives TransLoc renumbering a route. Pure: feed rows in, places out.
 
 import { haversineMeters } from './transitEta.mjs'
+import { routeHours } from './transitHours.mjs'
 
 /** Rows with one name this close together are one place (the farthest pair on 2026-10-29 was 63 m apart). */
 export const PLACE_RADIUS_METERS = 150
@@ -57,17 +58,21 @@ function describeRoute(row) {
 }
 
 /**
- * RouteID -> { routeId, routeNum, routeName, color } for every row of
- * TransLoc's GetRoutes answer. The routes shown on the map are canonical; a
- * hidden variant with the same number ("..._april2025") maps to the shown
- * route, the way the website's buildTranslocRouteIdMap folds them, so a bus
- * still reporting the old RouteID counts on its route. When no row says
- * whether it is shown, every row is its own route.
+ * RouteID -> { routeId, routeNum, routeName, color, hours } for every row of
+ * TransLoc's GetRoutes answer, with the hours of the route's number from
+ * src/transitHours.mjs (null when none are on file). The routes shown on the
+ * map are canonical; a hidden variant with the same number ("..._april2025")
+ * maps to the shown route, the way the website's buildTranslocRouteIdMap
+ * folds them, so a bus still reporting the old RouteID counts on its route.
+ * When no row says whether it is shown, every row is its own route.
  */
 export function buildRouteTable(routes) {
   const rows = (Array.isArray(routes) ? routes : []).filter((row) => Number.isFinite(Number(row?.RouteID)))
   const anyShown = rows.some((row) => row.IsVisibleOnMap === true)
-  const own = (row) => ({ routeId: Number(row.RouteID), ...describeRoute(row), color: hexColor(row.MapLineColor) })
+  const own = (row) => {
+    const { routeNum, routeName } = describeRoute(row)
+    return { routeId: Number(row.RouteID), routeNum, routeName, color: hexColor(row.MapLineColor), hours: routeHours(routeNum) }
+  }
   const shownByNum = new Map()
   for (const row of rows) {
     if (anyShown && row.IsVisibleOnMap !== true) continue
@@ -90,9 +95,9 @@ const byRoute = (a, b) =>
  * TransLoc's stop rows and route rows -> the index the widget reads use:
  *
  * - `places`: [{ key, name, lat, lon, routes, stops }] sorted by name, where
- *   `routes` is [{ routeId, routeNum, routeName, color }] in route number
- *   order and `stops` is [{ routeId, routeStopId }], the route stops the
- *   place stands for (routeId canonical).
+ *   `routes` is [{ routeId, routeNum, routeName, color, hours }] in route
+ *   number order and `stops` is [{ routeId, routeStopId }], the route stops
+ *   the place stands for (routeId canonical).
  * - `byKey`: key -> place.
  * - `routeStops`: canonical routeId -> its stops in feed order, deduped by
  *   RouteStopID like the website's getOrderedStopsForRoute, each
@@ -108,7 +113,7 @@ export function buildTransitIndex(stopRows, routeRows) {
   const groupsBySlug = new Map()
   const routeStops = new Map()
   const routeOf = (rawId) =>
-    table.get(Number(rawId)) ?? { routeId: Number(rawId), routeNum: null, routeName: null, color: null }
+    table.get(Number(rawId)) ?? { routeId: Number(rawId), routeNum: null, routeName: null, color: null, hours: null }
 
   for (const row of Array.isArray(stopRows) ? stopRows : []) {
     const lat = Number(row?.Latitude)

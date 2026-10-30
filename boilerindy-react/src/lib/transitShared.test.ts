@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { ROUTE_HOURS } from '../../../src/transitHours.mjs'
 import {
   TRANLOC_ROUTE_ALIASES,
   buildTranslocRouteIdMap,
@@ -95,6 +96,17 @@ describe('isRouteRunningForDisplay', () => {
 
   test('a scheduled route with no bus reporting is still shown as running', () => {
     expect(isRouteRunningForDisplay(yellow, 0, wednesdayNoon)).toBe(true)
+  })
+})
+
+// The hours live in src/transitHours.mjs, which /api/transit/places also serves
+// to the app's widgets and Siri, so the website and the app tell the same times.
+describe('route hours', () => {
+  test('every route reads its schedule from the shared table, by its number', () => {
+    for (const route of routes) {
+      expect(route.schedule, route.num).toBeDefined()
+      expect(route.schedule).toBe((ROUTE_HOURS as Record<string, unknown>)[route.num])
+    }
   })
 })
 

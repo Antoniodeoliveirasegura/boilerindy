@@ -9,7 +9,7 @@ wants polling every 5 seconds and `/api/dining` is 56 KB.
 
 | Route | Answer | Cache | Limiter |
 |---|---|---|---|
-| `GET /api/transit/places` | Every stop as a place: `{ places: [{ key, name, lat, lon, routes }] }`, about 9 KB | 10 min in the server, `public, max-age=60, s-maxage=600, stale-while-revalidate=600`, like `/api/transit/stops` | `public-read` |
+| `GET /api/transit/places` | Every stop as a place, each route with its hours: `{ places: [{ key, name, lat, lon, routes }] }`, about 16 KB | 10 min in the server, `public, max-age=60, s-maxage=600, stale-while-revalidate=600`, like `/api/transit/stops` | `public-read` |
 | `GET /api/transit/arrivals?stop=<key>` | The next buses at one place | 15 s per place in the server, `public, max-age=15` | `widget-read` |
 | `GET /api/dining/today?hall=<slug>` | One hall's day | As `/api/dining`: `public, max-age=120, s-maxage=300` | `public-read` |
 
@@ -43,10 +43,54 @@ number, as the website's route map does. Built in `src/transitPlaces.mjs`.
 ```json
 { "key": "riverwalk-apartments", "name": "Riverwalk Apartments", "lat": 39.773819, "lon": -86.185254,
   "routes": [
-    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000" },
-    { "routeId": 19, "routeNum": "2", "routeName": "Gray", "color": "#83786F" },
-    { "routeId": 34, "routeNum": "7", "routeName": "Orange", "color": "#E68217" } ] }
+    { "routeId": 31, "routeNum": "1", "routeName": "Crimson", "color": "#990000",
+      "hours": { "days": [1, 2, 3, 4, 5], "start": "06:30", "end": "22:00", "label": "Mon-Fri 6:30a-10:00p" } },
+    { "routeId": 19, "routeNum": "2", "routeName": "Gray", "color": "#83786F",
+      "hours": { "days": [1, 2, 3, 4, 5], "start": "06:30", "end": "22:00", "label": "Mon-Fri 6:30a-10:00p" } },
+    { "routeId": 34, "routeNum": "7", "routeName": "Orange", "color": "#E68217",
+      "hours": { "days": [0, 6], "start": "09:00", "end": "20:00", "label": "Sat-Sun 9:00a-8:00p" } } ] }
 ```
+
+### Route hours
+
+Each route carries `hours`, its timetable from `src/transitHours.mjs`: the
+table the website's Transit page reads too, so the two never disagree, and a
+semester's new hours change there and reach the app's widgets and Siri
+without an app build.
+
+- `days`: the weekdays it runs, `0` Sunday to `6` Saturday.
+- `start` and `end`: 24-hour `HH:MM` on the campus clock,
+  `America/Indiana/Indianapolis`, whatever time zone the phone is in. An
+  `end` of `"00:00"` is the midnight that ends the day (Yellow and Blue run
+  until then); no route runs past midnight, so a day's service never spills
+  into the next.
+- `label`: the hours as the website writes them, ready to show.
+- The table is keyed by the printed route number, so the hours hold when
+  TransLoc renumbers a route. A route with no hours on file, a charter or a
+  route new to the feed, has `"hours": null`: treat it as one that may run at
+  any time.
+- The arrivals read's `place.routes` carries the same `hours`, so a widget
+  that only fetches arrivals has them; the arrivals themselves do not.
+
+The hours are the timetable, not the last word: a bus reporting on its route
+outside them (weekend specials and extended service happen) still shows up
+in the arrivals, and the website lets a live bus win over the hours (#373).
+Do the same: show an arrival whatever the hours say, and let the hours speak
+only when no bus is coming.
+
+**When a route next starts.** A route is in service when, on the campus
+clock, today's weekday is in `days` and `start <= now < end` (reading an
+`end` of `"00:00"` as 24:00). Its next start is the first start after now:
+try today and then each following day, up to seven days on, and take the
+first whose weekday is in `days` and whose `start` is still ahead (today's
+counts only before its `start`). Make that instant from the campus date and
+the `HH:MM` in the campus time zone (in Swift, a `Calendar` with that
+`TimeZone`) rather than by adding hours to now, so the days the clocks change
+come out right: at 7:00 AM on Saturday 2026-10-31 (EDT), Purple next starts
+on Monday 2026-11-02 at 7:00 AM EST, `2026-11-02T12:00:00Z`, which is 49 hours
+later, not the 48 that two days would make. A widget showing a route off
+hours can ask WidgetKit for its next timeline at that instant. On the server,
+`zonedTimeMs` in `src/campusTime.mjs` makes the same instant.
 
 ## Arrivals
 
@@ -183,9 +227,10 @@ it loads `/api/dining`.
 
 ## Tests
 
-`test/transitPlaces.test.mjs`, `test/transitEta.test.mjs`,
-`test/transitArrivals.test.mjs`, `test/diningToday.test.mjs` and
-`test/campusTime.test.mjs` cover the pure parts against the JagLine feeds of
+`test/transitPlaces.test.mjs`, `test/transitHours.test.mjs`,
+`test/transitEta.test.mjs`, `test/transitArrivals.test.mjs`,
+`test/diningToday.test.mjs` and `test/campusTime.test.mjs` cover the pure
+parts against the JagLine feeds of
 2026-10-29 (`test/fixtures/transloc-stops.json`, `transloc-routes.json`), its
 arrival estimates of 2026-10-30 (`transloc-stop-arrival-times.json`) and the
 saved Nutrislice weeks; `test/routes/campus.test.mjs` and
