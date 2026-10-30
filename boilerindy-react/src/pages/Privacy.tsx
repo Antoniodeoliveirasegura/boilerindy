@@ -126,9 +126,12 @@ regenerate the link at any time, which immediately disables the old one.`,
   {
     title: 'The BoilerIndy app',
     body: `The iPhone and Android app uses the same account, database and service providers as the
-website, and everything in this policy applies to it. It asks for one thing the website does
-not: the photo you pick when you add one to a listing (never the camera, the microphone or your
-location). It keeps your session and settings in the phone's secure storage. Expo delivers app
+website, and everything in this policy applies to it. It asks for two things the website does
+not, each only when you use it: the photo you pick when you add one to a listing (never the
+camera, the microphone or your location), and Face ID, Touch ID or your fingerprint if you turn
+on Unlock with Face ID in Profile. The phone checks your face or fingerprint itself and tells the
+app only whether it matched, so no face or fingerprint data reaches us or leaves the phone. It
+keeps your session and settings in the phone's secure storage. Expo delivers app
 updates and push notifications, and sees an anonymous id for your install when the app checks for
 an update. Expo's EAS Observe also receives, with that same id and never your account, how long the
 app takes to start and to open each screen, the phone's model and system version, its battery,
@@ -248,7 +251,7 @@ export default function Privacy() {
             <div>
               <h1 className="page-title">Privacy policy</h1>
               <p className="page-sub">
-                Last updated October 28, 2026. The short version: your data stays in our own database, we
+                Last updated October 30, 2026. The short version: your data stays in our own database, we
                 use no advertising trackers, we never store your Purdue password, and you can opt out of
                 analytics or delete your account anytime.
               </p>
