@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import express from 'express'
 import { buildClubDirectory, parseClubSearchParams, searchClubDirectory } from '../../src/boilerlinkClubs.mjs'
+import { buildTransitIndex, publicPlace } from '../../src/transitPlaces.mjs'
+import { createStaleCache } from '../../src/upstreamFetch.mjs'
 
 // Issue #191: the campus public reads as a feature router, booted on a small
 // app with recording limiters, a recording stand-in for server.mjs's shared
@@ -17,9 +19,18 @@ const { createCampusPublicRouter } = await import('../../src/routes/campus.mjs')
 delete process.env.TRANSLOC_API_KEY
 const { createCampusPublicRouter: createUnconfiguredRouter } = await import('../../src/routes/campus.mjs?no-transloc-key')
 
-const FIXTURE = JSON.parse(readFileSync(new URL('../fixtures/boilerlink-organizations.json', import.meta.url), 'utf8'))
+const load = (name) => JSON.parse(readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8'))
+const FIXTURE = load('boilerlink-organizations.json')
 const DIRECTORY = buildClubDirectory(FIXTURE.value, { now: new Date('2026-09-08T12:00:00.000Z') })
 const TRANSLOC = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
+// The JagLine stops and routes feeds of 2026-10-29, and its trimmed
+// GetStopArrivalTimes answer of 2026-10-30 (see test/transitArrivals.test.mjs).
+const STOPS = load('transloc-stops.json')
+const ROUTES = load('transloc-routes.json')
+const ARRIVALS = load('transloc-stop-arrival-times.json')
+const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+// An Orange bus at Michigan and Blackford: five stops from Riverwalk Apartments.
+const ORANGE_AT_BLACKFORD = { VehicleID: 41, RouteID: 34, Latitude: 39.774493, Longitude: -86.170475, IsOnRoute: true }
 
 // globalThis.fetch as TransLoc: records each URL and answers `respond(url)`.
 async function withFakeTransloc(respond, run) {
@@ -37,7 +48,7 @@ async function withFakeTransloc(respond, run) {
   }
 }
 
-async function withApp({ factory = createCampusPublicRouter, cached = {}, clubs } = {}, run) {
+async function withApp({ factory = createCampusPublicRouter, cached = {}, cache, clubs } = {}, run) {
   const limiterHits = []
   const cacheCalls = []
   const limiter = (name) => (req, _res, next) => {
@@ -49,13 +60,17 @@ async function withApp({ factory = createCampusPublicRouter, cached = {}, clubs 
     factory({
       transitVehiclesIpRateLimit: limiter('transit-vehicles-ip'),
       transitVehiclesRateLimit: limiter('transit-vehicles'),
+      widgetReadIpRateLimit: limiter('widget-read-ip'),
+      widgetReadRateLimit: limiter('widget-read'),
       publicReadIpRateLimit: limiter('public-read-ip'),
       publicReadRateLimit: limiter('public-read'),
       clubsReadRateLimit: limiter('clubs-read'),
       // server.mjs's getCached: answers from `cached` when the test supplies a
       // value for the key, otherwise runs the producer, as a cold cache would.
+      // A test can hand in a real cache (`cache`) instead.
       getCached: async (key, ttlMs, producer) => {
         cacheCalls.push({ key, ttlMs })
+        if (cache) return cache.get(key, ttlMs, producer)
         if (key in cached) {
           const value = cached[key]
           if (value instanceof Error) throw value
@@ -77,9 +92,24 @@ async function withApp({ factory = createCampusPublicRouter, cached = {}, clubs 
 }
 
 test('each route runs through its own limiters, the per-address cap first', async () => {
-  const cached = { 'transit:vehicles': [], 'transit:stops': [], 'transit:routes': [], 'parking:garages': { garages: [] } }
+  const cached = {
+    'transit:vehicles': { fetchedAt: Date.now(), rows: [] },
+    'transit:stops': STOPS,
+    'transit:routes': ROUTES,
+    'transit:arrivals:riverwalk-apartments': { arrivals: [] },
+    'parking:garages': { garages: [] },
+  }
   await withApp({ cached }, async ({ base, limiterHits }) => {
-    for (const path of ['/api/transit/vehicles', '/api/transit/stops', '/api/transit/routes', '/api/parking/garages', '/api/clubs']) {
+    const paths = [
+      '/api/transit/vehicles',
+      '/api/transit/stops',
+      '/api/transit/routes',
+      '/api/transit/places',
+      '/api/transit/arrivals?stop=riverwalk-apartments',
+      '/api/parking/garages',
+      '/api/clubs',
+    ]
+    for (const path of paths) {
       const res = await fetch(base + path)
       assert.equal(res.status, 200, path)
     }
@@ -90,6 +120,10 @@ test('each route runs through its own limiters, the per-address cap first', asyn
       'public-read /api/transit/stops',
       'public-read-ip /api/transit/routes',
       'public-read /api/transit/routes',
+      'public-read-ip /api/transit/places',
+      'public-read /api/transit/places',
+      'widget-read-ip /api/transit/arrivals',
+      'widget-read /api/transit/arrivals',
       'public-read-ip /api/parking/garages',
       'public-read /api/parking/garages',
       'clubs-read /api/clubs',
@@ -135,7 +169,8 @@ test('without TRANSLOC_API_KEY the transit routes answer 503 and never reach Tra
     },
     async (urls) => {
       await withApp({ factory: createUnconfiguredRouter }, async ({ base, cacheCalls }) => {
-        for (const path of ['/api/transit/vehicles', '/api/transit/stops', '/api/transit/routes']) {
+        const paths = ['/api/transit/vehicles', '/api/transit/stops', '/api/transit/routes', '/api/transit/places', '/api/transit/arrivals?stop=riverwalk-apartments']
+        for (const path of paths) {
           const res = await fetch(base + path)
           assert.equal(res.status, 503, path)
           assert.deepEqual(await res.json(), { error: { message: 'Transit is not configured.', status: 503 } })
@@ -159,6 +194,211 @@ test('a TransLoc failure answers 502 when the upstream failed and 500 for anythi
         const other = await fetch(`${base}/api/transit/stops`)
         assert.equal(other.status, 500)
         assert.deepEqual(await other.json(), { error: { message: 'Failed to fetch stops data.', status: 500 } })
+      })
+    },
+  )
+})
+
+test('vehicles: while TransLoc is down the last good copy goes out with each Seconds grown by its age', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-30T12:43:39Z') })
+  let up = true
+  const cache = createStaleCache({ log: { warn() {} } })
+  // Two buses that last reported 15 and 9 s before TransLoc answered.
+  const rows = [{ ...ORANGE_AT_BLACKFORD, Seconds: 15 }, { VehicleID: 5, RouteID: 33, Latitude: 39.76941, Longitude: -86.17134, IsOnRoute: true, Seconds: 9 }]
+  await withFakeTransloc(
+    () => (up ? json(rows) : new Response('Service Unavailable', { status: 503 })),
+    async (urls) => {
+      await withApp({ cache }, async ({ base }) => {
+        const read = async () => (await fetch(`${base}/api/transit/vehicles`)).json()
+        assert.deepEqual(await read(), rows)
+
+        up = false
+        t.mock.timers.tick(3 * 60 * 1000)
+        const sent = await read()
+        assert.equal(urls.length, 2, 'TransLoc was asked again')
+        assert.deepEqual(sent.map((row) => row.Seconds), [195, 189])
+        assert.deepEqual(sent.map(({ Seconds, ...rest }) => rest), rows.map(({ Seconds, ...rest }) => rest))
+        // The cached copy keeps TransLoc's own Seconds for the next request.
+        assert.deepEqual(cache.peek('transit:vehicles').rows.map((row) => row.Seconds), [15, 9])
+      })
+    },
+  )
+})
+
+// ── The widget reads (issue #549) ──────────────────────────────────────────
+
+test('places lists the stops grouped into places, from the cached stops and routes feeds', async () => {
+  await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base, cacheCalls }) => {
+    const res = await fetch(`${base}/api/transit/places`)
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=60, s-maxage=600, stale-while-revalidate=600')
+    assert.equal(res.headers.get('set-cookie'), null)
+    const { places } = await res.json()
+    assert.deepEqual(places, buildTransitIndex(STOPS, ROUTES).places.map(publicPlace))
+    assert.equal(places.length, 41)
+    const riverwalk = places.find((p) => p.key === 'riverwalk-apartments')
+    assert.deepEqual(riverwalk.routes.map((r) => r.routeName), ['Crimson', 'Gray', 'Orange'])
+    // Each route carries its hours (src/transitHours.mjs), for the widget's off-hours state.
+    assert.deepEqual(riverwalk.routes.map((r) => r.hours.label), ['Mon-Fri 6:30a-10:00p', 'Mon-Fri 6:30a-10:00p', 'Sat-Sun 9:00a-8:00p'])
+    assert.ok(places.every((p) => !('stops' in p)))
+    assert.deepEqual(cacheCalls, [
+      { key: 'transit:stops', ttlMs: 10 * 60 * 1000 },
+      { key: 'transit:routes', ttlMs: 10 * 60 * 1000 },
+    ])
+  })
+})
+
+test('arrivals: a bad or unknown stop answers 400 or 404, never stored, without asking TransLoc for arrivals', async () => {
+  await withFakeTransloc(
+    () => {
+      throw new Error('TransLoc must not be called')
+    },
+    async (urls) => {
+      await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base }) => {
+        for (const query of ['', '?stop=', '?stop=riverwalk%20apartments', '?stop=a&stop=b']) {
+          const res = await fetch(`${base}/api/transit/arrivals${query}`)
+          assert.equal(res.status, 400, query)
+          assert.equal(res.headers.get('cache-control'), 'no-store')
+          assert.deepEqual(await res.json(), { error: { message: 'Pick a stop from the list.', status: 400, code: 'transit_bad_stop' } })
+        }
+        const unknown = await fetch(`${base}/api/transit/arrivals?stop=nowhere-and-nothing`)
+        assert.equal(unknown.status, 404)
+        assert.equal(unknown.headers.get('cache-control'), 'no-store')
+        assert.equal((await unknown.json()).error.code, 'transit_stop_not_found')
+        assert.deepEqual(urls, [])
+      })
+    },
+  )
+})
+
+test('arrivals: TransLoc\'s estimates for the place\'s route stops, positions for the rest, cached 15 s per place', async () => {
+  await withFakeTransloc(
+    (url) => (url.includes('/GetStopArrivalTimes?') ? json(ARRIVALS) : json([ORANGE_AT_BLACKFORD])),
+    async (urls) => {
+      await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base, cacheCalls }) => {
+        const res = await fetch(`${base}/api/transit/arrivals?stop=Riverwalk-Apartments`)
+        assert.equal(res.status, 200)
+        assert.equal(res.headers.get('cache-control'), 'public, max-age=15')
+        assert.equal(res.headers.get('set-cookie'), null)
+        const answer = await res.json()
+        assert.equal(answer.place.key, 'riverwalk-apartments')
+        assert.match(answer.fetchedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+        const seconds = (at) => (Date.parse(at) - Date.parse(answer.fetchedAt)) / 1000
+        // The relay answers every row; only Riverwalk Apartments' count.
+        assert.deepEqual(
+          answer.arrivals.map((a) => [a.routeNum, a.routeName, seconds(a.at), a.source]),
+          [
+            ['7', 'Orange', 600, 'position'],
+            ['2', 'Gray', 607, 'transloc'],
+            ['1', 'Crimson', 677, 'transloc'],
+          ],
+        )
+        assert.deepEqual(urls.sort(), [
+          `${TRANSLOC}/GetMapVehiclePoints?apiKey=transloc-test-key&isPublicMap=true`,
+          `${TRANSLOC}/GetStopArrivalTimes?apiKey=transloc-test-key&routeStopIDs=243,369,409&timesPerStop=2`,
+        ])
+        assert.deepEqual(
+          cacheCalls.filter((call) => call.key.startsWith('transit:arrivals') || call.key === 'transit:vehicles'),
+          [
+            { key: 'transit:arrivals:riverwalk-apartments', ttlMs: 15 * 1000 },
+            { key: 'transit:vehicles', ttlMs: 4 * 1000 },
+          ],
+        )
+      })
+    },
+  )
+})
+
+test('arrivals: estimates the relay will not give or the parser cannot read leave every route to the positions, logged once', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {})
+  // The relay's answer without a usable key: 200 with an empty body.
+  await withFakeTransloc(
+    (url) => (url.includes('/GetStopArrivalTimes?') ? new Response('', { status: 200 }) : json([ORANGE_AT_BLACKFORD])),
+    async () => {
+      await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base }) => {
+        for (const stop of ['riverwalk-apartments', 'michigan-and-university']) {
+          const res = await fetch(`${base}/api/transit/arrivals?stop=${stop}`)
+          assert.equal(res.status, 200)
+          const { arrivals } = await res.json()
+          assert.ok(arrivals.every((a) => a.source === 'position'), stop)
+          assert.ok(arrivals.some((a) => a.routeName === 'Orange'), stop)
+        }
+      })
+    },
+  )
+  assert.equal(warn.mock.callCount(), 1)
+  assert.match(warn.mock.calls[0].arguments[0], /no estimates \(TransLoc responded 200: invalid JSON body\)/)
+
+  // Times in a shape the parser does not know.
+  await withFakeTransloc(
+    (url) => (url.includes('/GetStopArrivalTimes?') ? json([{ RouteId: 31, RouteStopId: 369, Times: [{ Minutes: 4 }] }]) : json([])),
+    async () => {
+      await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base }) => {
+        const res = await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)
+        assert.deepEqual((await res.json()).arrivals, [])
+      })
+    },
+  )
+  assert.equal(warn.mock.callCount(), 2)
+  assert.match(warn.mock.calls[1].arguments[0], /shape the parser does not read/)
+})
+
+test('arrivals: with TransLoc down and no answer yet, 503 never stored; a bug answers 500', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const errorLog = t.mock.method(console, 'error', () => {})
+  await withFakeTransloc(
+    () => new Response('Service Unavailable', { status: 503 }),
+    async () => {
+      await withApp({ cached: { 'transit:stops': STOPS, 'transit:routes': ROUTES } }, async ({ base }) => {
+        const res = await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)
+        assert.equal(res.status, 503)
+        assert.equal(res.headers.get('cache-control'), 'no-store')
+        assert.deepEqual(await res.json(), { error: { message: 'Bus times are not available right now.', status: 503, code: 'transit_unavailable' } })
+      })
+      await withApp({ cached: { 'transit:stops': new Error('cache broke'), 'transit:routes': ROUTES } }, async ({ base }) => {
+        const res = await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)
+        assert.equal(res.status, 500)
+        assert.equal((await res.json()).error.code, 'transit_internal')
+        const places = await fetch(`${base}/api/transit/places`)
+        assert.equal(places.status, 500)
+        assert.deepEqual(await places.json(), { error: { message: 'Failed to fetch places data.', status: 500 } })
+      })
+    },
+  )
+  assert.equal(errorLog.mock.callCount(), 2)
+})
+
+test('arrivals: while TransLoc is down the last good answer keeps serving, with its fetchedAt', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-30T10:40:26Z') })
+  t.mock.method(console, 'warn', () => {})
+  let up = true
+  const cache = createStaleCache({ log: { warn() {} } })
+  await withFakeTransloc(
+    (url) => {
+      if (!up) return new Response('Service Unavailable', { status: 503 })
+      if (url.includes('/GetStops?')) return json(STOPS)
+      if (url.includes('/GetRoutes?')) return json(ROUTES)
+      return url.includes('/GetStopArrivalTimes?') ? json(ARRIVALS) : json([ORANGE_AT_BLACKFORD])
+    },
+    async (urls) => {
+      await withApp({ cache }, async ({ base }) => {
+        const first = await (await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)).json()
+        assert.equal(first.fetchedAt, '2026-10-30T10:40:26Z')
+        assert.equal(first.arrivals.length, 3)
+
+        // Within 15 s the cached answer is served without asking TransLoc.
+        const asked = urls.length
+        t.mock.timers.tick(10 * 1000)
+        assert.deepEqual(await (await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)).json(), first)
+        assert.equal(urls.length, asked)
+
+        // TransLoc goes down; a minute on, the last bus positions are too old to use.
+        up = false
+        t.mock.timers.tick(61 * 1000)
+        const res = await fetch(`${base}/api/transit/arrivals?stop=riverwalk-apartments`)
+        assert.equal(res.status, 200)
+        assert.deepEqual(await res.json(), first)
+        assert.ok(urls.length > asked, 'TransLoc was asked again')
       })
     },
   )

@@ -429,6 +429,25 @@ const transitVehiclesIpRateLimit = createRateLimiter({
   keyBy: 'ip',
   message: 'Too many transit requests. Please slow down.',
 })
+// The arrivals read the app's Home Screen widgets and Siri call (issue #549).
+// A widget's extension sends no cookie, so every phone on one network (a
+// campus NAT) shares the address bucket: roomy for many widgets reloading a
+// few times an hour, each answered from the 15 s per-stop cache. Same keying
+// and the same kind of outer per-address cap as public-read.
+const widgetReadRateLimit = createRateLimiter({
+  name: 'widget-read',
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  keyBy: publicReadBucketKey,
+  message: 'Too many requests. Please try again shortly.',
+})
+const widgetReadIpRateLimit = createRateLimiter({
+  name: 'widget-read-ip',
+  windowMs: 15 * 60 * 1000,
+  max: 2400,
+  keyBy: 'ip',
+  message: 'Too many requests. Please try again shortly.',
+})
 const pushWriteRateLimit = createRateLimiter({
   name: 'push-write',
   windowMs: 15 * 60 * 1000,
@@ -550,7 +569,7 @@ try {
 // behind the same CAMPUS_EVENTS_FEED switch as the signed-in calendar read, and
 // lists the downtown rows only with CAMPUS_EVENTS_DOWNTOWN on, as that read does.
 // The sources one serves the demo calendars (issue #521).
-app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
+app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
 app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN') }))

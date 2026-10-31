@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-170 routes in 27 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminPhotoReview.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campusEvents.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/clubFollows.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+173 routes in 27 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminPhotoReview.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campusEvents.mjs`, `src/routes/campus.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/clubFollows.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -74,6 +74,7 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | GET | `/api/demo/calendars/:file` | `src/routes/sources.mjs` |
 | GET | `/api/dining` | `src/routes/dining.mjs` |
 | GET | `/api/dining/foods/:id` | `src/routes/dining.mjs` |
+| GET | `/api/dining/today` | `src/routes/dining.mjs` |
 | GET | `/api/dining/upcoming` | `src/routes/dining.mjs` |
 | GET | `/api/guide` | `src/routes/guide.mjs` |
 | POST | `/api/guide` | `src/routes/guide.mjs` |
@@ -173,6 +174,8 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/study-groups/:id/join` | `src/routes/studyGroups.mjs` |
 | POST | `/api/study-groups/:id/leave` | `src/routes/studyGroups.mjs` |
 | POST | `/api/sync/:sourceId` | `src/routes/sources.mjs` |
+| GET | `/api/transit/arrivals` | `src/routes/campus.mjs` |
+| GET | `/api/transit/places` | `src/routes/campus.mjs` |
 | GET | `/api/transit/routes` | `src/routes/campus.mjs` |
 | GET | `/api/transit/stops` | `src/routes/campus.mjs` |
 | GET | `/api/transit/vehicles` | `src/routes/campus.mjs` |

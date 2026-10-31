@@ -1,0 +1,22 @@
+[
+  {"Color":"#83786F","RouteDescription":"Route 2 - Gray Estimated Times","RouteId":19,"RouteStopId":243,"ShowDefaultedOnMap":true,"ShowEstimatesOnMap":true,"StopDescription":"Riverwalk Apartments","StopId":53,"Times":[
+    {"EstimateTime":"/Date(1793357433995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":607,"Text":"","Time":"/Date(1793357433995)/","VehicleId":12}
+  ]},
+  {"Color":"#83786F","RouteDescription":"Route 2 - Gray Estimated Times","RouteId":19,"RouteStopId":214,"ShowDefaultedOnMap":true,"ShowEstimatesOnMap":true,"StopDescription":"Michigan and Blackford","StopId":15,"Times":[
+    {"EstimateTime":"/Date(1793356917995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":91,"Text":"","Time":"/Date(1793356917995)/","VehicleId":12}
+  ]},
+  {"Color":"#006298","RouteDescription":"Route 4 - Blue Estimated Times","RouteId":27,"RouteStopId":322,"ShowDefaultedOnMap":true,"ShowEstimatesOnMap":true,"StopDescription":"BRTC ()","StopId":27,"Times":[
+    {"EstimateTime":"/Date(1793356827995)/","IsArriving":true,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":1,"Text":"Arriving","Time":"/Date(1793356827995)/","VehicleId":1},
+    {"EstimateTime":"/Date(1793357289995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":463,"Text":"","Time":"/Date(1793357289995)/","VehicleId":11}
+  ]},
+  {"Color":"#990000","RouteDescription":"Route 1 - Crimson Estimated Times","RouteId":31,"RouteStopId":365,"ShowDefaultedOnMap":true,"ShowEstimatesOnMap":true,"StopDescription":"Michigan and Blackford","StopId":10,"Times":[
+    {"EstimateTime":"/Date(1793357197995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":371,"Text":"","Time":"/Date(1793357197995)/","VehicleId":28}
+  ]},
+  {"Color":"#990000","RouteDescription":"Route 1 - Crimson Estimated Times","RouteId":31,"RouteStopId":369,"ShowDefaultedOnMap":true,"ShowEstimatesOnMap":true,"StopDescription":"Riverwalk Apartments","StopId":53,"Times":[
+    {"EstimateTime":"/Date(1793357503995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":677,"Text":"","Time":"/Date(1793357503995)/","VehicleId":28}
+  ]},
+  {"Color":"#F1BE48","RouteDescription":"Route 3 - Yellow Estimated Times","RouteId":32,"RouteStopId":375,"ShowDefaultedOnMap":true,"ShowEstimatesOnMap":true,"StopDescription":"Michigan and Blackford","StopId":10,"Times":[
+    {"EstimateTime":"/Date(1793357281995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":455,"Text":"","Time":"/Date(1793357281995)/","VehicleId":26},
+    {"EstimateTime":"/Date(1793357772995)/","IsArriving":false,"IsDeparted":false,"OnTimeStatus":0,"ScheduledArrivalTime":null,"ScheduledDepartureTime":null,"ScheduledTime":null,"Seconds":946,"Text":"","Time":"/Date(1793357772995)/","VehicleId":9}
+  ]}
+]

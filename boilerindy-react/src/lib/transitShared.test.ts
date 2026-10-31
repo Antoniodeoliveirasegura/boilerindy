@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { ROUTE_HOURS } from '../../../src/transitHours.mjs'
 import {
   TRANLOC_ROUTE_ALIASES,
   buildTranslocRouteIdMap,
@@ -9,6 +10,7 @@ import {
   isRouteActiveNow,
   isRouteRunningForDisplay,
   nearestStopForVehicle,
+  newestReportAt,
   routes,
   type TransitRoute,
 } from './transitShared'
@@ -97,6 +99,17 @@ describe('isRouteRunningForDisplay', () => {
   })
 })
 
+// The hours live in src/transitHours.mjs, which /api/transit/places also serves
+// to the app's widgets and Siri, so the website and the app tell the same times.
+describe('route hours', () => {
+  test('every route reads its schedule from the shared table, by its number', () => {
+    for (const route of routes) {
+      expect(route.schedule, route.num).toBeDefined()
+      expect(route.schedule).toBe((ROUTE_HOURS as Record<string, unknown>)[route.num])
+    }
+  })
+})
+
 describe('TransLoc route mapping', () => {
   test('canonicalFromMap follows the map and passes unknown numeric ids through', () => {
     expect(canonicalFromMap(TRANLOC_ROUTE_ALIASES, 18)).toBe(31)
@@ -157,5 +170,25 @@ describe('stops and distances', () => {
     expect(nearest?.meters).toBeLessThan(20)
     expect(nearestStopForVehicle(stops, { RouteID: 'nope' }, TRANLOC_ROUTE_ALIASES)).toBeNull()
     expect(nearestStopForVehicle([], { RouteID: 31 }, TRANLOC_ROUTE_ALIASES)).toBeNull()
+  })
+})
+
+// The pages' "Updated" time: when TransLoc last heard from a bus, not when the
+// page last asked, so it stops while the server sends its last copy again.
+describe('newestReportAt', () => {
+  const answered = Date.parse('2026-10-30T12:43:39Z')
+
+  test('is the answer less the smallest Seconds, the bus TransLoc heard from last', () => {
+    expect(newestReportAt([{ Seconds: 15 }, { Seconds: 9 }, { Seconds: 17 }], answered)).toBe(answered - 9000)
+  })
+
+  test('stays put while the server sends one copy again, its Seconds grown by its age', () => {
+    expect(newestReportAt([{ Seconds: 195 }, { Seconds: 189 }], answered + 3 * 60 * 1000)).toBe(answered - 9000)
+  })
+
+  test('is the answer time with no bus, or rows that carry no Seconds', () => {
+    expect(newestReportAt([], answered)).toBe(answered)
+    expect(newestReportAt([{ VehicleID: 1 }, { Seconds: '9' }, { Seconds: -4 }, null], answered)).toBe(answered)
+    expect(newestReportAt(undefined, answered)).toBe(answered)
   })
 })

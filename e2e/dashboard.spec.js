@@ -176,4 +176,41 @@ test.describe('Client data cache', () => {
     await page.waitForLoadState('networkidle')
     expect(routeRequests).toHaveLength(1)
   })
+
+  // Issue #549: when TransLoc names the bus in a row, the row gives TransLoc's
+  // own minutes to the student's stop instead of counting stops from the bus.
+  test("a bus row gives TransLoc's minutes to the student's stop", async ({ page, context, mockApi }) => {
+    await context.grantPermissions(['geolocation'])
+    await context.setGeolocation({ latitude: 39.7739, longitude: -86.1853 })
+    mockApi.login()
+    mockApi.seedTransit({
+      routes: [{ RouteID: 19, Description: 'Route 2 - Gray Estimated Times', MapLineColor: '#83786F' }],
+      stops: [
+        { RouteID: 19, RouteStopID: 214, Latitude: 39.7742940502, Longitude: -86.1701836822, Description: 'Michigan and Blackford' },
+        { RouteID: 19, RouteStopID: 243, Latitude: 39.773819, Longitude: -86.185254, Description: 'Riverwalk Apartments' },
+      ],
+      vehicles: [{ VehicleID: 12, RouteID: 19, Latitude: 39.77443, Longitude: -86.17625, GroundSpeed: 23, Heading: 93, Name: '9384' }],
+    })
+    const gray = { routeId: 19, routeNum: '2', routeName: 'Gray', color: '#83786F' }
+    const place = { key: 'riverwalk-apartments', name: 'Riverwalk Apartments', lat: 39.773819, lon: -86.185254, routes: [gray] }
+    await page.route('**/api/transit/places', (route) => route.fulfill({ json: { places: [place] } }))
+    const asked = []
+    await page.route(
+      (url) => url.pathname === '/api/transit/arrivals',
+      (route) => {
+        asked.push(new URL(route.request().url()).searchParams.get('stop'))
+        return route.fulfill({
+          json: {
+            place: { key: place.key, name: place.name, routes: [gray] },
+            fetchedAt: new Date().toISOString(),
+            arrivals: [{ ...gray, at: new Date(Date.now() + 10 * 60_000).toISOString(), source: 'transloc', vehicleId: 12 }],
+          },
+        })
+      },
+    )
+
+    await page.goto('/dashboard')
+    await expect(page.getByText('10 min to your stop (Riverwalk Apartments)')).toBeVisible()
+    expect(asked[0]).toBe('riverwalk-apartments')
+  })
 })

@@ -34,6 +34,7 @@ coding conventions live in the root [README.md](../README.md).
 - [sign-in-with-apple.md](sign-in-with-apple.md) - how deleting the account of a student who signs in with Apple revokes their Sign in with Apple token through Apple's REST API, which Apple asks of every app that offers it, with the token the native app sends, the four Apple settings and how to check them.
 - [source-resync.md](source-resync.md) - the cron job that re-imports every connected calendar feed on a schedule, instead of only when the student presses Sync (issue #12).
 - [third-party-content.md](third-party-content.md) - where the maps, pictures, listings and data that BoilerIndy shows come from, how each reaches the student, and the terms it is used under, with the open questions the owner still has to settle (issue #530).
+- [widget-reads.md](widget-reads.md) - the small public reads the app's Home Screen widgets and Siri call: the next buses at a stop with the stop list behind the widget's picker, and one dining hall's day (issue #549, for the app's #173).
 
 ## History
 

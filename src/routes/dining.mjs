@@ -1,6 +1,7 @@
 import express from 'express'
 import { badRequest, respondRouteError } from '../dbErrors.mjs'
 import { normalizeItemName } from '../diningFavorites.mjs'
+import { getDiningToday, normalizeHall } from '../diningToday.mjs'
 import { clampDiningDate, todayYmdInZone } from '../nutrisliceDining.mjs'
 import { DINING_FAVORITES_CAP_MESSAGE, MAX_DINING_FAVORITES, capCheck } from '../userWriteCaps.mjs'
 
@@ -12,8 +13,9 @@ import { DINING_FAVORITES_CAP_MESSAGE, MAX_DINING_FAVORITES, capCheck } from '..
 
 /**
  * GET /api/dining, the public menu snapshot, GET /api/dining/foods/:id, one
- * dish's details (issue #468), and GET /api/dining/upcoming, what is coming
- * up (issue #469). server.mjs mounts this in its
+ * dish's details (issue #468), GET /api/dining/upcoming, what is coming
+ * up (issue #469), and GET /api/dining/today, one hall's day for the app's
+ * widget (issue #549). server.mjs mounts this in its
  * public reads block, before the session middleware, where the route used to
  * be registered, so the response never carries the session cookie. Paths stay
  * absolute (`/api/dining`) so docs/RATE_LIMITS.md and its guard test read the
@@ -108,9 +110,38 @@ export function createDiningPublicRouter({ publicReadIpRateLimit, publicReadRate
     }
   }
 
+  // GET /api/dining/today?hall=<slug>, one hall's day for the app's Dining
+  // widget (issue #549): built in src/diningToday.mjs from the same snapshot
+  // as /api/dining, and cached like it.
+  async function handleDiningToday(req, res) {
+    const hall = normalizeHall(req.query.hall)
+    if (!hall) {
+      res.set('Cache-Control', 'no-store')
+      return res.status(400).json({ error: { message: 'Pick a dining hall.', status: 400, code: 'dining_bad_hall' } })
+    }
+    try {
+      const result = await getDiningToday(hall, { getDiningSnapshot })
+      if (result.unavailable) {
+        res.set('Cache-Control', 'no-store')
+        return res.status(503).json({ error: { message: 'Dining hours and menus are not available right now.', status: 503, code: 'dining_unavailable' } })
+      }
+      if (!result.today) {
+        res.set('Cache-Control', 'no-store')
+        return res.status(404).json({ error: { message: 'That dining hall is not on the menus.', status: 404, code: 'dining_hall_not_found' } })
+      }
+      res.set('Cache-Control', 'public, max-age=120, s-maxage=300')
+      res.json(result.today)
+    } catch (error) {
+      console.error('Nutrislice today error:', error)
+      res.set('Cache-Control', 'no-store')
+      res.status(500).json({ error: { message: 'Could not load that hall. Try again in a moment.', status: 500, code: 'dining_internal' } })
+    }
+  }
+
   router.get('/api/dining', publicReadIpRateLimit, publicReadRateLimit, handleDining)
   router.get('/api/dining/foods/:id', publicReadIpRateLimit, publicReadRateLimit, handleDiningFood)
   router.get('/api/dining/upcoming', publicReadIpRateLimit, publicReadRateLimit, handleDiningUpcoming)
+  router.get('/api/dining/today', publicReadIpRateLimit, publicReadRateLimit, handleDiningToday)
 
   return router
 }

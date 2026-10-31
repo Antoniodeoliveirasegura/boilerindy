@@ -1,7 +1,11 @@
 // Shared TransLoc transit route helpers. Migrated to TypeScript (issue #20).
 
+import { ROUTE_HOURS } from '../../../src/transitHours.mjs'
+
 // days: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
 // start/end: 24-h "HH:MM" in Eastern time
+// The hours come from src/transitHours.mjs, the table the API also serves with
+// every route in /api/transit/places, for the app's widgets and Siri.
 type RouteSchedule = { days: number[]; start: string; end: string; label: string }
 export type TransitRoute = {
   id: number
@@ -13,12 +17,12 @@ export type TransitRoute = {
 }
 
 export const routes: TransitRoute[] = [
-  { id: 31, num: '1', name: 'Route 1 - Crimson', shortName: 'Crimson', color: '#990000', schedule: { days: [1, 2, 3, 4, 5], start: '06:30', end: '22:00', label: 'Mon-Fri 6:30a-10:00p' } },
-  { id: 19, num: '2', name: 'Route 2 - Gray', shortName: 'Gray', color: '#83786F', schedule: { days: [1, 2, 3, 4, 5], start: '06:30', end: '22:00', label: 'Mon-Fri 6:30a-10:00p' } },
-  { id: 32, num: '3', name: 'Route 3 - Yellow', shortName: 'Yellow', color: '#F1BE48', schedule: { days: [1, 2, 3, 4, 5], start: '05:30', end: '00:00', label: 'Mon-Fri 5:30a-12:00a' } },
-  { id: 27, num: '4', name: 'Route 4 - Blue', shortName: 'Blue', color: '#006298', schedule: { days: [1, 2, 3, 4, 5], start: '05:30', end: '00:00', label: 'Mon-Fri 5:30a-12:00a' } },
-  { id: 33, num: '5', name: 'Route 5 - Purple', shortName: 'Purple', color: '#66435A', schedule: { days: [1, 2, 3, 4, 5], start: '07:00', end: '22:00', label: 'Mon-Fri 7:00a-10:00p' } },
-  { id: 34, num: '7', name: 'Route 7 - Orange', shortName: 'Orange', color: '#e68217', schedule: { days: [0, 6], start: '09:00', end: '20:00', label: 'Sat-Sun 9:00a-8:00p' } },
+  { id: 31, num: '1', name: 'Route 1 - Crimson', shortName: 'Crimson', color: '#990000', schedule: ROUTE_HOURS[1] },
+  { id: 19, num: '2', name: 'Route 2 - Gray', shortName: 'Gray', color: '#83786F', schedule: ROUTE_HOURS[2] },
+  { id: 32, num: '3', name: 'Route 3 - Yellow', shortName: 'Yellow', color: '#F1BE48', schedule: ROUTE_HOURS[3] },
+  { id: 27, num: '4', name: 'Route 4 - Blue', shortName: 'Blue', color: '#006298', schedule: ROUTE_HOURS[4] },
+  { id: 33, num: '5', name: 'Route 5 - Purple', shortName: 'Purple', color: '#66435A', schedule: ROUTE_HOURS[5] },
+  { id: 34, num: '7', name: 'Route 7 - Orange', shortName: 'Orange', color: '#e68217', schedule: ROUTE_HOURS[7] },
 ]
 
 /**
@@ -238,4 +242,19 @@ export function nearestStopForVehicle(
   }
   if (!best) return null
   return { description: best.Description, meters: bestD }
+}
+
+/**
+ * When TransLoc last heard from any bus in a vehicles answer: the moment the
+ * answer came, less the smallest Seconds (each row's age of its last report,
+ * which the server grows by its copy's age while TransLoc is down, so this
+ * stops moving then). The answer's own time when no row carries Seconds.
+ */
+export function newestReportAt(vehicles: unknown, answeredAt: number): number {
+  const ages = Array.isArray(vehicles)
+    ? vehicles
+        .map((v) => (v as { Seconds?: unknown } | null)?.Seconds)
+        .filter((s): s is number => typeof s === 'number' && Number.isFinite(s) && s >= 0)
+    : []
+  return ages.length ? answeredAt - Math.min(...ages) * 1000 : answeredAt
 }

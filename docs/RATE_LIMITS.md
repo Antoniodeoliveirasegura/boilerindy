@@ -42,10 +42,12 @@ a route the server does not serve, so it cannot drift from the code again (#201)
 | `report` | `POST /api/reports` (every report on student content, see [moderation.md](moderation.md); the marketplace's own report route keeps `board-write`) | 20 | 1 hour | user, falls back to IP |
 | `advertiser-write` | `POST /api/advertiser/campaigns`, `PATCH /api/advertiser/campaigns/:id` | 60 | 15 min | advertiser portal session (`req.session.advertiserId`), falls back to IP |
 | `source-sync` | `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule`, `POST /api/sync/:sourceId` | 30 | 15 min | user, falls back to IP |
-| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news`, `GET /api/campus-events/free-food`, `GET /api/demo/calendars/:file` (session-free upstream proxies, #215; the dish details and look-ahead reads, #468 and #469; campus news, #470; the signed-out Free Food page's read of the shared campus events, #366; the demo calendars for the App Review account, built in-process, #521; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
-| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/campus-news`, `GET /api/campus-events/free-food`, `GET /api/demo/calendars/:file` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
+| `public-read` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/transit/places`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/dining/today`, `GET /api/campus-news`, `GET /api/campus-events/free-food`, `GET /api/demo/calendars/:file` (session-free upstream proxies, #215; the dish details and look-ahead reads, #468 and #469; the widgets' stop list and one hall's day, #549; campus news, #470; the signed-out Free Food page's read of the shared campus events, #366; the demo calendars for the App Review account, built in-process, #521; registered before the session middleware so their responses never set a cookie and the Vercel edge can store them, #250) | 120 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
+| `public-read-ip` | `GET /api/transit/stops`, `GET /api/transit/routes`, `GET /api/transit/places`, `GET /api/parking/garages`, `GET /api/push/config`, `GET /api/dining`, `GET /api/dining/foods/:id`, `GET /api/dining/upcoming`, `GET /api/dining/today`, `GET /api/campus-news`, `GET /api/campus-events/free-food`, `GET /api/demo/calendars/:file` (outer cap so one address cannot mint unlimited cookie buckets) | 1200 | 15 min | IP |
 | `transit-vehicles` | `GET /api/transit/vehicles` (polled every 5 s per open Transit screen on the website and in the app, 180 per 15 min; also served with `Cache-Control: public, max-age=4, s-maxage=4, stale-while-revalidate=8` so browsers and the Vercel edge absorb repeats) | 240 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
 | `transit-vehicles-ip` | `GET /api/transit/vehicles` (outer cap so one address cannot mint unlimited cookie buckets) | 2400 | 15 min | IP |
+| `widget-read` | `GET /api/transit/arrivals` (the next buses at a stop for the app's Home Screen widgets and Siri, #549, see [widget-reads.md](widget-reads.md); answered from a 15 s cache per stop. A widget sends no cookie, so every phone behind one address shares that address's bucket, hence the roomy limit) | 600 | 15 min | hash of the session cookie when the request carries one, falls back to IP (#250) |
+| `widget-read-ip` | `GET /api/transit/arrivals` (outer cap so one address cannot mint unlimited cookie buckets) | 2400 | 15 min | IP |
 | `clubs-read` | `GET /api/clubs` (served from an hours-long cache, but search-as-you-type sends several requests per query) | 300 | 15 min | IP |
 | `marketplace-read` | `GET /api/marketplace/:id` (reveals the seller's email, so enumeration-sensitive, #114) | 100 | 15 min | user, falls back to IP |
 | `marketplace-photo` | `POST /api/marketplace/photos/authorize` (see [photo setup and lifecycle](marketplace-photos.md)) | 20 | 1 hour | user, falls back to IP |
@@ -63,8 +65,9 @@ Read-only endpoints (`GET /api/...`) are generally not limited: they are
 session-gated, cheap, and limiting them would hurt normal navigation. Two
 exceptions: the session-free upstream proxies (dining, transit, parking), the
 signed-out free-food read and the demo calendars (#521) use the `public-read`
-bucket (vehicles have their own) so an anonymous client cannot burn the
-upstream quota, the database or the server's time building feeds, and
+bucket (vehicles and the widgets' arrivals have their own) so an anonymous
+client cannot burn the upstream quota, the database or the server's time
+building feeds, and
 `GET /api/marketplace/:id`, which returns the seller's contact
 email and is therefore enumeration-sensitive; `marketplace-read` throttles the
 bulk id-sweeps that would harvest every seller's address (#114).
@@ -139,7 +142,8 @@ RATE_LIMIT_<NAME>_WINDOW_MS=<ms>      # window length in milliseconds
   `trust proxy` so `req.ip` reflects the real client address; otherwise all
   anonymous traffic shares one bucket.
 - The public reads (`public-read`, `public-read-ip`, `transit-vehicles`,
-  `transit-vehicles-ip`) answer with `Cache-Control: public` and run before the
-  session middleware, so the Vercel edge can serve signed-in polls too. An
-  edge hit never reaches this process and does not count against any bucket
-  (#250).
+  `transit-vehicles-ip`, `widget-read`, `widget-read-ip`) answer with
+  `Cache-Control: public` and run before the session middleware, so the
+  Vercel edge can serve signed-in polls too. An edge hit never reaches this
+  process and does not count against any bucket (#250). The app's widgets
+  call Render directly, so for them only the phone's own HTTP cache applies.
