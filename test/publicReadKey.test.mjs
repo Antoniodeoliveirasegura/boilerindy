@@ -65,6 +65,8 @@ const PUBLIC_READS = [
   // One hall's day for the app's Dining widget (issue #549).
   '/api/dining/today',
   '/api/campus-news',
+  // IU's alert for the Indianapolis campus, for the banners (issue #34).
+  '/api/campus-alert',
   // The signed-out Free Food page's read (issue #366).
   '/api/campus-events/free-food',
   // The demo calendars for the App Review account (issue #521).

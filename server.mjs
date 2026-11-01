@@ -568,8 +568,9 @@ try {
 // run. The campus events one is the signed-out /free-food's read (issue #366),
 // behind the same CAMPUS_EVENTS_FEED switch as the signed-in calendar read, and
 // lists the downtown rows only with CAMPUS_EVENTS_DOWNTOWN on, as that read does.
-// The sources one serves the demo calendars (issue #521).
-app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache }))
+// The sources one serves the demo calendars (issue #521). The campus one's
+// alert read asks IU only with CAMPUS_ALERTS on (issue #34).
+app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache, campusAlertsEnabled: envSwitch('CAMPUS_ALERTS') }))
 app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
 app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN') }))

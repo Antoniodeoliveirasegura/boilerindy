@@ -1,0 +1,24 @@
+{
+  "identifier": "17892038570001397942073",
+  "sender": "IndianaUniversity-PurdueUniversityIndianapolis",
+  "sent": "2026-09-12T05:04:17-04:00",
+  "status": "Actual",
+  "msgType": "Alert",
+  "source": "182001 9.0.48922",
+  "scope": "Public",
+  "info": {
+    "language": "en-US",
+    "category": "Other",
+    "event": "IN Campus Status Normal Signs",
+    "responseType": "None",
+    "urgency": "Unknown",
+    "severity": "Unknown",
+    "certainty": "Unknown",
+    "effective": "2015-01-16T11:44:00-05:00",
+    "onset": "2015-01-16T11:44:00-05:00",
+    "expires": "2026-09-12T05:19:17-04:00",
+    "senderName": "Indiana University-Purdue University Indianapolis",
+    "headline": "IU Indy Alert: Campus Status Normal",
+    "description": "IU Indianapolis Alert: Campus Status Normal"
+  }
+}

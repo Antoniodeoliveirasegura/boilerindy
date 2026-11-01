@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { QueryClient, dehydrate, hydrate } from '@tanstack/react-query'
 import {
   ApiError,
+  CAMPUS_ALERT_POLL_MS,
   CAMPUS_NEWS_STALE_MS,
   CLUBS_STALE_MS,
   DINING_STALE_MS,
@@ -12,6 +13,7 @@ import {
   TRANSIT_STATIC_STALE_MS,
   TRANSIT_VEHICLES_POLL_MS,
   TRANSIT_VEHICLES_STALE_MS,
+  campusAlertQuery,
   campusNewsQuery,
   clubSearchQuery,
   diningQuery,
@@ -197,6 +199,17 @@ describe('what reaches localStorage', () => {
     expect(transitPlacesQuery.queryKey).toEqual(['transit', 'places'])
     expect(transitPlacesQuery.staleTime).toBe(TRANSIT_STATIC_STALE_MS)
     expect(isPersistedQueryKey(['transit', 'places'])).toBe(true)
+  })
+
+  test('the campus alert (issue #34) is polled every 30 s while the tab is visible and never persisted', () => {
+    expect(campusAlertQuery.queryKey).toEqual(['alerts', 'campus'])
+    expect(campusAlertQuery.refetchInterval).toBe(CAMPUS_ALERT_POLL_MS)
+    expect(CAMPUS_ALERT_POLL_MS).toBe(30_000)
+    expect(campusAlertQuery.refetchIntervalInBackground).toBe(false)
+    expect(isPublicQueryKey(['alerts', 'campus'])).toBe(true)
+    // A stored alert could show an emergency that ended hours ago.
+    expect(isPersistedQueryKey(['alerts', 'campus'])).toBe(false)
+    expect(shouldDehydrateQuery({ queryKey: ['alerts', 'campus'], state: { status: 'success' } } as never)).toBe(false)
   })
 
   test('a dish\'s details are public but stay in memory (issue #468): they would only pile up in storage', () => {

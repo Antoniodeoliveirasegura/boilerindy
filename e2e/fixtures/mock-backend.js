@@ -681,6 +681,9 @@ export const test = base.extend({
       parking: null,
       // Club directory (#16): { clubs, degraded }. null === the built-in sample list.
       clubs: null,
+      // The campus alert (#34): GET /api/campus-alert's answer. null === the
+      // server's default, CAMPUS_ALERTS off; seedCampusAlert sets one.
+      campusAlert: null,
       // Following a club (#16): the organization keys the test user follows,
       // oldest first. null === a server before README step 48, whose follow
       // routes answer 503 club_follows_schema_missing and whose calendar read
@@ -1013,6 +1016,10 @@ export const test = base.extend({
       // Campus news (#470): The Circuit's headlines, as src/circuitNews.mjs shapes them.
       if (pathname === '/api/campus-news') {
         return json(route, 200, state.campusNews || sampleCampusNews())
+      }
+      // The campus alert (#34), session-free like the server's: signed in or out.
+      if (pathname === '/api/campus-alert') {
+        return json(route, 200, state.campusAlert || { enabled: false, active: false, alert: null, checkedAt: null, stale: false })
       }
       if (pathname === '/api/dining') {
         const seed = state.dining || {}
@@ -1510,6 +1517,10 @@ export const test = base.extend({
       },
       seedParking(snapshot) {
         state.parking = snapshot
+      },
+      // GET /api/campus-alert's answer from now on, as src/campusAlert.mjs shapes it (#34).
+      seedCampusAlert(answer) {
+        state.campusAlert = answer
       },
       seedClubs({ clubs = null, degraded = false } = {}) {
         state.clubs = { clubs, degraded }

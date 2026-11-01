@@ -1,5 +1,6 @@
 import express from 'express'
 import { parseClubSearchParams, searchClubDirectory } from '../boilerlinkClubs.mjs'
+import { CAMPUS_ALERTS_OFF, campusAlertAnswer, fetchCampusAlert } from '../campusAlert.mjs'
 import { fetchCircuitNews } from '../circuitNews.mjs'
 import { fetchParkingStatus } from '../parkingStatus.mjs'
 import { MAX_PER_ROUTE, buildArrivals, parseStopArrivalTimes, unreadTimes } from '../transitArrivals.mjs'
@@ -8,11 +9,11 @@ import { vehiclesAsOf } from '../transitVehicles.mjs'
 import { UpstreamError, fetchUpstreamJson } from '../upstreamFetch.mjs'
 
 // Campus: the TransLoc shuttle proxies, the widgets' stop list and arrivals
-// (issue #549), live garage availability, the club directory search and the
-// campus news headlines (issue #470). Moved out of server.mjs as a feature
-// router (issue #191) with the handlers unchanged. All eight routes are
-// session-free public reads (issue #250), so there is only the public router,
-// mounted ahead of the session middleware.
+// (issue #549), live garage availability, the club directory search, the
+// campus news headlines (issue #470) and the campus alert (issue #34). Moved
+// out of server.mjs as a feature router (issue #191) with the handlers
+// unchanged. All nine routes are session-free public reads (issue #250), so
+// there is only the public router, mounted ahead of the session middleware.
 
 // TransLoc API proxy endpoints (to avoid CORS issues)
 const TRANSLOC_API = 'https://iuindianapolis.transloc.com/Services/JSONPRelay.svc'
@@ -64,6 +65,14 @@ const CAMPUS_NEWS_CACHE_MS = 60 * 60 * 1000
 // for five minutes, so a paper whose site is down is not asked on every read.
 const CAMPUS_NEWS_RETRY_MS = 5 * 60 * 1000
 
+// IU's alert for the Indianapolis campus (issue #34, src/campusAlert.mjs),
+// asked at most every 15 s per process. The banners poll every 30 s (the
+// website, through the edge) and 60 s (the app), so a new alert reaches an
+// open page within about a minute.
+const CAMPUS_ALERT_CACHE_MS = 15 * 1000
+// After a failed read with nothing to fall back on, IU is left alone this long.
+const CAMPUS_ALERT_RETRY_MS = 30 * 1000
+
 /**
  * The campus public reads, mounted by server.mjs in its public reads block,
  * before the session middleware, where the app.get lines used to be, so the
@@ -83,6 +92,8 @@ const CAMPUS_NEWS_RETRY_MS = 5 * 60 * 1000
  *   spotlight route uses too
  * @param {object}   deps.clubDirectoryCache         the BoilerLink directory cache built in
  *   server.mjs, which also refreshes it after startup
+ * @param {boolean}  [deps.campusAlertsEnabled]      CAMPUS_ALERTS: off (the default), the
+ *   campus alert read answers enabled: false and never asks IU
  */
 export function createCampusPublicRouter({
   transitVehiclesIpRateLimit,
@@ -94,6 +105,7 @@ export function createCampusPublicRouter({
   clubsReadRateLimit,
   getCached,
   clubDirectoryCache,
+  campusAlertsEnabled = false,
 }) {
   const router = express.Router()
 
@@ -307,6 +319,40 @@ export function createCampusPublicRouter({
     }
   }
 
+  // GET /api/campus-alert (issue #34): IU's alert for the Indianapolis
+  // campus, for the banner on the website and the app. Behind CAMPUS_ALERTS,
+  // off by default, which is also the kill switch: off, the read answers
+  // enabled: false and never asks IU. On, a failed refresh keeps serving the
+  // last good reading, marked stale after two minutes, so a banner that is up
+  // stays up with its time instead of dropping to a false all clear. With
+  // nothing to serve it answers 503 and leaves IU alone for
+  // CAMPUS_ALERT_RETRY_MS; getCached only throws when it holds no reading, so
+  // skipping it during that wait loses nothing.
+  let campusAlertFailedAt = -Infinity
+  function campusAlertUnavailable(res) {
+    res.set('Cache-Control', 'no-store')
+    res.status(503).json({ error: { message: 'Campus alerts are not available right now.', status: 503, code: 'campus_alert_unavailable' } })
+  }
+  async function handleCampusAlert(_req, res) {
+    if (!campusAlertsEnabled) {
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=60')
+      return res.json(CAMPUS_ALERTS_OFF)
+    }
+    if (Date.now() - campusAlertFailedAt < CAMPUS_ALERT_RETRY_MS) return campusAlertUnavailable(res)
+    try {
+      const reading = await getCached('campus:alert', CAMPUS_ALERT_CACHE_MS, () => fetchCampusAlert())
+      // Short at the edge too, so a new alert is not held back there; the
+      // edge may answer from the expired copy while it refreshes, so a Render
+      // cold start does not stall every open page.
+      res.set('Cache-Control', 'public, max-age=10, s-maxage=10, stale-while-revalidate=20')
+      res.json(campusAlertAnswer(reading))
+    } catch (error) {
+      campusAlertFailedAt = Date.now()
+      console.warn('Campus alert unavailable:', error?.message || error)
+      campusAlertUnavailable(res)
+    }
+  }
+
   router.get('/api/transit/vehicles', transitVehiclesIpRateLimit, transitVehiclesRateLimit, handleTransitVehicles)
   router.get('/api/transit/stops', publicReadIpRateLimit, publicReadRateLimit, handleTransitStops)
   router.get('/api/transit/routes', publicReadIpRateLimit, publicReadRateLimit, handleTransitRoutes)
@@ -315,6 +361,7 @@ export function createCampusPublicRouter({
   router.get('/api/parking/garages', publicReadIpRateLimit, publicReadRateLimit, handleParkingGarages)
   router.get('/api/clubs', clubsReadRateLimit, handleClubs)
   router.get('/api/campus-news', publicReadIpRateLimit, publicReadRateLimit, handleCampusNews)
+  router.get('/api/campus-alert', publicReadIpRateLimit, publicReadRateLimit, handleCampusAlert)
 
   return router
 }

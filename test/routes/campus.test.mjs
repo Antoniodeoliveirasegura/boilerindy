@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import express from 'express'
 import { buildClubDirectory, parseClubSearchParams, searchClubDirectory } from '../../src/boilerlinkClubs.mjs'
+import { readIuAlert } from '../../src/campusAlert.mjs'
 import { buildTransitIndex, publicPlace } from '../../src/transitPlaces.mjs'
 import { createStaleCache } from '../../src/upstreamFetch.mjs'
 
@@ -48,7 +49,7 @@ async function withFakeTransloc(respond, run) {
   }
 }
 
-async function withApp({ factory = createCampusPublicRouter, cached = {}, cache, clubs } = {}, run) {
+async function withApp({ factory = createCampusPublicRouter, cached = {}, cache, clubs, campusAlertsEnabled } = {}, run) {
   const limiterHits = []
   const cacheCalls = []
   const limiter = (name) => (req, _res, next) => {
@@ -79,6 +80,7 @@ async function withApp({ factory = createCampusPublicRouter, cached = {}, cache,
         return producer()
       },
       clubDirectoryCache: clubs ?? { get: async () => ({ directory: DIRECTORY, stale: false }) },
+      campusAlertsEnabled,
     }),
   )
   const server = app.listen(0)
@@ -108,6 +110,7 @@ test('each route runs through its own limiters, the per-address cap first', asyn
       '/api/transit/arrivals?stop=riverwalk-apartments',
       '/api/parking/garages',
       '/api/clubs',
+      '/api/campus-alert',
     ]
     for (const path of paths) {
       const res = await fetch(base + path)
@@ -127,6 +130,8 @@ test('each route runs through its own limiters, the per-address cap first', asyn
       'public-read-ip /api/parking/garages',
       'public-read /api/parking/garages',
       'clubs-read /api/clubs',
+      'public-read-ip /api/campus-alert',
+      'public-read /api/campus-alert',
     ])
   })
 })
@@ -443,6 +448,110 @@ test('with the feed down and nothing cached, campus news answers an empty list, 
     // The next read inside the five-minute wait answers the same without asking the feed.
     const again = await fetch(`${base}/api/campus-news`)
     assert.deepEqual(await again.json(), { ok: false, error: 'campus_news_unavailable', posts: [] })
+    assert.equal(cacheCalls.length, 1)
+  })
+})
+
+// The campus alert (issue #34): IU's feed for its Indianapolis campus, the
+// real all clear of 2026-09-12 and an emergency built from IU's history text.
+const IU_ALERT_FEED = 'https://exdd-resources.webapps.iu.edu/api/public/v1/rave/indianapolis?output=json'
+const IU_NORMAL = load('iu-alert-indianapolis.json')
+const IU_EMERGENCY = {
+  ...IU_NORMAL,
+  identifier: '17892038570001397900001',
+  sent: '2026-09-12T03:49:00-04:00',
+  info: {
+    ...IU_NORMAL.info,
+    severity: 'Severe',
+    headline: 'IU Indy emergency: Dangerous situation near Sports Complex Garage',
+    description: 'IU Indianapolis emergency: A dangerous situation is occurring on campus near Sports Complex Garage and Riverwalk Garage. Avoid the area and trust your instincts.',
+  },
+}
+
+test('with CAMPUS_ALERTS off the campus alert answers enabled: false and never asks IU (issue #34)', async () => {
+  await withFakeTransloc(
+    () => {
+      throw new Error('IU must not be asked')
+    },
+    async (urls) => {
+      await withApp({}, async ({ base, limiterHits, cacheCalls }) => {
+        const res = await fetch(`${base}/api/campus-alert`)
+        assert.equal(res.status, 200)
+        assert.deepEqual(await res.json(), { enabled: false, active: false, alert: null, checkedAt: null, stale: false })
+        assert.equal(res.headers.get('cache-control'), 'public, max-age=60, s-maxage=60')
+        assert.equal(res.headers.get('set-cookie'), null)
+        assert.deepEqual(cacheCalls, [])
+        assert.deepEqual(limiterHits, ['public-read-ip /api/campus-alert', 'public-read /api/campus-alert'])
+      })
+      assert.deepEqual(urls, [])
+    },
+  )
+})
+
+test('with CAMPUS_ALERTS on, an active alert comes from IU\'s feed through the shared cache, asked once per 15 s', async () => {
+  await withFakeTransloc(
+    () => json(IU_EMERGENCY),
+    async (urls) => {
+      await withApp({ campusAlertsEnabled: true, cache: createStaleCache({ log: { warn() {} } }) }, async ({ base, cacheCalls }) => {
+        const res = await fetch(`${base}/api/campus-alert`)
+        assert.equal(res.status, 200)
+        assert.equal(res.headers.get('cache-control'), 'public, max-age=10, s-maxage=10, stale-while-revalidate=20')
+        assert.equal(res.headers.get('set-cookie'), null)
+        const body = await res.json()
+        assert.equal(body.enabled, true)
+        assert.equal(body.active, true)
+        assert.equal(body.stale, false)
+        assert.deepEqual(body.alert, {
+          id: '17892038570001397900001',
+          source: 'IU Indianapolis',
+          sentAt: '2026-09-12T07:49:00.000Z',
+          headline: IU_EMERGENCY.info.headline,
+          message: IU_EMERGENCY.info.description,
+          instruction: null,
+          severity: 'Severe',
+          level: 'danger',
+          test: false,
+        })
+        // A second read inside the 15 s is answered from the cache.
+        assert.equal((await fetch(`${base}/api/campus-alert`)).status, 200)
+        assert.deepEqual(cacheCalls, [
+          { key: 'campus:alert', ttlMs: 15_000 },
+          { key: 'campus:alert', ttlMs: 15_000 },
+        ])
+      })
+      assert.deepEqual(urls, [IU_ALERT_FEED])
+    },
+  )
+})
+
+test('IU\'s all clear answers active: false with no alert', async () => {
+  const reading = { fetchedAt: Date.now(), alert: readIuAlert(IU_NORMAL) }
+  await withApp({ campusAlertsEnabled: true, cached: { 'campus:alert': reading } }, async ({ base }) => {
+    const body = await (await fetch(`${base}/api/campus-alert`)).json()
+    assert.deepEqual(body, { enabled: true, active: false, alert: null, checkedAt: new Date(reading.fetchedAt).toISOString(), stale: false })
+  })
+})
+
+test('while IU is unreachable the last good alert keeps serving, marked stale once it is two minutes old', async () => {
+  // What server.mjs's cache hands back after a failed refresh: the last good reading.
+  const reading = { fetchedAt: Date.now() - 3 * 60 * 1000, alert: readIuAlert(IU_EMERGENCY) }
+  await withApp({ campusAlertsEnabled: true, cached: { 'campus:alert': reading } }, async ({ base }) => {
+    const body = await (await fetch(`${base}/api/campus-alert`)).json()
+    assert.equal(body.active, true)
+    assert.equal(body.stale, true)
+    assert.equal(body.checkedAt, new Date(reading.fetchedAt).toISOString())
+  })
+})
+
+test('with IU down and nothing cached the campus alert answers 503, never cached, and leaves IU alone for a while', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  await withApp({ campusAlertsEnabled: true, cached: { 'campus:alert': new Error("IU's alert feed answered 503") } }, async ({ base, cacheCalls }) => {
+    const res = await fetch(`${base}/api/campus-alert`)
+    assert.equal(res.status, 503)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await res.json(), { error: { message: 'Campus alerts are not available right now.', status: 503, code: 'campus_alert_unavailable' } })
+    // The next read inside the 30 s wait answers the same without asking IU.
+    assert.equal((await fetch(`${base}/api/campus-alert`)).status, 503)
     assert.equal(cacheCalls.length, 1)
   })
 })
