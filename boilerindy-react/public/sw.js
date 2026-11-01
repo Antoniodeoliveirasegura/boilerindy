@@ -104,8 +104,11 @@ self.addEventListener('fetch', (event) => {
 
 // ---------------------------------------------------------------------------
 // Web Push (issue #9). The server sends a small JSON payload per notification:
-//   { title, body, url, tag, kind } - url is a same-origin path such as
-//   '/assignments'. Everything below is best-effort: a malformed payload still
+//   { title, body, url, tag, kind, subtitle? } - url is a same-origin path,
+//   with the item it names when there is one ('/assignments?taskId=...',
+//   '/dining?hall=tower-dining&meal=lunch', issue #550). Web notifications have
+//   no subtitle line, so a subtitle (a dish alert's hall and meals) leads the
+//   body. Everything below is best-effort: a malformed payload still
 //   shows a notification (userVisibleOnly requires one), and a failed
 //   re-subscribe is left for the user to redo from Settings.
 // ---------------------------------------------------------------------------
@@ -120,7 +123,7 @@ function parsePushPayload(data) {
     if (parsed && typeof parsed === 'object') {
       return {
         title: typeof parsed.title === 'string' && parsed.title ? parsed.title : fallback.title,
-        body: typeof parsed.body === 'string' ? parsed.body : '',
+        body: [parsed.subtitle, parsed.body].filter((part) => typeof part === 'string' && part).join('\n'),
         url: typeof parsed.url === 'string' && parsed.url ? parsed.url : '/',
         tag: typeof parsed.tag === 'string' && parsed.tag ? parsed.tag : undefined,
       }

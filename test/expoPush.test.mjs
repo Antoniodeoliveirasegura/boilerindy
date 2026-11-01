@@ -147,6 +147,16 @@ test('each kind the server pushes gets its own level, thread, sound, priority an
   assert.deepEqual([alert.interruptionLevel, alert.threadId, alert.relevanceScore, alert.priority, alert.ttl], ['time-sensitive', 'safety', 1, 'high', 30 * 60])
 })
 
+// Issue #550, item 5: a deadline names its task, for the app's Mark done.
+test('a payload that names an item carries it in data, beside the link to it', () => {
+  const [message] = buildExpoMessages(
+    [{ token: token(1) }],
+    { ...PAYLOAD, url: '/assignments?taskId=a&taskKind=calendar', itemId: 'a', itemKind: 'calendar' },
+    { now: NOW },
+  )
+  assert.deepEqual(message.data, { url: '/assignments?taskId=a&taskKind=calendar', kind: 'deadline', tag: 'deadline-calendar-a', itemId: 'a', itemKind: 'calendar' })
+})
+
 test('expoTtlSeconds keeps a message until its news stops being true, never below 0', () => {
   const deadline = notificationKind('deadline')
   assert.equal(expoTtlSeconds(deadline, { expiresAt: '2026-09-08T14:45:00.000Z' }, NOW), 45 * 60)

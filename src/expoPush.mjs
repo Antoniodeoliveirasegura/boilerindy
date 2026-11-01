@@ -137,11 +137,12 @@ export function expoTtlSeconds(kind, payload, now = new Date()) {
  * - `ttl` from expoTtlSeconds.
  *
  * `url` and `kind` ride in `data` for the app to open the right screen on a
- * tap. The payload tag becomes `collapseId` (both platforms) and `tag`
- * (Android), the counterparts of the Topic header and the service worker's
- * notification tag. No `channelId` yet: Android hides a notification whose
- * channel the phone has not created, so it waits until phones report theirs
- * (issue #550, item 4).
+ * tap, with `itemId` and `itemKind` when the payload names an item (a
+ * deadline's task, for its Mark done action). The payload tag becomes
+ * `collapseId` (both platforms) and `tag` (Android), the counterparts of the
+ * Topic header and the service worker's notification tag. No `channelId` yet:
+ * Android hides a notification whose channel the phone has not created, so it
+ * waits until phones report theirs (issue #550, item 4).
  */
 export function buildExpoMessages(rows, payload, { now = new Date() } = {}) {
   const kind = serverPushKind(payload.kind)
@@ -153,12 +154,14 @@ export function buildExpoMessages(rows, payload, { now = new Date() } = {}) {
   if (kind.sound) fields.sound = 'default'
   fields.priority = kind.level === 'passive' ? 'normal' : 'high'
   fields.ttl = expoTtlSeconds(kind, payload, now)
+  const data = { url: payload.url ?? null, kind: kind.id, tag }
+  if (payload.itemId) Object.assign(data, { itemId: String(payload.itemId), itemKind: payload.itemKind ?? null })
   return rows.map((row) => {
     const message = {
       to: row.token,
       title: clip(payload.title, TITLE_MAX),
       body: clip(payload.body, BODY_MAX),
-      data: { url: payload.url ?? null, kind: kind.id, tag },
+      data,
       ...fields,
     }
     if (payload.subtitle) message.subtitle = clip(payload.subtitle, SUBTITLE_MAX)

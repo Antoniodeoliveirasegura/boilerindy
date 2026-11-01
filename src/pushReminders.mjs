@@ -206,28 +206,52 @@ export function formatDueTime(dueAt, { now = new Date(), timeZone = CAMPUS_TIME_
   return `${weekday} at ${time}`
 }
 
-// `expiresAt` is the due moment: an undelivered reminder is worth nothing
-// after it, so the phone's copy is kept until then (expoTtlSeconds).
+/**
+ * The page a reminder opens: the task itself (issue #550, item 5),
+ * /assignments?taskId=<id>&taskKind=calendar|manual. The website's
+ * Assignments page opens that task's details, and the app maps the same path
+ * to its Tasks screen (reading `calendar` as its `imported`).
+ */
+export function deadlineItemUrl(item) {
+  return `${REMINDER_URL}?${new URLSearchParams({ taskId: String(item.id), taskKind: item.kind })}`
+}
+
+// `itemId` and `itemKind` ('calendar' or 'manual') name the task for the
+// app's actions, as the url does for a tap. `expiresAt` is the due moment: an
+// undelivered reminder is worth nothing after it, so the phone's copy is kept
+// until then (expoTtlSeconds).
 export function buildDeadlinePayload(item, now = new Date()) {
   const label = CATEGORY_WORD[item.category] || 'Deadline'
   return {
     title: `${label} ${describeDueIn(item.dueAt, now)}`,
     body: `${item.title} is due ${formatDueTime(item.dueAt, { now })}.`,
-    url: REMINDER_URL,
+    url: deadlineItemUrl(item),
     tag: `deadline-${item.key}`.replace(/[^A-Za-z0-9_-]/g, '-'),
     kind: 'deadline',
+    itemId: String(item.id),
+    itemKind: item.kind,
     expiresAt: item.dueAt.toISOString(),
   }
 }
 
-export function buildTestPayload() {
-  return {
-    title: 'BoilerIndy notifications are on',
-    body: 'You will get deadline reminders on this device.',
-    url: '/settings',
-    tag: 'test',
-    kind: 'test',
+/**
+ * The test push, worded for the device it reaches (issue #550, item 2). A
+ * phone whose app schedules the student's class and task reminders itself
+ * (local reminders, boilerindy-app#55) gets only the favorite-dish alerts from
+ * here, so it says so rather than promising deadline reminders it will never
+ * get. Browsers and every other phone get the deadline reminders, and keep
+ * the old words.
+ */
+export function buildTestPayload({ localReminders = false, platform = null } = {}) {
+  const payload = { url: '/settings', tag: 'test', kind: 'test' }
+  if (localReminders) {
+    return {
+      title: `Notifications are on for this ${platform === 'android' ? 'phone' : 'iPhone'}`,
+      body: 'Favorite dish alerts come here. Class and task reminders come from the phone itself.',
+      ...payload,
+    }
   }
+  return { title: 'BoilerIndy notifications are on', body: 'You will get deadline reminders on this device.', ...payload }
 }
 
 /** Supabase reports a missing table as PGRST205 (schema cache) or 42P01. */
@@ -263,7 +287,7 @@ export async function withLocalRemindersColumn(buildQuery) {
 
 /**
  * The phones to send to for these students: push_devices rows as
- * { id, user_id, token, failure_count, local_reminders }, where
+ * { id, user_id, token, platform, failure_count, local_reminders }, where
  * local_reminders is missing before README step 47 runs (read as false). A
  * device that has reached MAX_DEVICE_STRIKES is deleted here and left out,
  * which is how a device with five strikes is "skipped and deleted on the next
@@ -278,7 +302,7 @@ export async function loadPushDevices(client, userIds, { log = console } = {}) {
   const res = await withLocalRemindersColumn((withFlag) =>
     client
       .from('push_devices')
-      .select(withFlag ? 'id, user_id, token, failure_count, local_reminders' : 'id, user_id, token, failure_count')
+      .select(withFlag ? 'id, user_id, token, platform, failure_count, local_reminders' : 'id, user_id, token, platform, failure_count')
       .in('user_id', userIds),
   )
   if (res.error) {

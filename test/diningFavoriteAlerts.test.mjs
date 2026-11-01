@@ -16,6 +16,7 @@ import {
   favoritesOnMenu,
   inAlertWindow,
   isMissingColumnError,
+  mealEndsAt,
   runDiningFavoriteAlerts,
 } from '../src/diningFavoriteAlerts.mjs'
 
@@ -29,12 +30,13 @@ const SNAPSHOT = {
   locations: [
     {
       name: 'Tower Dining',
+      slug: 'tower-dining',
       menus: [
         { meal: 'lunch', stations: [{ name: 'Homestyle', items: [{ name: 'Honey Garlic Fried Chicken' }] }, { name: 'Daily Grill', items: [{ name: 'Veggie Burger' }] }] },
         { meal: 'dinner', stations: [{ name: 'Daily Grill', items: [{ name: 'Veggie Burger' }] }, { name: 'Homestyle', items: [{ name: 'Beef Stroganoff' }] }] },
       ],
     },
-    { name: 'Campus Center', menus: [], stations: [] },
+    { name: 'Campus Center', slug: 'campus-center', menus: [], stations: [] },
   ],
 }
 
@@ -52,7 +54,7 @@ test('the window runs from 8:00 AM to 7:00 PM on the campus clock', () => {
 
 test('dishesOnMenu lists every dish once with its meals; favoritesOnMenu matches by normalized name', () => {
   const dishes = dishesOnMenu(SNAPSHOT)
-  assert.deepEqual(dishes.get('veggie burger'), { name: 'Veggie Burger', location: 'Tower Dining', meals: ['lunch', 'dinner'] })
+  assert.deepEqual(dishes.get('veggie burger'), { name: 'Veggie Burger', location: 'Tower Dining', hall: 'tower-dining', meals: ['lunch', 'dinner'] })
   assert.equal(dishes.size, 3)
   // A snapshot from before per-meal menus: the merged list and its meals.
   const merged = dishesOnMenu({ locations: [{ name: 'Tower Dining', stations: [{ items: [{ name: 'Pancakes', meals: ['breakfast'] }, { name: 'Toast' }] }] }] })
@@ -65,25 +67,67 @@ test('dishesOnMenu lists every dish once with its meals; favoritesOnMenu matches
   assert.deepEqual(favoritesOnMenu([], dishes), [])
 })
 
-test('the push names the dishes, their meals and the hall, and opens the Dining page', () => {
+// Issue #550, items 2 and 5: the news first, and a tap that opens the hall
+// and the meal (the app compares the hall id, tower-dining, exactly).
+test('the push leads with the dish, puts its hall and meals in the subtitle, and opens that hall and meal', () => {
   const dishes = dishesOnMenu(SNAPSHOT)
-  const one = buildDiningFavoritesPayload(favoritesOnMenu(['veggie burger'], dishes), '2026-10-14')
+  // The snapshot lists no hours, so lunch runs to the end of its window, 4:30 PM.
+  const one = buildDiningFavoritesPayload(favoritesOnMenu(['veggie burger'], dishes), '2026-10-14', { snapshot: SNAPSHOT, now: at('09:00') })
   assert.deepEqual(one, {
-    title: 'Veggie Burger is on the menu today',
-    body: 'Veggie Burger (lunch and dinner, Tower Dining).',
-    url: '/dining',
+    title: 'Veggie Burger is on today',
+    subtitle: 'Tower Dining · lunch and dinner',
+    body: 'Lunch is served until 4:30 PM.',
+    url: '/dining?hall=tower-dining&meal=lunch',
     tag: 'dining-favorites-2026-10-14',
     kind: 'dining-favorites',
-    // Issue #550: true until dinner, the last meal that serves it, ends at midnight.
+    // True until dinner, the last meal that serves it, ends at midnight.
     expiresAt: '2026-10-15T04:00:00.000Z',
   })
-  const many = buildDiningFavoritesPayload(
-    [...['A', 'B', 'C', 'D', 'E'].map((name) => ({ name, location: 'Tower Dining', meals: ['lunch'] }))],
+
+  // The other starred dishes go in the body, with their hall when it is another one.
+  const twoHalls = {
+    ...SNAPSHOT,
+    locations: [SNAPSHOT.locations[0], { name: 'Campus Center', slug: 'campus-center', menus: [{ meal: 'dinner', stations: [{ name: 'Grill', items: [{ name: 'Smash Burger' }] }] }] }],
+  }
+  const three = buildDiningFavoritesPayload(favoritesOnMenu(['smash burger', 'beef stroganoff', 'veggie burger'], dishesOnMenu(twoHalls)), '2026-10-14', {
+    snapshot: twoHalls,
+    now: at('09:00'),
+  })
+  assert.equal(three.title, 'Veggie Burger is on today')
+  assert.equal(three.body, 'Also on today: Beef Stroganoff and Smash Burger (Campus Center). Lunch is served until 4:30 PM.')
+
+  // Three named at most; dinner's end is not known without the hall's hours.
+  const six = buildDiningFavoritesPayload(
+    ['A', 'B', 'C', 'D', 'E', 'F'].map((name) => ({ name, location: 'Tower Dining', hall: 'tower-dining', meals: ['dinner'] })),
     '2026-10-14',
   )
-  assert.equal(many.title, '5 of your favorites are on the menu today')
-  assert.equal(many.body, 'A (lunch, Tower Dining); B (lunch, Tower Dining); C (lunch, Tower Dining); and 2 more.')
-  assert.equal(many.expiresAt, '2026-10-14T20:30:00.000Z', 'lunch ends at 4:30 PM')
+  assert.deepEqual([six.title, six.subtitle, six.body, six.url], ['A is on today', 'Tower Dining · dinner', 'Also on today: B, C, D and 2 more.', '/dining?hall=tower-dining&meal=dinner'])
+
+  // A dish from a snapshot with no hall id or meal still opens Dining.
+  const bare = buildDiningFavoritesPayload([{ name: 'Toast', location: 'Tower Dining', hall: null, meals: [] }], '2026-10-14')
+  assert.deepEqual([bare.title, bare.subtitle, bare.body, bare.url], ['Toast is on today', 'Tower Dining', '', '/dining'])
+  assert.equal(
+    buildDiningFavoritesPayload([{ name: 'A', location: 'Tower Dining', hall: 'tower-dining', meals: ['lunch'] }], '2026-10-14').expiresAt,
+    '2026-10-14T20:30:00.000Z',
+    'lunch ends at 4:30 PM',
+  )
+})
+
+test("mealEndsAt reads a meal's end from the hall's hours, as the Dining widget does", () => {
+  const withHours = { ...SNAPSHOT, locations: [{ ...SNAPSHOT.locations[0], weekly_hours: { Wednesday: '7:00 AM - 8:00 PM' } }] }
+  // Dinner ends when the hall closes; lunch at the end of its window.
+  assert.equal(new Date(mealEndsAt(withHours, 'tower-dining', 'dinner', at('09:00'))).toISOString(), '2026-10-15T00:00:00.000Z')
+  assert.equal(new Date(mealEndsAt(withHours, 'tower-dining', 'lunch', at('09:00'))).toISOString(), '2026-10-14T20:30:00.000Z')
+  const dinner = buildDiningFavoritesPayload([{ name: 'Beef Stroganoff', location: 'Tower Dining', hall: 'tower-dining', meals: ['dinner'] }], '2026-10-14', {
+    snapshot: withHours,
+    now: at('09:00'),
+  })
+  assert.equal(dinner.body, 'Dinner is served until 8:00 PM.')
+  // Without hours the last meal's end is not known, and an unknown hall or meal says nothing.
+  assert.equal(mealEndsAt(SNAPSHOT, 'tower-dining', 'dinner', at('09:00')), null)
+  assert.equal(mealEndsAt(SNAPSHOT, 'nowhere', 'lunch', at('09:00')), null)
+  assert.equal(mealEndsAt(SNAPSHOT, 'tower-dining', null, at('09:00')), null)
+  assert.equal(mealEndsAt(null, 'tower-dining', 'lunch', at('09:00')), null)
 })
 
 // Issue #550: a dish alert is kept, undelivered, until the last meal that
@@ -168,7 +212,7 @@ test('the run claims and sends one alert to each student whose favorite is on th
   const client = alertsClient()
   const sent = []
   const send = async ({ subscription, payload, topic }) => {
-    sent.push({ endpoint: subscription.endpoint, title: payload.title, body: payload.body, topic })
+    sent.push({ endpoint: subscription.endpoint, title: payload.title, subtitle: payload.subtitle, url: payload.url, topic })
     return { ok: true, status: 201 }
   }
   const snapshots = []
@@ -182,7 +226,13 @@ test('the run claims and sends one alert to each student whose favorite is on th
   })
   assert.deepEqual(summary, { users: 1, matched: 1, sent: 1, failed: 0, removed: 0, skipped: 1 })
   assert.deepEqual(sent, [
-    { endpoint: 'https://push.example/1', title: 'Beef Stroganoff is on the menu today', body: 'Beef Stroganoff (dinner, Tower Dining).', topic: 'dining-favorites-2026-10-14' },
+    {
+      endpoint: 'https://push.example/1',
+      title: 'Beef Stroganoff is on today',
+      subtitle: 'Tower Dining · dinner',
+      url: '/dining?hall=tower-dining&meal=dinner',
+      topic: 'dining-favorites-2026-10-14',
+    },
   ])
   const claim = client.calls.find((c) => c.table === 'push_deliveries' && c.kind === 'insert')
   assert.deepEqual(claim.payload, { user_id: 'u1', item_key: 'dining-favorites:2026-10-14', kind: 'dining-favorites', sent_at: at('08:05').toISOString() })
@@ -246,7 +296,7 @@ test('before README step 47 runs, the favorite-dish alert still reaches the phon
   assert.deepEqual(expo, [[PHONE, 'dining-favorites']])
   assert.equal(summary.sent, 2)
   const selects = client.calls.filter((c) => c.table === 'push_devices' && c.kind === 'select').map((c) => c.payload)
-  assert.deepEqual(selects, ['id, user_id, token, failure_count, local_reminders', 'id, user_id, token, failure_count'])
+  assert.deepEqual(selects, ['id, user_id, token, platform, failure_count, local_reminders', 'id, user_id, token, platform, failure_count'])
 })
 
 test('a claim that already exists is skipped: two overlapping runs send once', async () => {

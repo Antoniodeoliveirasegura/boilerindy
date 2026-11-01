@@ -404,7 +404,10 @@ export function createPushRouter({
     }
   })
 
-  async function deliverPushToUser(userId, payload, { topic = null } = {}) {
+  // `payloadFor(device)` words the push for each device: null for a browser,
+  // else the phone's push_devices row. The phones that share a wording go out
+  // in one Expo request.
+  async function deliverPushToUser(userId, payloadFor, { topic = null } = {}) {
     const { data, error } = await supabase
       .from('push_subscriptions')
       .select('id, endpoint, p256dh, auth, failure_count')
@@ -415,6 +418,7 @@ export function createPushRouter({
     // reminders or not: only the deadline reminders leave those phones out.
     const loaded = await loadPushDevices(supabase, [userId])
     const outcome = { sent: 0, failed: 0, removed: loaded.removed }
+    const payload = payloadFor(null)
     for (const row of data || []) {
       const result = await sendWebPush({
         subscription: { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
@@ -441,18 +445,32 @@ export function createPushRouter({
     }
     // Then the phones, with the same strike and removal bookkeeping as the
     // reminder runner.
-    const native = await deliverToPushDevices({ client: supabase, devices: loaded.devices, payload, send: sendToExpo })
-    outcome.sent += native.sent
-    outcome.failed += native.failed
-    outcome.removed += native.removed
+    const byWording = new Map()
+    for (const device of loaded.devices) {
+      const devicePayload = payloadFor(device)
+      const key = JSON.stringify(devicePayload)
+      if (!byWording.has(key)) byWording.set(key, { payload: devicePayload, devices: [] })
+      byWording.get(key).devices.push(device)
+    }
+    for (const group of byWording.values()) {
+      const native = await deliverToPushDevices({ client: supabase, devices: group.devices, payload: group.payload, send: sendToExpo })
+      outcome.sent += native.sent
+      outcome.failed += native.failed
+      outcome.removed += native.removed
+    }
     return outcome
   }
+
+  // The test push says what each device gets (issue #550, item 2): a phone
+  // with local reminders on hears that its reminders come from the phone.
+  const testPayloadFor = (device) =>
+    buildTestPayload(device ? { localReminders: device.local_reminders === true, platform: device.platform ?? null } : {})
 
   router.post('/api/push/test', pushTestRateLimit, requireAuth, async (req, res) => {
     if (!vapidKeys) return pushDisabledResponse(res)
     if (kindsOff.has('test')) return pushKindOffResponse(res)
     try {
-      const outcome = await deliverPushToUser(req.currentUser.id, buildTestPayload(), { topic: 'test' })
+      const outcome = await deliverPushToUser(req.currentUser.id, testPayloadFor, { topic: 'test' })
       res.json(outcome)
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res)

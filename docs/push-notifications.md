@@ -24,7 +24,9 @@ sets how loud it is, how it stacks and how long it is worth delivering: see
    token. The runner (`src/pushReminders.mjs`) finds items due within each
    user's lead time, claims them in `push_deliveries`, and sends one encrypted
    message per device.
-4. The service worker shows the notification; tapping it opens `/assignments`.
+4. The service worker shows the notification; tapping it opens the task it
+   names, `/assignments?taskId=<id>&taskKind=calendar|manual`, where the
+   Assignments page opens that task's details.
 
 The push protocol is implemented in `src/webPush.mjs` with `node:crypto` only:
 VAPID (RFC 8292) ES256 tokens and `aes128gcm` payload encryption (RFC 8291 and
@@ -91,17 +93,27 @@ VAPID keys, 503), or on the test send `push_kind_off` (`PUSH_KINDS_OFF` lists
 The encrypted body is JSON:
 
 ```json
-{ "title": "Assignment due in 45 min", "body": "HW 3 is due at 10:45 AM.", "url": "/assignments", "tag": "deadline-calendar-<id>", "kind": "deadline", "expiresAt": "2026-09-08T14:45:00.000Z" }
+{ "title": "Assignment due in 45 min", "body": "HW 3 is due at 10:45 AM.", "url": "/assignments?taskId=<id>&taskKind=calendar", "tag": "deadline-calendar-<id>", "kind": "deadline", "itemId": "<id>", "itemKind": "calendar", "expiresAt": "2026-09-08T14:45:00.000Z" }
 ```
 
 `tag` doubles as the push `Topic` header, so a device that was offline gets
-only the latest message per item. Test notifications use `kind: "test"` and
-open `/settings`. `kind` is always a kind id from the
-[kind registry](#kind-registry). `expiresAt`, on deadline reminders (the due
-moment) and favorite-dish alerts (the end of the last meal that serves a
-starred dish), is when the news stops being true: it sets how long Expo keeps
-a phone's undelivered copy. The service worker ignores it, and Web Push still
-keeps a message for 24 hours.
+only the latest message per item. `kind` is always a kind id from the
+[kind registry](#kind-registry). The fields by kind (issue #550, items 2 and
+5):
+
+| Field | On | What it is |
+|---|---|---|
+| `url` | every kind | The website path a tap opens, naming the item: `/assignments?taskId=<id>&taskKind=calendar\|manual` for a deadline (the Assignments page opens that task), `/dining?hall=<hall id>&meal=<meal>` for a dish alert (the hall id is the snapshot's slug, such as `tower-dining`, which the app compares exactly), `/settings` for the test push. The app maps each path to its own screen. |
+| `itemId`, `itemKind` | deadline reminders | The task: its id, and `calendar` (a feed item) or `manual` (a task the student added). The app reads `calendar` as its `imported`. |
+| `subtitle` | dish alerts | The hall and meals, "Tower Dining · lunch and dinner". Web notifications have no subtitle, so the service worker shows it as the first line of the body. |
+| `expiresAt` | deadline reminders, dish alerts | When the news stops being true: the due moment, or the end of the last meal that serves a starred dish. It sets how long Expo keeps a phone's undelivered copy; the service worker ignores it, and Web Push still keeps a message for 24 hours. |
+
+The test push says what the device it reaches gets (item 2). A phone with
+local reminders on gets "Notifications are on for this iPhone" ("this phone"
+on Android) and "Favorite dish alerts come here. Class and task reminders come
+from the phone itself."; browsers and every other phone keep "BoilerIndy
+notifications are on" and "You will get deadline reminders on this device."
+It opens `/settings`, with `kind: "test"`.
 
 ## Kind registry
 
@@ -152,11 +164,12 @@ What reads it today:
 - `GET /api/push/config` reports `kinds: { version, digest }`.
 - `PUSH_KINDS_OFF` ([below](#stopping-a-kind-push_kinds_off)).
 
-The rest of issue #550 builds on it: the copy and tap links (items 2 and 5),
-settings by kind with digests, quiet hours and the daily cap (items 3 and 8),
-the phone's `kinds` and `channels` at registration (item 4), receipts (item
-7) and campus alert pushes (item 9). Web Push is unchanged: browsers get the
-same payload and tag as before.
+The rest of issue #550 builds on it: settings by kind with digests, quiet
+hours and the daily cap (items 3 and 8), the phone's `kinds` and `channels`
+at registration (item 4), receipts (item 7) and campus alert pushes (item 9).
+The copy and the links to the item (items 2 and 5) are in
+[Notification payload](#notification-payload). Browsers get the same payload
+and tag as phones.
 
 ### Version and digest
 
@@ -243,16 +256,24 @@ student's favorite dishes (the stars on the Dining page) on that day's menu.
   `dining-favorites:<YYYY-MM-DD>` in `push_deliveries` before sending, so
   overlapping runs send once. A student with no favorite on the menu is not
   claimed, and the next tick checks again.
-- The payload: `{ "title": "Beef Stroganoff is on the menu today", "body":
-  "Beef Stroganoff (dinner, Tower Dining).", "url": "/dining", "tag":
-  "dining-favorites-<YYYY-MM-DD>", "kind": "dining-favorites", "expiresAt":
-  "<the end of the last meal that serves one of the dishes>" }`, three dishes
-  named at most, then "and N more". It goes to every browser and phone the
-  student has, phones with local reminders included, through the same
-  delivery path as the reminders. On a phone it is passive: no sound, in its
-  own stack ([Kind registry](#kind-registry)). The meals end by the clock's
-  usual windows in `src/diningMeals.mjs`: breakfast at 10:30 AM, brunch and
-  lunch at 4:30 PM, dinner and anything else at midnight.
+- The payload leads with the news (issue #550, item 2): `{ "title": "Veggie
+  Burger is on today", "subtitle": "Tower Dining · lunch and dinner", "body":
+  "Also on today: Beef Stroganoff and Smash Burger (Campus Center). Lunch is
+  served until 4:30 PM.", "url": "/dining?hall=tower-dining&meal=lunch",
+  "tag": "dining-favorites-<YYYY-MM-DD>", "kind": "dining-favorites",
+  "expiresAt": "<the end of the last meal that serves one of the dishes>" }`.
+  The title names the first starred dish on the menu, the subtitle its hall
+  and meals, and the body the others (three named at most, then "and N
+  more", each with its hall when it is another one) and when the first dish's
+  first meal ends, read from the hall's listed hours and the meal windows as
+  the app's Dining widget reads them (`buildDiningToday`); a last meal on a
+  day with no listed hours has no known end, so the body leaves it out. A tap
+  opens that hall and meal. It goes to every browser and phone the student
+  has, phones with local reminders included, through the same delivery path
+  as the reminders. On a phone it is passive: no sound, in its own stack
+  ([Kind registry](#kind-registry)). `expiresAt` follows the meal windows in
+  `src/diningMeals.mjs`: breakfast ends at 10:30 AM, brunch and lunch at 4:30
+  PM, dinner and anything else at midnight.
 
 ## Native devices (Expo)
 
@@ -287,7 +308,8 @@ EAS.
 
 A message carries the title and body the browsers get (clipped to 120 and 500
 characters, since Expo refuses a notification over 4 KiB and a calendar feed
-title has no limit), `data: { url, kind, tag }` for the app to open the right
+title has no limit), `data: { url, kind, tag }` (plus `itemId` and `itemKind`
+on a deadline reminder, for the app's Mark done action) for the app to open the right
 screen on a tap, the payload tag as `collapseId` and `tag`, so a phone that
 was offline shows only the latest message per item, and the fields its kind
 sets in the [kind registry](#kind-registry) (issue #550, item 1):
@@ -387,7 +409,8 @@ it. Browsers are unchanged.
   claimed, so an item still gets its reminder if local reminders are turned
   off, and the phone registers again, while the item is in its window.
 - The favorite-dish alerts and the Settings test send ignore the flag and
-  reach every phone.
+  reach every phone. The test send says so on such a phone: "Favorite dish
+  alerts come here. Class and task reminders come from the phone itself."
 - The column is `push_devices.local_reminders`, added by
   `db/supabase-push-local-reminders.sql` (README step 47), false by default.
   Until it runs nothing breaks: a phone registers without the flag and the

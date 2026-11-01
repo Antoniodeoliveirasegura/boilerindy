@@ -657,6 +657,36 @@ test('POST /api/push/test reaches a phone with local reminders on too', async ()
   })
 })
 
+// Issue #550, item 2: each device hears what it gets. A phone with local
+// reminders gets its reminders from the phone, so it is told so; every other
+// phone, like the browsers, keeps the old words. One Expo request per wording.
+test('POST /api/push/test words the push for each phone', async () => {
+  const OTHER = 'ExponentPushToken[phone000000000000000002]'
+  const tables = {
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({
+      data: [
+        { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: true },
+        { id: 'd2', user_id: STUDENT.id, token: OTHER, platform: 'ios', failure_count: 0, local_reminders: false },
+      ],
+      error: null,
+    }),
+  }
+  await withApp({ tables }, async ({ call, supabase, expoRequests }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.deepEqual(res.body, { sent: 2, failed: 0, removed: 0 })
+    assert.deepEqual(
+      expoRequests.map((messages) => messages.map((m) => [m.to, m.title, m.body])),
+      [
+        [[PHONE, 'Notifications are on for this iPhone', 'Favorite dish alerts come here. Class and task reminders come from the phone itself.']],
+        [[OTHER, 'BoilerIndy notifications are on', 'You will get deadline reminders on this device.']],
+      ],
+    )
+    const [devices] = supabase.queriesOf('push_devices')
+    assert.match(devices.chain.find((c) => c.method === 'select').args[0], /\bplatform\b/)
+  })
+})
+
 // Issue #550: PUSH_KINDS_OFF and EXPO_ACCESS_TOKEN, as server.mjs hands them in.
 test('POST /api/push/test answers 503 push_kind_off while PUSH_KINDS_OFF lists test, and sends nothing', async () => {
   const tables = {

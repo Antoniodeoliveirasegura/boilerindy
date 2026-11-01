@@ -4,6 +4,7 @@ import {
   DEFAULT_LEAD_MINUTES,
   buildDeadlinePayload,
   buildTestPayload,
+  deadlineItemUrl,
   deliverToPushDevices,
   describeDueIn,
   dueMomentOf,
@@ -102,19 +103,26 @@ test('reminder copy is short, campus-time, and category aware', () => {
   assert.equal(formatDueTime(new Date('2026-09-11T13:00:00Z'), { now: NOW }), 'Fri at 9:00 AM')
 
   const payload = buildDeadlinePayload(
-    { key: 'calendar:a', title: 'HW 3', category: 'assignment', dueAt: new Date('2026-09-08T14:45:00Z') },
+    { key: 'calendar:a', id: 'a', kind: 'calendar', title: 'HW 3', category: 'assignment', dueAt: new Date('2026-09-08T14:45:00Z') },
     NOW,
   )
   assert.deepEqual(payload, {
     title: 'Assignment due in 45 min',
     body: 'HW 3 is due at 10:45 AM.',
-    url: '/assignments',
+    // Issue #550: the reminder opens the task itself, and names it for the app.
+    url: '/assignments?taskId=a&taskKind=calendar',
     tag: 'deadline-calendar-a',
     kind: 'deadline',
-    // Issue #550: a phone keeps an undelivered reminder until the item is due.
+    itemId: 'a',
+    itemKind: 'calendar',
+    // A phone keeps an undelivered reminder until the item is due.
     expiresAt: '2026-09-08T14:45:00.000Z',
   })
-  assert.equal(buildDeadlinePayload({ key: 'manual:1', title: 'Call', category: 'manual_task', dueAt: new Date('2026-09-08T14:30:00Z') }, NOW).title, 'Task due in 30 min')
+  const task = buildDeadlinePayload({ key: 'manual:7f3c', id: '7f3c', kind: 'manual', title: 'Call', category: 'manual_task', dueAt: new Date('2026-09-08T14:30:00Z') }, NOW)
+  assert.equal(task.title, 'Task due in 30 min')
+  assert.equal(task.url, '/assignments?taskId=7f3c&taskKind=manual')
+  assert.deepEqual([task.itemId, task.itemKind], ['7f3c', 'manual'])
+  assert.equal(deadlineItemUrl({ id: 'a b&c', kind: 'calendar' }), '/assignments?taskId=a+b%26c&taskKind=calendar', 'the id is escaped')
   assert.equal(buildTestPayload().kind, 'test')
   assert.equal(isMissingTableError({ code: 'PGRST205' }), true)
   assert.equal(isMissingTableError({ message: 'relation "push_settings" does not exist' }), true)
@@ -221,6 +229,29 @@ test('runDeadlineReminders reports missing tables, missing keys, and duplicate c
   assert.equal(sends, 0)
   assert.equal(c.skipped, 1)
   assert.equal(c.checked, 1)
+})
+
+// Issue #550, item 2: the test push says what the device gets. A phone whose
+// app schedules the reminders itself gets only the dish alerts from here.
+test('the test push is worded for the device it reaches', () => {
+  const browser = buildTestPayload()
+  assert.deepEqual(browser, {
+    title: 'BoilerIndy notifications are on',
+    body: 'You will get deadline reminders on this device.',
+    url: '/settings',
+    tag: 'test',
+    kind: 'test',
+  })
+  assert.deepEqual(buildTestPayload({ localReminders: false, platform: 'ios' }), browser)
+  assert.deepEqual(buildTestPayload({ localReminders: true, platform: 'ios' }), {
+    title: 'Notifications are on for this iPhone',
+    body: 'Favorite dish alerts come here. Class and task reminders come from the phone itself.',
+    url: '/settings',
+    tag: 'test',
+    kind: 'test',
+  })
+  assert.equal(buildTestPayload({ localReminders: true, platform: 'android' }).title, 'Notifications are on for this phone')
+  assert.equal(buildTestPayload({ localReminders: true }).title, 'Notifications are on for this iPhone', 'releases are iOS only')
 })
 
 // Issue #550: PUSH_KINDS_OFF=deadline stops the run before it reads or claims
@@ -335,7 +366,15 @@ test('a student with one browser and one phone gets the reminder on both, claime
   assert.equal(expoSends.length, 1, 'one Expo request for the item')
   assert.deepEqual(
     expoSends[0].map((m) => ({ to: m.to, title: m.title, body: m.body, data: m.data })),
-    [{ to: PHONE, title: 'Assignment due in 45 min', body: 'HW 3 is due at 10:45 AM.', data: { url: '/assignments', kind: 'deadline', tag: 'deadline-calendar-a' } }],
+    [
+      {
+        to: PHONE,
+        title: 'Assignment due in 45 min',
+        body: 'HW 3 is due at 10:45 AM.',
+        // Issue #550, item 5: the tap opens HW 3, and Mark done can name it.
+        data: { url: '/assignments?taskId=a&taskKind=calendar', kind: 'deadline', tag: 'deadline-calendar-a', itemId: 'a', itemKind: 'calendar' },
+      },
+    ],
   )
   // Issue #550: the deadline kind's fields, and a lifetime that ends when HW 3 is due.
   const [message] = expoSends[0]
@@ -425,7 +464,7 @@ test('a phone with local reminders gets no deadline reminder, while the browser 
   assert.equal(client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert').length, 1, 'claimed once, as before')
   assert.deepEqual(summary, { ok: true, ranAt: NOW.toISOString(), users: 1, checked: 1, sent: 2, failed: 0, removed: 0, skipped: 0 })
   const deviceQuery = client.calls.find((c) => c.table === 'push_devices' && c.kind === 'select')
-  assert.equal(deviceQuery.payload, 'id, user_id, token, failure_count, local_reminders')
+  assert.equal(deviceQuery.payload, 'id, user_id, token, platform, failure_count, local_reminders')
 })
 
 test('a student whose only phone has local reminders is skipped, and nothing is claimed', async () => {
@@ -474,7 +513,7 @@ test('before README step 47 runs, every phone gets its deadline reminder, and th
   assert.deepEqual(first.expoSends, [PHONE], 'the phone is not read as gone')
   assert.equal(first.summary.sent, 2)
   const selects = first.client.calls.filter((c) => c.table === 'push_devices' && c.kind === 'select').map((c) => c.payload)
-  assert.deepEqual(selects, ['id, user_id, token, failure_count, local_reminders', 'id, user_id, token, failure_count'])
+  assert.deepEqual(selects, ['id, user_id, token, platform, failure_count, local_reminders', 'id, user_id, token, platform, failure_count'])
   const second = await run()
   assert.deepEqual(second.expoSends, [PHONE])
   assert.equal(log.mock.callCount(), 1, 'the next tick does not log it again')

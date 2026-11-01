@@ -20,7 +20,8 @@
 // PUSH_KINDS_OFF=dining-favorites before anything is read or claimed.
 
 import { zonedTimeMs } from './campusTime.mjs'
-import { MEAL_WINDOWS, minutesInZone } from './diningMeals.mjs'
+import { CAMPUS_TIME_ZONE, MEAL_WINDOWS, mealLabel, minutesInZone, sortMeals } from './diningMeals.mjs'
+import { buildDiningToday, findHall } from './diningToday.mjs'
 import { normalizeItemName } from './diningFavorites.mjs'
 import { MAX_DEVICE_STRIKES, sendExpoPush } from './expoPush.mjs'
 import { sendWebPush } from './webPush.mjs'
@@ -56,26 +57,28 @@ export function isMissingColumnError(error) {
 
 /**
  * Every dish on a snapshot's menus, keyed by normalized name: { name,
- * location, meals } with the meals in serving order. Per-meal menus when the
- * snapshot has them, else the merged stations and each item's `meals`.
+ * location, hall, meals } with the meals in serving order, where `hall` is the
+ * location's slug ("tower-dining", the id the Dining pages' ?hall= takes).
+ * Per-meal menus when the snapshot has them, else the merged stations and
+ * each item's `meals`.
  */
 export function dishesOnMenu(snapshot) {
   const dishes = new Map()
-  const add = (name, location, meal) => {
+  const add = (name, loc, meal) => {
     const key = normalizeItemName(name)
     if (!key) return
-    if (!dishes.has(key)) dishes.set(key, { name, location, meals: [] })
+    if (!dishes.has(key)) dishes.set(key, { name, location: loc.name, hall: loc.slug ?? loc.id ?? null, meals: [] })
     const dish = dishes.get(key)
     if (meal && !dish.meals.includes(meal)) dish.meals.push(meal)
   }
   for (const loc of snapshot?.locations || []) {
     if (Array.isArray(loc.menus) && loc.menus.length) {
-      for (const menu of loc.menus) for (const station of menu.stations || []) for (const item of station.items || []) add(item.name, loc.name, menu.meal)
+      for (const menu of loc.menus) for (const station of menu.stations || []) for (const item of station.items || []) add(item.name, loc, menu.meal)
     } else {
       for (const station of loc.stations || []) {
         for (const item of station.items || []) {
-          if (item.meals?.length) for (const meal of item.meals) add(item.name, loc.name, meal)
-          else add(item.name, loc.name, null)
+          if (item.meals?.length) for (const meal of item.meals) add(item.name, loc, meal)
+          else add(item.name, loc, null)
         }
       }
     }
@@ -107,15 +110,55 @@ export function diningAlertExpiresAt(matches, ymd) {
   return new Date(zonedTimeMs(ymd, ends.length ? Math.max(...ends) : 24 * 60)).toISOString()
 }
 
-/** The push for a student's favorites on the day's menu. */
-export function buildDiningFavoritesPayload(matches, ymd) {
-  const describe = (dish) => `${dish.name} (${dish.meals.length ? `${dish.meals.join(' and ')}, ` : ''}${dish.location})`
-  const named = matches.slice(0, NAMED_DISHES).map(describe)
-  const more = matches.length - named.length
+// "A", "A and B", "A, B and C".
+function listOf(words) {
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : (words[0] ?? '')
+}
+
+const CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: CAMPUS_TIME_ZONE, hour: 'numeric', minute: '2-digit' })
+
+/**
+ * When `meal` ends at `hall` today, as an instant: the meal's stretch of the
+ * day cut to the hall's listed hours, as the app's Dining widget reads it
+ * (buildDiningToday in src/diningToday.mjs). Null when that is not known: no
+ * snapshot, a hall it does not list, or a last meal on a day with no hours.
+ */
+export function mealEndsAt(snapshot, hall, meal, now = new Date()) {
+  const location = snapshot && hall && meal ? findHall(snapshot.locations, hall) : null
+  if (!location) return null
+  const until = buildDiningToday(snapshot, location, now).meals.find((m) => m.meal === meal)?.until
+  return until ? Date.parse(until) : null
+}
+
+/**
+ * The push for a student's favorites on the day's menu, news first (issue
+ * #550, item 2): the title names the first dish ("Banana Pudding is on
+ * today"), the subtitle its hall and meals ("Tower Dining · lunch and
+ * dinner"), and the body the other starred dishes and, when the hall's hours
+ * say, when the first dish's first meal ends. A tap opens that hall and meal
+ * (/dining?hall=tower-dining&meal=lunch, item 5), on the Dining page and in
+ * the app alike. `snapshot` and `now` are the run's, for the meal's end.
+ */
+export function buildDiningFavoritesPayload(matches, ymd, { snapshot = null, now = new Date() } = {}) {
+  const [first, ...others] = matches
+  const meals = sortMeals(first.meals)
+  const firstMeal = meals[0] ?? null
+  const named = others.slice(0, NAMED_DISHES).map((dish) => (dish.hall && dish.hall !== first.hall ? `${dish.name} (${dish.location})` : dish.name))
+  const more = others.length - named.length
+  const sentences = []
+  if (named.length) sentences.push(`Also on today: ${listOf(more > 0 ? [...named, `${more} more`] : named)}.`)
+  const ends = mealEndsAt(snapshot, first.hall, firstMeal, now)
+  if (ends !== null) sentences.push(`${mealLabel(firstMeal)} is served until ${CLOCK.format(ends)}.`)
+  const params = new URLSearchParams()
+  if (first.hall) {
+    params.set('hall', first.hall)
+    if (firstMeal) params.set('meal', firstMeal)
+  }
   return {
-    title: matches.length === 1 ? `${matches[0].name} is on the menu today` : `${matches.length} of your favorites are on the menu today`,
-    body: `${named.join('; ')}${more > 0 ? `; and ${more} more` : ''}.`,
-    url: DINING_ALERT_URL,
+    title: `${first.name} is on today`,
+    subtitle: meals.length ? `${first.location} · ${listOf(meals)}` : first.location,
+    body: sentences.join(' '),
+    url: params.size ? `${DINING_ALERT_URL}?${params}` : DINING_ALERT_URL,
     tag: `dining-favorites-${ymd}`,
     kind: 'dining-favorites',
     expiresAt: diningAlertExpiresAt(matches, ymd),
@@ -218,7 +261,7 @@ export async function runDiningFavoriteAlerts({
       throw queryError(claim, 'push_deliveries insert (dining alerts)')
     }
     summary.users += 1
-    const payload = buildDiningFavoritesPayload(matches, today)
+    const payload = buildDiningFavoritesPayload(matches, today, { snapshot, now })
     for (const sub of subs) {
       const result = await send({
         subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
