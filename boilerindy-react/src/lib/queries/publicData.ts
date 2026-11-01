@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions, useInfiniteQuery, useQueries, useQuery, type QueryClient } from '@tanstack/react-query'
 import { QUERY_CACHE_MAX_AGE_MS } from '../queryClient'
 import { buildClubsQuery, CLUBS_PAGE_SIZE, type ClubSearchParams, type ClubSearchResult } from '../clubs'
+import type { CampusAlertAnswer } from '../campusAlert'
 import type { CampusEventFields } from '../campusEvents'
 import type { CampusNews } from '../campusNews'
 import type { DiningSnapshot, DiningUpcoming, DishDetail } from '../dining'
@@ -183,6 +184,23 @@ export const campusNewsQuery = queryOptions({
   gcTime: PUBLIC_GC_TIME_MS,
 })
 
+// IU's emergency alert for the Indianapolis campus (issue #34), for the
+// banner on every page AppLayout renders. Polled every 30 s while the
+// tab is visible and again on focus; the server asks IU at most every 15 s
+// and the edge holds an answer for 10. Never persisted (lib/queryClient.ts):
+// a banner must come from a fresh read, never from yesterday's storage. A
+// failed poll keeps the last answer, so a banner that is up stays up.
+export const CAMPUS_ALERT_STALE_MS = 10_000
+export const CAMPUS_ALERT_POLL_MS = 30_000
+
+export const campusAlertQuery = queryOptions({
+  queryKey: ['alerts', 'campus'] as const,
+  queryFn: ({ signal }) => fetchJson<CampusAlertAnswer>('/api/campus-alert', { signal }),
+  staleTime: CAMPUS_ALERT_STALE_MS,
+  refetchInterval: CAMPUS_ALERT_POLL_MS,
+  refetchIntervalInBackground: false,
+})
+
 // The free food on campus calendars for a signed-out visitor (issue #366):
 // the shared campus events with free food, from the session-free
 // GET /api/campus-events/free-food. A signed-in student's Free Food page reads
@@ -273,6 +291,7 @@ export const useDiningUpcoming = ({ enabled = true }: { enabled?: boolean } = {}
 export const useDiningFood = (id: number | null | undefined, date: string | null | undefined) =>
   useQuery({ ...diningFoodQuery(id ?? 0, date ?? ''), enabled: id != null && Boolean(date) })
 export const useCampusNews = () => useQuery(campusNewsQuery)
+export const useCampusAlert = () => useQuery(campusAlertQuery)
 export const useParking = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...parkingQuery, enabled })
 /** The signed-out Free Food list; the page enables it only once auth has settled with no user. */
 export const usePublicFreeFood = ({ enabled = true }: { enabled?: boolean } = {}) => useQuery({ ...freeFoodQuery, enabled })

@@ -29,6 +29,8 @@ vi.mock('../lib/authApi', () => ({ authRequest: vi.fn(async () => ({})) }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
 vi.mock('../lib/scheduleOverrideStore', () => ({ syncScheduleOverridesFromServer: vi.fn() }))
 vi.mock('./spotlight/SideSpotlightRail', () => ({ default: () => <aside data-testid="spotlight-rail" /> }))
+// The banner reads the query cache; its own test covers what it shows (issue #34).
+vi.mock('./CampusAlertBanner', () => ({ default: () => <div data-testid="campus-alert-banner" /> }))
 
 afterEach(cleanup)
 
@@ -51,6 +53,19 @@ function renderLayout(value: typeof auth.value, path = '/events') {
 }
 
 describe('AppLayout chrome', () => {
+  test('the campus alert banner sits above the page, signed in, signed out on a preview page and while auth loads (issue #34)', () => {
+    for (const [value, path] of [
+      [{ loading: false, user: { id: 'u1' } }, '/events'],
+      [{ loading: false, user: null }, '/dining'],
+      [{ loading: true, user: null }, '/transit'],
+    ] as const) {
+      renderLayout(value, path)
+      const banner = screen.getByTestId('campus-alert-banner')
+      expect(banner.compareDocumentPosition(screen.getByRole('main')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      cleanup()
+    }
+  })
+
   test('while auth loads: outlet only, no navigation, rails or assistant', () => {
     renderLayout({ loading: true, user: null })
     expect(screen.getByText('page outlet')).toBeInTheDocument()

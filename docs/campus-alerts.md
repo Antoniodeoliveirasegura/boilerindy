@@ -116,8 +116,10 @@ texts" link to `https://www.purdue.edu/ehps/emergency-preparedness/purduealert-t
 A test reads "Test" and is shown quietly. A student can hide one alert; a new
 message shows again.
 
-- Website: `components/CampusAlertBanner.tsx`, mounted by `AppLayout` (every
-  signed-in page and the four public preview pages) and by the landing page.
+- Website: `components/CampusAlertBanner.tsx`, mounted by `AppLayout`: every
+  signed-in page and the four public preview pages (`/dining`, `/transit`,
+  `/map`, `/free-food`), signed in or not. The landing page, which never
+  calls the backend, has none, nor do the sign-in and legal pages.
   The read is `campusAlertQuery` in `lib/queries/publicData.ts`, never
   persisted to localStorage, so a banner always comes from a fresh read. A
   hidden alert is remembered for the tab only (sessionStorage).

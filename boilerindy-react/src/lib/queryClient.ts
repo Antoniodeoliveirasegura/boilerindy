@@ -11,7 +11,7 @@ import { removeOldestQuery, type Persister } from '@tanstack/react-query-persist
 // is cleared on sign-out. docs/client-cache.md has the full map.
 
 /** Key roots whose queries may be persisted: public, identical for everyone. */
-export const PUBLIC_QUERY_ROOTS = ['transit', 'dining', 'parking', 'clubs', 'news', 'events'] as const
+export const PUBLIC_QUERY_ROOTS = ['transit', 'dining', 'parking', 'clubs', 'news', 'events', 'alerts'] as const
 
 export const QUERY_CACHE_KEY = 'boilerindy-query-cache'
 
@@ -27,11 +27,12 @@ export const MAX_RETRY_WAIT_MS = 30_000
 
 /**
  * Public keys that are never written to storage: live positions and arrival
- * times are stale within seconds and would only paint yesterday's buses, and
- * a dish's details (issue #468) are opened a few at a time and would only
- * pile up.
+ * times are stale within seconds and would only paint yesterday's buses, a
+ * dish's details (issue #468) are opened a few at a time and would only pile
+ * up, and a campus alert (issue #34) must come from a fresh read: a stored
+ * one could show an emergency that ended hours ago.
  */
-const NEVER_PERSISTED = [['transit', 'vehicles'], ['transit', 'arrivals'], ['dining', 'food']] as const
+const NEVER_PERSISTED = [['transit', 'vehicles'], ['transit', 'arrivals'], ['dining', 'food'], ['alerts']] as const
 
 /**
  * Minted per build in vite.config.js (`define`). Every deploy discards the
