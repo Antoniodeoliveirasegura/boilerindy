@@ -2,3 +2,11 @@
 # Flat node_modules (no symlinks) so installs work on exFAT/Windows drives
 # without symlink permissions. CI (Linux) is unaffected by the linker choice.
 nodeLinker: hoisted
+# Dependabot alerts 46 and 47 (GHSA-3g3m-2fjr-6pw4, GHSA-g3hv-75wg-m249):
+# @sentry/bundler-plugins, even at its newest release, asks for glob ^13, which
+# is vulnerable up to 14.0.1, and glob 13 pulls in minimatch 10, vulnerable
+# before 11.0.1. glob 14 depends on minimatch 11, so this one entry clears
+# both. Drop it once a @sentry/node release asks for glob ^14.0.2 or newer
+# (SECURITY.md, Dependency status).
+overrides:
+  glob: ^14.0.2

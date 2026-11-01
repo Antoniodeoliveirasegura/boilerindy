@@ -37,6 +37,7 @@ answer stays on screen.
 | `['clubs', filters]` | `GET /api/clubs?...` | 30 min | none; one entry per set of filters holds every page fetched so far, and "Show more" appends the next |
 | `['news', 'circuit']` | `GET /api/campus-news` | 30 min, or none for an answer with `ok: false` | none; read by the Campus news widget and the Clubs page (issue #470, [campus-news.md](campus-news.md)) |
 | `['events', 'free-food']` | `GET /api/campus-events/free-food` | 60 s | none; the signed-out Free Food page's list, read only once auth has settled with no user (issue #366, [campus-events-feed.md](campus-events-feed.md#signed-out)). A signed-in student's page reads the calendar window below instead |
+| `['alerts', 'campus']` | `GET /api/campus-alert` (#34) | 10 s | every 30 s on every page AppLayout renders while the tab is visible, for the campus alert banner; kept in memory only (see below), and a failed poll keeps the last answer so a banner that is up stays up ([campus-alerts.md](campus-alerts.md)) |
 
 `refetchIntervalInBackground` is off for the polls, so a hidden tab stops
 them (and stops spending the `transit-vehicles` budget); TanStack resumes them
@@ -118,7 +119,9 @@ Only successful queries whose key starts with `transit`, `dining`, `parking`,
 `clubs` or `news` are written to localStorage (`shouldDehydrateQuery` in
 `queryClient.ts`), under the key `boilerindy-query-cache`. This is public data,
 identical for every student, so a device can hold it without knowing who is
-signed in. Three public entries are left out on purpose. `['transit', 'vehicles']`:
+signed in. Four public entries are left out on purpose. `['alerts', 'campus']`
+(issue #34): a campus alert must come from a fresh read, since a stored one
+could show an emergency that ended hours ago. `['transit', 'vehicles']`:
 live positions are stale after 4 s, so persisting them would only paint
 yesterday's buses on the map for a moment, and re-serialising the whole cache
 on every 5 s poll is work nobody benefits from. `['transit', 'arrivals', ...]`

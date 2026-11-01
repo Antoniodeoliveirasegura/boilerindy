@@ -2,6 +2,7 @@ import { Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import AppErrorBoundary from './AppErrorBoundary'
+import CampusAlertBanner from './CampusAlertBanner'
 import { isAdFreePath } from '../lib/adFreeRoutes'
 import { riseOnce, routeEntranceKey } from '../lib/motion'
 import { isPreviewPath } from '../lib/publicPreview'
@@ -70,6 +71,9 @@ export default function AppLayout() {
           <SideSpotlightRail side="right" />
         </>
       )}
+      {/* IU's campus alert (issue #34), under the navbar or the preview bar on
+          every page here, signed in or not. Nothing while none is active. */}
+      <CampusAlertBanner />
       {/* Block wrapper for the routed page (issue #162). Page roots are
           `max-w-* mx-auto`; as direct children of this flex column their auto
           margins switched off cross-axis stretch, so each page was sized

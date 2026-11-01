@@ -64,8 +64,10 @@ students.`,
     title: 'Your schedule and connected sources',
     body: `You connect your own calendar feeds, and you are responsible for the feed URLs you
 provide and for having the right to use them. Campus information shown in the app (schedule,
-dining, transit, maps, events) may be delayed, incomplete, or inaccurate - do not rely on it as
-the sole source for anything important.`,
+dining, transit, maps, events, campus alerts) may be delayed, incomplete, or inaccurate - do not
+rely on it as the sole source for anything important. Campus alerts repeat IU Indianapolis's
+public emergency alerts and can arrive late or not at all. BoilerIndy is not an official alert
+service: sign up for PurdueALERT texts to get Purdue's official alerts.`,
   },
   {
     title: 'AI features',
@@ -158,7 +160,7 @@ export default function Terms() {
             <div>
               <h1 className="page-title">Terms of Service</h1>
               <p className="page-sub">
-                Last updated October 27, 2026. The short version: BoilerIndy is a free, independent student
+                Last updated November 1, 2026. The short version: BoilerIndy is a free, independent student
                 app for Purdue Indianapolis - be respectful, don't misuse it, campus data may be
                 imperfect, and it's provided as-is.
               </p>
