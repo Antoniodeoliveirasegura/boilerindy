@@ -13,17 +13,21 @@
 --   boilerindy-retention-push-tickets     daily, push_tickets older than 2 days
 --                                         (issue #550; the table is README step
 --                                         55, so re-run this file after it)
+--   boilerindy-retention-campus-alert-messages   weekly, campus alert messages
+--   boilerindy-retention-campus-alert-incidents  and incidents older than 12 months
+--                                         (issue #550; the tables are README
+--                                         step 56, so re-run this file after it)
 --
--- A fourth keeps pg_cron's own run log in check. Every run of every job adds a
+-- One more keeps pg_cron's own run log in check. Every run of every job adds a
 -- row to cron.job_run_details and pg_cron never removes them; the keep-warm and
--- push-reminder jobs alone add close to 600 a day, which is disk written and
--- kept for nothing:
+-- push-reminder jobs alone add close to 600 a day, and the 30-second push tick
+-- (README step 57) about 2,900, which is disk written and kept for nothing:
 --
 --   boilerindy-retention-cron-history     daily, cron.job_run_details older than 7 days
 --
 -- Plain SQL: no HTTP call, no secret, nothing for the server to do. Needs the
 -- pg_cron extension from db/supabase-keep-warm.sql (README step 29) and the
--- tables from steps 4, 11, 30 and 55. Creates no tables.
+-- tables from steps 4, 11, 30, 55 and 56. Creates no tables.
 --
 -- Paste the whole file into the Supabase SQL Editor once. Safe to run more
 -- than once: cron.schedule() with an existing job name updates that job in
@@ -37,7 +41,7 @@
 --     from cron.job_run_details d join cron.job j using (jobid)
 --     where j.jobname like 'boilerindy-retention-%'
 --     order by d.start_time desc limit 10;
--- Expect five active jobs and "succeeded" runs; return_message says how many
+-- Expect seven active jobs and "succeeded" runs; return_message says how many
 -- rows each DELETE removed ("DELETE 0" on a quiet day).
 --
 -- Remove one (the others keep running):
@@ -67,6 +71,22 @@ select cron.schedule(
   'boilerindy-retention-push-tickets',
   '20 4 * * *', -- 04:20 UTC every day
   $$DELETE FROM push_tickets WHERE sent_at < NOW() - INTERVAL '2 days'$$
+);
+
+-- Campus alert messages and incidents (README step 56, issue #550), kept a
+-- year like the analytics. The messages go first; an incident still named by
+-- a newer message stays until that message goes.
+select cron.schedule(
+  'boilerindy-retention-campus-alert-messages',
+  '25 4 * * 0', -- 04:25 UTC every Sunday
+  $$DELETE FROM campus_alert_messages WHERE sent_at < NOW() - INTERVAL '12 months'$$
+);
+
+select cron.schedule(
+  'boilerindy-retention-campus-alert-incidents',
+  '35 4 * * 0', -- 04:35 UTC every Sunday
+  $$DELETE FROM campus_alert_incidents i WHERE i.opened_at < NOW() - INTERVAL '12 months'
+      AND NOT EXISTS (SELECT 1 FROM campus_alert_messages m WHERE m.incident_id = i.id)$$
 );
 
 -- Seven days is enough to debug a failing job with the Verify queries above

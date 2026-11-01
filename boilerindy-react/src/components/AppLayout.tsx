@@ -6,6 +6,7 @@ import CampusAlertBanner from './CampusAlertBanner'
 import { isAdFreePath } from '../lib/adFreeRoutes'
 import { riseOnce, routeEntranceKey } from '../lib/motion'
 import { isPreviewPath } from '../lib/publicPreview'
+import { normalizeRoutePath } from '../lib/routePath'
 import { syncScheduleOverridesFromServer } from '../lib/scheduleOverrideStore'
 import Navbar from './Navbar'
 import PreviewBar from './PreviewBar'
@@ -72,8 +73,9 @@ export default function AppLayout() {
         </>
       )}
       {/* IU's campus alert (issue #34), under the navbar or the preview bar on
-          every page here, signed in or not. Nothing while none is active. */}
-      <CampusAlertBanner />
+          every page here, signed in or not. Nothing while none is active, and
+          not on /safety, which shows the alert itself (issue #550). */}
+      {normalizeRoutePath(pathname) !== '/safety' && <CampusAlertBanner />}
       {/* Block wrapper for the routed page (issue #162). Page roots are
           `max-w-* mx-auto`; as direct children of this flex column their auto
           margins switched off cross-axis stretch, so each page was sized

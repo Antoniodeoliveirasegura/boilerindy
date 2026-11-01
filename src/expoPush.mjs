@@ -179,6 +179,10 @@ export function expoTtlSeconds(kind, payload, now = new Date()) {
  *   priority 5), and `'high'` for the rest;
  * - `ttl` from expoTtlSeconds.
  *
+ * A payload with `silent: true` of a kind that goes silent in quiet hours
+ * (the campus all clear at night) goes as a passive kind does: level
+ * `passive`, no sound, priority `'normal'`. Other kinds ignore the flag.
+ *
  * `url` and `kind` ride in `data` for the app to open the right screen on a
  * tap, with `itemId` and `itemKind` when the payload names an item (a
  * deadline's task, for its Mark done action). The payload tag becomes
@@ -193,11 +197,13 @@ export function buildExpoMessages(rows, payload, { now = new Date() } = {}) {
   const kind = serverPushKind(payload.kind)
   if (!kind) throw new Error(`buildExpoMessages: "${payload.kind}" is not a kind the server pushes (src/notificationKinds.mjs).`)
   const tag = payload.tag ? String(payload.tag).slice(0, COLLAPSE_ID_MAX) : null
-  const fields = { interruptionLevel: kind.level, threadId: kind.thread }
+  const silent = payload.silent === true && kind.quietHours === 'goes-silent'
+  const level = silent ? 'passive' : kind.level
+  const fields = { interruptionLevel: level, threadId: kind.thread }
   if (kind.relevance !== null) fields.relevanceScore = kind.relevance
   if (kind.category) fields.categoryId = kind.category
-  if (kind.sound) fields.sound = 'default'
-  fields.priority = kind.level === 'passive' ? 'normal' : 'high'
+  if (kind.sound && !silent) fields.sound = 'default'
+  fields.priority = level === 'passive' ? 'normal' : 'high'
   fields.ttl = expoTtlSeconds(kind, payload, now)
   const data = { url: payload.url ?? null, kind: kind.id, tag }
   if (payload.itemId) Object.assign(data, { itemId: String(payload.itemId), itemKind: payload.itemKind ?? null })

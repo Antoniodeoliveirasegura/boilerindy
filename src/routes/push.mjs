@@ -1,4 +1,6 @@
 import express from 'express'
+import { readCampusAlertCached } from '../campusAlert.mjs'
+import { runCampusAlertPush } from '../campusAlertPush.mjs'
 import { runCronTick } from '../cronTick.mjs'
 import { DB_FEATURES, respondSchemaMissing } from '../dbErrors.mjs'
 import { isMissingColumnError, runDiningFavoriteAlerts } from '../diningFavoriteAlerts.mjs'
@@ -42,6 +44,10 @@ import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 // issue #550). The public config reports the registry's version and digest,
 // the kinds PUSH_KINDS_OFF names are not sent, and every Expo request carries
 // EXPO_ACCESS_TOKEN when it is set.
+//
+// The 30-second tick, POST /api/internal/push/fast-tick, pushes IU's campus
+// alerts (src/campusAlertPush.mjs) behind CAMPUS_ALERTS and CAMPUS_ALERT_PUSH;
+// the Live Activity updates will ride it too.
 
 const PUSH_MAX_SUBSCRIPTIONS_PER_USER = 10
 const PUSH_MAX_DEVICES_PER_USER = 10
@@ -110,26 +116,34 @@ function summarizePushDevice(row) {
 }
 
 /**
- * GET /api/push/config, the public key a browser subscribes with, and the
- * kind registry's version and digest (`kinds`), which the app compares with
- * its own copy's. server.mjs mounts this in its public reads block, before the
- * session middleware, where the route used to be registered. Paths stay
- * absolute (`/api/push/config`) so docs/RATE_LIMITS.md and its guard test read
- * the same whether a route lives here or in server.mjs.
+ * GET /api/push/config, the public key a browser subscribes with, the kind
+ * registry's version and digest (`kinds`), which the app compares with its own
+ * copy's, and whether campus alerts are pushed (`campusAlertPush`), so a
+ * client offers that choice only where it does something. server.mjs mounts
+ * this in its public reads block, before the session middleware, where the
+ * route used to be registered. Paths stay absolute (`/api/push/config`) so
+ * docs/RATE_LIMITS.md and its guard test read the same whether a route lives
+ * here or in server.mjs.
  *
  * @param {object}      deps
  * @param {Function}    deps.publicReadIpRateLimit the per-address cap across the public reads
  * @param {Function}    deps.publicReadRateLimit   the shared public-read bucket
  * @param {object|null} deps.vapidKeys             loadVapidKeys() from src/webPush.mjs, or null when push is off
+ * @param {boolean}     [deps.campusAlertPush]     CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on
  */
-export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }) {
+export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys, campusAlertPush = false }) {
   const router = express.Router()
   // The registry is fixed for the life of the process, so its digest is taken once.
   const kinds = notificationKindsDigest().then((digest) => ({ version: NOTIFICATION_KINDS_VERSION, digest }))
 
   async function handlePushConfig(_req, res) {
     res.set('Cache-Control', 'no-store')
-    res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null, kinds: await kinds })
+    res.json({
+      enabled: Boolean(vapidKeys),
+      publicKey: vapidKeys ? vapidKeys.publicKey : null,
+      kinds: await kinds,
+      campusAlertPush: Boolean(vapidKeys) && campusAlertPush,
+    })
   }
 
   router.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
@@ -158,6 +172,14 @@ export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLi
  * @param {Function}    [deps.sendExpo]            sendExpoPush from src/expoPush.mjs, the default;
  *   the tests hand in a fake so nothing reaches Expo
  * @param {Function}    [deps.getExpoReceipts]     fetchExpoReceipts from src/expoPush.mjs, the default
+ * @param {Function}    [deps.getCached]           server.mjs's shared stale-on-failure cache, through
+ *   which the fast tick reads IU's alert feed with the banner (readCampusAlertCached)
+ * @param {boolean}     [deps.campusAlertPush]     CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on; off,
+ *   the fast tick reads nothing
+ * @param {string[]}    [deps.adminEmails]         ADMIN_EMAILS, lowercased: with users.is_admin, the
+ *   accounts IU's test alerts are pushed to
+ * @param {Function}    [deps.readCampusAlert]     how the fast tick reads the alert; the default reads
+ *   it through getCached, and the tests hand in a fake
  */
 export function createPushRouter({
   supabase,
@@ -173,6 +195,10 @@ export function createPushRouter({
   expoAccessToken = '',
   sendExpo = sendExpoPush,
   getExpoReceipts = fetchExpoReceipts,
+  getCached = null,
+  campusAlertPush = false,
+  adminEmails = [],
+  readCampusAlert = getCached ? () => readCampusAlertCached(getCached) : null,
 }) {
   const router = express.Router()
   // Every Expo request, from the test send and the cron runs alike, carries
@@ -573,6 +599,45 @@ export function createPushRouter({
     }
     console.error('POST /api/internal/push/run-reminders:', outcome.error?.message || outcome.error)
     res.status(500).json({ ok: false, error: 'Reminder run failed.' })
+  })
+
+  // The 30-second tick (issue #550), called by the pg_cron job in
+  // db/supabase-push-fast-tick.sql (README step 57) with the same bearer
+  // token: campus alerts first (src/campusAlertPush.mjs), and the Live
+  // Activity updates later. With CAMPUS_ALERT_PUSH off it answers at once and
+  // reads nothing. A tick that comes while the last one is still sending (a
+  // broadcast to every device can outlast 30 s) is skipped; the lock is per
+  // process, and the claims in the database cover a second instance. A
+  // transient Supabase failure gets one retry, as the reminder run's does.
+  let fastTickRunning = false
+  router.post('/api/internal/push/fast-tick', async (req, res, next) => {
+    if (!PUSH_CRON_SECRET) return next()
+    if (!pushCronSecretMatches(req.get('authorization'))) {
+      return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
+    }
+    if (!campusAlertPush || !readCampusAlert) return res.json({ campusAlerts: { ok: false, reason: 'off' } })
+    if (fastTickRunning) return res.json({ skipped: 'busy' })
+    fastTickRunning = true
+    try {
+      const outcome = await runCronTick('fast-tick', async () => ({
+        campusAlerts: await runCampusAlertPush({ client: supabase, keys: vapidKeys, readAlert: readCampusAlert, kindsOff, adminEmails, sendExpo: sendToExpo }),
+      }))
+      if (outcome.ok) {
+        // A line only for a message seen for the first time: its role, the
+        // incident, and the counts. Never a token or an endpoint.
+        const campus = outcome.summary.campusAlerts
+        if (campus.role) console.log(`[push] campus alert: ${JSON.stringify({ ...campus, ranAt: undefined })}`)
+        return res.json(outcome.summary)
+      }
+      if (outcome.transient) {
+        warnCronTransient('POST /api/internal/push/fast-tick', outcome.error)
+        return res.status(503).json({ ok: false, error: 'Fast tick skipped: upstream unavailable, the next tick will retry.' })
+      }
+      console.error('POST /api/internal/push/fast-tick:', outcome.error?.message || outcome.error)
+      res.status(500).json({ ok: false, error: 'Fast tick failed.' })
+    } finally {
+      fastTickRunning = false
+    }
   })
 
   return router

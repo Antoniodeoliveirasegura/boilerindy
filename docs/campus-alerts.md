@@ -4,6 +4,10 @@ IU's emergency alert for the Indianapolis campus, shown in a banner at the
 top of the website and the app while it is active (issue #34; the research
 notes are the 2026-11-01 comments on that issue). The endpoint behind both
 banners is `GET /api/campus-alert`, behind `CAMPUS_ALERTS`, off by default.
+With `CAMPUS_ALERT_PUSH` on as well, each new emergency and its all clear are
+pushed to phones and browsers ([Push notifications](#push-notifications),
+issue #550), and a push opens the website's `/safety` page or the app's
+banner.
 
 BoilerIndy repeats an official alert; it is not an alert service. Every
 banner names its source and links to PurdueALERT's text sign-up, the official
@@ -103,8 +107,8 @@ pair of limiters (see [RATE_LIMITS.md](RATE_LIMITS.md)):
 | The app banner polls (Render directly, only while the app is in front) | every 60 s, and on returning to the app |
 
 So a new alert usually shows on an open page within a minute. The banners are
-for a student who has BoilerIndy open; push notifications for new alerts are
-not built yet.
+for a student who has BoilerIndy open; the push reaches the others, within
+about a minute too (below).
 
 ## The banners
 
@@ -124,6 +128,61 @@ message shows again.
   persisted to localStorage, so a banner always comes from a fresh read. A
   hidden alert is remembered for the tab only (sessionStorage).
 - App: the boilerindy-app repository's banner reads the same endpoint.
+- The website's `/safety` page (`pages/Safety.tsx`), where a pushed alert
+  opens: the same card, without the button that hides it, or a line saying
+  IU has no active alert, with when it was last checked. It is public, like
+  the preview pages, so a tap opens it signed in or not, and the banner is
+  not shown above it.
+
+## Push notifications
+
+Issue #550, item 9. `POST /api/internal/push/fast-tick`, which a pg_cron job
+calls every 30 seconds (README step 57, production only), reads IU's message
+through the banner's cache (`readCampusAlertCached` in `src/campusAlert.mjs`),
+so the push adds no request to IU. `src/campusAlertPush.mjs` keeps each
+message once in `campus_alert_messages` and groups the messages into
+`campus_alert_incidents` (README step 56):
+
+| Message | Incident | Pushed |
+|---|---|---|
+| The first of an emergency | opens one | `campus-alert`, to every account that has not turned campus alerts off |
+| An update or a final | joins the open one | nothing; the banner changes |
+| "Campus Status Normal" | closes what is open | `campus-all-clear`, for each closed incident that was pushed |
+| A test (TEST in capitals, or "only a drill") | opens a test incident | to admins only (`users.is_admin` or `ADMIN_EMAILS`), all clear included |
+| Anything first seen more than 30 minutes after IU sent it | as above | nothing: banner only |
+
+- The words are IU's: the push's title credits the source ("IU Indianapolis
+  alert", or "test"), its body is IU's headline, description and
+  instruction, its subtitle the time IU sent it, and a tap opens
+  `/safety?incident=<id>`. Nothing rewrites or summarizes an alert.
+- The alert is time-sensitive and ignores quiet hours and the daily cap. The
+  all clear shares the alert's tag (`campus-<incident>`), so it replaces the
+  alert on the lock screen, and in a student's quiet hours it is silent.
+- A phone takes them if it listed `campus-alert` when it registered, or is
+  from a build before phones listed kinds; every browser of the account
+  takes them too. Before README step 53 every account gets them, since
+  `campus_alerts` does not exist yet.
+- Once each: the alert and the all clear are claimed on the incident
+  (`alert_pushed_at`, `clear_pushed_at`) before they are sent, so overlapping
+  ticks or a second instance never send twice, and a tick that comes while
+  the last one is still sending is skipped. An incident's id comes from its
+  first message's, so a tick that failed halfway finds the same incident
+  when it runs again.
+- A reading the cache kept serving while IU could not be reached is not
+  acted on, so an all clear only ever follows a Normal actually read.
+- IU's feed holds only the latest message, so the tick can miss a Normal that
+  a new message replaced within 30 seconds. An open incident therefore ends
+  without an all clear when a message comes after its final, or more than 12
+  hours after its last message, and that message opens a new incident. Two
+  emergencies inside one incident, before IU's Normal and without a final
+  between them, reach students as one push and a banner that changes.
+- Turn it on: run README steps 56 and 57, then set `CAMPUS_ALERT_PUSH=on` on
+  Render (with `CAMPUS_ALERTS=on`). Turn it off: `CAMPUS_ALERT_PUSH=off`
+  keeps the banners; `CAMPUS_ALERTS=off` stops both.
+- Check it: the log has one `[push] campus alert:` line for each message the
+  tick sees for the first time, with its role, the incident and the counts.
+  `select role, count(*) from campus_alert_messages group by 1;` counts what
+  it has seen. An IU test shows the whole path on an admin's phone.
 
 ## Operations
 
@@ -141,15 +200,15 @@ message shows again.
 
 ## Not done yet
 
-- Push notifications for a new alert (time-sensitive on iOS, outside quiet
-  hours and the daily cap of website #550), one push per emergency even when
-  IU and Purdue both report it.
 - PurdueALERT through @PurdueALERT on X: the paid X API, polled every 30 s
   for cents a year. West Lafayette posts are dropped by their "Purdue WL"
   prefix, and posts the prefix cannot place go to Jev, the classifier the
-  campus events ingest already uses. When unsure, the post is shown.
-- The Safety page of issue #34 (verified contacts, blue-light phones, Safe
-  Walk, SafeZone), where the banner's "can't reach IU" state would also live.
+  campus events ingest already uses. When unsure, the post is shown. Its
+  report of an emergency IU already reported, within 15 minutes, is to join
+  IU's incident, so a student gets one push; `campus_alert_messages` already
+  takes the source `purduealert`.
+- The rest of the Safety page of issue #34 (verified contacts, blue-light
+  phones, Safe Walk, SafeZone) around the alert `/safety` shows today.
 - Owner items from the research note: ask IU Emergency Management about
   repeating its public feed, and ask Purdue Emergency Preparedness about an
   Indianapolis CAP channel like West Lafayette's.

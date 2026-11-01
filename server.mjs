@@ -566,6 +566,10 @@ if (pushKindsOff.ignored.length) {
 }
 if (pushKindsOff.off.size) console.warn(`[push] kinds switched off by PUSH_KINDS_OFF: ${[...pushKindsOff.off].join(', ')}`)
 const EXPO_ACCESS_TOKEN = String(process.env.EXPO_ACCESS_TOKEN || '').trim()
+// Campus alert pushes (issue #550, docs/campus-alerts.md): CAMPUS_ALERT_PUSH,
+// off by default, works only with CAMPUS_ALERTS on, which stays the one switch
+// that turns off the banner and the push alike.
+const campusAlertPushEnabled = envSwitch('CAMPUS_ALERTS') && envSwitch('CAMPUS_ALERT_PUSH')
 
 // ── Public reads (issue #250) ────────────────────────────────────────────────
 // The session-free upstream proxies are registered here, before the session
@@ -582,7 +586,7 @@ const EXPO_ACCESS_TOKEN = String(process.env.EXPO_ACCESS_TOKEN || '').trim()
 // The sources one serves the demo calendars (issue #521). The campus one's
 // alert read asks IU only with CAMPUS_ALERTS on (issue #34).
 app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache, campusAlertsEnabled: envSwitch('CAMPUS_ALERTS') }))
-app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
+app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys, campusAlertPush: campusAlertPushEnabled }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
 app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN') }))
 app.use(createSourcesPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, demoCalendarsEnabled }))
@@ -873,9 +877,11 @@ async function getCached(key, ttlMs, producer) {
 // /api/push/config is mounted in the public reads block above, which is also
 // where the VAPID keys are loaded. The cron bearer token and its check are
 // read near the top of this file, and warnCronTransient sits with the Sentry
-// warnings below; the sources router is handed them too.
+// warnings below; the sources router is handed them too. The 30-second tick
+// reads IU's alert feed through getCached, sharing the banner's reading, and
+// pushes IU's tests to the admins (ADMIN_EMAILS and users.is_admin).
 // ============================================================
-app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot, kindsOff: pushKindsOff.off, expoAccessToken: EXPO_ACCESS_TOKEN }))
+app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot, kindsOff: pushKindsOff.off, expoAccessToken: EXPO_ACCESS_TOKEN, getCached, campusAlertPush: campusAlertPushEnabled, adminEmails: [...adminEmails] }))
 
 // A feed that timed out, dropped the connection or answered a gateway status
 // is the feed host's outage, not a bug here, and the source row already shows

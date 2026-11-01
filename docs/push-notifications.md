@@ -10,7 +10,8 @@ A phone that schedules its reminders itself gets no deadline reminders from
 the server: see [Phones with local reminders](#phones-with-local-reminders).
 Every notification belongs to a kind of the kind registry (issue #550), which
 sets how loud it is, how it stacks and how long it is worth delivering: see
-[Kind registry](#kind-registry).
+[Kind registry](#kind-registry). IU's campus alerts go out from a second,
+30-second tick: see [The 30-second tick](#the-30-second-tick-campus-alerts).
 
 ## How it fits together
 
@@ -64,6 +65,7 @@ notifications on again on each device.
 | `PUSH_CRON_SECRET` | Bearer token for the reminder runner. Blank means the route falls through to the JSON 404. |
 | `PUSH_KINDS_OFF` | Kind ids from the [kind registry](#kind-registry), separated by commas, that the server stops sending. Blank sends every kind. See [Stopping a kind](#stopping-a-kind-push_kinds_off). |
 | `EXPO_ACCESS_TOKEN` | The project's Expo access token, sent with every native push for Expo's enhanced push security. Blank sends none. Set it before turning that setting on: see [Native devices (Expo)](#native-devices-expo). |
+| `CAMPUS_ALERT_PUSH` | `off` by default. With `CAMPUS_ALERTS` on too, the 30-second tick pushes IU's campus alerts. See [The 30-second tick](#the-30-second-tick-campus-alerts). |
 
 The server validates the pair at boot (length, curve membership, and that the
 public key matches the private one) and logs a clear error instead of sending
@@ -71,11 +73,11 @@ requests that push services would reject with 403.
 
 ## API
 
-All routes except `config` and `run-reminders` require a signed-in session.
+All routes except `config`, `run-reminders` and `fast-tick` require a signed-in session.
 
 | Route | Purpose | Notes |
 |---|---|---|
-| `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest } }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. |
+| `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest }, campusAlertPush }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. `campusAlertPush` is true while campus alerts are pushed (push on, and `CAMPUS_ALERTS` and `CAMPUS_ALERT_PUSH` on), so a client offers that choice only then. |
 | `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts, classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, kindsMigrated }, diningAlertsAvailable, kindsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders, kinds }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `kindsAvailable` is false until `db/supabase-push-kinds.sql` runs, and until then the choices by kind read what that step will give the account; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
 | `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts?, classReminders?, classLeadMinutes?, digestMinute?, deadlineItems?, quietStart?, quietEnd?, campusAlerts?, kindsMigrated? }`; answers `{ settings, diningAlertsAvailable, kindsAvailable }` | `leadMinutes` 5 to 10080; `classLeadMinutes` 5, 10, 15 or 30; `digestMinute`, `quietStart` and `quietEnd` minutes past midnight on campus (0 to 1439) or null; quiet hours change as a pair, a null pair for none; `kindsMigrated` only `true`, which stamps the account once. An evening list inside quiet hours answers 400. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`, and a choice by kind before step 53 503 `push_kinds_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
@@ -84,6 +86,7 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
 | `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). 503 `push_kind_off` while `PUSH_KINDS_OFF` lists `test`. |
 | `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
+| `POST /api/internal/push/fast-tick` | Returns `{ campusAlerts }`, the campus alert run's summary, or `{ skipped: 'busy' }` | The same bearer token and retry. Every 30 seconds ([below](#the-30-second-tick-campus-alerts)); with `CAMPUS_ALERT_PUSH` off it answers `{ campusAlerts: { ok: false, reason: 'off' } }` and reads nothing. |
 
 Error shape follows the rest of the API: `{ error: { message, status, code? } }`.
 `code` is `push_not_configured` (tables missing, 503), `push_disabled` (no
@@ -171,8 +174,9 @@ What reads it today:
   counts, the 30-minute merge, the default quiet hours and evening list, all
   from the registry ([Choices by kind](#choices-by-kind-the-evening-list-quiet-hours-and-the-daily-cap)).
 
-The rest of issue #550 builds on it: campus alert pushes (item 9) and the
-Live Activity's sender are still to come. The copy and the links to the item
+The rest of issue #550 builds on it: campus alert pushes (item 9) are in [The
+30-second tick](#the-30-second-tick-campus-alerts), and the Live Activity's
+sender is still to come. The copy and the links to the item
 (items 2 and 5) are in [Notification payload](#notification-payload), the
 choices by kind (items 3 and 8) and the dish alerts' timing (item 6) below,
 and what a phone takes and the receipts (items 4 and 7) under [Native devices
@@ -263,7 +267,7 @@ card and the app show the same kinds:
 | `deadline_items`, `lead_minutes` | `deadlineItems`, `leadMinutes` | off, 60 | A reminder before each item, `leadMinutes` ahead. |
 | `quiet_start`, `quiet_end` | `quietStart`, `quietEnd` | 1380 to 480 (11:00 PM to 8:00 AM) | Quiet hours; a null pair for none. |
 | `class_reminders`, `class_lead_minutes` | `classReminders`, `classLeadMinutes` | off, 15 | The app's class reminders, which the phone schedules. The website only shows them. |
-| `campus_alerts` | `campusAlerts` | on | Campus alert pushes (item 9, not sent yet). |
+| `campus_alerts` | `campusAlerts` | on | Campus alert pushes and their all clears ([The 30-second tick](#the-30-second-tick-campus-alerts)). Before step 53 every account gets them. |
 | `kinds_migrated_at` | `kindsMigrated` | not set | When the first phone on an app build with kinds filled the account in from its old switches. |
 
 Existing rows keep their per-item reminders (`deadline_items` takes
@@ -488,8 +492,9 @@ registry](#kind-registry) reports more when it registers at
 
 Every registration replaces them, so a body from an older build stores no
 `kinds`. A phone with `kinds` then gets a server push only of a kind it
-listed, and the test push, which a student sends to check every device
-(`deviceTakes` in `src/pushReminders.mjs`); a message names its kind's
+listed, a kind whose registry default follows one it listed (the campus all
+clear follows the alert), and the test push, which a student sends to check
+every device (`deviceTakes` in `src/pushReminders.mjs`); a message names its kind's
 Android channel only when the phone listed it. A phone with no `kinds` is an
 older build and keeps the rule of [Phones with local
 reminders](#phones-with-local-reminders). The answer echoes `kinds`,
@@ -539,6 +544,34 @@ it. Browsers are unchanged.
   `withLocalRemindersColumn` in `src/pushReminders.mjs`, which retries without
   it.
 
+## The 30-second tick: campus alerts
+
+Issue #550, item 9 (issue #34). The pg_cron job in
+`db/supabase-push-fast-tick.sql` (README step 57, production only) calls
+`POST /api/internal/push/fast-tick` every 30 seconds with the same bearer
+token as the reminder run. The tick reads IU's alert for the Indianapolis
+campus through the banner's cache, so IU is never asked more often than
+before, and `src/campusAlertPush.mjs` pushes:
+
+- an incident's first message, as `campus-alert` (time-sensitive; it ignores
+  quiet hours and the daily cap), to every phone that takes the kind and every
+  browser, of each account whose `campus_alerts` is on (every account before
+  step 53);
+- IU's "Campus Status Normal" that closes it, as `campus-all-clear`, under the
+  alert's tag `campus-<incident>`, so it replaces the alert; in a student's
+  quiet hours it is silent (`passive`, no sound, Web Push urgency `low`);
+- IU's tests to admins only (`users.is_admin` or `ADMIN_EMAILS`).
+
+Updates and finals only change the banner, and a message first seen more than
+30 minutes after IU sent it is not pushed. Each push is claimed on its
+incident (`alert_pushed_at`, `clear_pushed_at`, README step 56) before it is
+sent, and a tick that comes while the last one is still sending is skipped,
+so nothing goes twice. An Expo request that got no tickets back is sent once
+more after 2 seconds. Without VAPID keys, with `CAMPUS_ALERT_PUSH` or
+`CAMPUS_ALERTS` off, or with `campus-alert` in `PUSH_KINDS_OFF`, nothing is
+pushed. The rules, the incidents and the operations are in
+[campus-alerts.md](campus-alerts.md#push-notifications).
+
 ## Platform notes
 
 - iPhone and iPad deliver web push only to apps added to the Home Screen
@@ -563,6 +596,9 @@ it. Browsers are unchanged.
   or unset `PUSH_CRON_SECRET`.
 - Stop one kind, on every device the server sends it to: add its id to
   `PUSH_KINDS_OFF` on Render ([Stopping a kind](#stopping-a-kind-push_kinds_off)).
+- Pause campus alert pushes only, keeping the banners: set
+  `CAMPUS_ALERT_PUSH=off` on Render, or
+  `select cron.unschedule('boilerindy-push-fast-tick');`.
 - The ledger prunes itself: `db/supabase-retention.sql` (README step 51,
   issue #528) schedules `boilerindy-retention-push-deliveries`, which deletes
   rows older than 60 days every Sunday. Without it, by hand:

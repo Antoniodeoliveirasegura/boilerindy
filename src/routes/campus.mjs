@@ -1,6 +1,6 @@
 import express from 'express'
 import { parseClubSearchParams, searchClubDirectory } from '../boilerlinkClubs.mjs'
-import { CAMPUS_ALERTS_OFF, campusAlertAnswer, fetchCampusAlert } from '../campusAlert.mjs'
+import { CAMPUS_ALERTS_OFF, campusAlertAnswer, readCampusAlertCached } from '../campusAlert.mjs'
 import { fetchCircuitNews } from '../circuitNews.mjs'
 import { fetchParkingStatus } from '../parkingStatus.mjs'
 import { MAX_PER_ROUTE, buildArrivals, parseStopArrivalTimes, unreadTimes } from '../transitArrivals.mjs'
@@ -65,11 +65,10 @@ const CAMPUS_NEWS_CACHE_MS = 60 * 60 * 1000
 // for five minutes, so a paper whose site is down is not asked on every read.
 const CAMPUS_NEWS_RETRY_MS = 5 * 60 * 1000
 
-// IU's alert for the Indianapolis campus (issue #34, src/campusAlert.mjs),
-// asked at most every 15 s per process. The banners poll every 30 s (the
-// website, through the edge) and 60 s (the app), so a new alert reaches an
-// open page within about a minute.
-const CAMPUS_ALERT_CACHE_MS = 15 * 1000
+// IU's alert for the Indianapolis campus (issue #34, src/campusAlert.mjs) is
+// asked at most every 15 s per process (readCampusAlertCached, which the push
+// tick shares). The banners poll every 30 s (the website, through the edge) and
+// 60 s (the app), so a new alert reaches an open page within about a minute.
 // After a failed read with nothing to fall back on, IU is left alone this long.
 const CAMPUS_ALERT_RETRY_MS = 30 * 1000
 
@@ -340,7 +339,7 @@ export function createCampusPublicRouter({
     }
     if (Date.now() - campusAlertFailedAt < CAMPUS_ALERT_RETRY_MS) return campusAlertUnavailable(res)
     try {
-      const reading = await getCached('campus:alert', CAMPUS_ALERT_CACHE_MS, () => fetchCampusAlert())
+      const reading = await readCampusAlertCached(getCached)
       // Short at the edge too, so a new alert is not held back there; the
       // edge may answer from the expired copy while it refreshes, so a Render
       // cold start does not stall every open page.

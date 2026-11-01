@@ -38,7 +38,10 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot, kindsOff, expoAccessToken, receiptsAnswer = null } = {}, run) {
+async function withApp(
+  { user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot, kindsOff, expoAccessToken, receiptsAnswer = null, campusAlertPush, readCampusAlert } = {},
+  run,
+) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
@@ -83,6 +86,8 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       expoAccessToken,
       sendExpo,
       getExpoReceipts,
+      campusAlertPush,
+      readCampusAlert,
     }),
   )
   // Stands in for apiNotFound: where the cron route falls through to.
@@ -105,12 +110,15 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
 
 test('the public config reports the key, or that push is off, never cached, behind both public-read limiters', async () => {
   // The kind registry's version and digest (issue #550), with push on or off,
-  // for the app to compare with its copy's.
+  // for the app to compare with its copy's, and whether campus alerts are
+  // pushed: only with push on and CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on.
   const kinds = { version: NOTIFICATION_KINDS_VERSION, digest: await notificationKindsDigest() }
   assert.match(kinds.digest, /^[0-9a-f]{64}$/)
-  for (const [vapidKeys, expected] of [
-    [KEYS, { enabled: true, publicKey: KEYS.publicKey, kinds }],
-    [null, { enabled: false, publicKey: null, kinds }],
+  for (const [vapidKeys, campusAlertPush, expected] of [
+    [KEYS, false, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: false }],
+    [null, false, { enabled: false, publicKey: null, kinds, campusAlertPush: false }],
+    [KEYS, true, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: true }],
+    [null, true, { enabled: false, publicKey: null, kinds, campusAlertPush: false }],
   ]) {
     const hits = []
     const limiter = (name) => (req, _res, next) => {
@@ -118,7 +126,7 @@ test('the public config reports the key, or that push is off, never cached, behi
       next()
     }
     const app = express()
-    app.use(createPushPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), vapidKeys }))
+    app.use(createPushPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), vapidKeys, campusAlertPush }))
     await serve(app, async (base) => {
       const res = await fetch(`${base}/api/push/config`)
       assert.equal(res.status, 200)
@@ -837,6 +845,105 @@ test('a Supabase 504 on both attempts answers 503 and goes to warnCronTransient;
     assert.equal(res.status, 500)
     assert.deepEqual(res.body, { ok: false, error: 'Reminder run failed.' })
     assert.deepEqual(transientWarnings, [])
+  })
+})
+
+// ── POST /api/internal/push/fast-tick (issue #550, campus alerts) ───────────
+
+const CRON_AUTH = { authorization: `Bearer ${CRON_SECRET}` }
+// Demo text only: never an emergency in a test.
+const demoAlert = () => ({
+  id: 'demo-1',
+  sentAt: new Date(Date.now() - 60_000).toISOString(),
+  headline: 'Demo alert: This is sample text, not a real emergency',
+  message: null,
+  instruction: null,
+  severity: 'Severe',
+  test: false,
+  normal: false,
+})
+
+test('the fast tick falls through without a cron token, refuses a wrong one, and with campus alert pushes off reads nothing', async () => {
+  await withApp({ cronSecret: '' }, async ({ call }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, { authorization: 'Bearer anything' })
+    assert.equal(res.status, 404)
+  })
+  let reads = 0
+  const readCampusAlert = async () => {
+    reads += 1
+    return { fetchedAt: Date.now(), alert: demoAlert() }
+  }
+  await withApp({ campusAlertPush: true, readCampusAlert }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, { authorization: 'Bearer wrong' })
+    assert.equal(res.status, 401)
+    assert.deepEqual(res.body, { error: { message: 'Invalid cron secret.', status: 401 } })
+    assert.equal(supabase.queries.length, 0)
+  })
+  await withApp({ campusAlertPush: false, readCampusAlert }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { campusAlerts: { ok: false, reason: 'off' } })
+    assert.equal(supabase.queries.length, 0)
+  })
+  assert.equal(reads, 0, 'IU is never asked while the push is off')
+})
+
+test('the fast tick pushes a new campus alert with the Expo access token, logs one line, and skips a tick that comes while it runs', async (t) => {
+  const logs = t.mock.method(console, 'log', () => {})
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let reads = 0
+  const readCampusAlert = async () => {
+    reads += 1
+    await gate
+    return { fetchedAt: Date.now(), alert: demoAlert() }
+  }
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: false, kinds: null, channels: null }
+  const tables = {
+    campus_alert_messages: () => ({ data: null, error: null }),
+    campus_alert_incidents: (chain) => {
+      const op = operation(chain)
+      if (op === 'select') return { data: [], error: null }
+      if (op === 'update') return { data: [{ id: 'claimed' }], error: null }
+      return { data: null, error: null }
+    },
+    push_settings: () => ({ data: [], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    push_tickets: () => ({ data: null, error: null }),
+  }
+  await withApp({ tables, campusAlertPush: true, readCampusAlert, expoAccessToken: 'expo-token-for-tests' }, async ({ call, supabase, expoRequests, expoTokens }) => {
+    const first = call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    while (reads === 0) await new Promise((resolve) => setTimeout(resolve, 5))
+    const second = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.deepEqual([second.status, second.body], [200, { skipped: 'busy' }])
+    release()
+    const res = await first
+    assert.equal(res.status, 200)
+    assert.equal(res.body.campusAlerts.role, 'new')
+    assert.deepEqual(res.body.campusAlerts.pushed, ['campus-alert'])
+    assert.equal(res.body.campusAlerts.sent, 1)
+    assert.equal(expoRequests.length, 1)
+    assert.deepEqual(expoRequests[0].map((m) => [m.to, m.interruptionLevel, m.data.kind]), [[PHONE, 'time-sensitive', 'campus-alert']])
+    assert.deepEqual(expoTokens, ['expo-token-for-tests'])
+    const [record] = supabase.queriesOf('campus_alert_messages').filter((q) => operation(q.chain) === 'insert')
+    assert.equal(record.chain.find((c) => c.method === 'insert').args[0].role, 'new')
+  })
+  const lines = logs.mock.calls.map((c) => String(c.arguments[0])).filter((line) => line.startsWith('[push] campus alert:'))
+  assert.equal(lines.length, 1)
+  assert.ok(!lines[0].includes(PHONE) && !lines[0].includes('expo-token-for-tests') && !lines[0].includes('ranAt'))
+})
+
+test('a Supabase 504 in the fast tick, on both attempts, answers 503 and goes to warnCronTransient', async () => {
+  const gateway = () => ({ data: null, error: { message: 'Gateway Timeout' }, status: 504 })
+  const readCampusAlert = async () => ({ fetchedAt: Date.now(), alert: demoAlert() })
+  await withApp({ tables: { campus_alert_messages: gateway }, campusAlertPush: true, readCampusAlert }, async ({ call, supabase, transientWarnings }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.equal(res.status, 503)
+    assert.equal(supabase.queriesOf('campus_alert_messages').length, 2, 'retried once')
+    assert.deepEqual(transientWarnings.map((w) => [w.route, w.error.status]), [['POST /api/internal/push/fast-tick', 504]])
   })
 })
 

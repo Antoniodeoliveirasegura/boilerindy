@@ -42,7 +42,7 @@ import { MAX_DEVICE_STRIKES, buildExpoMessages, sendExpoPush } from './expoPush.
 import { queryError } from './cronTick.mjs'
 import { DB_FEATURES, logSchemaMissingOnce } from './dbErrors.mjs'
 import { isMissingColumnError } from './moderation.mjs'
-import { notificationKind } from './notificationKinds.mjs'
+import { NOTIFICATION_KINDS, notificationKind } from './notificationKinds.mjs'
 import {
   ALL_DAY_REMINDER_MINUTE,
   CAPPED_KINDS,
@@ -519,16 +519,22 @@ export async function withDeviceColumns(buildQuery) {
   return withLocalRemindersColumn((local) => buildQuery({ kinds: false, local }))
 }
 
+// Kinds whose default goes with another's ({ follows }), by the kind they follow.
+const FOLLOWS = new Map(NOTIFICATION_KINDS.kinds.filter((kind) => kind.default?.follows).map((kind) => [kind.id, kind.default.follows]))
+
 /**
  * Whether a phone takes a server push of `kind` (issue #550, item 4). A phone
- * that listed its kinds at registration takes those only, and the test push,
+ * that listed its kinds at registration takes those only, a kind that goes
+ * with one it listed (the campus all clear with the alert), and the test push,
  * which a student sends to check every device; a kind it schedules itself is
  * never on its list, so nothing reaches it twice. An older build, with no
  * list, follows README step 47: no deadline pushes to a phone with local
  * reminders on.
  */
 export function deviceTakes(device, kind) {
-  if (Array.isArray(device.kinds)) return kind === 'test' || device.kinds.includes(kind)
+  if (Array.isArray(device.kinds)) {
+    return kind === 'test' || device.kinds.includes(kind) || (FOLLOWS.has(kind) && device.kinds.includes(FOLLOWS.get(kind)))
+  }
   if (kind === 'deadline' || kind === 'deadline-digest') return device.local_reminders !== true
   return true
 }
