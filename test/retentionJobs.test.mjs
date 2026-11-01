@@ -20,7 +20,13 @@ const jobs = [...sql.matchAll(/select cron\.schedule\(\s*'([^']+)',\s*'([^']+)',
 test('schedules one job per table, each deleting only rows past its window', () => {
   assert.deepEqual(
     jobs.map((j) => j.name),
-    ['boilerindy-retention-analytics', 'boilerindy-retention-push-deliveries', 'boilerindy-retention-sessions', 'boilerindy-retention-cron-history'],
+    [
+      'boilerindy-retention-analytics',
+      'boilerindy-retention-push-deliveries',
+      'boilerindy-retention-sessions',
+      'boilerindy-retention-push-tickets',
+      'boilerindy-retention-cron-history',
+    ],
   )
   assert.deepEqual(
     jobs.map((j) => j.command),
@@ -28,6 +34,8 @@ test('schedules one job per table, each deleting only rows past its window', () 
       "DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months'",
       "DELETE FROM push_deliveries WHERE sent_at < NOW() - INTERVAL '60 days'",
       'DELETE FROM user_sessions WHERE expire < NOW()',
+      // Expo push tickets (issue #550): a receipt is gone from Expo after 24 hours.
+      "DELETE FROM push_tickets WHERE sent_at < NOW() - INTERVAL '2 days'",
       "DELETE FROM cron.job_run_details WHERE start_time < NOW() - INTERVAL '7 days'",
     ],
   )

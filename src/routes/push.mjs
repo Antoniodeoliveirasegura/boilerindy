@@ -2,7 +2,7 @@ import express from 'express'
 import { runCronTick } from '../cronTick.mjs'
 import { DB_FEATURES, respondSchemaMissing } from '../dbErrors.mjs'
 import { isMissingColumnError, runDiningFavoriteAlerts } from '../diningFavoriteAlerts.mjs'
-import { parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
+import { fetchExpoReceipts, parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
 import {
   KIND_SETTING_COLUMNS,
   buildTestPayload,
@@ -13,8 +13,9 @@ import {
   runDeadlineReminders,
   settingsConflict,
   settingsFromRow,
-  withLocalRemindersColumn,
+  withDeviceColumns,
 } from '../pushReminders.mjs'
+import { runPushReceipts } from '../pushReceipts.mjs'
 import { NOTIFICATION_KINDS_VERSION, notificationKindsDigest } from '../notificationKinds.mjs'
 import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 
@@ -78,8 +79,24 @@ function summarizePushSubscription(row) {
   }
 }
 
+// What POST /api/me/push-token stored, as the app reads it back: never the
+// token nor the Live Activity start token. Before README step 47 (or 54) the
+// row lacks the columns and they read as false and null.
+function summarizeRegistration(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    localReminders: row.local_reminders === true,
+    kinds: Array.isArray(row.kinds) ? row.kinds : null,
+    channels: Array.isArray(row.channels) ? row.channels : null,
+    kindsVersion: Number.isInteger(row.kinds_version) ? row.kinds_version : null,
+    redact: row.redact === true,
+  }
+}
+
 // Never the token: like a push endpoint, it lets anyone notify the phone.
-// localReminders is false for a row read before README step 47 added it.
+// localReminders is false for a row read before README step 47 added it, and
+// kinds null before step 54 (issue #550) or for an older app build.
 function summarizePushDevice(row) {
   return {
     id: row.id,
@@ -88,6 +105,7 @@ function summarizePushDevice(row) {
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at || null,
     localReminders: row.local_reminders === true,
+    kinds: Array.isArray(row.kinds) ? row.kinds : null,
   }
 }
 
@@ -139,6 +157,7 @@ export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLi
  * @param {string}      [deps.expoAccessToken]     EXPO_ACCESS_TOKEN, sent with every Expo request when set
  * @param {Function}    [deps.sendExpo]            sendExpoPush from src/expoPush.mjs, the default;
  *   the tests hand in a fake so nothing reaches Expo
+ * @param {Function}    [deps.getExpoReceipts]     fetchExpoReceipts from src/expoPush.mjs, the default
  */
 export function createPushRouter({
   supabase,
@@ -153,11 +172,13 @@ export function createPushRouter({
   kindsOff = new Set(),
   expoAccessToken = '',
   sendExpo = sendExpoPush,
+  getExpoReceipts = fetchExpoReceipts,
 }) {
   const router = express.Router()
   // Every Expo request, from the test send and the cron runs alike, carries
   // the access token; nothing else ever sees it.
   const sendToExpo = (options) => sendExpo({ ...options, accessToken: expoAccessToken })
+  const receiptsFromExpo = (ids) => getExpoReceipts({ ids, accessToken: expoAccessToken })
 
   // The favorite-dish switch (issue #469) and the choices by kind (issue #550)
   // are columns that db/supabase-dining-favorite-alerts.sql (README step 42)
@@ -191,10 +212,10 @@ export function createPushRouter({
           .select('id, created_at, user_agent, last_used_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: true }),
-        withLocalRemindersColumn((withFlag) =>
+        withDeviceColumns(({ kinds, local }) =>
           supabase
             .from('push_devices')
-            .select(`id, platform, device_name, created_at, last_seen_at${withFlag ? ', local_reminders' : ''}`)
+            .select(`id, platform, device_name, created_at, last_seen_at${local ? ', local_reminders' : ''}${kinds ? ', kinds' : ''}`)
             .eq('user_id', userId)
             .order('created_at', { ascending: true }),
         ),
@@ -394,15 +415,25 @@ export function createPushRouter({
         last_seen_at: new Date().toISOString(),
         failure_count: 0,
       }
-      const { data, error } = await withLocalRemindersColumn((withFlag) =>
-        supabase
-          .from('push_devices')
-          .upsert(withFlag ? { ...device, local_reminders: parsed.localReminders } : device, { onConflict: 'token' })
-          .select(withFlag ? 'id, created_at, local_reminders' : 'id, created_at')
-          .single(),
-      )
+      // Every registration replaces what the phone reported last time, so a
+      // body from an older build stores no kinds (README step 54, issue #550).
+      const { data, error } = await withDeviceColumns(({ kinds, local }) => {
+        const row = { ...device }
+        if (local) row.local_reminders = parsed.localReminders
+        if (kinds) {
+          Object.assign(row, {
+            kinds: parsed.kinds,
+            channels: parsed.channels,
+            kinds_version: parsed.kindsVersion,
+            redact: parsed.redact,
+            activity_start_token: parsed.activityStartToken,
+          })
+        }
+        const columns = ['id, created_at', ...(local ? ['local_reminders'] : []), ...(kinds ? ['kinds', 'channels', 'kinds_version', 'redact'] : [])]
+        return supabase.from('push_devices').upsert(row, { onConflict: 'token' }).select(columns.join(', ')).single()
+      })
       if (error) throw error
-      res.status(201).json({ device: { id: data.id, createdAt: data.created_at, localReminders: data.local_reminders === true } })
+      res.status(201).json({ device: summarizeRegistration(data) })
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res, PUSH_DEVICES_SQL_FILE)
       console.error('POST /api/me/push-token:', error?.message || error)
@@ -519,16 +550,19 @@ export function createPushRouter({
     }
     // The favorite-dish alerts (issue #469) ride the same tick; re-running a
     // tick is safe for them too, since each student is claimed once a day.
+    // Then the Expo receipts of earlier sends (issue #550, item 7), which only
+    // record what Expo answers, so re-reading them is safe as well.
     const outcome = await runCronTick('run-reminders', async () => {
       const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys, sendExpo: sendToExpo, kindsOff })
       if (getDiningSnapshot) {
         summary.dining = await runDiningFavoriteAlerts({ client: supabase, keys: vapidKeys, getSnapshot: getDiningSnapshot, sendExpo: sendToExpo, kindsOff })
       }
+      if (vapidKeys) summary.receipts = await runPushReceipts({ client: supabase, getReceipts: receiptsFromExpo })
       return summary
     })
     if (outcome.ok) {
       const summary = outcome.summary
-      if (summary.sent || summary.failed || summary.dining?.sent || summary.dining?.failed) {
+      if (summary.sent || summary.failed || summary.dining?.sent || summary.dining?.failed || summary.receipts?.failed || summary.receipts?.removed) {
         console.log(`[push] reminders: ${JSON.stringify(summary)}`)
       }
       return res.json(summary)

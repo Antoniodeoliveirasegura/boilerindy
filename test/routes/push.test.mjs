@@ -38,7 +38,7 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot, kindsOff, expoAccessToken } = {}, run) {
+async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot, kindsOff, expoAccessToken, receiptsAnswer = null } = {}, run) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
@@ -51,6 +51,12 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
     expoRequests.push(messages)
     expoTokens.push(accessToken)
     return expoAnswer ? expoAnswer(messages) : messages.map((m) => ({ token: m.to, ok: true, ticketId: `t-${m.to}` }))
+  }
+  // Stands in for fetchExpoReceipts (issue #550, item 7).
+  const receiptRequests = []
+  const getExpoReceipts = async ({ ids, accessToken }) => {
+    receiptRequests.push({ ids, accessToken })
+    return receiptsAnswer ? receiptsAnswer(ids) : { ok: true, receipts: new Map() }
   }
   const limiter = (name) => (req, _res, next) => {
     limiterHits.push(`${name} ${req.method} ${req.path}`)
@@ -76,6 +82,7 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       kindsOff,
       expoAccessToken,
       sendExpo,
+      getExpoReceipts,
     }),
   )
   // Stands in for apiNotFound: where the cron route falls through to.
@@ -90,7 +97,7 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       const text = await response.text()
       return { status: response.status, headers: response.headers, body: text ? JSON.parse(text) : null }
     }
-    await run({ call, supabase, limiterHits, transientWarnings, expoRequests, expoTokens })
+    await run({ call, supabase, limiterHits, transientWarnings, expoRequests, expoTokens, receiptRequests })
   })
 }
 
@@ -152,7 +159,7 @@ test("GET /api/push/settings answers the student's settings and devices, never c
       diningAlertsAvailable: true,
       kindsAvailable: true,
       subscriptions: [{ id: 's1', createdAt: '2026-10-01T00:00:00.000Z', userAgent: 'Safari', lastUsedAt: null }],
-      devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z', localReminders: false }],
+      devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z', localReminders: false, kinds: null }],
     })
     assert.ok(!JSON.stringify(res.body).includes('PushToken'), 'the token is never returned')
     const [devices] = supabase.queriesOf('push_devices')
@@ -349,6 +356,7 @@ test('before db/supabase-dining-favorite-alerts.sql runs, the settings work with
 test('the reminder run also runs the favorite-dish alerts when it has the dining snapshot', async () => {
   const tables = {
     push_settings: () => ({ data: [], error: null }),
+    push_tickets: () => ({ data: [], error: null }),
   }
   const snapshots = []
   await withApp({ tables, getDiningSnapshot: async (options) => (snapshots.push(options), { ok: true, locations: [] }) }, async ({ call }) => {
@@ -443,8 +451,9 @@ function deviceTables({ existing = [], settings = () => ({ data: null, error: nu
     push_settings: settings,
     push_devices: (chain) => {
       if (operation(chain) !== 'upsert') return { data: existing, error: null }
-      const { local_reminders: localReminders } = upsertedRow(chain)
-      return { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z', ...(localReminders === undefined ? {} : { local_reminders: localReminders }) }, error: null }
+      const row = upsertedRow(chain)
+      const stored = Object.fromEntries(['local_reminders', 'kinds', 'channels', 'kinds_version', 'redact'].filter((column) => column in row).map((column) => [column, row[column]]))
+      return { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z', ...stored }, error: null }
     },
   }
 }
@@ -453,7 +462,7 @@ test('POST /api/me/push-token registers the phone and makes sure the student has
   await withApp({ tables: deviceTables() }, async ({ call, supabase, limiterHits }) => {
     const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', deviceName: '  Ana iPhone  ' })
     assert.equal(res.status, 201)
-    assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false } })
+    assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false, kinds: null, channels: null, kindsVersion: null, redact: false } })
     assert.deepEqual(limiterHits, ['push-write POST /api/me/push-token'])
 
     const [settings] = supabase.queriesOf('push_settings')
@@ -473,6 +482,12 @@ test('POST /api/me/push-token registers the phone and makes sure the student has
       last_seen_at: undefined,
       failure_count: 0,
       local_reminders: false,
+      // An older build's body: no kinds, which the reminder runs read as such (issue #550).
+      kinds: null,
+      channels: null,
+      kinds_version: null,
+      redact: false,
+      activity_start_token: null,
     })
     assert.ok(!Number.isNaN(Date.parse(row.last_seen_at)))
     assert.deepEqual(options, { onConflict: 'token' })
@@ -485,7 +500,7 @@ test('POST /api/me/push-token stores localReminders, and registering again repla
   await withApp({ tables: deviceTables({ existing: [{ id: 'd1', token: PHONE }] }) }, async ({ call, supabase }) => {
     const on = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', localReminders: true })
     assert.equal(on.status, 201)
-    assert.deepEqual(on.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: true } })
+    assert.deepEqual(on.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: true, kinds: null, channels: null, kindsVersion: null, redact: false } })
 
     const off = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', localReminders: false })
     assert.equal(off.body.device.localReminders, false)
@@ -498,7 +513,7 @@ test('POST /api/me/push-token stores localReminders, and registering again repla
     assert.deepEqual(upserts.map((q) => upsertedRow(q.chain).local_reminders), [true, false, true, false])
     for (const q of upserts) {
       assert.deepEqual(q.chain.find((c) => c.method === 'upsert').args[1], { onConflict: 'token' }, 'the same row, by token')
-      assert.equal(selectOf(q.chain), 'id, created_at, local_reminders')
+      assert.equal(selectOf(q.chain), 'id, created_at, local_reminders, kinds, channels, kinds_version, redact')
     }
   })
 })
@@ -530,7 +545,7 @@ test('before README step 47 runs, a phone still registers, without the flag, and
     for (let i = 0; i < 2; i += 1) {
       const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', deviceName: 'Ana iPhone', localReminders: true })
       assert.equal(res.status, 201, 'registration is not broken')
-      assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false } }, 'the answer says the flag was not stored')
+      assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false, kinds: null, channels: null, kindsVersion: null, redact: false } }, 'the answer says the flag was not stored')
     }
     const upserts = supabase.queriesOf('push_devices').filter((q) => operation(q.chain) === 'upsert')
     assert.equal(upserts.length, 4, 'each registration is tried with the column, then without it')
@@ -738,8 +753,11 @@ test('every Expo request carries the access token, from the test send and the re
     user_manual_tasks: () => ({ data: [], error: null }),
     user_task_completions: () => ({ data: [], error: null }),
     push_deliveries: () => ({ data: [], error: null }),
+    // One ticket from an earlier send is due its receipt.
+    push_tickets: (chain) =>
+      operation(chain) === 'select' ? { data: [{ ticket_id: 'old', device_id: 'd1', sent_at: '2026-01-01T00:00:00.000Z' }], error: null } : { data: null, error: null },
   }
-  await withApp({ tables, expoAccessToken: 'expo-access-token-for-tests' }, async ({ call, expoRequests, expoTokens }) => {
+  await withApp({ tables, expoAccessToken: 'expo-access-token-for-tests' }, async ({ call, expoRequests, expoTokens, receiptRequests }) => {
     const testSend = await call('POST', '/api/push/test', {})
     assert.equal(testSend.status, 200)
     const tick = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
@@ -747,6 +765,7 @@ test('every Expo request carries the access token, from the test send and the re
     assert.equal(tick.body.sent, 1)
     assert.deepEqual(expoRequests.map((messages) => messages.map((m) => m.data.kind)), [['test'], ['deadline']])
     assert.deepEqual(expoTokens, ['expo-access-token-for-tests', 'expo-access-token-for-tests'])
+    assert.deepEqual(receiptRequests, [{ ids: ['old'], accessToken: 'expo-access-token-for-tests' }], 'the receipts reader carries it too')
     assert.ok(!JSON.stringify([testSend.body, tick.body]).includes('expo-access-token-for-tests'))
   })
   await withApp({ tables }, async ({ call, expoTokens }) => {
@@ -756,15 +775,16 @@ test('every Expo request carries the access token, from the test send and the re
 })
 
 test('a reminder run with kinds switched off skips them before claiming anything', async () => {
-  // No table handlers: any query at all would fail the run.
+  // Only the receipts of earlier sends are read: any other query would fail the run.
   const snapshots = []
   const getDiningSnapshot = async (options) => (snapshots.push(options), { ok: true, locations: [] })
-  await withApp({ getDiningSnapshot, kindsOff: new Set(['deadline', 'deadline-digest', 'dining-favorites']) }, async ({ call, supabase }) => {
+  const tables = { push_tickets: () => ({ data: [], error: null }) }
+  await withApp({ tables, getDiningSnapshot, kindsOff: new Set(['deadline', 'deadline-digest', 'dining-favorites']) }, async ({ call, supabase }) => {
     const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
     assert.equal(res.status, 200)
     assert.equal(res.body.reason, 'kind_off')
     assert.equal(res.body.dining.reason, 'kind_off')
-    assert.equal(supabase.queries.length, 0)
+    assert.deepEqual(supabase.queries.map((q) => q.table), ['push_tickets'])
     assert.deepEqual(snapshots, [], 'the menu is not even read')
   })
 })
@@ -785,7 +805,7 @@ test('the reminder runner falls through without a cron token and refuses a wrong
 })
 
 test('with the token, a tick runs and answers its summary', async () => {
-  const tables = { push_settings: () => ({ data: [], error: null }) }
+  const tables = { push_settings: () => ({ data: [], error: null }), push_tickets: () => ({ data: [], error: null }) }
   await withApp({ tables }, async ({ call, supabase }) => {
     const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
     assert.equal(res.status, 200)
@@ -914,4 +934,51 @@ test('before README step 53, a choice by kind answers 503 push_kinds_schema_miss
     assert.equal(lead.body.kindsAvailable, false)
     assert.deepEqual(Object.keys(upserts[0]).sort(), ['deadline_reminders', 'dining_favorite_alerts', 'lead_minutes', 'updated_at', 'user_id'])
   })
+})
+
+// Issue #550, item 4 (README step 54): what an app build with kinds reports.
+test('POST /api/me/push-token stores the kinds and channels a phone reports, and before step 54 registers without them', async (t) => {
+  await withApp({ tables: deviceTables() }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', {
+      token: PHONE,
+      platform: 'ios',
+      kinds: ['dining-favorites', 'campus-alert', 'class'],
+      channels: ['dining', 'safety'],
+      kindsVersion: 1,
+      redact: true,
+      activityStartToken: 'a1b2c3d4e5f60718',
+    })
+    assert.equal(res.status, 201)
+    assert.deepEqual(res.body.device, {
+      id: 'd1',
+      createdAt: '2026-10-08T00:00:00.000Z',
+      localReminders: false,
+      kinds: ['dining-favorites', 'campus-alert'],
+      channels: ['dining', 'safety'],
+      kindsVersion: 1,
+      redact: true,
+    })
+    assert.ok(!JSON.stringify(res.body).includes('a1b2c3d4e5f60718'), 'the start token is never returned')
+    const upsert = supabase.queriesOf('push_devices').find((q) => operation(q.chain) === 'upsert')
+    const row = upsertedRow(upsert.chain)
+    assert.deepEqual([row.kinds, row.channels, row.kinds_version, row.redact, row.activity_start_token], [['dining-favorites', 'campus-alert'], ['dining', 'safety'], 1, true, 'a1b2c3d4e5f60718'])
+  })
+
+  const log = t.mock.method(console, 'error', () => {})
+  const before = {
+    push_settings: () => ({ data: null, error: null }),
+    push_devices: (chain) => {
+      if (operation(chain) !== 'upsert') return { data: [], error: null }
+      if ('kinds' in upsertedRow(chain)) return { data: null, error: { code: 'PGRST204', message: "Could not find the 'kinds' column of 'push_devices' in the schema cache" } }
+      return { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z', local_reminders: upsertedRow(chain).local_reminders }, error: null }
+    },
+  }
+  await withApp({ tables: before }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', kinds: ['dining-favorites'], localReminders: true })
+    assert.equal(res.status, 201)
+    assert.deepEqual([res.body.device.kinds, res.body.device.localReminders], [null, true], 'stored as an older build, with its flag')
+    const upserts = supabase.queriesOf('push_devices').filter((q) => operation(q.chain) === 'upsert')
+    assert.deepEqual(upserts.map((q) => selectOf(q.chain)), ['id, created_at, local_reminders, kinds, channels, kinds_version, redact', 'id, created_at, local_reminders'])
+  })
+  assert.match(String(log.mock.calls[0].arguments[0]), /db\/supabase-push-device-kinds\.sql/)
 })

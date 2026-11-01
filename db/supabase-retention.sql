@@ -4,12 +4,15 @@
 -- The Privacy page says raw usage analytics are kept at most 12 months, and
 -- docs/analytics.md and docs/push-notifications.md asked the owner to run the
 -- deletes in the SQL Editor every so often. A promise that only holds while
--- someone remembers a query will eventually be broken, so three jobs do it from
+-- someone remembers a query will eventually be broken, so these jobs do it from
 -- inside the database:
 --
 --   boilerindy-retention-analytics        daily, analytics_events older than 12 months
 --   boilerindy-retention-push-deliveries  weekly, push_deliveries older than 60 days
 --   boilerindy-retention-sessions         daily, user_sessions past their expiry
+--   boilerindy-retention-push-tickets     daily, push_tickets older than 2 days
+--                                         (issue #550; the table is README step
+--                                         55, so re-run this file after it)
 --
 -- A fourth keeps pg_cron's own run log in check. Every run of every job adds a
 -- row to cron.job_run_details and pg_cron never removes them; the keep-warm and
@@ -20,7 +23,7 @@
 --
 -- Plain SQL: no HTTP call, no secret, nothing for the server to do. Needs the
 -- pg_cron extension from db/supabase-keep-warm.sql (README step 29) and the
--- tables from steps 4, 11 and 30. Creates no tables.
+-- tables from steps 4, 11, 30 and 55. Creates no tables.
 --
 -- Paste the whole file into the Supabase SQL Editor once. Safe to run more
 -- than once: cron.schedule() with an existing job name updates that job in
@@ -34,7 +37,7 @@
 --     from cron.job_run_details d join cron.job j using (jobid)
 --     where j.jobname like 'boilerindy-retention-%'
 --     order by d.start_time desc limit 10;
--- Expect four active jobs and "succeeded" runs; return_message says how many
+-- Expect five active jobs and "succeeded" runs; return_message says how many
 -- rows each DELETE removed ("DELETE 0" on a quiet day).
 --
 -- Remove one (the others keep running):
@@ -56,6 +59,14 @@ select cron.schedule(
   'boilerindy-retention-sessions',
   '30 4 * * *', -- 04:30 UTC every day
   $$DELETE FROM user_sessions WHERE expire < NOW()$$
+);
+
+-- Expo push tickets (README step 55, issue #550): a receipt is gone from Expo
+-- after 24 hours, so two days keeps every ticket long enough to be read.
+select cron.schedule(
+  'boilerindy-retention-push-tickets',
+  '20 4 * * *', -- 04:20 UTC every day
+  $$DELETE FROM push_tickets WHERE sent_at < NOW() - INTERVAL '2 days'$$
 );
 
 -- Seven days is enough to debug a failing job with the Verify queries above

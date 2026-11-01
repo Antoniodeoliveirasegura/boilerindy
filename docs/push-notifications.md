@@ -76,11 +76,11 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | Route | Purpose | Notes |
 |---|---|---|
 | `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest } }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. |
-| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts, classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, kindsMigrated }, diningAlertsAvailable, kindsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `kindsAvailable` is false until `db/supabase-push-kinds.sql` runs, and until then the choices by kind read what that step will give the account; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
+| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts, classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, kindsMigrated }, diningAlertsAvailable, kindsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders, kinds }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `kindsAvailable` is false until `db/supabase-push-kinds.sql` runs, and until then the choices by kind read what that step will give the account; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
 | `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts?, classReminders?, classLeadMinutes?, digestMinute?, deadlineItems?, quietStart?, quietEnd?, campusAlerts?, kindsMigrated? }`; answers `{ settings, diningAlertsAvailable, kindsAvailable }` | `leadMinutes` 5 to 10080; `classLeadMinutes` 5, 10, 15 or 30; `digestMinute`, `quietStart` and `quietEnd` minutes past midnight on campus (0 to 1439) or null; quiet hours change as a pair, a null pair for none; `kindsMigrated` only `true`, which stamps the account once. An evening list inside quiet hours answers 400. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`, and a choice by kind before step 53 503 `push_kinds_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
-| `POST /api/me/push-token` | Body `{ token, platform, deviceName?, localReminders? }`, returns 201 `{ device: { id, createdAt, localReminders } }` | The native app. Upsert by token; at most 10 phones per user. `localReminders` defaults to false, and every registration replaces it. `push-write` limit. See [Native devices (Expo)](#native-devices-expo) and [Phones with local reminders](#phones-with-local-reminders). |
+| `POST /api/me/push-token` | Body `{ token, platform, deviceName?, localReminders?, kinds?, channels?, kindsVersion?, redact?, activityStartToken? }`, returns 201 `{ device: { id, createdAt, localReminders, kinds, channels, kindsVersion, redact } }` | The native app. Upsert by token; at most 10 phones per user. `localReminders` defaults to false, and every registration replaces it and the rest. `push-write` limit. See [Native devices (Expo)](#native-devices-expo), [What a phone takes](#what-a-phone-takes-kinds-and-channels) and [Phones with local reminders](#phones-with-local-reminders). |
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
 | `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). 503 `push_kind_off` while `PUSH_KINDS_OFF` lists `test`. |
 | `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
@@ -171,11 +171,13 @@ What reads it today:
   counts, the 30-minute merge, the default quiet hours and evening list, all
   from the registry ([Choices by kind](#choices-by-kind-the-evening-list-quiet-hours-and-the-daily-cap)).
 
-The rest of issue #550 builds on it: the phone's `kinds` and `channels` at
-registration (item 4), receipts (item 7) and campus alert pushes (item 9).
-The copy and the links to the item (items 2 and 5) are in
-[Notification payload](#notification-payload), the choices by kind (items 3
-and 8) below. Browsers get the same payload and tag as phones.
+The rest of issue #550 builds on it: campus alert pushes (item 9) and the
+Live Activity's sender are still to come. The copy and the links to the item
+(items 2 and 5) are in [Notification payload](#notification-payload), the
+choices by kind (items 3 and 8) and the dish alerts' timing (item 6) below,
+and what a phone takes and the receipts (items 4 and 7) under [Native devices
+(Expo)](#native-devices-expo). Browsers get the same payload and tag as
+phones.
 
 ### Version and digest
 
@@ -322,6 +324,12 @@ student's favorite dishes (the stars on the Dining page) on that day's menu.
   `dining-favorites:<YYYY-MM-DD>` in `push_deliveries` before sending, so
   overlapping runs send once. A student with no favorite on the menu is not
   claimed, and the next tick checks again.
+- It goes 30 minutes before the first meal that serves one of the student's
+  starred dishes (issue #550, item 6): 10:00 AM for lunch or brunch, 4:00 PM
+  for dinner, 8:00 AM for breakfast or a meal the windows in
+  `src/diningMeals.mjs` do not name. Until then the student is left
+  unclaimed and counted as `early` in the summary, so a student who stars
+  only dinner dishes hears about them at 4:00 PM, not at 8:00 AM.
 - The payload leads with the news (issue #550, item 2): `{ "title": "Veggie
   Burger is on today", "subtitle": "Tower Dining · lunch and dinner", "body":
   "Also on today: Beef Stroganoff and Smash Burger (Campus Center). Lunch is
@@ -363,12 +371,12 @@ EAS.
    the defaults (reminders on, 60 minutes ahead) when there is none and never
    overwriting a saved choice: the reminder runner reads only students who
    have a row. The switch and the lead time are shared with the website.
-3. Reminders go to every browser and phone the student has, except the phones
-   with local reminders on ([below](#phones-with-local-reminders)); test sends
-   and favorite-dish alerts go to all of them. `push_deliveries` still claims
-   each item once per student before anything is sent. `src/expoPush.mjs`
-   posts the messages to `https://exp.host/--/api/v2/push/send`, at most 100
-   per request with an 8 s deadline, and reads one ticket per message back.
+3. Each push goes to every browser the student has and to the phones that
+   take its kind ([What a phone takes](#what-a-phone-takes-kinds-and-channels));
+   test sends go to all of them. `push_deliveries` still claims each item once
+   per student before anything is sent. `src/expoPush.mjs` posts the messages
+   to `https://exp.host/--/api/v2/push/send`, at most 100 per request with an
+   8 s deadline, and reads one ticket per message back.
 4. `DELETE /api/me/push-token` with `{ token }` removes the phone, for the app
    to call when the student signs out or turns notifications off.
 
@@ -391,10 +399,10 @@ and deliver in a batch (APNs priority 5); the rest go at high priority. The
 `ttl` ends when the news stops being true, where every message used to be
 kept for 24 hours, and a reminder already due goes with `ttl: 0` (now or
 never). A payload's `subtitle`, when a kind has one, goes too (clipped to 120
-characters). There is still no `channelId`: without one Expo uses a default
-Android channel it creates itself, while a named channel the app has not
-created hides the notification, so channels wait until phones report the ones
-they created (item 4).
+characters). `channelId`, the kind's Android channel, goes only to a phone
+that reported creating it ([below](#what-a-phone-takes-kinds-and-channels)):
+without one Expo uses a default Android channel it creates itself, while a
+named channel the app has not created hides the notification.
 
 What Expo answers, and what happens to the row:
 
@@ -412,14 +420,28 @@ Log lines name the error code only. An Expo push token is a capability
 logged or returned, and the ticket messages, which quote the token, are
 dropped.
 
-Not done yet:
+Receipts (issue #550, item 7, README step 55). A ticket only says Expo
+accepted the message; APNs or FCM can still refuse it, and Expo reports that
+in a receipt (`POST https://exp.host/--/api/v2/push/getReceipts`, best read
+about 15 minutes after the send and kept for 24 hours). Each ticket Expo
+answers is kept in `push_tickets` with its phone and kind, and every reminder
+tick, after the sends, `runPushReceipts` (`src/pushReceipts.mjs`) reads the
+receipts of tickets older than 15 minutes, at most 1,000 a run, and records
+each in `receipt`:
 
-- Receipts. A ticket only says Expo accepted the message; APNs or FCM can
-  still refuse it, and Expo reports that in a receipt
-  (`POST https://exp.host/--/api/v2/push/getReceipts`, best read about 15
-  minutes after the send and kept for 24 hours). Until receipts are polled, a
-  phone that APNs or FCM drops is only noticed when a later ticket says
-  `DeviceNotRegistered`.
+| Receipt | What happens |
+|---|---|
+| `ok` | Recorded. APNs or FCM took the message. |
+| `DeviceNotRegistered` | Recorded, and the phone is deleted (its tickets go with it), so an uninstalled app is dropped within the hour of a send instead of at its next failed send. |
+| Any other error | Recorded by its code and counted in the log line, which carries codes and counts only. No strike. |
+| None after 24 hours | Marked `expired`: Expo no longer has it. |
+| None yet | Left for the next tick. |
+
+When Expo does not answer, nothing is marked and the next tick tries again.
+The retention job (README step 51) deletes tickets after 2 days. Before step
+55 the table is missing: tickets are not kept, receipts are not read, and the
+log names the file once. The summary of each tick carries the run under
+`receipts`.
 
 Expo access tokens (issue #550, owner decision 7). With "enhanced push
 security" on for the project in the EAS dashboard, Expo refuses every send
@@ -445,6 +467,35 @@ Owner setup, once:
 5. Run `db/supabase-push-local-reminders.sql` (README step 47) before an app
    build that sends `localReminders` ships, or its phones get each deadline
    twice ([below](#phones-with-local-reminders)).
+6. Run `db/supabase-push-device-kinds.sql` (README step 54) before an app
+   build that sends `kinds` ships, and `db/supabase-push-tickets.sql` (step
+   55) for the receipts; then re-run step 50, since 55 adds a table, and step
+   51 for the tickets' retention job.
+
+### What a phone takes: kinds and channels
+
+Issue #550, item 4, README step 54. An app build with the [kind
+registry](#kind-registry) reports more when it registers at
+`POST /api/me/push-token`:
+
+| Field | Column | Means |
+|---|---|---|
+| `kinds` | `kinds` | The server kinds the phone shows, never one it schedules itself (classes, or deadlines while the phone plans them), so no kind reaches it from two senders. Unknown names are dropped. |
+| `channels` | `channels` | The Android channels the build created. |
+| `kindsVersion` | `kinds_version` | The registry version the build carries. |
+| `redact` | `redact` | The app lock is on: the copy is to show times and counts only (plan step 11). |
+| `activityStartToken` | `activity_start_token` | The Live Activity push-to-start token, kept for later. Never returned or logged. |
+
+Every registration replaces them, so a body from an older build stores no
+`kinds`. A phone with `kinds` then gets a server push only of a kind it
+listed, and the test push, which a student sends to check every device
+(`deviceTakes` in `src/pushReminders.mjs`); a message names its kind's
+Android channel only when the phone listed it. A phone with no `kinds` is an
+older build and keeps the rule of [Phones with local
+reminders](#phones-with-local-reminders). The answer echoes `kinds`,
+`channels`, `kindsVersion` and `redact`, and `GET /api/push/settings` lists
+each phone's `kinds`. Until step 54 runs, phones register without these
+facts, the log names the file once, and every phone counts as an older build.
 
 ### Phones with local reminders
 
