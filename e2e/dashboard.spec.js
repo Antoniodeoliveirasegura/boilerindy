@@ -179,7 +179,12 @@ test.describe('Client data cache', () => {
 
   // Issue #549: when TransLoc names the bus in a row, the row gives TransLoc's
   // own minutes to the student's stop instead of counting stops from the bus.
+  // The clock is a Wednesday noon, in Gray's hours: on Saturday and Sunday from
+  // 9 AM to 8 PM Home moves a bus reporting Gray (19) to its schedule peer,
+  // Orange (34), whose stops are not seeded here, so the row had no stop.
   test("a bus row gives TransLoc's minutes to the student's stop", async ({ page, context, mockApi }) => {
+    const now = new Date('2026-09-09T12:00:00-04:00')
+    await page.clock.setFixedTime(now)
     await context.grantPermissions(['geolocation'])
     await context.setGeolocation({ latitude: 39.7739, longitude: -86.1853 })
     mockApi.login()
@@ -202,8 +207,8 @@ test.describe('Client data cache', () => {
         return route.fulfill({
           json: {
             place: { key: place.key, name: place.name, routes: [gray] },
-            fetchedAt: new Date().toISOString(),
-            arrivals: [{ ...gray, at: new Date(Date.now() + 10 * 60_000).toISOString(), source: 'transloc', vehicleId: 12 }],
+            fetchedAt: now.toISOString(),
+            arrivals: [{ ...gray, at: new Date(now.getTime() + 10 * 60_000).toISOString(), source: 'transloc', vehicleId: 12 }],
           },
         })
       },
