@@ -6,3 +6,19 @@ allowBuilds:
 # from the backend at the repo root). pnpm 10+ reads settings from here, not
 # .npmrc. Flat node_modules (no symlinks) so installs work on exFAT/Windows.
 nodeLinker: hoisted
+# Dependabot alerts 44 to 47 (GHSA-3g3m-2fjr-6pw4: glob up to 14.0.1,
+# GHSA-g3hv-75wg-m249: minimatch before 11.0.1). No parent release reaches the
+# patched majors: @sentry/bundler-plugins asks for glob ^13; eslint,
+# @eslint/config-array and @typescript-eslint/typescript-estree for
+# minimatch ^10; eslint-plugin-jsx-a11y for minimatch ^3. Drop an entry once
+# its parents accept the patched major (SECURITY.md, Dependency status).
+overrides:
+  glob: ^14.0.2
+  minimatch: ^11.0.1
+# minimatch 9 and up export no default, which eslint-plugin-jsx-a11y 6.10.2
+# reads in two util files, so under the minimatch override
+# label-has-associated-control crashed the lint step. The patch reads the named
+# export instead. pnpm refuses to install once the plugin resolves to another
+# version, which is the cue to drop it.
+patchedDependencies:
+  eslint-plugin-jsx-a11y@6.10.2: patches/eslint-plugin-jsx-a11y@6.10.2.patch

@@ -96,6 +96,23 @@ analysis), not part of this file.
 - **Frontend audit** (7× `undici`, high→low) - all transitive via
   `jsdom`/`vitest` (dev/test tooling, never shipped to the browser bundle). No
   production exposure; clear by bumping `vitest`/`jsdom` when convenient.
+- **glob 14 and minimatch 11 (Dependabot alerts 44 to 47)** - **OVERRIDDEN.**
+  `glob` up to 14.0.1 (GHSA-3g3m-2fjr-6pw4) and `minimatch` before 11.0.1
+  (GHSA-g3hv-75wg-m249) have no fix inside any parent's range:
+  `@sentry/bundler-plugins` (through `@sentry/node` and `@sentry/vite-plugin`)
+  asks for `glob ^13`, `eslint`, `@eslint/config-array` and
+  `@typescript-eslint/typescript-estree` for `minimatch ^10`, and
+  `eslint-plugin-jsx-a11y` for `^3`. Each `pnpm-workspace.yaml` carries the
+  `overrides` (backend: `glob`, which brings minimatch 11 with it; frontend:
+  `glob` and `minimatch`). minimatch 9 and up export no default and
+  `eslint-plugin-jsx-a11y` 6.10.2 reads it, so
+  `boilerindy-react/patches/eslint-plugin-jsx-a11y@6.10.2.patch` switches its
+  two util files to the named export. The Express server loads neither
+  package; in the frontend only lint and the Sentry source-map upload on Vercel
+  do. Drop an override when its parents accept the patched major, and the patch
+  with the plugin's next release: pnpm stops installing once
+  `eslint-plugin-jsx-a11y` resolves to anything but 6.10.2
+  (`ERR_PNPM_UNUSED_PATCH`).
 
 ## Known operational risks (accepted)
 
