@@ -28,6 +28,11 @@
 // other phones. The favorite-dish alerts, which the phone cannot know ahead of
 // time, and the test send ignore the flag. Before step 47 the column is
 // missing, and withLocalRemindersColumn reads every phone as having it off.
+//
+// The reminders are the `deadline` kind of the kind registry
+// (src/notificationKinds.mjs, issue #550): on a phone a reminder expires when
+// its item is due, and PUSH_KINDS_OFF=deadline stops the run before it claims
+// anything.
 
 import { sendWebPush } from './webPush.mjs'
 import { MAX_DEVICE_STRIKES, buildExpoMessages, sendExpoPush } from './expoPush.mjs'
@@ -201,6 +206,8 @@ export function formatDueTime(dueAt, { now = new Date(), timeZone = CAMPUS_TIME_
   return `${weekday} at ${time}`
 }
 
+// `expiresAt` is the due moment: an undelivered reminder is worth nothing
+// after it, so the phone's copy is kept until then (expoTtlSeconds).
 export function buildDeadlinePayload(item, now = new Date()) {
   const label = CATEGORY_WORD[item.category] || 'Deadline'
   return {
@@ -209,6 +216,7 @@ export function buildDeadlinePayload(item, now = new Date()) {
     url: REMINDER_URL,
     tag: `deadline-${item.key}`.replace(/[^A-Za-z0-9_-]/g, '-'),
     kind: 'deadline',
+    expiresAt: item.dueAt.toISOString(),
   }
 }
 
@@ -297,12 +305,13 @@ export async function loadPushDevices(client, userIds, { log = console } = {}) {
  * row, and a strike adds one to failure_count (see src/expoPush.mjs for which
  * errors are strikes). Returns { sent, failed, removed, devices }, where
  * `devices` is what is left to send the next item to, with the updated counts.
+ * `now` is the clock the messages' lifetimes are counted from.
  */
-export async function deliverToPushDevices({ client, devices, payload, send = sendExpoPush, log = console }) {
+export async function deliverToPushDevices({ client, devices, payload, send = sendExpoPush, log = console, now = new Date() }) {
   const outcome = { sent: 0, failed: 0, removed: 0, devices: [] }
   const live = devices.filter((row) => (row.failure_count || 0) < MAX_DEVICE_STRIKES)
   if (live.length === 0) return outcome
-  const results = await send({ messages: buildExpoMessages(live, payload) })
+  const results = await send({ messages: buildExpoMessages(live, payload, { now }) })
   for (const [i, row] of live.entries()) {
     const result = results[i] || { ok: false, error: 'no_ticket', gone: false, strike: false }
     if (result.ok) {
@@ -399,7 +408,9 @@ async function loadDueCandidates(client, userId, { now, leadMinutes }) {
  * Send every due reminder once. Returns a summary for the cron log; throws a
  * SupabaseQueryError (status and code kept, see cronTick.mjs) on database
  * errors other than "tables not installed", so the route can tell a Supabase
- * hiccup worth one retry from a bug.
+ * hiccup worth one retry from a bug. With `deadline` in `kindsOff`
+ * (PUSH_KINDS_OFF) it reads nothing and claims nothing, so an item still in
+ * its window when the kind is turned back on gets its reminder then.
  */
 export async function runDeadlineReminders({
   client,
@@ -407,12 +418,14 @@ export async function runDeadlineReminders({
   now = new Date(),
   send = sendWebPush,
   sendExpo = sendExpoPush,
+  kindsOff = new Set(),
   maxUsers = 200,
   maxSends = 300,
   log = console,
 }) {
   const summary = { ok: true, ranAt: now.toISOString(), users: 0, checked: 0, sent: 0, failed: 0, removed: 0, skipped: 0 }
   if (!keys) return { ...summary, ok: false, reason: 'no_vapid_keys' }
+  if (kindsOff.has('deadline')) return { ...summary, ok: false, reason: 'kind_off' }
 
   const settingsRes = await client
     .from('push_settings')
@@ -498,7 +511,7 @@ export async function runDeadlineReminders({
         }
       }
       if (devices.length) {
-        const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log })
+        const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log, now })
         summary.sent += native.sent
         summary.failed += native.failed
         summary.removed += native.removed

@@ -35,6 +35,7 @@ import session from 'express-session'
 import { createClient } from '@supabase/supabase-js'
 import { createClubDirectoryCache } from './src/boilerlinkClubs.mjs'
 import { loadVapidKeys } from './src/webPush.mjs'
+import { kindsOffFromSetting } from './src/notificationKinds.mjs'
 import { describeFailure } from './src/cronTick.mjs'
 import { findDiningFood, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { getDiningUpcoming } from './src/diningHeadliners.mjs'
@@ -555,6 +556,16 @@ try {
 } catch (err) {
   console.error(`[push] VAPID keys rejected (${err.message}): push notifications are disabled.`)
 }
+// The kinds of notification an operator has stopped without a deploy
+// (PUSH_KINDS_OFF, kind ids from src/notificationKinds.mjs), and the Expo
+// access token every native push carries once the project's enhanced push
+// security is on (EXPO_ACCESS_TOKEN). Both go to the push router (issue #550).
+const pushKindsOff = kindsOffFromSetting(process.env.PUSH_KINDS_OFF)
+if (pushKindsOff.ignored.length) {
+  console.warn(`[push] PUSH_KINDS_OFF names no kind this server sends: ${pushKindsOff.ignored.join(', ')}`)
+}
+if (pushKindsOff.off.size) console.warn(`[push] kinds switched off by PUSH_KINDS_OFF: ${[...pushKindsOff.off].join(', ')}`)
+const EXPO_ACCESS_TOKEN = String(process.env.EXPO_ACCESS_TOKEN || '').trim()
 
 // ── Public reads (issue #250) ────────────────────────────────────────────────
 // The session-free upstream proxies are registered here, before the session
@@ -864,7 +875,7 @@ async function getCached(key, ttlMs, producer) {
 // read near the top of this file, and warnCronTransient sits with the Sentry
 // warnings below; the sources router is handed them too.
 // ============================================================
-app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot }))
+app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot, kindsOff: pushKindsOff.off, expoAccessToken: EXPO_ACCESS_TOKEN }))
 
 // A feed that timed out, dropped the connection or answered a gateway status
 // is the feed host's outage, not a bug here, and the source row already shows

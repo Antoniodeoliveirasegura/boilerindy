@@ -10,6 +10,7 @@ import {
   DINING_ALERT_FROM_MINUTES,
   DINING_ALERT_UNTIL_MINUTES,
   buildDiningFavoritesPayload,
+  diningAlertExpiresAt,
   diningAlertKey,
   dishesOnMenu,
   favoritesOnMenu,
@@ -73,6 +74,8 @@ test('the push names the dishes, their meals and the hall, and opens the Dining 
     url: '/dining',
     tag: 'dining-favorites-2026-10-14',
     kind: 'dining-favorites',
+    // Issue #550: true until dinner, the last meal that serves it, ends at midnight.
+    expiresAt: '2026-10-15T04:00:00.000Z',
   })
   const many = buildDiningFavoritesPayload(
     [...['A', 'B', 'C', 'D', 'E'].map((name) => ({ name, location: 'Tower Dining', meals: ['lunch'] }))],
@@ -80,6 +83,23 @@ test('the push names the dishes, their meals and the hall, and opens the Dining 
   )
   assert.equal(many.title, '5 of your favorites are on the menu today')
   assert.equal(many.body, 'A (lunch, Tower Dining); B (lunch, Tower Dining); C (lunch, Tower Dining); and 2 more.')
+  assert.equal(many.expiresAt, '2026-10-14T20:30:00.000Z', 'lunch ends at 4:30 PM')
+})
+
+// Issue #550: a dish alert is kept, undelivered, until the last meal that
+// serves a starred dish ends, by the clock's usual meal windows.
+test('diningAlertExpiresAt is the end of the last meal that serves one of the dishes', () => {
+  const dish = (meals) => ({ name: 'Dish', location: 'Tower Dining', meals })
+  const ymd = '2026-10-14' // EDT, UTC-4
+  assert.equal(diningAlertExpiresAt([dish(['breakfast'])], ymd), '2026-10-14T14:30:00.000Z') // 10:30 AM
+  assert.equal(diningAlertExpiresAt([dish(['brunch'])], ymd), '2026-10-14T20:30:00.000Z') // 4:30 PM, as lunch
+  assert.equal(diningAlertExpiresAt([dish(['breakfast']), dish(['lunch'])], ymd), '2026-10-14T20:30:00.000Z')
+  assert.equal(diningAlertExpiresAt([dish(['lunch', 'dinner'])], ymd), '2026-10-15T04:00:00.000Z') // midnight
+  // A meal the windows do not name, and a dish with no meal, run to midnight.
+  assert.equal(diningAlertExpiresAt([dish(['late-night'])], ymd), '2026-10-15T04:00:00.000Z')
+  assert.equal(diningAlertExpiresAt([dish([])], ymd), '2026-10-15T04:00:00.000Z')
+  // Campus time in winter (EST, UTC-5).
+  assert.equal(diningAlertExpiresAt([dish(['lunch'])], '2026-12-08'), '2026-12-08T21:30:00.000Z')
 })
 
 test('isMissingColumnError knows the column-missing codes and messages', () => {
@@ -181,25 +201,42 @@ const PHONE = 'ExponentPushToken[phone000000000000000001]'
 
 async function runWithPhones(client) {
   const expo = []
+  const messages = []
   const summary = await runDiningFavoriteAlerts({
     client,
     keys: KEYS,
     getSnapshot: async () => SNAPSHOT,
     now: at('08:05'),
     send: async () => ({ ok: true, status: 201 }),
-    sendExpo: async ({ messages }) => {
-      expo.push(...messages.map((m) => [m.to, m.data.kind]))
-      return messages.map((m) => ({ token: m.to, ok: true, ticketId: 't' }))
+    sendExpo: async ({ messages: batch }) => {
+      expo.push(...batch.map((m) => [m.to, m.data.kind]))
+      messages.push(...batch)
+      return batch.map((m) => ({ token: m.to, ok: true, ticketId: 't' }))
     },
     log: { warn() {} },
   })
-  return { expo, summary }
+  return { expo, messages, summary }
 }
 
 test('a phone with local reminders still gets the favorite-dish alert', async () => {
   const { expo, summary } = await runWithPhones(alertsClient({ devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0, local_reminders: true }] }))
   assert.deepEqual(expo, [[PHONE, 'dining-favorites']])
   assert.equal(summary.sent, 2, 'the browser and the phone')
+})
+
+// Issue #550: the dining-favorites kind is passive, so it arrives quietly in
+// its own stack, and it is kept only until the meal it names ends.
+test('on a phone the dish alert is passive and silent, and kept until its last meal ends', async () => {
+  const { messages } = await runWithPhones(alertsClient({ devices: [{ id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0 }] }))
+  const [message] = messages
+  assert.equal(message.interruptionLevel, 'passive')
+  assert.equal(message.threadId, 'dining')
+  assert.equal(message.relevanceScore, 0.3)
+  assert.equal(message.categoryId, 'dining')
+  assert.equal(message.priority, 'normal')
+  assert.equal('sound' in message, false, 'no sound')
+  // Beef Stroganoff is a dinner dish: from 8:05 AM to midnight.
+  assert.equal(message.ttl, (16 * 60 - 5) * 60)
 })
 
 test('before README step 47 runs, the favorite-dish alert still reaches the phones', async (t) => {
@@ -221,12 +258,16 @@ test('a claim that already exists is skipped: two overlapping runs send once', a
   assert.equal(summary.skipped, 2)
 })
 
-test('outside the window, without keys, before the migration, or without a menu nothing is read or sent', async () => {
+test('outside the window, without keys, switched off, before the migration, or without a menu nothing is read or sent', async () => {
   const quiet = makeClient(() => {
     throw new Error('no query expected')
   })
   assert.equal((await runDiningFavoriteAlerts({ client: quiet, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at('07:30') })).reason, 'outside_window')
   assert.equal((await runDiningFavoriteAlerts({ client: quiet, keys: null, getSnapshot: async () => SNAPSHOT, now: at('09:00') })).reason, 'no_vapid_keys')
+  // PUSH_KINDS_OFF=dining-favorites (issue #550).
+  const off = await runDiningFavoriteAlerts({ client: quiet, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at('09:00'), kindsOff: new Set(['dining-favorites']) })
+  assert.equal(off.reason, 'kind_off')
+  assert.equal(quiet.calls.length, 0)
 
   const missing = alertsClient({ settingsError: { code: '42703', message: 'column push_settings.dining_favorite_alerts does not exist' } })
   assert.equal((await runDiningFavoriteAlerts({ client: missing, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at('09:00') })).reason, 'not_configured')

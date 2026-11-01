@@ -13,8 +13,14 @@
 // Pure pieces (the window, the matching, the copy) are exported for the tests;
 // the runner takes the Supabase client, the VAPID keys and the dining snapshot
 // reader from the push router.
+//
+// They are the `dining-favorites` kind of the kind registry
+// (src/notificationKinds.mjs, issue #550): passive and silent on a phone, kept
+// until the last meal that serves a starred dish ends, and stopped by
+// PUSH_KINDS_OFF=dining-favorites before anything is read or claimed.
 
-import { minutesInZone } from './diningMeals.mjs'
+import { zonedTimeMs } from './campusTime.mjs'
+import { MEAL_WINDOWS, minutesInZone } from './diningMeals.mjs'
 import { normalizeItemName } from './diningFavorites.mjs'
 import { MAX_DEVICE_STRIKES, sendExpoPush } from './expoPush.mjs'
 import { sendWebPush } from './webPush.mjs'
@@ -83,6 +89,24 @@ export function favoritesOnMenu(favoriteNames, dishes) {
   return [...dishes.entries()].filter(([key]) => wanted.has(key)).map(([, dish]) => dish)
 }
 
+// When a meal stops being served, in minutes past midnight, by the clock's
+// usual windows (src/diningMeals.mjs): breakfast at 10:30 AM, brunch and lunch
+// at 4:30 PM, dinner at midnight. A meal the windows do not name (late night,
+// every day) and a dish with no meal run to midnight.
+function mealEndMinutes(meal) {
+  const windows = MEAL_WINDOWS.filter((w) => w.meals.includes(meal))
+  return windows.length ? windows[windows.length - 1].until : 24 * 60
+}
+
+/**
+ * When an alert for these dishes stops being true: the end of the last meal on
+ * the campus date `ymd` that serves one of them, as an ISO instant.
+ */
+export function diningAlertExpiresAt(matches, ymd) {
+  const ends = matches.flatMap((dish) => (dish.meals.length ? dish.meals : [null]).map(mealEndMinutes))
+  return new Date(zonedTimeMs(ymd, ends.length ? Math.max(...ends) : 24 * 60)).toISOString()
+}
+
 /** The push for a student's favorites on the day's menu. */
 export function buildDiningFavoritesPayload(matches, ymd) {
   const describe = (dish) => `${dish.name} (${dish.meals.length ? `${dish.meals.join(' and ')}, ` : ''}${dish.location})`
@@ -94,14 +118,16 @@ export function buildDiningFavoritesPayload(matches, ymd) {
     url: DINING_ALERT_URL,
     tag: `dining-favorites-${ymd}`,
     kind: 'dining-favorites',
+    expiresAt: diningAlertExpiresAt(matches, ymd),
   }
 }
 
 /**
  * Send today's favorite-dish alerts. Returns a summary for the cron log, with
- * `reason` when nothing could be considered (no keys, outside the window, the
- * column not migrated, no menu). Database errors other than a missing table or
- * column throw a SupabaseQueryError, as the deadline run does.
+ * `reason` when nothing could be considered (no keys, the kind switched off by
+ * PUSH_KINDS_OFF, outside the window, the column not migrated, no menu).
+ * Database errors other than a missing table or column throw a
+ * SupabaseQueryError, as the deadline run does.
  */
 export async function runDiningFavoriteAlerts({
   client,
@@ -110,12 +136,14 @@ export async function runDiningFavoriteAlerts({
   now = new Date(),
   send = sendWebPush,
   sendExpo = sendExpoPush,
+  kindsOff = new Set(),
   maxUsers = 200,
   maxSends = 300,
   log = console,
 }) {
   const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0 }
   if (!keys) return { ...summary, reason: 'no_vapid_keys' }
+  if (kindsOff.has('dining-favorites')) return { ...summary, reason: 'kind_off' }
   if (!inAlertWindow(now)) return { ...summary, reason: 'outside_window' }
 
   const settingsRes = await client.from('push_settings').select('user_id').eq('dining_favorite_alerts', true).limit(maxUsers)
@@ -212,7 +240,7 @@ export async function runDiningFavoriteAlerts({
       }
     }
     if (devices.length) {
-      const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log })
+      const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log, now })
       summary.sent += native.sent
       summary.failed += native.failed
       summary.removed += native.removed
