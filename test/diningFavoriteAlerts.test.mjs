@@ -186,13 +186,23 @@ function makeClient(respond) {
 // Three students opted in: u1 likes the stroganoff, u2 likes nothing on today's
 // menu, u3 was already sent today's alert. `devices` are u1's phones;
 // `flagColumnMissing` answers a select that names local_reminders the way
-// Postgres does before README step 47 adds it.
-function alertsClient({ deliveryConflict = false, settingsError = null, devices = [], flagColumnMissing = false } = {}) {
+// Postgres does before README step 47 adds it. Issue #550: `quiet` is every
+// student's quiet hours (columns of README step 53, which `before53` makes
+// missing), and `cappedToday` how many capped pushes each had today.
+function alertsClient({ deliveryConflict = false, settingsError = null, devices = [], flagColumnMissing = false, quiet = {}, cappedToday = 0, before53 = false } = {}) {
   return makeClient((op) => {
     if (op.table === 'push_devices' && op.kind === 'select' && flagColumnMissing && String(op.payload).includes('local_reminders')) {
       return { data: null, error: { code: '42703', message: 'column push_devices.local_reminders does not exist' } }
     }
-    if (op.table === 'push_settings') return settingsError ? { data: null, error: settingsError } : { data: [{ user_id: 'u1' }, { user_id: 'u2' }, { user_id: 'u3' }], error: null }
+    if (op.table === 'push_settings' && before53 && String(op.payload).includes('quiet_start')) {
+      return { data: null, error: { code: '42703', message: 'column push_settings.quiet_start does not exist' } }
+    }
+    if (op.table === 'push_settings') {
+      return settingsError ? { data: null, error: settingsError } : { data: ['u1', 'u2', 'u3'].map((user_id) => ({ user_id, ...quiet })), error: null }
+    }
+    if (op.table === 'push_deliveries' && op.kind === 'select' && op.filters.some(([f, column]) => f === 'in' && column === 'kind')) {
+      return { data: Array.from({ length: cappedToday }, () => ({ kind: 'deadline' })), error: null }
+    }
     if (op.table === 'push_deliveries' && op.kind === 'select') return { data: [{ user_id: 'u3' }], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'insert') {
       return deliveryConflict ? { data: null, error: { code: '23505', message: 'duplicate key' } } : { data: null, error: null }
@@ -224,7 +234,7 @@ test('the run claims and sends one alert to each student whose favorite is on th
     send,
     log: { warn() {} },
   })
-  assert.deepEqual(summary, { users: 1, matched: 1, sent: 1, failed: 0, removed: 0, skipped: 1 })
+  assert.deepEqual(summary, { users: 1, matched: 1, sent: 1, failed: 0, removed: 0, skipped: 1, held: 0, capped: 0 })
   assert.deepEqual(sent, [
     {
       endpoint: 'https://push.example/1',
@@ -329,4 +339,37 @@ test('outside the window, without keys, switched off, before the migration, or w
 
   const broken = alertsClient({ settingsError: { code: '57014', message: 'canceling statement due to statement timeout' } })
   await assert.rejects(runDiningFavoriteAlerts({ client: broken, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at('09:00') }), /push_settings select/)
+})
+
+// Issue #550 (README step 53): a dish alert never goes inside quiet hours,
+// where it waits unclaimed for the first run after them, or past the daily cap.
+test('a dish alert waits out quiet hours and stops at the daily cap', async () => {
+  const run = (client, hhmm) => runDiningFavoriteAlerts({ client, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at(hhmm), send: async () => ({ ok: true, status: 201 }), log: { warn() {} } })
+  const claimsOf = (client) => client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert')
+
+  // Quiet hours until 9:00 AM: at 8:05 the alert waits; at 9:00 it goes.
+  const early = { quiet_start: 7 * 60, quiet_end: 9 * 60 }
+  let client = alertsClient({ quiet: early })
+  let summary = await run(client, '08:05')
+  assert.deepEqual([summary.held, summary.users, claimsOf(client).length], [1, 0, 0])
+  client = alertsClient({ quiet: early })
+  summary = await run(client, '09:00')
+  assert.deepEqual([summary.held, summary.users, claimsOf(client).length], [0, 1, 1])
+
+  // Six capped pushes already today: no seventh.
+  client = alertsClient({ cappedToday: 6 })
+  summary = await run(client, '12:00')
+  assert.deepEqual([summary.capped, summary.users, claimsOf(client).length], [1, 0, 0])
+  client = alertsClient({ cappedToday: 5 })
+  summary = await run(client, '12:00')
+  assert.deepEqual([summary.capped, summary.users], [0, 1])
+
+  // Before README step 53 neither applies, and the alert goes as before.
+  client = alertsClient({ quiet: early, cappedToday: 6, before53: true })
+  summary = await run(client, '08:05')
+  assert.deepEqual([summary.held, summary.capped, summary.users], [0, 0, 1])
+  assert.deepEqual(
+    client.calls.filter((c) => c.table === 'push_settings').map((c) => c.payload),
+    ['user_id, quiet_start, quiet_end', 'user_id'],
+  )
 })

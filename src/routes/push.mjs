@@ -4,12 +4,14 @@ import { DB_FEATURES, respondSchemaMissing } from '../dbErrors.mjs'
 import { isMissingColumnError, runDiningFavoriteAlerts } from '../diningFavoriteAlerts.mjs'
 import { parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
 import {
+  KIND_SETTING_COLUMNS,
   buildTestPayload,
   deliverToPushDevices,
   isMissingTableError,
   loadPushDevices,
   parseSettingsPatch,
   runDeadlineReminders,
+  settingsConflict,
   settingsFromRow,
   withLocalRemindersColumn,
 } from '../pushReminders.mjs'
@@ -157,23 +159,32 @@ export function createPushRouter({
   // the access token; nothing else ever sees it.
   const sendToExpo = (options) => sendExpo({ ...options, accessToken: expoAccessToken })
 
-  // The favorite-dish switch (issue #469) is a column that
-  // db/supabase-dining-favorite-alerts.sql adds. Until it runs the settings
-  // still load without it, and `diningAlertsAvailable` says so.
+  // The favorite-dish switch (issue #469) and the choices by kind (issue #550)
+  // are columns that db/supabase-dining-favorite-alerts.sql (README step 42)
+  // and db/supabase-push-kinds.sql (step 53) add. Until they run the settings
+  // still load without them, and `diningAlertsAvailable` and `kindsAvailable`
+  // say so: each read names the columns of the steps it assumes, the most
+  // first, and falls back while a column is missing.
   async function loadPushSettingsRow(userId) {
-    const query = (columns) => supabase.from('push_settings').select(columns).eq('user_id', userId).maybeSingle()
-    const full = await query('deadline_reminders, lead_minutes, dining_favorite_alerts')
-    if (!full.error) return { row: full.data, diningAlertsAvailable: true }
-    if (!isMissingColumnError(full.error)) throw full.error
-    const { data, error } = await query('deadline_reminders, lead_minutes')
-    if (error) throw error
-    return { row: data, diningAlertsAvailable: false }
+    const query = (columns) => supabase.from('push_settings').select(columns.join(', ')).eq('user_id', userId).maybeSingle()
+    const attempts = [
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+    ]
+    for (const [i, [dining, kinds]] of attempts.entries()) {
+      const columns = ['deadline_reminders', 'lead_minutes', ...(dining ? ['dining_favorite_alerts'] : []), ...(kinds ? KIND_SETTING_COLUMNS : [])]
+      const { data, error } = await query(columns)
+      if (!error) return { row: data, diningAlertsAvailable: dining, kindsAvailable: kinds }
+      if (!isMissingColumnError(error) || i === attempts.length - 1) throw error
+    }
   }
 
   router.get('/api/push/settings', requireAuth, async (req, res) => {
     const userId = req.currentUser.id
     try {
-      const [{ row: settingsRow, diningAlertsAvailable }, subsRes, devicesRes] = await Promise.all([
+      const [{ row: settingsRow, diningAlertsAvailable, kindsAvailable }, subsRes, devicesRes] = await Promise.all([
         loadPushSettingsRow(userId),
         supabase
           .from('push_subscriptions')
@@ -198,6 +209,7 @@ export function createPushRouter({
         enabled: Boolean(vapidKeys),
         settings: settingsFromRow(settingsRow),
         diningAlertsAvailable,
+        kindsAvailable,
         subscriptions: (subsRes.data || []).map(summarizePushSubscription),
         devices: devicesRes.error ? [] : (devicesRes.data || []).map(summarizePushDevice),
       })
@@ -213,25 +225,41 @@ export function createPushRouter({
     const parsed = parseSettingsPatch(req.body)
     if (!parsed.ok) return res.status(400).json({ error: { message: parsed.error, status: 400 } })
     try {
-      const { row: currentRow, diningAlertsAvailable } = await loadPushSettingsRow(userId)
+      const { row: currentRow, diningAlertsAvailable, kindsAvailable } = await loadPushSettingsRow(userId)
       if ('dining_favorite_alerts' in parsed.patch && !diningAlertsAvailable) {
         return respondSchemaMissing(res, DB_FEATURES.dining_alerts, { code: '42703', message: 'push_settings.dining_favorite_alerts does not exist' })
       }
+      if (parsed.kinds && !kindsAvailable) {
+        return respondSchemaMissing(res, DB_FEATURES.push_kinds, { code: '42703', message: 'push_settings.digest_minute does not exist' })
+      }
       const current = settingsFromRow(currentRow)
+      const value = (column, saved) => (column in parsed.patch ? parsed.patch[column] : saved)
       const row = {
         user_id: userId,
-        deadline_reminders:
-          'deadline_reminders' in parsed.patch ? parsed.patch.deadline_reminders : current.deadlineReminders,
-        lead_minutes: 'lead_minutes' in parsed.patch ? parsed.patch.lead_minutes : current.leadMinutes,
+        deadline_reminders: value('deadline_reminders', current.deadlineReminders),
+        lead_minutes: value('lead_minutes', current.leadMinutes),
         updated_at: new Date().toISOString(),
       }
-      if (diningAlertsAvailable) {
-        row.dining_favorite_alerts =
-          'dining_favorite_alerts' in parsed.patch ? parsed.patch.dining_favorite_alerts : current.diningFavoriteAlerts
+      if (diningAlertsAvailable) row.dining_favorite_alerts = value('dining_favorite_alerts', current.diningFavoriteAlerts)
+      if (kindsAvailable) {
+        Object.assign(row, {
+          class_reminders: value('class_reminders', current.classReminders),
+          class_lead_minutes: value('class_lead_minutes', current.classLeadMinutes),
+          digest_minute: value('digest_minute', current.digestMinute),
+          deadline_items: value('deadline_items', current.deadlineItems),
+          quiet_start: value('quiet_start', current.quietStart),
+          quiet_end: value('quiet_end', current.quietEnd),
+          campus_alerts: value('campus_alerts', current.campusAlerts),
+          // Set once, by the first phone on an app build with kinds, which
+          // fills in the account from the old switches (boilerindy-app#172).
+          kinds_migrated_at: currentRow?.kinds_migrated_at ?? (parsed.patch.kinds_migrated_at ? new Date().toISOString() : null),
+        })
+        const conflict = settingsConflict(settingsFromRow(row))
+        if (conflict) return res.status(400).json({ error: { message: conflict, status: 400 } })
       }
       const { error } = await supabase.from('push_settings').upsert(row, { onConflict: 'user_id' })
       if (error) throw error
-      res.json({ settings: settingsFromRow(row), diningAlertsAvailable })
+      res.json({ settings: settingsFromRow(row), diningAlertsAvailable, kindsAvailable })
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res)
       console.error('PUT /api/push/settings:', error?.message || error)

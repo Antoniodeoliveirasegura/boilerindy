@@ -26,7 +26,8 @@ import { normalizeItemName } from './diningFavorites.mjs'
 import { MAX_DEVICE_STRIKES, sendExpoPush } from './expoPush.mjs'
 import { sendWebPush } from './webPush.mjs'
 import { queryError } from './cronTick.mjs'
-import { deliverToPushDevices, isMissingTableError, loadPushDevices } from './pushReminders.mjs'
+import { countCappedToday, deliverToPushDevices, isMissingTableError, loadPushDevices, settingsFromRow } from './pushReminders.mjs'
+import { DAILY_CAP, isQuietMinute, quietWindow } from './pushPolicy.mjs'
 import { todayYmdInZone } from './nutrisliceDining.mjs'
 
 // Sent from 8:00 AM campus time, when the day's menu is firm, and not after
@@ -170,7 +171,10 @@ export function buildDiningFavoritesPayload(matches, ymd, { snapshot = null, now
  * `reason` when nothing could be considered (no keys, the kind switched off by
  * PUSH_KINDS_OFF, outside the window, the column not migrated, no menu).
  * Database errors other than a missing table or column throw a
- * SupabaseQueryError, as the deadline run does.
+ * SupabaseQueryError, as the deadline run does. Once README step 53 has run
+ * (issue #550), an alert never goes inside the student's quiet hours (it
+ * waits, unclaimed, for the first run after them: `held`) or past the daily
+ * cap of server pushes (`capped`).
  */
 export async function runDiningFavoriteAlerts({
   client,
@@ -184,18 +188,31 @@ export async function runDiningFavoriteAlerts({
   maxSends = 300,
   log = console,
 }) {
-  const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0 }
+  const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0, held: 0, capped: 0 }
   if (!keys) return { ...summary, reason: 'no_vapid_keys' }
   if (kindsOff.has('dining-favorites')) return { ...summary, reason: 'kind_off' }
   if (!inAlertWindow(now)) return { ...summary, reason: 'outside_window' }
 
-  const settingsRes = await client.from('push_settings').select('user_id').eq('dining_favorite_alerts', true).limit(maxUsers)
+  let kindsAvailable = true
+  const readOptedIn = (columns) => client.from('push_settings').select(columns).eq('dining_favorite_alerts', true).limit(maxUsers)
+  let settingsRes = await readOptedIn('user_id, quiet_start, quiet_end')
+  if (settingsRes.error && isMissingColumnError(settingsRes.error) && !String(settingsRes.error.message || '').includes('dining_favorite_alerts')) {
+    // Before README step 53 there are no quiet hours to read.
+    kindsAvailable = false
+    settingsRes = await readOptedIn('user_id')
+  }
   if (settingsRes.error) {
     if (isMissingTableError(settingsRes.error) || isMissingColumnError(settingsRes.error)) return { ...summary, reason: 'not_configured' }
     throw queryError(settingsRes, 'push_settings select (dining alerts)')
   }
   const optedIn = (settingsRes.data || []).map((row) => row.user_id)
   if (!optedIn.length) return summary
+  const quietByUser = new Map(
+    (settingsRes.data || []).map((row) => {
+      const settings = settingsFromRow(row)
+      return [row.user_id, kindsAvailable ? quietWindow(settings.quietStart, settings.quietEnd) : null]
+    }),
+  )
 
   const today = todayYmdInZone(now)
   const key = diningAlertKey(today)
@@ -251,6 +268,16 @@ export async function runDiningFavoriteAlerts({
     if (!subs.length && !devices.length) {
       summary.skipped += 1
       continue
+    }
+    if (kindsAvailable) {
+      if (isQuietMinute(minutesInZone(now), quietByUser.get(userId))) {
+        summary.held += 1
+        continue
+      }
+      if ((await countCappedToday(client, userId, now)) >= DAILY_CAP) {
+        summary.capped += 1
+        continue
+      }
     }
     const claim = await client.from('push_deliveries').insert({ user_id: userId, item_key: key, kind: 'dining-favorites', sent_at: now.toISOString() })
     if (claim.error) {

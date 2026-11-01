@@ -150,6 +150,7 @@ test("GET /api/push/settings answers the student's settings and devices, never c
       enabled: true,
       settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 120 }),
       diningAlertsAvailable: true,
+      kindsAvailable: true,
       subscriptions: [{ id: 's1', createdAt: '2026-10-01T00:00:00.000Z', userAgent: 'Safari', lastUsedAt: null }],
       devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z', localReminders: false }],
     })
@@ -239,9 +240,24 @@ test('before README step 47 runs, the settings still list every phone, each with
   assert.match(String(log.mock.calls[0].arguments[0]), /db\/supabase-push-local-reminders\.sql/)
 })
 
+// A push_settings row once README step 53 has run (issue #550), at its defaults.
+const KINDS_ROW = {
+  class_reminders: false,
+  class_lead_minutes: 15,
+  digest_minute: 1080,
+  deadline_items: true,
+  quiet_start: 1380,
+  quiet_end: 480,
+  campus_alerts: true,
+  kinds_migrated_at: null,
+}
+
 test('PUT /api/push/settings validates the patch and keeps the field it does not change', async () => {
   const tables = {
-    push_settings: (chain) => (operation(chain) === 'upsert' ? { data: null, error: null } : { data: { deadline_reminders: true, lead_minutes: 60 }, error: null }),
+    push_settings: (chain) =>
+      operation(chain) === 'upsert'
+        ? { data: null, error: null }
+        : { data: { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: false, ...KINDS_ROW }, error: null },
   }
   await withApp({ tables }, async ({ call, supabase, limiterHits }) => {
     const bad = await call('PUT', '/api/push/settings', { deadlineReminders: 'yes' })
@@ -250,13 +266,11 @@ test('PUT /api/push/settings validates the patch and keeps the field it does not
 
     const res = await call('PUT', '/api/push/settings', { deadlineReminders: false })
     assert.equal(res.status, 200)
-    assert.deepEqual(res.body, { settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 60 }), diningAlertsAvailable: true })
+    const saved = { deadline_reminders: false, lead_minutes: 60, dining_favorite_alerts: false, ...KINDS_ROW }
+    assert.deepEqual(res.body, { settings: settingsFromRow(saved), diningAlertsAvailable: true, kindsAvailable: true })
     const upsert = supabase.queriesOf('push_settings').find((q) => operation(q.chain) === 'upsert')
     const [row, options] = upsert.chain.find((c) => c.method === 'upsert').args
-    assert.deepEqual(
-      { ...row, updated_at: undefined },
-      { user_id: STUDENT.id, deadline_reminders: false, lead_minutes: 60, dining_favorite_alerts: false, updated_at: undefined },
-    )
+    assert.deepEqual({ ...row, updated_at: undefined }, { user_id: STUDENT.id, ...saved, updated_at: undefined })
     assert.ok(!Number.isNaN(Date.parse(row.updated_at)), 'updated_at is an ISO timestamp')
     assert.deepEqual(options, { onConflict: 'user_id' })
     assert.deepEqual(limiterHits, ['push-write PUT /api/push/settings', 'push-write PUT /api/push/settings'])
@@ -303,6 +317,10 @@ test('before db/supabase-dining-favorite-alerts.sql runs, the settings work with
       if (settingsSelect(chain).includes('dining_favorite_alerts')) {
         return { data: null, error: { code: '42703', message: 'column push_settings.dining_favorite_alerts does not exist' } }
       }
+      // Nor has README step 53 (issue #550), which comes after it.
+      if (settingsSelect(chain).includes('digest_minute')) {
+        return { data: null, error: { code: '42703', message: 'column push_settings.digest_minute does not exist' } }
+      }
       return { data: { deadline_reminders: true, lead_minutes: 60 }, error: null }
     },
     push_subscriptions: () => ({ data: [], error: null }),
@@ -312,6 +330,7 @@ test('before db/supabase-dining-favorite-alerts.sql runs, the settings work with
     const res = await call('GET', '/api/push/settings')
     assert.equal(res.status, 200)
     assert.equal(res.body.diningAlertsAvailable, false)
+    assert.equal(res.body.kindsAvailable, false)
     assert.equal(res.body.settings.diningFavoriteAlerts, false)
 
     const on = await call('PUT', '/api/push/settings', { diningFavoriteAlerts: true })
@@ -740,7 +759,7 @@ test('a reminder run with kinds switched off skips them before claiming anything
   // No table handlers: any query at all would fail the run.
   const snapshots = []
   const getDiningSnapshot = async (options) => (snapshots.push(options), { ok: true, locations: [] })
-  await withApp({ getDiningSnapshot, kindsOff: new Set(['deadline', 'dining-favorites']) }, async ({ call, supabase }) => {
+  await withApp({ getDiningSnapshot, kindsOff: new Set(['deadline', 'deadline-digest', 'dining-favorites']) }, async ({ call, supabase }) => {
     const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
     assert.equal(res.status, 200)
     assert.equal(res.body.reason, 'kind_off')
@@ -798,5 +817,101 @@ test('a Supabase 504 on both attempts answers 503 and goes to warnCronTransient;
     assert.equal(res.status, 500)
     assert.deepEqual(res.body, { ok: false, error: 'Reminder run failed.' })
     assert.deepEqual(transientWarnings, [])
+  })
+})
+
+// ── Issue #550, README step 53: the choices by kind ─────────────────────────
+
+test('PUT /api/push/settings saves the choices by kind, refuses an evening list inside quiet hours, and marks an account migrated once', async () => {
+  let saved = { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: false, ...KINDS_ROW }
+  const tables = {
+    push_settings: (chain) => {
+      if (operation(chain) === 'upsert') {
+        saved = chain.find((c) => c.method === 'upsert').args[0]
+        return { data: null, error: null }
+      }
+      return { data: saved, error: null }
+    },
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const res = await call('PUT', '/api/push/settings', {
+      classReminders: true,
+      classLeadMinutes: 10,
+      digestMinute: 19 * 60,
+      deadlineItems: false,
+      quietStart: 22 * 60,
+      quietEnd: 7 * 60,
+      campusAlerts: false,
+    })
+    assert.equal(res.status, 200)
+    assert.equal(res.body.kindsAvailable, true)
+    const { classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, deadlineReminders } = res.body.settings
+    assert.deepEqual(
+      { classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, deadlineReminders },
+      { classReminders: true, classLeadMinutes: 10, digestMinute: 1140, deadlineItems: false, quietStart: 1320, quietEnd: 420, campusAlerts: false, deadlineReminders: true },
+    )
+    assert.deepEqual(
+      [saved.class_reminders, saved.class_lead_minutes, saved.digest_minute, saved.deadline_items, saved.quiet_start, saved.quiet_end, saved.campus_alerts],
+      [true, 10, 1140, false, 1320, 420, false],
+    )
+
+    // An evening list inside quiet hours, either way round, is refused and nothing changes.
+    for (const body of [{ digestMinute: 22 * 60 + 30 }, { quietStart: 18 * 60, quietEnd: 8 * 60 }]) {
+      const refused = await call('PUT', '/api/push/settings', body)
+      assert.equal(refused.status, 400, JSON.stringify(body))
+      assert.match(refused.body.error.message, /evening list cannot go out during quiet hours/)
+    }
+    assert.deepEqual([saved.digest_minute, saved.quiet_start], [1140, 1320])
+
+    // Quiet hours off, and the list moved into what were quiet hours: fine now.
+    const off = await call('PUT', '/api/push/settings', { quietStart: null, quietEnd: null })
+    assert.deepEqual([off.status, off.body.settings.quietStart, off.body.settings.quietEnd], [200, null, null])
+    assert.equal((await call('PUT', '/api/push/settings', { digestMinute: 23 * 60 })).status, 200)
+
+    // The first phone on an app build with kinds marks the account migrated, once.
+    assert.equal(saved.kinds_migrated_at, null)
+    const migrated = await call('PUT', '/api/push/settings', { kindsMigrated: true })
+    assert.equal(migrated.body.settings.kindsMigrated, true)
+    const first = saved.kinds_migrated_at
+    assert.ok(!Number.isNaN(Date.parse(first)))
+    await call('PUT', '/api/push/settings', { kindsMigrated: true })
+    assert.equal(saved.kinds_migrated_at, first)
+  })
+})
+
+test('before README step 53, a choice by kind answers 503 push_kinds_schema_missing and the old fields still save', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const upserts = []
+  const tables = {
+    push_settings: (chain) => {
+      if (operation(chain) === 'upsert') {
+        upserts.push(chain.find((c) => c.method === 'upsert').args[0])
+        return { data: null, error: null }
+      }
+      if (settingsSelect(chain).includes('digest_minute')) {
+        return { data: null, error: { code: '42703', message: 'column push_settings.digest_minute does not exist' } }
+      }
+      return { data: { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: true }, error: null }
+    },
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [], error: null }),
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const read = await call('GET', '/api/push/settings')
+    assert.deepEqual([read.body.kindsAvailable, read.body.diningAlertsAvailable], [false, true])
+    // What step 53 will give this row, shown ahead of it.
+    assert.deepEqual([read.body.settings.deadlineItems, read.body.settings.digestMinute], [true, 1080])
+
+    for (const body of [{ digestMinute: 1140 }, { quietStart: null, quietEnd: null }, { classReminders: true }, { kindsMigrated: true }]) {
+      const res = await call('PUT', '/api/push/settings', body)
+      assert.equal(res.status, 503, JSON.stringify(body))
+      assert.equal(res.body.error.code, 'push_kinds_schema_missing')
+    }
+    assert.equal(upserts.length, 0)
+
+    const lead = await call('PUT', '/api/push/settings', { leadMinutes: 30 })
+    assert.equal(lead.status, 200)
+    assert.equal(lead.body.kindsAvailable, false)
+    assert.deepEqual(Object.keys(upserts[0]).sort(), ['deadline_reminders', 'dining_favorite_alerts', 'lead_minutes', 'updated_at', 'user_id'])
   })
 })
