@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
-import { authRequest, setSkipSetup, startPurdueLink } from '../lib/authApi'
+import { authRequest, startPurdueLink, stopCalendarReminders } from '../lib/authApi'
 import { PROVIDER_LINKS, checkScheduleSourceUrl, type ScheduleSourceKind } from '../lib/scheduleSourceUrl'
 import { track } from '../lib/usageStats'
 import Icon from '../components/Icons'
@@ -286,8 +286,15 @@ export default function ConnectSchedule() {
   }
 
 
+  // Both "Don't ask again" buttons turn calendar reminders off on the account
+  // (Antoniodeoliveirasegura/boilerindy-app#150), so the app and other
+  // browsers stop asking too. This browser stops at once, even when the
+  // request fails.
   function handleSkipSetup() {
-    setSkipSetup(true)
+    stopCalendarReminders().then(
+      () => refreshSession(),
+      () => {},
+    )
     navigate('/dashboard')
   }
 

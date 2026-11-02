@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConnectSchedule from './ConnectSchedule'
-import { authRequest } from '../lib/authApi'
+import { authRequest, stopCalendarReminders } from '../lib/authApi'
 
-vi.mock('../lib/authApi', () => ({ authRequest: vi.fn(), setSkipSetup: vi.fn(), startPurdueLink: vi.fn() }))
+vi.mock('../lib/authApi', () => ({ authRequest: vi.fn(), startPurdueLink: vi.fn(), stopCalendarReminders: vi.fn() }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
 vi.mock('../components/PurdueEmailVerification', () => ({ default: () => null }))
 const auth = vi.hoisted(() => ({
@@ -37,6 +37,7 @@ beforeEach(() => {
       if (path === `/api/sync/${SOURCE.id}` && options?.method === 'POST') return { sync: { itemCount: 12 } }
       return {}
     })
+  vi.mocked(stopCalendarReminders).mockReset().mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -94,4 +95,57 @@ it('names the source delete button after the source', async () => {
   sources = [SOURCE]
   renderPage()
   expect(await screen.findByRole('button', { name: 'Delete Brightspace Calendar' })).toBeInTheDocument()
+})
+
+// "Don't ask again" turns calendar reminders off on the account
+// (Antoniodeoliveirasegura/boilerindy-app#150), where it used to be saved only
+// in this browser, and goes to the dashboard without waiting for the request.
+function renderWithDashboard() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/setup']} useTransitions={false}>
+        <Routes>
+          <Route path="/setup" element={<ConnectSchedule />} />
+          <Route path="/dashboard" element={<p>Dashboard</p>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+it("Don't ask again turns calendar reminders off, then re-reads the session", async () => {
+  const refreshSession = vi.spyOn(auth, 'refreshSession')
+  renderWithDashboard()
+  fireEvent.click(screen.getByRole('button', { name: 'Don’t ask again' }))
+  expect(stopCalendarReminders).toHaveBeenCalledTimes(1)
+  expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+  await waitFor(() => expect(refreshSession).toHaveBeenCalled())
+})
+
+it("Don't ask again still goes to the dashboard when the account cannot save it yet", async () => {
+  vi.mocked(stopCalendarReminders).mockRejectedValue(
+    Object.assign(new Error('The calendar reminders setting is not set up yet. Please try again later.'), {
+      status: 503,
+      code: 'calendar_reminders_schema_missing',
+    }),
+  )
+  const refreshSession = vi.spyOn(auth, 'refreshSession')
+  renderWithDashboard()
+  fireEvent.click(screen.getByRole('button', { name: 'Don’t ask again' }))
+  expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+  expect(refreshSession).not.toHaveBeenCalled()
+})
+
+// The first step's link (shown until a Purdue account is linked) does the same.
+it('Skip for now on the Purdue step turns calendar reminders off too', async () => {
+  auth.onboarding.needsPurdueConnection = true
+  try {
+    renderWithDashboard()
+    fireEvent.click(screen.getByRole('button', { name: /don’t ask me again/i }))
+    expect(stopCalendarReminders).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+  } finally {
+    auth.onboarding.needsPurdueConnection = false
+  }
 })

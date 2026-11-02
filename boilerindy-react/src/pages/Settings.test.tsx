@@ -5,6 +5,7 @@ import Settings from './Settings'
 
 const mocks = vi.hoisted(() => ({
   authRequest: vi.fn(),
+  saveCalendarRemindersOff: vi.fn(),
   signOut: vi.fn(),
   signInWithGoogle: vi.fn(),
   replace: vi.fn(),
@@ -18,6 +19,7 @@ const auth = vi.hoisted(() => ({
     name: string
     email: string
     authProvider?: string
+    calendarRemindersOff?: boolean
   },
   supabaseUser: null as null | { identities?: { provider: string; identity_data?: Record<string, unknown> }[] },
   onboarding: { linkedSourceCount: 0, classCount: 0 },
@@ -31,7 +33,12 @@ vi.mock('../context/AuthContext', () => ({
   useSignOutAndRedirect: () => () => {},
 }))
 vi.mock('../context/ThemeContext', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }))
-vi.mock('../lib/authApi', () => ({ authRequest: mocks.authRequest }))
+vi.mock('../lib/authApi', () => ({
+  authRequest: mocks.authRequest,
+  // The account's choice alone here; lib/authApi.test.ts covers this browser's stand-in.
+  calendarRemindersOff: (user: { calendarRemindersOff?: boolean } | null) => user?.calendarRemindersOff === true,
+  saveCalendarRemindersOff: mocks.saveCalendarRemindersOff,
+}))
 vi.mock('../lib/supabase', () => ({
   supabase: { auth: { signOut: mocks.signOut } },
   signInWithGoogle: mocks.signInWithGoogle,
@@ -56,12 +63,14 @@ beforeEach(() => {
     if (url === '/api/me/calendar-feed') return { feedUrl: null }
     return {}
   })
+  mocks.saveCalendarRemindersOff.mockResolvedValue(undefined)
   mocks.signOut.mockResolvedValue({ error: null })
   vi.stubGlobal('location', { ...window.location, replace: mocks.replace })
 })
 
 afterEach(() => {
   delete auth.user.authProvider
+  delete auth.user.calendarRemindersOff
   auth.supabaseUser = null
   cleanup()
   vi.unstubAllGlobals()
@@ -98,6 +107,43 @@ describe('Settings: AI suggestions', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /show ai suggestions/i }))
     expect(await screen.findByText('The AI suggestions setting is not set up yet. Please try again later.')).toBeInTheDocument()
     expect(screen.queryByText('AI suggestions turned on.')).toBeNull()
+  })
+})
+
+// Calendar reminders (Antoniodeoliveirasegura/boilerindy-app#150): on until the
+// student turns them off here, on Setup or in the app, and saved on the account.
+describe('Settings: calendar reminders', () => {
+  const box = () => screen.getByRole('checkbox', { name: /remind me to connect calendars/i })
+
+  test('starts on, and unchecking it turns them off on the account and refreshes the session', async () => {
+    const refreshSession = vi.spyOn(auth, 'refreshSession')
+    renderSettings()
+    expect(box()).toBeChecked()
+
+    fireEvent.click(box())
+    expect(await screen.findByText('Calendar reminders turned off.')).toBeInTheDocument()
+    expect(mocks.saveCalendarRemindersOff).toHaveBeenCalledWith(true)
+    expect(refreshSession).toHaveBeenCalled()
+  })
+
+  test('shows them off for an account that turned them off, and checking it turns them back on', async () => {
+    auth.user.calendarRemindersOff = true
+    renderSettings()
+    expect(box()).not.toBeChecked()
+
+    fireEvent.click(box())
+    expect(await screen.findByText('Calendar reminders turned on.')).toBeInTheDocument()
+    expect(mocks.saveCalendarRemindersOff).toHaveBeenCalledWith(false)
+  })
+
+  test('shows why the choice could not be saved', async () => {
+    mocks.saveCalendarRemindersOff.mockRejectedValue(
+      new Error('The calendar reminders setting is not set up yet. Please try again later.'),
+    )
+    renderSettings()
+    fireEvent.click(box())
+    expect(await screen.findByText('The calendar reminders setting is not set up yet. Please try again later.')).toBeInTheDocument()
+    expect(screen.queryByText('Calendar reminders turned off.')).toBeNull()
   })
 })
 

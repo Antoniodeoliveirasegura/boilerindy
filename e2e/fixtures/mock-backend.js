@@ -22,6 +22,9 @@ const DEFAULT_USER = {
   purdueEmail: 'student@purdue.edu',
   purdueUsername: null,
   hasPurdueLinked: true,
+  // Calendar reminders on, as for every account until the student turns them
+  // off (Antoniodeoliveirasegura/boilerindy-app#150).
+  calendarRemindersOff: false,
 }
 
 const DEFAULT_CREDENTIALS = { email: 'student@purdue.edu', password: 'correct-horse-battery' }
@@ -653,6 +656,9 @@ export const test = base.extend({
       pendingLoginCode: false,
       // The next resend answers that the pending sign-in timed out.
       loginCodeTimedOut: false,
+      // True mirrors a server before db/supabase-calendar-reminders.sql: a
+      // profile save that sets calendarRemindersOff answers 503.
+      calendarRemindersMissing: false,
       classes: [],
       classesMeta: { selectedTermKey: null, selectedTermLabel: '', totalInTerm: 0 },
       calendarItems: [],
@@ -992,6 +998,25 @@ export const test = base.extend({
       if (pathname === '/api/me/degree' && method === 'PUT') {
         state.major = bodyOf().major || null
         return json(route, 200, { major: state.major })
+      }
+
+      // The account switches Settings and Setup save, answered with the user
+      // as server.mjs answers them (buildSessionPayload).
+      if (pathname === '/api/me/profile' && method === 'PATCH') {
+        const body = bodyOf()
+        if (typeof body.calendarRemindersOff === 'boolean' && state.calendarRemindersMissing) {
+          return json(route, 503, {
+            error: {
+              message: 'The calendar reminders setting is not set up yet. Please try again later.',
+              code: 'calendar_reminders_schema_missing',
+              status: 503,
+            },
+          })
+        }
+        for (const key of ['calendarRemindersOff', 'aiOptIn', 'analyticsOptOut']) {
+          if (typeof body[key] === 'boolean') state.user[key] = body[key]
+        }
+        return json(route, 200, { user: { ...state.user } })
       }
 
       if (pathname === '/api/me/calendar-feed' && method === 'GET') {
@@ -1481,6 +1506,10 @@ export const test = base.extend({
       },
       timeOutLoginCode() {
         state.loginCodeTimedOut = true
+      },
+      // A server before db/supabase-calendar-reminders.sql (missing = true), or after it.
+      setCalendarRemindersMissing(missing = true) {
+        state.calendarRemindersMissing = missing
       },
       setOnboarding(overrides) {
         state.onboarding = defaultOnboarding(overrides)
