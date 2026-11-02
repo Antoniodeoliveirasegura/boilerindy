@@ -73,43 +73,16 @@ const CAMPUS_NEWS_RETRY_MS = 5 * 60 * 1000
 const CAMPUS_ALERT_RETRY_MS = 30 * 1000
 
 /**
- * The campus public reads, mounted by server.mjs in its public reads block,
- * before the session middleware, where the app.get lines used to be, so the
- * responses never carry the session cookie and the edge can cache them. Paths
- * stay absolute (`/api/transit/stops`) so docs/RATE_LIMITS.md and its guard
- * test read the same whether a route lives here or in server.mjs.
+ * The TransLoc reads, shared by the campus routes below and the push tick's
+ * Live Activities (issue #550, src/liveActivities.mjs): each feed read through
+ * one producer whoever asks, so a cache key always has the same upstream call
+ * and lifetime. server.mjs builds one and hands it to both; a campus router
+ * built without one makes its own.
  *
  * @param {object}   deps
- * @param {Function} deps.transitVehiclesIpRateLimit the per-address cap on vehicle polling
- * @param {Function} deps.transitVehiclesRateLimit   the vehicle polling bucket
- * @param {Function} deps.widgetReadIpRateLimit      the per-address cap on the widgets' arrivals read
- * @param {Function} deps.widgetReadRateLimit        the arrivals bucket (issue #549)
- * @param {Function} deps.publicReadIpRateLimit      the per-address cap across the public reads
- * @param {Function} deps.publicReadRateLimit        the shared public-read bucket
- * @param {Function} deps.clubsReadRateLimit         the club search bucket
- * @param {Function} deps.getCached                  server.mjs's shared TTL cache, which the
- *   spotlight route uses too
- * @param {object}   deps.clubDirectoryCache         the BoilerLink directory cache built in
- *   server.mjs, which also refreshes it after startup
- * @param {boolean}  [deps.campusAlertsEnabled]      CAMPUS_ALERTS: off (the default), the
- *   campus alert read answers enabled: false and never asks IU
+ * @param {Function} deps.getCached server.mjs's shared TTL cache
  */
-export function createCampusPublicRouter({
-  transitVehiclesIpRateLimit,
-  transitVehiclesRateLimit,
-  widgetReadIpRateLimit,
-  widgetReadRateLimit,
-  publicReadIpRateLimit,
-  publicReadRateLimit,
-  clubsReadRateLimit,
-  getCached,
-  clubDirectoryCache,
-  campusAlertsEnabled = false,
-}) {
-  const router = express.Router()
-
-  // The TransLoc feeds, each read through one producer whatever route asks,
-  // so a cache key always has the same upstream call and lifetime.
+export function createTransitReads({ getCached }) {
   const loadStops = () =>
     getCached('transit:stops', TRANSLOC_STATIC_TTL_MS, () =>
       fetchUpstreamJson('TransLoc', `${TRANSLOC_API}/GetStops?apiKey=${TRANSLOC_API_KEY}`, { timeoutMs: TRANSLOC_TIMEOUT_MS }),
@@ -175,6 +148,66 @@ export function createCampusPublicRouter({
     }
     return buildArrivals({ place, index, estimates: estimates ?? [], vehicles: vehicles ?? [], now })
   }
+
+  // One place's arrivals through its 15 s cache, which every widget, Siri
+  // request and Live Activity at the place shares.
+  const arrivalsAt = (index, place) =>
+    getCached(`transit:arrivals:${place.key}`, TRANSLOC_ARRIVALS_TTL_MS, () => loadArrivals(index, place))
+
+  /**
+   * The next buses at the place with this key, as GET /api/transit/arrivals
+   * answers them, for the Live Activity tick: null when no place has the key.
+   * Throws while TransLoc is not configured or has given nothing to serve.
+   */
+  async function readArrivals(key) {
+    if (!TRANSLOC_API_KEY) throw new Error('Transit is not configured.')
+    const index = await loadTransitIndex()
+    const place = index.byKey.get(key)
+    return place ? arrivalsAt(index, place) : null
+  }
+
+  return { loadStops, loadRoutes, loadVehicles, loadTransitIndex, arrivalsAt, readArrivals }
+}
+
+/**
+ * The campus public reads, mounted by server.mjs in its public reads block,
+ * before the session middleware, where the app.get lines used to be, so the
+ * responses never carry the session cookie and the edge can cache them. Paths
+ * stay absolute (`/api/transit/stops`) so docs/RATE_LIMITS.md and its guard
+ * test read the same whether a route lives here or in server.mjs.
+ *
+ * @param {object}   deps
+ * @param {Function} deps.transitVehiclesIpRateLimit the per-address cap on vehicle polling
+ * @param {Function} deps.transitVehiclesRateLimit   the vehicle polling bucket
+ * @param {Function} deps.widgetReadIpRateLimit      the per-address cap on the widgets' arrivals read
+ * @param {Function} deps.widgetReadRateLimit        the arrivals bucket (issue #549)
+ * @param {Function} deps.publicReadIpRateLimit      the per-address cap across the public reads
+ * @param {Function} deps.publicReadRateLimit        the shared public-read bucket
+ * @param {Function} deps.clubsReadRateLimit         the club search bucket
+ * @param {Function} deps.getCached                  server.mjs's shared TTL cache, which the
+ *   spotlight route uses too
+ * @param {object}   deps.clubDirectoryCache         the BoilerLink directory cache built in
+ *   server.mjs, which also refreshes it after startup
+ * @param {boolean}  [deps.campusAlertsEnabled]      CAMPUS_ALERTS: off (the default), the
+ *   campus alert read answers enabled: false and never asks IU
+ * @param {object}   [deps.transitReads]             createTransitReads above, the one the
+ *   push tick shares; by default the router makes its own from getCached
+ */
+export function createCampusPublicRouter({
+  transitVehiclesIpRateLimit,
+  transitVehiclesRateLimit,
+  widgetReadIpRateLimit,
+  widgetReadRateLimit,
+  publicReadIpRateLimit,
+  publicReadRateLimit,
+  clubsReadRateLimit,
+  getCached,
+  clubDirectoryCache,
+  campusAlertsEnabled = false,
+  transitReads = createTransitReads({ getCached }),
+}) {
+  const router = express.Router()
+  const { loadStops, loadRoutes, loadVehicles, loadTransitIndex, arrivalsAt } = transitReads
 
   async function handleTransitVehicles(_req, res) {
     if (!translocReady(res)) return
@@ -252,7 +285,7 @@ export function createCampusPublicRouter({
         res.set('Cache-Control', 'no-store')
         return res.status(404).json({ error: { message: 'That stop is not on the JagLine map anymore.', status: 404, code: 'transit_stop_not_found' } })
       }
-      const answer = await getCached(`transit:arrivals:${key}`, TRANSLOC_ARRIVALS_TTL_MS, () => loadArrivals(index, place))
+      const answer = await arrivalsAt(index, place)
       res.set('Cache-Control', 'public, max-age=15')
       res.json(answer)
     } catch (error) {

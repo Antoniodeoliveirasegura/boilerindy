@@ -7,7 +7,7 @@ Paths are as registered; `:id` style parameters are the route's own names.
 Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 [api-error-codes.md](api-error-codes.md).
 
-175 routes in 27 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminPhotoReview.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/campusEvents.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/clubFollows.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
+178 routes in 27 files: `server.mjs`, `src/routes/admin.mjs`, `src/routes/adminPhotoReview.mjs`, `src/routes/adminReports.mjs`, `src/routes/advertiser.mjs`, `src/routes/assistant.mjs`, `src/routes/auth.mjs`, `src/routes/board.mjs`, `src/routes/campus.mjs`, `src/routes/campusEvents.mjs`, `src/routes/friends.mjs`, `src/routes/deals.mjs`, `src/routes/sources.mjs`, `src/routes/dining.mjs`, `src/routes/guide.mjs`, `src/routes/push.mjs`, `src/routes/lostFound.mjs`, `src/routes/marketplace.mjs`, `src/routes/blocks.mjs`, `src/routes/me.mjs`, `src/routes/calendarFeed.mjs`, `src/routes/clubFollows.mjs`, `src/routes/layouts.mjs`, `src/routes/purdueEmail.mjs`, `src/routes/studyGroups.mjs`, `src/routes/reports.mjs`, `src/routes/analytics.mjs`.
 
 | Method | Path | File |
 |---|---|---|
@@ -87,6 +87,9 @@ Rate limits per route are in [RATE_LIMITS.md](RATE_LIMITS.md), error codes in
 | POST | `/api/internal/push/fast-tick` | `src/routes/push.mjs` |
 | POST | `/api/internal/push/run-reminders` | `src/routes/push.mjs` |
 | POST | `/api/internal/sources/resync` | `src/routes/sources.mjs` |
+| POST | `/api/live-activities` | `src/routes/push.mjs` |
+| PATCH | `/api/live-activities/:activityId` | `src/routes/push.mjs` |
+| DELETE | `/api/live-activities/:activityId` | `src/routes/push.mjs` |
 | GET | `/api/lost-found` | `src/routes/lostFound.mjs` |
 | POST | `/api/lost-found` | `src/routes/lostFound.mjs` |
 | PATCH | `/api/lost-found/:id` | `src/routes/lostFound.mjs` |

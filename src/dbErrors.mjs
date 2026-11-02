@@ -158,6 +158,13 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-push-kinds.sql',
     'Could not save notification settings.',
   ),
+  // Track this bus, the app's Live Activity (#550): live_activities.
+  live_activities: dbFeature(
+    'live_activities',
+    'Track this bus',
+    'db/supabase-live-activities.sql',
+    'Could not track this bus.',
+  ),
   // The "Show AI suggestions" switch in Settings, users.ai_opt_in.
   ai_opt_in: dbFeature(
     'ai_opt_in',
