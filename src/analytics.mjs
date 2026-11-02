@@ -9,6 +9,13 @@
 export const ANALYTICS_EVENTS = [
   'page_view',
   'source_synced',
+  // The native app's sign-in calendar reminder
+  // (Antoniodeoliveirasegura/boilerindy-app#150). They are here before any app
+  // build sends them: one unknown name rejects a whole batch.
+  'calendar_reminder_shown',
+  'calendar_reminder_connect',
+  'calendar_reminder_not_now',
+  'calendar_reminder_opted_out',
   'board_post_created',
   'assistant_message_sent',
   'dining_viewed',

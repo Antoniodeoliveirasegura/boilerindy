@@ -30,6 +30,10 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 |---|---|
 | `page_view` | Any route change (path in props) |
 | `source_synced` | A calendar source is connected or re-synced |
+| `calendar_reminder_shown` | The native app shows its sign-in reminder to connect a calendar (Antoniodeoliveirasegura/boilerindy-app#150; `case`: `none` when nothing is connected, `schedule` or `brightspace` for the one that is missing, `broken` when one stopped syncing). Allowlisted here before any app build sends it |
+| `calendar_reminder_connect` | The student presses that reminder's Connect button (`case`, as above) |
+| `calendar_reminder_not_now` | The student closes that reminder without turning reminders off (`case`, as above) |
+| `calendar_reminder_opted_out` | The student closes that reminder with "Don't remind me again" ticked, which turns reminders off for the account (`case`, as above) |
 | `board_post_created` | A board post is published |
 | `assistant_message_sent` | A campus-assistant message is sent (event only - never the text) |
 | `dining_viewed` | Dining page opened |

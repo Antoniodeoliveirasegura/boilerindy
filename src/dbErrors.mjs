@@ -157,6 +157,14 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-ai-opt-in.sql',
     'Could not update your profile.',
   ),
+  // The "Remind me to connect calendars" switch, users.calendar_reminders_off
+  // (Antoniodeoliveirasegura/boilerindy-app#150).
+  calendar_reminders: dbFeature(
+    'calendar_reminders',
+    'The calendar reminders setting',
+    'db/supabase-calendar-reminders.sql',
+    'Could not update your profile.',
+  ),
   // The shared campus events table the ingest cron writes (#30).
   campus_events: dbFeature(
     'campus_events',

@@ -450,7 +450,7 @@ export function createAuthRouter({
     }
   }
 
-  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, aiOptIn, providerConfirmed = false }) {
+  async function updateUserProfile(userId, { email, displayName, currentPassword, newPassword, analyticsOptOut, aiOptIn, calendarRemindersOff, providerConfirmed = false }) {
     const user = await getUserById(userId)
     if (!user) throw new Error('User not found.')
 
@@ -532,6 +532,8 @@ export function createAuthRouter({
         ...(typeof analyticsOptOut === 'boolean' ? { analytics_opt_out: analyticsOptOut } : {}),
         // AI suggestions opt-in (db/supabase-ai-opt-in.sql): the same rule.
         ...(typeof aiOptIn === 'boolean' ? { ai_opt_in: aiOptIn } : {}),
+        // Calendar reminders switch (db/supabase-calendar-reminders.sql): the same rule.
+        ...(typeof calendarRemindersOff === 'boolean' ? { calendar_reminders_off: calendarRemindersOff } : {}),
         updated_at: new Date().toISOString()
       })
       .eq('id', userId)
@@ -539,10 +541,20 @@ export function createAuthRouter({
       .single()
 
     if (error) {
-      // Until db/supabase-ai-opt-in.sql runs the column is missing; the route
-      // answers 503 ai_opt_in_schema_missing instead of the database text.
-      if (typeof aiOptIn === 'boolean' && isSchemaMissingError(error)) {
-        throw Object.assign(new Error('AI suggestions are not set up yet.'), { code: 'ai_opt_in_schema_missing', cause: error })
+      // Until db/supabase-ai-opt-in.sql or db/supabase-calendar-reminders.sql
+      // runs its column is missing; the route answers 503 with that switch's
+      // code instead of the database text. With both switches in one request,
+      // the message names the missing column.
+      if (isSchemaMissingError(error)) {
+        const remindersMissing =
+          typeof calendarRemindersOff === 'boolean' &&
+          (typeof aiOptIn !== 'boolean' || String(error.message || '').includes('calendar_reminders_off'))
+        if (remindersMissing) {
+          throw Object.assign(new Error('Calendar reminders are not set up yet.'), { code: 'calendar_reminders_schema_missing', cause: error })
+        }
+        if (typeof aiOptIn === 'boolean') {
+          throw Object.assign(new Error('AI suggestions are not set up yet.'), { code: 'ai_opt_in_schema_missing', cause: error })
+        }
       }
       throw new Error(error.message)
     }
@@ -717,6 +729,10 @@ export function createAuthRouter({
         // False until the student turns on AI suggestions in Settings, and for
         // every account before db/supabase-ai-opt-in.sql runs.
         aiOptIn: Boolean(user.ai_opt_in),
+        // False until the student turns calendar reminders off (Setup's "Don't
+        // ask again", the switch in Settings, or the app), and for every
+        // account before db/supabase-calendar-reminders.sql runs.
+        calendarRemindersOff: Boolean(user.calendar_reminders_off),
         isAdmin: isUserAdmin(user),
       },
       onboarding: summary,
@@ -1522,6 +1538,7 @@ export function createAuthRouter({
         newPassword: req.body.newPassword,
         analyticsOptOut: typeof req.body.analyticsOptOut === 'boolean' ? req.body.analyticsOptOut : undefined,
         aiOptIn: typeof req.body.aiOptIn === 'boolean' ? req.body.aiOptIn : undefined,
+        calendarRemindersOff: typeof req.body.calendarRemindersOff === 'boolean' ? req.body.calendarRemindersOff : undefined,
         providerConfirmed: hasRecentProviderSignIn(req.session),
       })
       // The user just changed their own password: refresh this session's
@@ -1534,6 +1551,9 @@ export function createAuthRouter({
     } catch (error) {
       if (error.code === 'ai_opt_in_schema_missing') {
         return respondSchemaMissing(res, DB_FEATURES.ai_opt_in, error.cause)
+      }
+      if (error.code === 'calendar_reminders_schema_missing') {
+        return respondSchemaMissing(res, DB_FEATURES.calendar_reminders, error.cause)
       }
       res.status(400).json({
         error: {

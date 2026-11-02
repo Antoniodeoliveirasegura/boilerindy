@@ -579,6 +579,7 @@ test('the session payload: two head counts on a cache miss and none on a hit, is
       hasPurdueLinked: true,
       analyticsOptOut: false,
       aiOptIn: false,
+      calendarRemindersOff: false,
       isAdmin: true,
     })
     assert.deepEqual(payload.onboarding, {
@@ -1814,6 +1815,85 @@ test('turning AI suggestions on before README step 52 runs answers 503 ai_opt_in
     assert.equal(rename.status, 200)
     assert.equal(rename.body.user.aiOptIn, false)
     assert.equal(db.users[0].display_name, 'Purdue Pete')
+  })
+})
+
+// Calendar reminders (db/supabase-calendar-reminders.sql,
+// Antoniodeoliveirasegura/boilerindy-app#150): on for every account until the
+// student turns them off, on the website or in the app, and only a boolean
+// changes the choice.
+test('PATCH profile turns calendar reminders off and on, and the session says so', async () => {
+  await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    assert.equal((await call('GET', '/api/me/profile', { cookie })).body.user.calendarRemindersOff, false)
+
+    const off = await call('PATCH', '/api/me/profile', { cookie, body: { calendarRemindersOff: true } })
+    assert.equal(off.status, 200)
+    assert.equal(off.body.user.calendarRemindersOff, true)
+    assert.equal(db.users[0].calendar_reminders_off, true)
+    assert.equal((await call('GET', '/api/session', { cookie })).body.session.user.calendarRemindersOff, true)
+
+    const rename = await call('PATCH', '/api/me/profile', { cookie, body: { name: 'Purdue Pete', calendarRemindersOff: 'no' } })
+    assert.equal(rename.status, 200)
+    assert.equal(rename.body.user.calendarRemindersOff, true)
+
+    const on = await call('PATCH', '/api/me/profile', { cookie, body: { calendarRemindersOff: false } })
+    assert.equal(on.body.user.calendarRemindersOff, false)
+    assert.equal(db.users[0].calendar_reminders_off, false)
+  })
+})
+
+test('turning calendar reminders off before db/supabase-calendar-reminders.sql runs answers 503 calendar_reminders_schema_missing and names the file once', async () => {
+  await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, db, failures }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    failures.users = (chain) =>
+      operation(chain) === 'update' && 'calendar_reminders_off' in updatePatch(chain)
+        ? { code: 'PGRST204', message: "Could not find the 'calendar_reminders_off' column of 'users' in the schema cache" }
+        : null
+    const lines = await quietly(async () => {
+      for (let i = 0; i < 2; i += 1) {
+        const res = await call('PATCH', '/api/me/profile', { cookie, body: { calendarRemindersOff: true } })
+        assert.equal(res.status, 503)
+        assert.deepEqual(res.body, {
+          error: {
+            message: 'The calendar reminders setting is not set up yet. Please try again later.',
+            code: 'calendar_reminders_schema_missing',
+            status: 503,
+          },
+        })
+      }
+    })
+    const named = lines.filter((l) => l.includes('db/supabase-calendar-reminders.sql'))
+    assert.equal(named.length, 1, lines.join('\n'))
+    assert.match(named[0], /\[calendar_reminders\] schema missing/)
+
+    // Every account reads reminders on, and a save that leaves the switch
+    // alone never touches the column.
+    const rename = await call('PATCH', '/api/me/profile', { cookie, body: { name: 'Purdue Pete' } })
+    assert.equal(rename.status, 200)
+    assert.equal(rename.body.user.calendarRemindersOff, false)
+    assert.equal(db.users[0].display_name, 'Purdue Pete')
+  })
+})
+
+test('with both switches in one save, the 503 names the switch whose column is missing', async () => {
+  await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, failures }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    const both = { aiOptIn: true, calendarRemindersOff: true }
+    await quietly(async () => {
+      for (const [column, code] of [
+        ['calendar_reminders_off', 'calendar_reminders_schema_missing'],
+        ['ai_opt_in', 'ai_opt_in_schema_missing'],
+      ]) {
+        failures.users = (chain) =>
+          operation(chain) === 'update'
+            ? { code: 'PGRST204', message: `Could not find the '${column}' column of 'users' in the schema cache` }
+            : null
+        const res = await call('PATCH', '/api/me/profile', { cookie, body: both })
+        assert.equal(res.status, 503)
+        assert.equal(res.body.error.code, code)
+      }
+    })
   })
 })
 
