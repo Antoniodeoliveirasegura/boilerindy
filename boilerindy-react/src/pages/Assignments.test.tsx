@@ -113,11 +113,11 @@ afterEach(() => {
 
 // The page reads its calendar, categories and task metadata through the query
 // cache (issue #327); a client per test keeps nothing between cases.
-async function renderPage(ready = 'Read chapter four') {
+async function renderPage(ready = 'Read chapter four', entry = '/assignments') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter useTransitions={false}>
+      <MemoryRouter useTransitions={false} initialEntries={[entry]}>
         <Assignments />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -364,6 +364,41 @@ it('selecting a task on a narrow screen scrolls its details into view and focuse
   const title = await screen.findByRole('heading', { name: 'Lab report' })
   await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' }))
   await waitFor(() => expect(document.activeElement).toBe(title))
+})
+
+// Issue #550: a deadline reminder links to its task,
+// /assignments?taskId=<id>&taskKind=calendar|manual, from a browser
+// notification or the app.
+describe("a notification's link", () => {
+  it("opens that task's details once the lists have loaded, and brings them into view", async () => {
+    await renderPage('Read chapter four', '/assignments?taskId=cal-1&taskKind=calendar')
+    expect(await screen.findByRole('heading', { name: 'Lab report' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument()
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' }))
+  })
+
+  it("opens one of the student's own tasks too", async () => {
+    await renderPage('Lab report', '/assignments?taskId=task-1&taskKind=manual')
+    expect(await screen.findByRole('heading', { name: 'Read chapter four' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['a task of the other kind', '/assignments?taskId=cal-1&taskKind=manual'],
+    ['a task that is not here', '/assignments?taskId=gone&taskKind=calendar'],
+  ])('to %s opens nothing', async (_, entry) => {
+    await renderPage('Lab report', entry)
+    expect(screen.queryByRole('button', { name: 'Mark done' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Close details' })).not.toBeInTheDocument()
+  })
+
+  it('opens once, so the student can move on to another task', async () => {
+    await renderPage('Read chapter four', '/assignments?taskId=cal-1&taskKind=calendar')
+    await screen.findByRole('heading', { name: 'Lab report' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
+    expect(screen.queryByRole('button', { name: 'Mark done' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Read chapter four'))
+    expect(await screen.findByRole('heading', { name: 'Read chapter four' })).toBeInTheDocument()
+  })
 })
 
 describe('AI Insights', () => {

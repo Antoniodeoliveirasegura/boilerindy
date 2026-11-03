@@ -8,18 +8,30 @@
 // run does nothing. Each student is claimed once per day in push_deliveries
 // as "dining-favorites:<YYYY-MM-DD>" before anything is sent, so overlapping
 // runs cannot both notify, and a student with no favorite on the menu is not
-// claimed (a menu that changes later in the day can still match).
+// claimed (a menu that changes later in the day can still match). The alert
+// goes 30 minutes before the first meal that serves a starred dish (issue
+// #550, item 6: 10:00 AM for lunch, 4:00 PM for dinner, 8:00 AM for
+// breakfast), not at the first run after 8:00 AM; until then the student is
+// left unclaimed (`early` in the summary).
 //
 // Pure pieces (the window, the matching, the copy) are exported for the tests;
 // the runner takes the Supabase client, the VAPID keys and the dining snapshot
 // reader from the push router.
+//
+// They are the `dining-favorites` kind of the kind registry
+// (src/notificationKinds.mjs, issue #550): passive and silent on a phone, kept
+// until the last meal that serves a starred dish ends, and stopped by
+// PUSH_KINDS_OFF=dining-favorites before anything is read or claimed.
 
-import { minutesInZone } from './diningMeals.mjs'
+import { zonedTimeMs } from './campusTime.mjs'
+import { CAMPUS_TIME_ZONE, MEAL_WINDOWS, mealLabel, minutesInZone, sortMeals } from './diningMeals.mjs'
+import { buildDiningToday, findHall } from './diningToday.mjs'
 import { normalizeItemName } from './diningFavorites.mjs'
 import { MAX_DEVICE_STRIKES, sendExpoPush } from './expoPush.mjs'
 import { sendWebPush } from './webPush.mjs'
 import { queryError } from './cronTick.mjs'
-import { deliverToPushDevices, isMissingTableError, loadPushDevices } from './pushReminders.mjs'
+import { countCappedToday, deliverToPushDevices, deviceTakes, isMissingTableError, loadPushDevices, settingsFromRow } from './pushReminders.mjs'
+import { DAILY_CAP, isQuietMinute, quietWindow } from './pushPolicy.mjs'
 import { todayYmdInZone } from './nutrisliceDining.mjs'
 
 // Sent from 8:00 AM campus time, when the day's menu is firm, and not after
@@ -36,6 +48,22 @@ export function inAlertWindow(now = new Date()) {
   return minutes >= DINING_ALERT_FROM_MINUTES && minutes < DINING_ALERT_UNTIL_MINUTES
 }
 
+// When an alert goes for a meal (issue #550, item 6): 30 minutes before the
+// meal windows of src/diningMeals.mjs open it, and never before 8:00 AM, when
+// the day's menu is firm. Lunch and brunch at 10:00 AM, dinner at 4:00 PM,
+// breakfast and anything the windows do not name at 8:00 AM.
+const MEAL_ALERT_MINUTES = { breakfast: 8 * 60, brunch: 10 * 60, lunch: 10 * 60, dinner: 16 * 60 }
+
+/**
+ * The campus minute past midnight a student's alert goes, before the first
+ * meal of the day that serves one of their starred dishes. A dish with no
+ * meal counts as served from the morning.
+ */
+export function alertMinuteFor(matches) {
+  const minutes = matches.flatMap((dish) => (dish.meals.length ? dish.meals : [null]).map((meal) => MEAL_ALERT_MINUTES[meal] ?? DINING_ALERT_FROM_MINUTES))
+  return Math.max(DINING_ALERT_FROM_MINUTES, Math.min(...minutes, DINING_ALERT_UNTIL_MINUTES))
+}
+
 /** The claim key for a student's alert on a campus date. */
 export function diningAlertKey(ymd) {
   return `dining-favorites:${ymd}`
@@ -50,26 +78,28 @@ export function isMissingColumnError(error) {
 
 /**
  * Every dish on a snapshot's menus, keyed by normalized name: { name,
- * location, meals } with the meals in serving order. Per-meal menus when the
- * snapshot has them, else the merged stations and each item's `meals`.
+ * location, hall, meals } with the meals in serving order, where `hall` is the
+ * location's slug ("tower-dining", the id the Dining pages' ?hall= takes).
+ * Per-meal menus when the snapshot has them, else the merged stations and
+ * each item's `meals`.
  */
 export function dishesOnMenu(snapshot) {
   const dishes = new Map()
-  const add = (name, location, meal) => {
+  const add = (name, loc, meal) => {
     const key = normalizeItemName(name)
     if (!key) return
-    if (!dishes.has(key)) dishes.set(key, { name, location, meals: [] })
+    if (!dishes.has(key)) dishes.set(key, { name, location: loc.name, hall: loc.slug ?? loc.id ?? null, meals: [] })
     const dish = dishes.get(key)
     if (meal && !dish.meals.includes(meal)) dish.meals.push(meal)
   }
   for (const loc of snapshot?.locations || []) {
     if (Array.isArray(loc.menus) && loc.menus.length) {
-      for (const menu of loc.menus) for (const station of menu.stations || []) for (const item of station.items || []) add(item.name, loc.name, menu.meal)
+      for (const menu of loc.menus) for (const station of menu.stations || []) for (const item of station.items || []) add(item.name, loc, menu.meal)
     } else {
       for (const station of loc.stations || []) {
         for (const item of station.items || []) {
-          if (item.meals?.length) for (const meal of item.meals) add(item.name, loc.name, meal)
-          else add(item.name, loc.name, null)
+          if (item.meals?.length) for (const meal of item.meals) add(item.name, loc, meal)
+          else add(item.name, loc, null)
         }
       }
     }
@@ -83,25 +113,88 @@ export function favoritesOnMenu(favoriteNames, dishes) {
   return [...dishes.entries()].filter(([key]) => wanted.has(key)).map(([, dish]) => dish)
 }
 
-/** The push for a student's favorites on the day's menu. */
-export function buildDiningFavoritesPayload(matches, ymd) {
-  const describe = (dish) => `${dish.name} (${dish.meals.length ? `${dish.meals.join(' and ')}, ` : ''}${dish.location})`
-  const named = matches.slice(0, NAMED_DISHES).map(describe)
-  const more = matches.length - named.length
+// When a meal stops being served, in minutes past midnight, by the clock's
+// usual windows (src/diningMeals.mjs): breakfast at 10:30 AM, brunch and lunch
+// at 4:30 PM, dinner at midnight. A meal the windows do not name (late night,
+// every day) and a dish with no meal run to midnight.
+function mealEndMinutes(meal) {
+  const windows = MEAL_WINDOWS.filter((w) => w.meals.includes(meal))
+  return windows.length ? windows[windows.length - 1].until : 24 * 60
+}
+
+/**
+ * When an alert for these dishes stops being true: the end of the last meal on
+ * the campus date `ymd` that serves one of them, as an ISO instant.
+ */
+export function diningAlertExpiresAt(matches, ymd) {
+  const ends = matches.flatMap((dish) => (dish.meals.length ? dish.meals : [null]).map(mealEndMinutes))
+  return new Date(zonedTimeMs(ymd, ends.length ? Math.max(...ends) : 24 * 60)).toISOString()
+}
+
+// "A", "A and B", "A, B and C".
+function listOf(words) {
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : (words[0] ?? '')
+}
+
+const CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: CAMPUS_TIME_ZONE, hour: 'numeric', minute: '2-digit' })
+
+/**
+ * When `meal` ends at `hall` today, as an instant: the meal's stretch of the
+ * day cut to the hall's listed hours, as the app's Dining widget reads it
+ * (buildDiningToday in src/diningToday.mjs). Null when that is not known: no
+ * snapshot, a hall it does not list, or a last meal on a day with no hours.
+ */
+export function mealEndsAt(snapshot, hall, meal, now = new Date()) {
+  const location = snapshot && hall && meal ? findHall(snapshot.locations, hall) : null
+  if (!location) return null
+  const until = buildDiningToday(snapshot, location, now).meals.find((m) => m.meal === meal)?.until
+  return until ? Date.parse(until) : null
+}
+
+/**
+ * The push for a student's favorites on the day's menu, news first (issue
+ * #550, item 2): the title names the first dish ("Banana Pudding is on
+ * today"), the subtitle its hall and meals ("Tower Dining · lunch and
+ * dinner"), and the body the other starred dishes and, when the hall's hours
+ * say, when the first dish's first meal ends. A tap opens that hall and meal
+ * (/dining?hall=tower-dining&meal=lunch, item 5), on the Dining page and in
+ * the app alike. `snapshot` and `now` are the run's, for the meal's end.
+ */
+export function buildDiningFavoritesPayload(matches, ymd, { snapshot = null, now = new Date() } = {}) {
+  const [first, ...others] = matches
+  const meals = sortMeals(first.meals)
+  const firstMeal = meals[0] ?? null
+  const named = others.slice(0, NAMED_DISHES).map((dish) => (dish.hall && dish.hall !== first.hall ? `${dish.name} (${dish.location})` : dish.name))
+  const more = others.length - named.length
+  const sentences = []
+  if (named.length) sentences.push(`Also on today: ${listOf(more > 0 ? [...named, `${more} more`] : named)}.`)
+  const ends = mealEndsAt(snapshot, first.hall, firstMeal, now)
+  if (ends !== null) sentences.push(`${mealLabel(firstMeal)} is served until ${CLOCK.format(ends)}.`)
+  const params = new URLSearchParams()
+  if (first.hall) {
+    params.set('hall', first.hall)
+    if (firstMeal) params.set('meal', firstMeal)
+  }
   return {
-    title: matches.length === 1 ? `${matches[0].name} is on the menu today` : `${matches.length} of your favorites are on the menu today`,
-    body: `${named.join('; ')}${more > 0 ? `; and ${more} more` : ''}.`,
-    url: DINING_ALERT_URL,
+    title: `${first.name} is on today`,
+    subtitle: meals.length ? `${first.location} · ${listOf(meals)}` : first.location,
+    body: sentences.join(' '),
+    url: params.size ? `${DINING_ALERT_URL}?${params}` : DINING_ALERT_URL,
     tag: `dining-favorites-${ymd}`,
     kind: 'dining-favorites',
+    expiresAt: diningAlertExpiresAt(matches, ymd),
   }
 }
 
 /**
  * Send today's favorite-dish alerts. Returns a summary for the cron log, with
- * `reason` when nothing could be considered (no keys, outside the window, the
- * column not migrated, no menu). Database errors other than a missing table or
- * column throw a SupabaseQueryError, as the deadline run does.
+ * `reason` when nothing could be considered (no keys, the kind switched off by
+ * PUSH_KINDS_OFF, outside the window, the column not migrated, no menu).
+ * Database errors other than a missing table or column throw a
+ * SupabaseQueryError, as the deadline run does. Once README step 53 has run
+ * (issue #550), an alert never goes inside the student's quiet hours (it
+ * waits, unclaimed, for the first run after them: `held`) or past the daily
+ * cap of server pushes (`capped`).
  */
 export async function runDiningFavoriteAlerts({
   client,
@@ -110,21 +203,36 @@ export async function runDiningFavoriteAlerts({
   now = new Date(),
   send = sendWebPush,
   sendExpo = sendExpoPush,
+  kindsOff = new Set(),
   maxUsers = 200,
   maxSends = 300,
   log = console,
 }) {
-  const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0 }
+  const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0, early: 0, held: 0, capped: 0 }
   if (!keys) return { ...summary, reason: 'no_vapid_keys' }
+  if (kindsOff.has('dining-favorites')) return { ...summary, reason: 'kind_off' }
   if (!inAlertWindow(now)) return { ...summary, reason: 'outside_window' }
 
-  const settingsRes = await client.from('push_settings').select('user_id').eq('dining_favorite_alerts', true).limit(maxUsers)
+  let kindsAvailable = true
+  const readOptedIn = (columns) => client.from('push_settings').select(columns).eq('dining_favorite_alerts', true).limit(maxUsers)
+  let settingsRes = await readOptedIn('user_id, quiet_start, quiet_end')
+  if (settingsRes.error && isMissingColumnError(settingsRes.error) && !String(settingsRes.error.message || '').includes('dining_favorite_alerts')) {
+    // Before README step 53 there are no quiet hours to read.
+    kindsAvailable = false
+    settingsRes = await readOptedIn('user_id')
+  }
   if (settingsRes.error) {
     if (isMissingTableError(settingsRes.error) || isMissingColumnError(settingsRes.error)) return { ...summary, reason: 'not_configured' }
     throw queryError(settingsRes, 'push_settings select (dining alerts)')
   }
   const optedIn = (settingsRes.data || []).map((row) => row.user_id)
   if (!optedIn.length) return summary
+  const quietByUser = new Map(
+    (settingsRes.data || []).map((row) => {
+      const settings = settingsFromRow(row)
+      return [row.user_id, kindsAvailable ? quietWindow(settings.quietStart, settings.quietEnd) : null]
+    }),
+  )
 
   const today = todayYmdInZone(now)
   const key = diningAlertKey(today)
@@ -173,13 +281,31 @@ export async function runDiningFavoriteAlerts({
     devicesByUser.get(device.user_id).push(device)
   }
 
+  const nowMinute = minutesInZone(now)
   for (const [userId, matches] of matchesByUser) {
     if (summary.sent + summary.failed >= maxSends) break
     const subs = subsByUser.get(userId) || []
-    const devices = (devicesByUser.get(userId) || []).filter((d) => (d.failure_count || 0) < MAX_DEVICE_STRIKES)
+    // Only the phones that take dish alerts (issue #550, item 4: all of them
+    // but one that listed its kinds without this one).
+    const devices = (devicesByUser.get(userId) || []).filter((d) => (d.failure_count || 0) < MAX_DEVICE_STRIKES && deviceTakes(d, 'dining-favorites'))
     if (!subs.length && !devices.length) {
       summary.skipped += 1
       continue
+    }
+    // Before the meal that serves a starred dish (item 6): not yet, and nothing claimed.
+    if (nowMinute < alertMinuteFor(matches)) {
+      summary.early += 1
+      continue
+    }
+    if (kindsAvailable) {
+      if (isQuietMinute(minutesInZone(now), quietByUser.get(userId))) {
+        summary.held += 1
+        continue
+      }
+      if ((await countCappedToday(client, userId, now)) >= DAILY_CAP) {
+        summary.capped += 1
+        continue
+      }
     }
     const claim = await client.from('push_deliveries').insert({ user_id: userId, item_key: key, kind: 'dining-favorites', sent_at: now.toISOString() })
     if (claim.error) {
@@ -190,7 +316,7 @@ export async function runDiningFavoriteAlerts({
       throw queryError(claim, 'push_deliveries insert (dining alerts)')
     }
     summary.users += 1
-    const payload = buildDiningFavoritesPayload(matches, today)
+    const payload = buildDiningFavoritesPayload(matches, today, { snapshot, now })
     for (const sub of subs) {
       const result = await send({
         subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
@@ -212,7 +338,7 @@ export async function runDiningFavoriteAlerts({
       }
     }
     if (devices.length) {
-      const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log })
+      const native = await deliverToPushDevices({ client, devices, payload, send: sendExpo, log, now })
       summary.sent += native.sent
       summary.failed += native.failed
       summary.removed += native.removed

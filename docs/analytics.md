@@ -46,6 +46,15 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 | `friends_viewed` | Friends page opened |
 | `study_groups_viewed` | Study groups page opened |
 | `share_clicked` | A Share button on Transit, Dining or Free Food is pressed, before the share sheet opens or the link is copied (`page` prop: `transit`, `dining` or `free-food`, plus `kind: event` when one free-food event is shared rather than the list, or `via: qr` when the QR button beside Share shows the view as a code; never the link or the event). See [share-links.md](share-links.md) |
+| `notification_opened` | The native app opens a notification, by a tap or one of its actions (`kind`: a kind id from `src/notificationKinds.mjs`; `action`: `default` for a tap, else the action, such as `mark-done`; never the notification's text) |
+| `notification_setting_changed` | A notification kind is turned on or off in the app's Notifications settings (`kind`, `on`) |
+| `notification_permission` | The app's notification permission prompt is answered (`result`: `granted` or `denied`; `from`: where it was asked, such as an offer or the Notifications card) |
+| `notification_offer` | One of the app's notification offers is answered (`kind`, `accepted`) |
+
+The four `notification_*` events come from the native app
+(Antoniodeoliveirasegura/boilerindy-app#172, item 9) and were allowlisted
+before any app build sends them (issue #550), so a batch carrying one is never
+refused.
 
 ## Privacy guarantees
 

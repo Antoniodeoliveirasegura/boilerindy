@@ -3,20 +3,32 @@ import assert from 'node:assert/strict'
 import {
   EXPO_CHUNK_SIZE,
   EXPO_PUSH_SEND_URL,
-  EXPO_TTL_SECONDS,
   buildExpoMessages,
   chunk,
+  EXPO_RECEIPTS_URL,
+  expoTtlSeconds,
+  fetchExpoReceipts,
   isExpoToken,
   parseExpoTickets,
   parsePushTokenBody,
   sendExpoPush,
 } from '../src/expoPush.mjs'
+import { notificationKind } from '../src/notificationKinds.mjs'
 
 // Issue #194: the Expo half of push delivery. sendExpoPush takes an injected
-// fetch, so nothing here reaches exp.host.
+// fetch, so nothing here reaches exp.host. Issue #550: each message carries
+// its kind's fields from the kind registry.
 
 const token = (n) => `ExponentPushToken[device${String(n).padStart(4, '0')}]`
-const PAYLOAD = { title: 'Assignment due in 45 min', body: 'HW 3 is due at 10:45 AM.', url: '/assignments', tag: 'deadline-calendar-a', kind: 'deadline' }
+const NOW = new Date('2026-09-08T14:00:00Z') // Tuesday 10:00 AM EDT
+const PAYLOAD = {
+  title: 'Assignment due in 45 min',
+  body: 'HW 3 is due at 10:45 AM.',
+  url: '/assignments',
+  tag: 'deadline-calendar-a',
+  kind: 'deadline',
+  expiresAt: '2026-09-08T14:45:00.000Z',
+}
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -43,13 +55,21 @@ test('isExpoToken takes both Expo spellings and nothing else', () => {
 })
 
 test('parsePushTokenBody validates the token and platform and tidies the device name', () => {
-  assert.deepEqual(parsePushTokenBody({ token: token(1), platform: 'ios' }), { ok: true, token: token(1), platform: 'ios', deviceName: null, localReminders: false })
+  assert.deepEqual(parsePushTokenBody({ token: token(1), platform: 'ios' }), {
+    ok: true,
+    token: token(1),
+    platform: 'ios',
+    deviceName: null,
+    localReminders: false,
+    kinds: null, channels: null, kindsVersion: null, redact: false, activityStartToken: null,
+  })
   assert.deepEqual(parsePushTokenBody({ token: token(1), platform: ' Android ', deviceName: '  Pixel 9  ' }), {
     ok: true,
     token: token(1),
     platform: 'android',
     deviceName: 'Pixel 9',
     localReminders: false,
+    kinds: null, channels: null, kindsVersion: null, redact: false, activityStartToken: null,
   })
   assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios', deviceName: 'x'.repeat(300) }).deviceName.length, 120)
   assert.equal(parsePushTokenBody({ token: token(1), platform: 'ios', deviceName: '   ' }).deviceName, null)
@@ -78,6 +98,38 @@ test('parsePushTokenBody takes localReminders as a boolean, false when it is lef
   assert.deepEqual(parsePushTokenBody({ token: 'not-a-token', platform: 'ios', localReminders: 'yes' }), { ok: false, error: 'token must be an Expo push token, ExponentPushToken[...].' })
 })
 
+// Issue #550, item 4: what an app build with the kind registry reports.
+test('parsePushTokenBody takes the kinds and channels a phone reports, dropping names it does not know', () => {
+  const parsed = parsePushTokenBody({
+    token: token(1),
+    platform: 'ios',
+    kinds: ['dining-favorites', 'campus-alert', 'dining-favorites', 'class', 'made-up'],
+    channels: ['dining', 'safety', 'nope'],
+    kindsVersion: 1,
+    redact: true,
+    activityStartToken: 'a1b2c3d4e5f60718',
+  })
+  assert.deepEqual(
+    [parsed.kinds, parsed.channels, parsed.kindsVersion, parsed.redact, parsed.activityStartToken],
+    // `class` is scheduled by the phone, so it is never a server kind of the phone's.
+    [['dining-favorites', 'campus-alert'], ['dining', 'safety'], 1, true, 'a1b2c3d4e5f60718'],
+  )
+  assert.deepEqual(parsePushTokenBody({ token: token(1), platform: 'ios', kinds: [], channels: [] }).kinds, [])
+  for (const [body, error] of [
+    [{ kinds: 'dining-favorites' }, /kinds must be a list/],
+    [{ kinds: [1] }, /kinds must be a list/],
+    [{ channels: {} }, /channels must be a list/],
+    [{ kindsVersion: 0 }, /kindsVersion/],
+    [{ kindsVersion: '1' }, /kindsVersion/],
+    [{ redact: 'yes' }, /redact must be true or false/],
+    [{ activityStartToken: 'not a token!' }, /activityStartToken/],
+  ]) {
+    const result = parsePushTokenBody({ token: token(1), platform: 'ios', ...body })
+    assert.equal(result.ok, false, JSON.stringify(body))
+    assert.match(result.error, error)
+  }
+})
+
 test('chunk splits in order, at most size per piece', () => {
   const list = Array.from({ length: 250 }, (_, i) => i)
   const pieces = chunk(list)
@@ -88,35 +140,123 @@ test('chunk splits in order, at most size per piece', () => {
   assert.throws(() => chunk([1], 0), /positive integer/)
 })
 
-test('buildExpoMessages turns one payload into one message per device', () => {
-  const messages = buildExpoMessages([{ token: token(1) }, { token: token(2) }], PAYLOAD)
+test("buildExpoMessages turns one payload into one message per device, with its kind's fields", () => {
+  const messages = buildExpoMessages([{ token: token(1) }, { token: token(2) }], PAYLOAD, { now: NOW })
   assert.equal(messages.length, 2)
   assert.deepEqual(messages[0], {
     to: token(1),
     title: 'Assignment due in 45 min',
     body: 'HW 3 is due at 10:45 AM.',
     data: { url: '/assignments', kind: 'deadline', tag: 'deadline-calendar-a' },
+    interruptionLevel: 'active',
+    threadId: 'deadline',
+    relevanceScore: 0.7,
+    categoryId: 'deadline',
     sound: 'default',
     priority: 'high',
-    ttl: EXPO_TTL_SECONDS,
+    ttl: 45 * 60, // until HW 3 is due, not a flat 24 hours
     collapseId: 'deadline-calendar-a',
     tag: 'deadline-calendar-a',
   })
   assert.equal(messages[1].to, token(2))
-  assert.equal(EXPO_TTL_SECONDS, 24 * 60 * 60)
+  assert.equal('channelId' in messages[0], false, 'no channel for a phone that reported none')
+})
+
+// Issue #550, item 4: Android hides a notification whose channel the phone
+// lacks, so a message names its kind's channel only for a phone that listed it.
+test('buildExpoMessages names the kind\'s channel only for a phone that listed it', () => {
+  const rows = [
+    { token: token(1), channels: ['deadlines', 'dining'] },
+    { token: token(2), channels: ['dining'] },
+    { token: token(3), channels: null },
+  ]
+  assert.deepEqual(buildExpoMessages(rows, PAYLOAD, { now: NOW }).map((m) => m.channelId ?? null), ['deadlines', null, null])
+})
+
+test('each kind the server pushes gets its own level, thread, sound, priority and lifetime', () => {
+  const [dish] = buildExpoMessages(
+    [{ token: token(1) }],
+    { title: 'Beef Stroganoff is on the menu today', body: 'Beef Stroganoff (dinner, Tower Dining).', url: '/dining', tag: 'dining-favorites-2026-09-08', kind: 'dining-favorites', expiresAt: '2026-09-09T04:00:00.000Z' },
+    { now: NOW },
+  )
+  // Passive: no sound, and normal priority, which iOS may hold and batch.
+  assert.deepEqual(
+    [dish.interruptionLevel, dish.threadId, dish.relevanceScore, dish.categoryId, dish.priority, dish.ttl, 'sound' in dish],
+    ['passive', 'dining', 0.3, 'dining', 'normal', 14 * 60 * 60, false],
+  )
+
+  const [check] = buildExpoMessages([{ token: token(1) }], { title: 'BoilerIndy notifications are on', body: 'x', url: '/settings', tag: 'test', kind: 'test' }, { now: NOW })
+  assert.deepEqual(
+    [check.interruptionLevel, check.threadId, check.relevanceScore, check.sound, check.priority, check.ttl, 'categoryId' in check],
+    ['active', 'account', 0.2, 'default', 'high', 60 * 60, false],
+  )
+
+  // A campus alert, once something sends one (issue #34; demo text only).
+  const [alert] = buildExpoMessages(
+    [{ token: token(1) }],
+    { title: 'Demo alert', body: 'This is sample text, not a real emergency.', url: '/safety?incident=demo', tag: 'campus-demo', kind: 'campus-alert' },
+    { now: NOW },
+  )
+  assert.deepEqual([alert.interruptionLevel, alert.threadId, alert.relevanceScore, alert.priority, alert.ttl], ['time-sensitive', 'safety', 1, 'high', 30 * 60])
+})
+
+// Issue #550, item 9: the campus all clear goes silent in quiet hours. Only a
+// kind that goes silent takes the flag; an alert stays time-sensitive.
+test('a silent all clear goes as a passive kind does, and the flag means nothing to other kinds', () => {
+  const clear = { title: 'IU Indianapolis alert', body: 'Demo alert: Campus Status Normal', url: '/safety?incident=demo', tag: 'campus-demo', kind: 'campus-all-clear' }
+  const [loud] = buildExpoMessages([{ token: token(1) }], clear, { now: NOW })
+  assert.deepEqual([loud.interruptionLevel, loud.sound, loud.priority, loud.collapseId], ['active', 'default', 'high', 'campus-demo'])
+  const [silent] = buildExpoMessages([{ token: token(1) }], { ...clear, silent: true }, { now: NOW })
+  assert.deepEqual([silent.interruptionLevel, 'sound' in silent, silent.priority, silent.ttl, silent.collapseId], ['passive', false, 'normal', 2 * 60 * 60, 'campus-demo'])
+  const [alert] = buildExpoMessages([{ token: token(1) }], { ...clear, kind: 'campus-alert', silent: true }, { now: NOW })
+  assert.deepEqual([alert.interruptionLevel, alert.sound, alert.priority], ['time-sensitive', 'default', 'high'])
+})
+
+// Issue #550, item 5: a deadline names its task, for the app's Mark done.
+test('a payload that names an item carries it in data, beside the link to it', () => {
+  const [message] = buildExpoMessages(
+    [{ token: token(1) }],
+    { ...PAYLOAD, url: '/assignments?taskId=a&taskKind=calendar', itemId: 'a', itemKind: 'calendar' },
+    { now: NOW },
+  )
+  assert.deepEqual(message.data, { url: '/assignments?taskId=a&taskKind=calendar', kind: 'deadline', tag: 'deadline-calendar-a', itemId: 'a', itemKind: 'calendar' })
+})
+
+test('expoTtlSeconds keeps a message until its news stops being true, never below 0', () => {
+  const deadline = notificationKind('deadline')
+  assert.equal(expoTtlSeconds(deadline, { expiresAt: '2026-09-08T14:45:00.000Z' }, NOW), 45 * 60)
+  assert.equal(expoTtlSeconds(deadline, { expiresAt: '2026-09-08T14:00:00.900Z' }, NOW), 0, 'whole seconds, rounded down')
+  assert.equal(expoTtlSeconds(deadline, { expiresAt: '2026-09-08T13:57:00.000Z' }, NOW), 0, 'due already: now or never')
+  assert.equal(expoTtlSeconds(notificationKind('test'), {}, NOW), 60 * 60)
+  assert.equal(expoTtlSeconds(notificationKind('campus-all-clear'), {}, NOW), 2 * 60 * 60)
+  assert.throws(() => expoTtlSeconds(deadline, {}, NOW), /deadline notification needs expiresAt/)
+  assert.throws(() => expoTtlSeconds(deadline, { expiresAt: 'soon' }, NOW), /needs expiresAt/)
+})
+
+test('only kinds the server pushes go out, and a kind kept until something happens needs its expiresAt', () => {
+  for (const kind of [undefined, 'nope', 'class', 'runout', 'bus-alert', 'room-change', 'bus-live-activity']) {
+    assert.throws(() => buildExpoMessages([{ token: token(1) }], { ...PAYLOAD, kind }, { now: NOW }), /is not a kind the server pushes/, String(kind))
+  }
+  assert.throws(() => buildExpoMessages([{ token: token(1) }], { ...PAYLOAD, expiresAt: undefined }, { now: NOW }), /needs expiresAt/)
 })
 
 test('buildExpoMessages clips a long feed title so the notification stays under 4 KiB', () => {
   const title = 'T'.repeat(5000)
-  const [message] = buildExpoMessages([{ token: token(1) }], { ...PAYLOAD, title, body: `${title} is due at 10:45 AM.`, tag: `deadline-${'x'.repeat(100)}` })
+  const [message] = buildExpoMessages(
+    [{ token: token(1) }],
+    { ...PAYLOAD, title, subtitle: title, body: `${title} is due at 10:45 AM.`, tag: `deadline-${'x'.repeat(100)}` },
+    { now: NOW },
+  )
   assert.equal(message.title.length, 120)
   assert.ok(message.title.endsWith('...'))
+  assert.equal(message.subtitle.length, 120)
   assert.equal(message.body.length, 500)
   assert.equal(message.collapseId.length, 64)
   assert.ok(Buffer.byteLength(JSON.stringify(message)) < 4096)
-  const [untagged] = buildExpoMessages([{ token: token(1) }], { title: 'Hi', body: 'There' })
+  const [untagged] = buildExpoMessages([{ token: token(1) }], { title: 'Hi', body: 'There', kind: 'test' })
   assert.equal('collapseId' in untagged, false)
-  assert.deepEqual(untagged.data, { url: null, kind: null, tag: null })
+  assert.equal('subtitle' in untagged, false)
+  assert.deepEqual(untagged.data, { url: null, kind: 'test', tag: null })
 })
 
 test('parseExpoTickets maps each ticket to its message, and only device errors are strikes', () => {
@@ -219,9 +359,68 @@ test('a request with no tickets fails every message in it without a strike, and 
   assert.equal(noData[0].strike, false)
 })
 
+// Owner decision 7 on issue #550: Expo's enhanced push security, with the
+// project's access token on every request.
+test('sendExpoPush sends the access token as a Bearer token only when one is set', async () => {
+  const seen = []
+  const fetchImpl = async (_url, init) => {
+    seen.push(init.headers)
+    return jsonResponse({ data: JSON.parse(init.body).map(() => ({ status: 'ok', id: 'x' })) })
+  }
+  const messages = buildExpoMessages([{ token: token(1) }], PAYLOAD, { now: NOW })
+  await sendExpoPush({ messages, fetchImpl, accessToken: 'expo-access-token-for-tests' })
+  await sendExpoPush({ messages, fetchImpl })
+  await sendExpoPush({ messages, fetchImpl, accessToken: '' })
+  assert.equal(seen[0].Authorization, 'Bearer expo-access-token-for-tests')
+  assert.equal('Authorization' in seen[1], false)
+  assert.equal('Authorization' in seen[2], false)
+
+  // Refused for want of a valid token: the result keeps Expo's code, never the token.
+  const refused = await sendExpoPush({
+    messages,
+    accessToken: 'expo-access-token-for-tests',
+    fetchImpl: async () => jsonResponse({ errors: [{ code: 'UNAUTHORIZED', message: 'The bearer token is invalid.' }] }, 401),
+  })
+  assert.deepEqual(refused, [{ token: token(1), ok: false, error: 'http_401 UNAUTHORIZED', gone: false, strike: false }])
+  assert.ok(!JSON.stringify(refused).includes('expo-access-token-for-tests'))
+})
+
 test('nothing to send makes no request', async () => {
   let calls = 0
   const results = await sendExpoPush({ messages: [], fetchImpl: async () => { calls += 1 } })
   assert.deepEqual(results, [])
   assert.equal(calls, 0)
+})
+
+// Issue #550, item 7: the receipts behind the tickets.
+test('fetchExpoReceipts reads receipts by ticket id, 1000 a request, keeping only the error code', async () => {
+  const requests = []
+  const fetchImpl = async (url, init) => {
+    const { ids } = JSON.parse(init.body)
+    requests.push({ url, count: ids.length, auth: init.headers.Authorization })
+    const data = {}
+    for (const id of ids) {
+      if (id === 'gone') data[id] = { status: 'error', message: `"${token(9)}" is not a registered push notification recipient`, details: { error: 'DeviceNotRegistered' } }
+      else if (id === 'odd') data[id] = { status: 'error', details: { error: 'with spaces!' } }
+      else if (id !== 'pending') data[id] = { status: 'ok' }
+    }
+    return jsonResponse({ data })
+  }
+  const ids = ['gone', 'odd', 'pending', ...Array.from({ length: 1000 }, (_, i) => `t${i}`)]
+  const answer = await fetchExpoReceipts({ ids, fetchImpl, accessToken: 'expo-access-token-for-tests' })
+  assert.equal(answer.ok, true)
+  assert.deepEqual(requests.map((r) => [r.url, r.count, r.auth]), [
+    [EXPO_RECEIPTS_URL, 1000, 'Bearer expo-access-token-for-tests'],
+    [EXPO_RECEIPTS_URL, 3, 'Bearer expo-access-token-for-tests'],
+  ])
+  assert.deepEqual(answer.receipts.get('gone'), { status: 'error', error: 'DeviceNotRegistered' })
+  assert.deepEqual(answer.receipts.get('odd'), { status: 'error', error: 'UnknownError' })
+  assert.equal(answer.receipts.has('pending'), false, 'not ready yet: left out')
+  assert.deepEqual(answer.receipts.get('t5'), { status: 'ok' })
+  assert.ok(!JSON.stringify([...answer.receipts]).includes('PushToken'), 'a receipt message never comes back')
+
+  const down = await fetchExpoReceipts({ ids: ['a'], fetchImpl: async () => { throw new TypeError('fetch failed') } })
+  assert.deepEqual([down.ok, down.error, down.receipts.size], [false, 'network', 0])
+  const empty = await fetchExpoReceipts({ ids: [], fetchImpl: async () => { throw new Error('no request') } })
+  assert.deepEqual([empty.ok, empty.receipts.size], [true, 0])
 })

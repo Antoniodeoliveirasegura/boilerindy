@@ -46,6 +46,7 @@ function renderLayout(value: typeof auth.value, path = '/events') {
           <Route path="/dining" element={<p>page outlet</p>} />
           <Route path="/transit" element={<p>page outlet</p>} />
           <Route path="/map" element={<p>page outlet</p>} />
+          <Route path="/safety" element={<p>page outlet</p>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -64,6 +65,20 @@ describe('AppLayout chrome', () => {
       expect(banner.compareDocumentPosition(screen.getByRole('main')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       cleanup()
     }
+  })
+
+  test('/safety, where a campus alert push opens, shows the alert itself, so no banner above it (issue #550)', () => {
+    for (const [value, path] of [
+      [{ loading: false, user: { id: 'u1' } }, '/safety'],
+      [{ loading: false, user: null }, '/Safety/'],
+    ] as const) {
+      renderLayout(value, path)
+      expect(screen.getByText('page outlet')).toBeInTheDocument()
+      expect(screen.queryByTestId('campus-alert-banner')).toBeNull()
+      cleanup()
+    }
+    renderLayout({ loading: false, user: null }, '/safety')
+    expect(screen.getByTestId('preview-bar')).toHaveTextContent(previewMessage('/safety'))
   })
 
   test('while auth loads: outlet only, no navigation, rails or assistant', () => {

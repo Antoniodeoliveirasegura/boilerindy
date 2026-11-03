@@ -83,10 +83,12 @@ test('the codes clients depend on are pinned; board and advertiser keep their ex
     'dining_alerts_schema_missing',
     'friends_schema_missing',
     'guide_schema_missing',
+    'live_activities_schema_missing',
     'marketplace_schema_missing',
     'moderation_schema_missing',
     'photo_review_schema_missing',
     'purdue_email_verification_schema_missing',
+    'push_kinds_schema_missing',
     'sign_in_codes_schema_missing',
     'study_groups_schema_missing',
   ])

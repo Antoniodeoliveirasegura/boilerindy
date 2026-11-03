@@ -1,18 +1,34 @@
 import express from 'express'
+import { normalizeApnsToken } from '../apnsLiveActivity.mjs'
+import { readCampusAlertCached } from '../campusAlert.mjs'
+import { runCampusAlertPush } from '../campusAlertPush.mjs'
 import { runCronTick } from '../cronTick.mjs'
-import { DB_FEATURES, respondSchemaMissing } from '../dbErrors.mjs'
+import { DB_FEATURES, respondDbError, respondSchemaMissing } from '../dbErrors.mjs'
 import { isMissingColumnError, runDiningFavoriteAlerts } from '../diningFavoriteAlerts.mjs'
-import { parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
+import { fetchExpoReceipts, parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
 import {
+  endLiveActivity,
+  liveActivitiesEnabled,
+  parseActivityId,
+  parseLiveActivityStart,
+  runLiveActivities,
+  startLiveActivity,
+  updateLiveActivityToken,
+} from '../liveActivities.mjs'
+import {
+  KIND_SETTING_COLUMNS,
   buildTestPayload,
   deliverToPushDevices,
   isMissingTableError,
   loadPushDevices,
   parseSettingsPatch,
   runDeadlineReminders,
+  settingsConflict,
   settingsFromRow,
-  withLocalRemindersColumn,
+  withDeviceColumns,
 } from '../pushReminders.mjs'
+import { runPushReceipts } from '../pushReceipts.mjs'
+import { NOTIFICATION_KINDS_VERSION, notificationKindsDigest } from '../notificationKinds.mjs'
 import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 
 // Push notifications (issue #9): Web Push subscriptions, settings, test sends
@@ -33,6 +49,18 @@ import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 // the test send and the reminders cover both kinds of device, except that a
 // phone registered with localReminders: true gets no deadline reminders
 // (Antoniodeoliveirasegura/boilerindy-app#55, see src/pushReminders.mjs).
+//
+// Every notification is a kind of the kind registry (src/notificationKinds.mjs,
+// issue #550). The public config reports the registry's version and digest,
+// the kinds PUSH_KINDS_OFF names are not sent, and every Expo request carries
+// EXPO_ACCESS_TOKEN when it is set.
+//
+// The 30-second tick, POST /api/internal/push/fast-tick, pushes IU's campus
+// alerts (src/campusAlertPush.mjs) behind CAMPUS_ALERTS and CAMPUS_ALERT_PUSH,
+// and keeps Track this bus, the app's Live Activity, current over APNs
+// (src/liveActivities.mjs) once APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are
+// set. The app reports each Live Activity at /api/live-activities, signed in
+// or out, which is why those routes ask for no session.
 
 const PUSH_MAX_SUBSCRIPTIONS_PER_USER = 10
 const PUSH_MAX_DEVICES_PER_USER = 10
@@ -55,6 +83,22 @@ function pushDisabledResponse(res) {
   })
 }
 
+function pushKindOffResponse(res) {
+  return res.status(503).json({
+    error: { code: 'push_kind_off', message: 'Test notifications are switched off on this server.', status: 503 },
+  })
+}
+
+function liveActivityDisabled(res) {
+  return res.status(503).json({
+    error: { code: 'live_activity_disabled', message: 'Track this bus is not available right now.', status: 503 },
+  })
+}
+
+function liveActivityGone(res, status, code) {
+  return res.status(status).json({ error: { code, message: 'This bus is no longer being tracked.', status } })
+}
+
 function summarizePushSubscription(row) {
   return {
     id: row.id,
@@ -64,8 +108,24 @@ function summarizePushSubscription(row) {
   }
 }
 
+// What POST /api/me/push-token stored, as the app reads it back: never the
+// token nor the Live Activity start token. Before README step 47 (or 54) the
+// row lacks the columns and they read as false and null.
+function summarizeRegistration(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    localReminders: row.local_reminders === true,
+    kinds: Array.isArray(row.kinds) ? row.kinds : null,
+    channels: Array.isArray(row.channels) ? row.channels : null,
+    kindsVersion: Number.isInteger(row.kinds_version) ? row.kinds_version : null,
+    redact: row.redact === true,
+  }
+}
+
 // Never the token: like a push endpoint, it lets anyone notify the phone.
-// localReminders is false for a row read before README step 47 added it.
+// localReminders is false for a row read before README step 47 added it, and
+// kinds null before step 54 (issue #550) or for an older app build.
 function summarizePushDevice(row) {
   return {
     id: row.id,
@@ -74,27 +134,42 @@ function summarizePushDevice(row) {
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at || null,
     localReminders: row.local_reminders === true,
+    kinds: Array.isArray(row.kinds) ? row.kinds : null,
   }
 }
 
 /**
- * GET /api/push/config, the public key a browser subscribes with. server.mjs
- * mounts this in its public reads block, before the session middleware, where
- * the route used to be registered. Paths stay absolute (`/api/push/config`)
- * so docs/RATE_LIMITS.md and its guard test read the same whether a route
- * lives here or in server.mjs.
+ * GET /api/push/config, the public key a browser subscribes with, the kind
+ * registry's version and digest (`kinds`), which the app compares with its own
+ * copy's, and whether campus alerts are pushed (`campusAlertPush`) and Track
+ * this bus runs (`liveActivities`), so a client offers each only where it does
+ * something. server.mjs mounts this in its public reads block, before the
+ * session middleware, where the route used to be registered. Paths stay
+ * absolute (`/api/push/config`) so docs/RATE_LIMITS.md and its guard test read
+ * the same whether a route lives here or in server.mjs.
  *
  * @param {object}      deps
  * @param {Function}    deps.publicReadIpRateLimit the per-address cap across the public reads
  * @param {Function}    deps.publicReadRateLimit   the shared public-read bucket
  * @param {object|null} deps.vapidKeys             loadVapidKeys() from src/webPush.mjs, or null when push is off
+ * @param {boolean}     [deps.campusAlertPush]     CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on
+ * @param {boolean}     [deps.liveActivities]      liveActivitiesEnabled() from src/liveActivities.mjs:
+ *   the APNs key set, push on, and the kind not in PUSH_KINDS_OFF
  */
-export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }) {
+export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys, campusAlertPush = false, liveActivities = false }) {
   const router = express.Router()
+  // The registry is fixed for the life of the process, so its digest is taken once.
+  const kinds = notificationKindsDigest().then((digest) => ({ version: NOTIFICATION_KINDS_VERSION, digest }))
 
-  function handlePushConfig(_req, res) {
+  async function handlePushConfig(_req, res) {
     res.set('Cache-Control', 'no-store')
-    res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null })
+    res.json({
+      enabled: Boolean(vapidKeys),
+      publicKey: vapidKeys ? vapidKeys.publicKey : null,
+      kinds: await kinds,
+      campusAlertPush: Boolean(vapidKeys) && campusAlertPush,
+      liveActivities: Boolean(liveActivities),
+    })
   }
 
   router.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
@@ -117,50 +192,97 @@ export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLi
  * @param {Function}    deps.pushCronSecretMatches checks an Authorization header against it
  * @param {Function}    deps.warnCronTransient     server.mjs's warning for a transient failure that
  *   survived the tick's retry; the source re-sync route uses these three too
+ * @param {Set<string>} [deps.kindsOff]            the kinds PUSH_KINDS_OFF stops (kindsOffFromSetting
+ *   in src/notificationKinds.mjs); none by default
+ * @param {string}      [deps.expoAccessToken]     EXPO_ACCESS_TOKEN, sent with every Expo request when set
  * @param {Function}    [deps.sendExpo]            sendExpoPush from src/expoPush.mjs, the default;
  *   the tests hand in a fake so nothing reaches Expo
+ * @param {Function}    [deps.getExpoReceipts]     fetchExpoReceipts from src/expoPush.mjs, the default
+ * @param {Function}    [deps.getCached]           server.mjs's shared stale-on-failure cache, through
+ *   which the fast tick reads IU's alert feed with the banner (readCampusAlertCached)
+ * @param {boolean}     [deps.campusAlertPush]     CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on; off,
+ *   the fast tick reads nothing
+ * @param {string[]}    [deps.adminEmails]         ADMIN_EMAILS, lowercased: with users.is_admin, the
+ *   accounts IU's test alerts are pushed to
+ * @param {Function}    [deps.readCampusAlert]     how the fast tick reads the alert; the default reads
+ *   it through getCached, and the tests hand in a fake
+ * @param {Function}    deps.widgetReadIpRateLimit the per-address cap on the widgets' arrivals read,
+ *   which the Live Activity routes share
+ * @param {Function}    deps.widgetReadRateLimit   the widget-read bucket (issue #549)
+ * @param {Function}    [deps.getCurrentUser]      server.mjs's session user, or null: the Live
+ *   Activity routes take a signed-out phone too
+ * @param {Function}    [deps.sendLiveActivity]    the APNs sender's send (createApnsSender in
+ *   src/apnsLiveActivity.mjs), or null while APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are unset;
+ *   the tests hand in a stub
+ * @param {Function}    [deps.readArrivals]        a stop's arrivals through the widgets' cache
+ *   (createTransitReads in src/routes/campus.mjs), which the fast tick's Live Activities read
  */
 export function createPushRouter({
   supabase,
   requireAuth,
   pushWriteRateLimit,
   pushTestRateLimit,
+  widgetReadIpRateLimit,
+  widgetReadRateLimit,
   vapidKeys,
   PUSH_CRON_SECRET,
   pushCronSecretMatches,
   warnCronTransient,
   getDiningSnapshot,
+  kindsOff = new Set(),
+  expoAccessToken = '',
   sendExpo = sendExpoPush,
+  getExpoReceipts = fetchExpoReceipts,
+  getCached = null,
+  campusAlertPush = false,
+  adminEmails = [],
+  readCampusAlert = getCached ? () => readCampusAlertCached(getCached) : null,
+  getCurrentUser = async () => null,
+  sendLiveActivity = null,
+  readArrivals = null,
 }) {
   const router = express.Router()
+  // Every Expo request, from the test send and the cron runs alike, carries
+  // the access token; nothing else ever sees it.
+  const sendToExpo = (options) => sendExpo({ ...options, accessToken: expoAccessToken })
+  const receiptsFromExpo = (ids) => getExpoReceipts({ ids, accessToken: expoAccessToken })
 
-  // The favorite-dish switch (issue #469) is a column that
-  // db/supabase-dining-favorite-alerts.sql adds. Until it runs the settings
-  // still load without it, and `diningAlertsAvailable` says so.
+  // The favorite-dish switch (issue #469) and the choices by kind (issue #550)
+  // are columns that db/supabase-dining-favorite-alerts.sql (README step 42)
+  // and db/supabase-push-kinds.sql (step 53) add. Until they run the settings
+  // still load without them, and `diningAlertsAvailable` and `kindsAvailable`
+  // say so: each read names the columns of the steps it assumes, the most
+  // first, and falls back while a column is missing.
   async function loadPushSettingsRow(userId) {
-    const query = (columns) => supabase.from('push_settings').select(columns).eq('user_id', userId).maybeSingle()
-    const full = await query('deadline_reminders, lead_minutes, dining_favorite_alerts')
-    if (!full.error) return { row: full.data, diningAlertsAvailable: true }
-    if (!isMissingColumnError(full.error)) throw full.error
-    const { data, error } = await query('deadline_reminders, lead_minutes')
-    if (error) throw error
-    return { row: data, diningAlertsAvailable: false }
+    const query = (columns) => supabase.from('push_settings').select(columns.join(', ')).eq('user_id', userId).maybeSingle()
+    const attempts = [
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+    ]
+    for (const [i, [dining, kinds]] of attempts.entries()) {
+      const columns = ['deadline_reminders', 'lead_minutes', ...(dining ? ['dining_favorite_alerts'] : []), ...(kinds ? KIND_SETTING_COLUMNS : [])]
+      const { data, error } = await query(columns)
+      if (!error) return { row: data, diningAlertsAvailable: dining, kindsAvailable: kinds }
+      if (!isMissingColumnError(error) || i === attempts.length - 1) throw error
+    }
   }
 
   router.get('/api/push/settings', requireAuth, async (req, res) => {
     const userId = req.currentUser.id
     try {
-      const [{ row: settingsRow, diningAlertsAvailable }, subsRes, devicesRes] = await Promise.all([
+      const [{ row: settingsRow, diningAlertsAvailable, kindsAvailable }, subsRes, devicesRes] = await Promise.all([
         loadPushSettingsRow(userId),
         supabase
           .from('push_subscriptions')
           .select('id, created_at, user_agent, last_used_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: true }),
-        withLocalRemindersColumn((withFlag) =>
+        withDeviceColumns(({ kinds, local }) =>
           supabase
             .from('push_devices')
-            .select(`id, platform, device_name, created_at, last_seen_at${withFlag ? ', local_reminders' : ''}`)
+            .select(`id, platform, device_name, created_at, last_seen_at${local ? ', local_reminders' : ''}${kinds ? ', kinds' : ''}`)
             .eq('user_id', userId)
             .order('created_at', { ascending: true }),
         ),
@@ -175,6 +297,7 @@ export function createPushRouter({
         enabled: Boolean(vapidKeys),
         settings: settingsFromRow(settingsRow),
         diningAlertsAvailable,
+        kindsAvailable,
         subscriptions: (subsRes.data || []).map(summarizePushSubscription),
         devices: devicesRes.error ? [] : (devicesRes.data || []).map(summarizePushDevice),
       })
@@ -190,25 +313,41 @@ export function createPushRouter({
     const parsed = parseSettingsPatch(req.body)
     if (!parsed.ok) return res.status(400).json({ error: { message: parsed.error, status: 400 } })
     try {
-      const { row: currentRow, diningAlertsAvailable } = await loadPushSettingsRow(userId)
+      const { row: currentRow, diningAlertsAvailable, kindsAvailable } = await loadPushSettingsRow(userId)
       if ('dining_favorite_alerts' in parsed.patch && !diningAlertsAvailable) {
         return respondSchemaMissing(res, DB_FEATURES.dining_alerts, { code: '42703', message: 'push_settings.dining_favorite_alerts does not exist' })
       }
+      if (parsed.kinds && !kindsAvailable) {
+        return respondSchemaMissing(res, DB_FEATURES.push_kinds, { code: '42703', message: 'push_settings.digest_minute does not exist' })
+      }
       const current = settingsFromRow(currentRow)
+      const value = (column, saved) => (column in parsed.patch ? parsed.patch[column] : saved)
       const row = {
         user_id: userId,
-        deadline_reminders:
-          'deadline_reminders' in parsed.patch ? parsed.patch.deadline_reminders : current.deadlineReminders,
-        lead_minutes: 'lead_minutes' in parsed.patch ? parsed.patch.lead_minutes : current.leadMinutes,
+        deadline_reminders: value('deadline_reminders', current.deadlineReminders),
+        lead_minutes: value('lead_minutes', current.leadMinutes),
         updated_at: new Date().toISOString(),
       }
-      if (diningAlertsAvailable) {
-        row.dining_favorite_alerts =
-          'dining_favorite_alerts' in parsed.patch ? parsed.patch.dining_favorite_alerts : current.diningFavoriteAlerts
+      if (diningAlertsAvailable) row.dining_favorite_alerts = value('dining_favorite_alerts', current.diningFavoriteAlerts)
+      if (kindsAvailable) {
+        Object.assign(row, {
+          class_reminders: value('class_reminders', current.classReminders),
+          class_lead_minutes: value('class_lead_minutes', current.classLeadMinutes),
+          digest_minute: value('digest_minute', current.digestMinute),
+          deadline_items: value('deadline_items', current.deadlineItems),
+          quiet_start: value('quiet_start', current.quietStart),
+          quiet_end: value('quiet_end', current.quietEnd),
+          campus_alerts: value('campus_alerts', current.campusAlerts),
+          // Set once, by the first phone on an app build with kinds, which
+          // fills in the account from the old switches (boilerindy-app#172).
+          kinds_migrated_at: currentRow?.kinds_migrated_at ?? (parsed.patch.kinds_migrated_at ? new Date().toISOString() : null),
+        })
+        const conflict = settingsConflict(settingsFromRow(row))
+        if (conflict) return res.status(400).json({ error: { message: conflict, status: 400 } })
       }
       const { error } = await supabase.from('push_settings').upsert(row, { onConflict: 'user_id' })
       if (error) throw error
-      res.json({ settings: settingsFromRow(row), diningAlertsAvailable })
+      res.json({ settings: settingsFromRow(row), diningAlertsAvailable, kindsAvailable })
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res)
       console.error('PUT /api/push/settings:', error?.message || error)
@@ -343,15 +482,25 @@ export function createPushRouter({
         last_seen_at: new Date().toISOString(),
         failure_count: 0,
       }
-      const { data, error } = await withLocalRemindersColumn((withFlag) =>
-        supabase
-          .from('push_devices')
-          .upsert(withFlag ? { ...device, local_reminders: parsed.localReminders } : device, { onConflict: 'token' })
-          .select(withFlag ? 'id, created_at, local_reminders' : 'id, created_at')
-          .single(),
-      )
+      // Every registration replaces what the phone reported last time, so a
+      // body from an older build stores no kinds (README step 54, issue #550).
+      const { data, error } = await withDeviceColumns(({ kinds, local }) => {
+        const row = { ...device }
+        if (local) row.local_reminders = parsed.localReminders
+        if (kinds) {
+          Object.assign(row, {
+            kinds: parsed.kinds,
+            channels: parsed.channels,
+            kinds_version: parsed.kindsVersion,
+            redact: parsed.redact,
+            activity_start_token: parsed.activityStartToken,
+          })
+        }
+        const columns = ['id, created_at', ...(local ? ['local_reminders'] : []), ...(kinds ? ['kinds', 'channels', 'kinds_version', 'redact'] : [])]
+        return supabase.from('push_devices').upsert(row, { onConflict: 'token' }).select(columns.join(', ')).single()
+      })
       if (error) throw error
-      res.status(201).json({ device: { id: data.id, createdAt: data.created_at, localReminders: data.local_reminders === true } })
+      res.status(201).json({ device: summarizeRegistration(data) })
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res, PUSH_DEVICES_SQL_FILE)
       console.error('POST /api/me/push-token:', error?.message || error)
@@ -381,7 +530,10 @@ export function createPushRouter({
     }
   })
 
-  async function deliverPushToUser(userId, payload, { topic = null } = {}) {
+  // `payloadFor(device)` words the push for each device: null for a browser,
+  // else the phone's push_devices row. The phones that share a wording go out
+  // in one Expo request.
+  async function deliverPushToUser(userId, payloadFor, { topic = null } = {}) {
     const { data, error } = await supabase
       .from('push_subscriptions')
       .select('id, endpoint, p256dh, auth, failure_count')
@@ -392,6 +544,7 @@ export function createPushRouter({
     // reminders or not: only the deadline reminders leave those phones out.
     const loaded = await loadPushDevices(supabase, [userId])
     const outcome = { sent: 0, failed: 0, removed: loaded.removed }
+    const payload = payloadFor(null)
     for (const row of data || []) {
       const result = await sendWebPush({
         subscription: { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
@@ -418,17 +571,32 @@ export function createPushRouter({
     }
     // Then the phones, with the same strike and removal bookkeeping as the
     // reminder runner.
-    const native = await deliverToPushDevices({ client: supabase, devices: loaded.devices, payload, send: sendExpo })
-    outcome.sent += native.sent
-    outcome.failed += native.failed
-    outcome.removed += native.removed
+    const byWording = new Map()
+    for (const device of loaded.devices) {
+      const devicePayload = payloadFor(device)
+      const key = JSON.stringify(devicePayload)
+      if (!byWording.has(key)) byWording.set(key, { payload: devicePayload, devices: [] })
+      byWording.get(key).devices.push(device)
+    }
+    for (const group of byWording.values()) {
+      const native = await deliverToPushDevices({ client: supabase, devices: group.devices, payload: group.payload, send: sendToExpo })
+      outcome.sent += native.sent
+      outcome.failed += native.failed
+      outcome.removed += native.removed
+    }
     return outcome
   }
 
+  // The test push says what each device gets (issue #550, item 2): a phone
+  // with local reminders on hears that its reminders come from the phone.
+  const testPayloadFor = (device) =>
+    buildTestPayload(device ? { localReminders: device.local_reminders === true, platform: device.platform ?? null } : {})
+
   router.post('/api/push/test', pushTestRateLimit, requireAuth, async (req, res) => {
     if (!vapidKeys) return pushDisabledResponse(res)
+    if (kindsOff.has('test')) return pushKindOffResponse(res)
     try {
-      const outcome = await deliverPushToUser(req.currentUser.id, buildTestPayload(), { topic: 'test' })
+      const outcome = await deliverPushToUser(req.currentUser.id, testPayloadFor, { topic: 'test' })
       res.json(outcome)
     } catch (error) {
       if (isMissingTableError(error)) return pushNotConfigured(res)
@@ -449,16 +617,19 @@ export function createPushRouter({
     }
     // The favorite-dish alerts (issue #469) ride the same tick; re-running a
     // tick is safe for them too, since each student is claimed once a day.
+    // Then the Expo receipts of earlier sends (issue #550, item 7), which only
+    // record what Expo answers, so re-reading them is safe as well.
     const outcome = await runCronTick('run-reminders', async () => {
-      const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys })
+      const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys, sendExpo: sendToExpo, kindsOff })
       if (getDiningSnapshot) {
-        summary.dining = await runDiningFavoriteAlerts({ client: supabase, keys: vapidKeys, getSnapshot: getDiningSnapshot })
+        summary.dining = await runDiningFavoriteAlerts({ client: supabase, keys: vapidKeys, getSnapshot: getDiningSnapshot, sendExpo: sendToExpo, kindsOff })
       }
+      if (vapidKeys) summary.receipts = await runPushReceipts({ client: supabase, getReceipts: receiptsFromExpo })
       return summary
     })
     if (outcome.ok) {
       const summary = outcome.summary
-      if (summary.sent || summary.failed || summary.dining?.sent || summary.dining?.failed) {
+      if (summary.sent || summary.failed || summary.dining?.sent || summary.dining?.failed || summary.receipts?.failed || summary.receipts?.removed) {
         console.log(`[push] reminders: ${JSON.stringify(summary)}`)
       }
       return res.json(summary)
@@ -469,6 +640,127 @@ export function createPushRouter({
     }
     console.error('POST /api/internal/push/run-reminders:', outcome.error?.message || outcome.error)
     res.status(500).json({ ok: false, error: 'Reminder run failed.' })
+  })
+
+  // Track this bus (issue #550; boilerindy-app#173, item 5): the app reports
+  // each Live Activity it starts, and the fast tick below keeps it current
+  // over APNs (src/liveActivities.mjs). Signed in or out (decision 4 of the
+  // notifications build): a signed-out phone is held to the widget-read limits
+  // on its address and the activity's 30-minute life. The activity id, which
+  // only the phone knows, is what PATCH and DELETE ask for. While Track this
+  // bus is off, POST and PATCH answer 503 live_activity_disabled; DELETE always
+  // works, since ending one is always safe.
+  const liveActivitiesOn = liveActivitiesEnabled({ send: sendLiveActivity, vapidKeys, kindsOff })
+
+  // Body { activityId, token, env, stop, routeId? }; 201 { endsAt } for a new
+  // activity, 200 with the same endsAt when the app sends one again.
+  router.post('/api/live-activities', widgetReadIpRateLimit, widgetReadRateLimit, async (req, res) => {
+    if (!liveActivitiesOn) return liveActivityDisabled(res)
+    const parsed = parseLiveActivityStart(req.body)
+    if (!parsed.ok) return res.status(400).json({ error: { message: parsed.error, status: 400 } })
+    try {
+      const user = await getCurrentUser(req)
+      const started = await startLiveActivity(supabase, parsed.activity, { userId: user?.id ?? null })
+      if (started.status === 'ended') return liveActivityGone(res, 409, 'live_activity_ended')
+      res.status(started.status === 'started' ? 201 : 200).json({ endsAt: started.endsAt })
+    } catch (error) {
+      respondDbError(res, error, DB_FEATURES.live_activities)
+    }
+  })
+
+  // Body { token }: the activity's new push token, which ActivityKit can hand
+  // the app while the activity runs.
+  router.patch('/api/live-activities/:activityId', widgetReadIpRateLimit, widgetReadRateLimit, async (req, res) => {
+    if (!liveActivitiesOn) return liveActivityDisabled(res)
+    const activityId = parseActivityId(req.params.activityId)
+    const token = normalizeApnsToken(req.body?.token)
+    if (!activityId || !token) {
+      return res.status(400).json({ error: { message: 'A Live Activity id and its push token, in hex, are required.', status: 400 } })
+    }
+    try {
+      const updated = await updateLiveActivityToken(supabase, activityId, token)
+      if (!updated) return liveActivityGone(res, 404, 'live_activity_not_found')
+      res.json({ endsAt: updated.endsAt })
+    } catch (error) {
+      respondDbError(res, error, DB_FEATURES.live_activities)
+    }
+  })
+
+  // The student ended it on the phone: no more pushes. { ended } says whether
+  // an open activity had the id.
+  router.delete('/api/live-activities/:activityId', widgetReadIpRateLimit, widgetReadRateLimit, async (req, res) => {
+    const activityId = parseActivityId(req.params.activityId)
+    if (!activityId) return res.status(400).json({ error: { message: 'A Live Activity id is required.', status: 400 } })
+    try {
+      res.json({ ended: await endLiveActivity(supabase, activityId) })
+    } catch (error) {
+      respondDbError(res, error, DB_FEATURES.live_activities)
+    }
+  })
+
+  // The 30-second tick (issue #550), called by the pg_cron job in
+  // db/supabase-push-fast-tick.sql (README step 57) with the same bearer
+  // token: campus alerts first (src/campusAlertPush.mjs), then the Live
+  // Activities (src/liveActivities.mjs), each under its own runCronTick, so a
+  // failure in one leaves the other its turn. With both off it answers at once
+  // and reads nothing. A tick that comes while the last one is still sending
+  // (a broadcast to every device can outlast 30 s) is skipped; the lock is per
+  // process, and the claims in the database cover a second instance. A
+  // transient Supabase failure gets one retry, as the reminder run's does.
+  const OFF = Object.freeze({ ok: false, reason: 'off' })
+  let fastTickRunning = false
+  router.post('/api/internal/push/fast-tick', async (req, res, next) => {
+    if (!PUSH_CRON_SECRET) return next()
+    if (!pushCronSecretMatches(req.get('authorization'))) {
+      return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
+    }
+    const campusOn = campusAlertPush && Boolean(readCampusAlert)
+    const liveOn = liveActivitiesOn && Boolean(readArrivals)
+    if (!campusOn && !liveOn) return res.json({ campusAlerts: OFF, liveActivities: OFF })
+    if (fastTickRunning) return res.json({ skipped: 'busy' })
+    fastTickRunning = true
+    try {
+      const summary = { campusAlerts: OFF, liveActivities: OFF }
+      const failures = []
+      if (campusOn) {
+        const outcome = await runCronTick('fast-tick', () =>
+          runCampusAlertPush({ client: supabase, keys: vapidKeys, readAlert: readCampusAlert, kindsOff, adminEmails, sendExpo: sendToExpo }),
+        )
+        if (outcome.ok) {
+          summary.campusAlerts = outcome.summary
+          // A line only for a message seen for the first time: its role, the
+          // incident, and the counts. Never a token or an endpoint.
+          if (outcome.summary.role) console.log(`[push] campus alert: ${JSON.stringify({ ...outcome.summary, ranAt: undefined })}`)
+        } else {
+          failures.push(outcome)
+        }
+      }
+      if (liveOn) {
+        const outcome = await runCronTick('fast-tick live activities', () => runLiveActivities({ client: supabase, send: sendLiveActivity, readArrivals }))
+        if (outcome.ok) {
+          summary.liveActivities = outcome.summary
+          // A line only when a push went out or failed or an activity ended:
+          // counts and APNs' reason codes, never a token or an activity id.
+          const live = outcome.summary
+          if (live.updates || live.arriving || live.failed || Object.keys(live.ended).length) {
+            console.log(`[push] live activities: ${JSON.stringify({ ...live, ranAt: undefined })}`)
+          }
+        } else {
+          failures.push(outcome)
+        }
+      }
+      if (!failures.length) return res.json(summary)
+      for (const failure of failures) {
+        if (failure.transient) warnCronTransient('POST /api/internal/push/fast-tick', failure.error)
+        else console.error('POST /api/internal/push/fast-tick:', failure.error?.message || failure.error)
+      }
+      if (failures.every((failure) => failure.transient)) {
+        return res.status(503).json({ ok: false, error: 'Fast tick skipped: upstream unavailable, the next tick will retry.' })
+      }
+      res.status(500).json({ ok: false, error: 'Fast tick failed.' })
+    } finally {
+      fastTickRunning = false
+    }
   })
 
   return router

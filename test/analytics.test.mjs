@@ -46,6 +46,29 @@ test('allowlist contains the issue #51 starter events', () => {
   }
 })
 
+// The native app's notification events (issue #550, boilerindy-app#172 item
+// 9): accepted here first, so the app's batches never carry a name the server
+// would refuse.
+test('the notification events are accepted, alone and beside a page view', () => {
+  const rows = normalizeAnalyticsBatch({
+    events: [
+      { event_name: 'notification_opened', props: { kind: 'deadline', action: 'default' } },
+      { event_name: 'notification_setting_changed', props: { kind: 'dining-favorites', on: true } },
+      { event_name: 'notification_permission', props: { result: 'granted', from: 'offer' } },
+      { event_name: 'notification_offer', props: { kind: 'class', accepted: false } },
+      { event_name: 'page_view', page: '/profile' },
+    ],
+  })
+  assert.deepEqual(rows.map((row) => row.event_name), [
+    'notification_opened',
+    'notification_setting_changed',
+    'notification_permission',
+    'notification_offer',
+    'page_view',
+  ])
+  assert.deepEqual(rows[0].props, { kind: 'deadline', action: 'default' })
+})
+
 // One unknown name makes normalizeAnalyticsBatch reject the whole batch, and
 // usageStats.ts has already taken the batch off its queue, so a page that
 // tracks an unlisted name silently loses its page_view too (#421).

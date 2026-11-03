@@ -28,6 +28,13 @@ export const ANALYTICS_EVENTS = [
   'friends_viewed',
   'study_groups_viewed',
   'share_clicked',
+  // The native app's notification events (issue #550 and
+  // Antoniodeoliveirasegura/boilerindy-app#172, item 9). They are here before
+  // any app build sends them: one unknown name rejects a whole batch.
+  'notification_opened',
+  'notification_setting_changed',
+  'notification_permission',
+  'notification_offer',
 ]
 
 export const ANALYTICS_BATCH_MAX = 20
