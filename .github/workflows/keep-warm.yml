@@ -9,9 +9,11 @@ name: Keep backend warm
 # This workflow is the BACKSTOP, not the primary pinger. GitHub throttles
 # scheduled workflows: on the previous */10 schedule it ran 12 times in 31 hours,
 # with gaps of 1.75 to 4.5 hours between runs, so the instance slept for most of
-# the day anyway. The primary pinger is now a Supabase pg_cron job
-# (db/supabase-keep-warm.sql) that hits the same URL every 5 minutes from a
-# database that never sleeps. docs/keep-warm.md describes the whole setup.
+# the day anyway. The primary pingers are Supabase pg_cron jobs, run from a
+# database that never sleeps: the push reminder run (every 5 minutes) and the
+# fast tick (every minute) call the API, and until 2026-11-03 the keep-warm job
+# in db/supabase-keep-warm.sql hit this URL too. docs/keep-warm.md describes the
+# whole setup.
 #
 # Caveats worth knowing:
 # - Scheduled workflows only run from the DEFAULT branch (main). On develop this

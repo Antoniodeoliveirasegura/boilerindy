@@ -11,7 +11,7 @@ the server: see [Phones with local reminders](#phones-with-local-reminders).
 Every notification belongs to a kind of the kind registry (issue #550), which
 sets how loud it is, how it stacks and how long it is worth delivering: see
 [Kind registry](#kind-registry). IU's campus alerts go out from a second,
-30-second tick: see [The 30-second tick](#the-30-second-tick-campus-alerts).
+faster tick: see [The fast tick](#the-fast-tick-campus-alerts).
 The same tick keeps Track this bus, the app's Live Activity, current over
 APNs: see [Track this bus](#track-this-bus-the-live-activity).
 
@@ -70,7 +70,7 @@ notifications on again on each device.
 | `PUSH_CRON_SECRET` | Bearer token for the reminder runner. Blank means the route falls through to the JSON 404. |
 | `PUSH_KINDS_OFF` | Kind ids from the [kind registry](#kind-registry), separated by commas, that the server stops sending. Blank sends every kind. See [Stopping a kind](#stopping-a-kind-push_kinds_off). |
 | `EXPO_ACCESS_TOKEN` | The project's Expo access token, sent with every native push for Expo's enhanced push security. Blank sends none. Set it before turning that setting on: see [Native devices (Expo)](#native-devices-expo). |
-| `CAMPUS_ALERT_PUSH` | `off` by default. With `CAMPUS_ALERTS` on too, the 30-second tick pushes IU's campus alerts. See [The 30-second tick](#the-30-second-tick-campus-alerts). |
+| `CAMPUS_ALERT_PUSH` | `off` by default. With `CAMPUS_ALERTS` on too, the fast tick pushes IU's campus alerts. See [The fast tick](#the-fast-tick-campus-alerts). |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | The APNs auth key that signs Track this bus's updates: the `.p8` file's contents (its line breaks, or `\n` for each), its 10-character key id, and the 10-character team id. All three or none; blank leaves Track this bus off. Secret: never logged or returned. See [Track this bus](#track-this-bus-the-live-activity). |
 
 The server validates the pair at boot (length, curve membership, and that the
@@ -92,7 +92,7 @@ All routes except `config`, `/api/live-activities`, `run-reminders` and `fast-ti
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
 | `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). 503 `push_kind_off` while `PUSH_KINDS_OFF` lists `test`. |
 | `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
-| `POST /api/internal/push/fast-tick` | Returns `{ campusAlerts, liveActivities }`, the summaries of the campus alert run and the Live Activity run, or `{ skipped: 'busy' }` | The same bearer token and retry, each half retried on its own. Every 30 seconds ([below](#the-30-second-tick-campus-alerts)); a half that is off answers `{ ok: false, reason: 'off' }`, and with both off the tick reads nothing. |
+| `POST /api/internal/push/fast-tick` | Returns `{ campusAlerts, liveActivities }`, the summaries of the campus alert run and the Live Activity run, or `{ skipped: 'busy' }` | The same bearer token and retry, each half retried on its own. Every minute ([below](#the-fast-tick-campus-alerts)); a half that is off answers `{ ok: false, reason: 'off' }`, and with both off the tick reads nothing. |
 | `POST /api/live-activities` | Body `{ activityId, token, env, stop, routeId? }`, returns 201 `{ endsAt }`, or 200 with the same `endsAt` for an activity sent again | Track this bus: the app's Live Activity, signed in or out. `widget-read` limits. 503 `live_activity_disabled` while it is off, 409 `live_activity_ended` for an activity already over. See [Track this bus](#track-this-bus-the-live-activity). |
 | `PATCH /api/live-activities/:activityId` | Body `{ token }`, returns `{ endsAt }` | The activity's new push token. 404 `live_activity_not_found` once it is over. |
 | `DELETE /api/live-activities/:activityId` | Returns `{ ended }` | The student ended it on the phone; no more pushes. Answers even while Track this bus is off. |
@@ -189,7 +189,7 @@ What reads it today:
   seconds an update is kept ([Track this bus](#track-this-bus-the-live-activity)).
 
 The rest of issue #550 builds on it: campus alert pushes (item 9) are in [The
-30-second tick](#the-30-second-tick-campus-alerts), and the Live Activity's
+fast tick](#the-fast-tick-campus-alerts), and the Live Activity's
 sender in [Track this bus](#track-this-bus-the-live-activity). The copy and the links to the item
 (items 2 and 5) are in [Notification payload](#notification-payload), the
 choices by kind (items 3 and 8) and the dish alerts' timing (item 6) below,
@@ -281,7 +281,7 @@ card and the app show the same kinds:
 | `deadline_items`, `lead_minutes` | `deadlineItems`, `leadMinutes` | off, 60 | A reminder before each item, `leadMinutes` ahead. |
 | `quiet_start`, `quiet_end` | `quietStart`, `quietEnd` | 1380 to 480 (11:00 PM to 8:00 AM) | Quiet hours; a null pair for none. |
 | `class_reminders`, `class_lead_minutes` | `classReminders`, `classLeadMinutes` | off, 15 | The app's class reminders, which the phone schedules. The website only shows them. |
-| `campus_alerts` | `campusAlerts` | on | Campus alert pushes and their all clears ([The 30-second tick](#the-30-second-tick-campus-alerts)). Before step 53 every account gets them. |
+| `campus_alerts` | `campusAlerts` | on | Campus alert pushes and their all clears ([The fast tick](#the-fast-tick-campus-alerts)). Before step 53 every account gets them. |
 | `kinds_migrated_at` | `kindsMigrated` | not set | When the first phone on an app build with kinds filled the account in from its old switches. |
 
 Existing rows keep their per-item reminders (`deadline_items` takes
@@ -558,11 +558,12 @@ it. Browsers are unchanged.
   `withLocalRemindersColumn` in `src/pushReminders.mjs`, which retries without
   it.
 
-## The 30-second tick: campus alerts
+## The fast tick: campus alerts
 
 Issue #550, item 9 (issue #34). The pg_cron job in
 `db/supabase-push-fast-tick.sql` (README step 57, production only) calls
-`POST /api/internal/push/fast-tick` every 30 seconds with the same bearer
+`POST /api/internal/push/fast-tick` every minute (every 30 seconds until
+2026-11-03, see [database-outage.md](database-outage.md)) with the same bearer
 token as the reminder run. The tick reads IU's alert for the Indianapolis
 campus through the banner's cache, so IU is never asked more often than
 before, and `src/campusAlertPush.mjs` pushes:
@@ -611,7 +612,7 @@ calls these routes.
    student ending it to `DELETE`; the activity id, which only the phone knows,
    is what both ask for. `live_activities` (README step 58) keeps one row per
    activity, `user_id` empty when signed out.
-2. Every 30 seconds the fast tick reads each open activity's stop through the
+2. Every minute the fast tick reads each open activity's stop through the
    widgets' 15-second arrivals cache, once per stop, so TransLoc is never asked
    more often than before, and `src/liveActivities.mjs` sends:
    - the first reading after a start, so the phone and the server agree from

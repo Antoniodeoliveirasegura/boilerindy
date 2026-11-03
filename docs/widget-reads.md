@@ -132,7 +132,7 @@ five stops away is made up, as Orange had not started.)
 - One fill per place every 15 seconds at most, through the server's shared
   cache, however many widgets show it; the bus positions come from the same
   4 s cache as `/api/transit/vehicles`. Track this bus, the app's Live
-  Activity, reads the same cache from the 30-second push tick
+  Activity, reads the same cache from the push fast tick
   ([push-notifications.md](push-notifications.md#track-this-bus-the-live-activity)).
 - While TransLoc is down the last good answer keeps serving, with its own
   `fetchedAt`, so the widget can tell how old it is. Positions more than a

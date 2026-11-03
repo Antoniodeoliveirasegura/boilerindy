@@ -1,6 +1,6 @@
 -- Campus alert pushes (issue #550, item 9; issue #34). IU's alert feed for the
 -- Indianapolis campus holds one message at a time, the latest, and the
--- 30-second push tick (POST /api/internal/push/fast-tick, which the pg_cron job
+-- push fast tick (POST /api/internal/push/fast-tick, which the pg_cron job
 -- in db/supabase-push-fast-tick.sql calls) reads it through the banner's
 -- cache. The tick keeps each message it sees once and groups the messages into
 -- incidents: an emergency's first message opens one, and IU's "Campus Status

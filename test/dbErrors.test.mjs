@@ -146,6 +146,43 @@ test('a missing function answers 500 with the fallback, not a schema_missing 503
   assert.match(log.text(), /^guide DB error: PGRST202 Could not find the function/)
 })
 
+// 2026-11-03: while Postgres restarted, PostgREST answered PGRST002, whose
+// message mentions the schema cache, and every feature answered *_schema_missing.
+const schemaCacheLoading = () => ({
+  code: 'PGRST002',
+  message: 'Could not query the database for the schema cache. Retrying.',
+  details: null,
+  hint: null,
+})
+const gatewayPage = () => ({ message: '<!DOCTYPE html>\n<title>supabase.co | 522: Connection timed out</title>\n<body>Error code 522</body>' })
+
+test('isSchemaMissingError: a database that is still loading its schema cache is not a missing table', () => {
+  assert.equal(isSchemaMissingError(schemaCacheLoading()), false)
+  assert.equal(isSchemaMissingError(gatewayPage()), false)
+})
+
+test('respondDbError answers a database outage with 503 database_unavailable, not a missing table or a 500', (t) => {
+  const log = spyConsoleError(t)
+  for (const err of [schemaCacheLoading(), gatewayPage()]) {
+    const res = mockRes()
+    respondDbError(res, err, DB_FEATURES.campus_events)
+    assert.equal(res.statusCode, 503)
+    assert.equal(res.body.error.code, 'database_unavailable')
+  }
+  // The outage log uses console.warn, so nothing reaches Sentry through console.error.
+  assert.equal(log.count, 0)
+})
+
+test('respondRouteError answers a database outage with 503 database_unavailable', (t) => {
+  const log = spyConsoleError(t)
+  const res = mockRes()
+  respondRouteError(res, gatewayPage(), { label: 'GET /api/me/calendar', fallback: 'Could not load your calendar.' })
+  assert.equal(res.statusCode, 503)
+  assert.equal(res.body.error.code, 'database_unavailable')
+  assert.doesNotMatch(JSON.stringify(res.body), /DOCTYPE/)
+  assert.equal(log.count, 0)
+})
+
 test('isSchemaMissingError: other errors and non-errors are not schema-missing', () => {
   assert.equal(isSchemaMissingError(uniqueViolation()), false)
   assert.equal(isSchemaMissingError({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }), false)

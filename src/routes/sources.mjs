@@ -487,7 +487,7 @@ export function createSourcesRouter({
   // due dates fresh without the student pressing "Sync all". Called hourly by
   // the pg_cron job in db/supabase-source-resync.sql with the same bearer token
   // as the reminder runner. Sequential per run (one upstream fetch at a time),
-  // 15 sources per tick, oldest first; a tick already in flight answers 409.
+  // 4 sources per tick, oldest first; a tick already in flight answers 409.
   // The candidate listing gets one retry on a transient Supabase failure, and
   // each feed fetch one retry on a transient failure of the feed host.
   let sourceResyncInFlight = false

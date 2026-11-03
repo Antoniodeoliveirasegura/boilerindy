@@ -17,7 +17,7 @@ schedule.
   - `ready` / `pending`: never synced, or last synced more than 6 hours ago;
   - `error`: last attempt more than 24 hours ago, so an expired link is
     retried daily instead of every tick (the student can still press Sync).
-- At most 15 sources per tick, synced one at a time with the same
+- At most 4 sources per tick (15 until 2026-11-03, see [Tuning](#tuning)), synced one at a time with the same
   `runScheduleSync` the manual buttons use (SSRF-safe fetch, host allowlist,
   atomic replace of the items). A sync that fails marks its source `error`
   with the classified message and the tick moves on. After 60 seconds no new
@@ -65,7 +65,13 @@ back to Calendar sources.
 ## Tuning
 
 Defaults live at the top of `src/sourceResync.mjs` (`DEFAULT_STALE_MS`,
-`DEFAULT_ERROR_RETRY_MS`, `DEFAULT_BATCH`, `DEFAULT_BUDGET_MS`). With more
-than about 90 active sources (15 per hour, 6-hour staleness) the batch or the
-cron frequency needs to go up; `truncated: true` in the summary means more
-than 200 candidates were listed and the cap should rise too.
+`DEFAULT_ERROR_RETRY_MS`, `DEFAULT_BATCH`, `DEFAULT_BUDGET_MS`). The batch
+went from 15 to 4 on 2026-11-03, after the database ran out of memory
+([database-outage.md](database-outage.md)): sources linked together come due
+together, and 11 of them (about 2,000 items in 30 seconds) used to land in one
+run every 6 hours. Four spread that wave over three hourly runs. With more than
+about 24 active sources (4 per hour, 6-hour staleness) the oldest wait longer
+than 6 hours, which `deferred` and a growing `due` in the `[resync]` log show;
+raise the batch or the cron frequency once the database has memory to spare.
+`truncated: true` in the summary means more than 200 candidates were listed and
+the cap should rise too.

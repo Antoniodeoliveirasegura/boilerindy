@@ -3,7 +3,7 @@
 // stop, signed in or not (decision 4 of the notifications build), and reports
 // its APNs push token at POST /api/live-activities (src/routes/push.mjs), which
 // keeps it in live_activities (README step 58) with a 30-minute life. The
-// 30-second tick (POST /api/internal/push/fast-tick) reads each open
+// fast tick (POST /api/internal/push/fast-tick) reads each open
 // activity's stop through the widgets' 15-second arrivals cache, so it never
 // adds a request to TransLoc, and sends what changed over APNs
 // (src/apnsLiveActivity.mjs):

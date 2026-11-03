@@ -217,6 +217,19 @@ test('createSessionStore returns a store when the table is reachable', async () 
   assert.ok((await createSessionStore(client)) instanceof SupabaseSessionStore)
 })
 
+// 2026-11-03: a boot during a database outage must not leave the process on the
+// MemoryStore for good, signing everyone out at the next restart.
+test('createSessionStore keeps the store when the database cannot be reached at boot', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  for (const error of [
+    { message: '<!DOCTYPE html>\n<title>supabase.co | 522: Connection timed out</title>' },
+    { code: 'PGRST002', message: 'Could not query the database for the schema cache. Retrying.', details: null, hint: null },
+  ]) {
+    const client = makeClient({ select: { data: null, error } })
+    assert.ok((await createSessionStore(client)) instanceof SupabaseSessionStore)
+  }
+})
+
 test('createSessionStore returns null when the client throws outright', async () => {
   const client = {
     from() {

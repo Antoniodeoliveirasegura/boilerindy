@@ -55,7 +55,7 @@ import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 // the kinds PUSH_KINDS_OFF names are not sent, and every Expo request carries
 // EXPO_ACCESS_TOKEN when it is set.
 //
-// The 30-second tick, POST /api/internal/push/fast-tick, pushes IU's campus
+// The fast tick, POST /api/internal/push/fast-tick, pushes IU's campus
 // alerts (src/campusAlertPush.mjs) behind CAMPUS_ALERTS and CAMPUS_ALERT_PUSH,
 // and keeps Track this bus, the app's Live Activity, current over APNs
 // (src/liveActivities.mjs) once APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are
@@ -698,13 +698,13 @@ export function createPushRouter({
     }
   })
 
-  // The 30-second tick (issue #550), called by the pg_cron job in
+  // The fast tick (issue #550), called every minute by the pg_cron job in
   // db/supabase-push-fast-tick.sql (README step 57) with the same bearer
   // token: campus alerts first (src/campusAlertPush.mjs), then the Live
   // Activities (src/liveActivities.mjs), each under its own runCronTick, so a
   // failure in one leaves the other its turn. With both off it answers at once
   // and reads nothing. A tick that comes while the last one is still sending
-  // (a broadcast to every device can outlast 30 s) is skipped; the lock is per
+  // (a broadcast to every device can outlast a tick) is skipped; the lock is per
   // process, and the claims in the database cover a second instance. A
   // transient Supabase failure gets one retry, as the reminder run's does.
   const OFF = Object.freeze({ ok: false, reason: 'off' })

@@ -1,6 +1,6 @@
 // The APNs sender for Track this bus, the app's Live Activity (issue #550,
 // "Later"; boilerindy-app#173, item 5). The app starts the activity and
-// reports its push token at POST /api/live-activities; the 30-second tick
+// reports its push token at POST /api/live-activities; the fast tick
 // (src/liveActivities.mjs) decides what to send, and this module sends it
 // straight to Apple's push service. No dependency, as with Web Push
 // (src/webPush.mjs):

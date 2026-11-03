@@ -23,9 +23,10 @@
 --                                         58, so re-run this file after it)
 --
 -- One more keeps pg_cron's own run log in check. Every run of every job adds a
--- row to cron.job_run_details and pg_cron never removes them; the keep-warm and
--- push-reminder jobs alone add close to 600 a day, and the 30-second push tick
--- (README step 57) about 2,900, which is disk written and kept for nothing:
+-- row to cron.job_run_details and pg_cron never removes them; the push-reminder
+-- job alone adds close to 300 a day (the keep-warm ping, until 2026-11-03,
+-- another 300), and the push fast tick (README step 57) about 1,440, which is
+-- disk written and kept for nothing:
 --
 --   boilerindy-retention-cron-history     daily, cron.job_run_details older than 7 days
 --
