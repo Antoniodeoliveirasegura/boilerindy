@@ -8,6 +8,7 @@ import PublicLayout from './components/PublicLayout'
 import RequireAuth from './components/RequireAuth'
 import RequireAdmin from './components/RequireAdmin'
 import UsageListener from './components/UsageListener'
+import SkipSetupCarryOver from './components/SkipSetupCarryOver'
 import ServerWakeNotice from './components/ServerWakeNotice'
 import UpdateToast from './components/UpdateToast'
 import PageLoader from './components/PageLoader'
@@ -103,6 +104,7 @@ export default function App() {
         <ScrollToTop />
         <AuthProvider>
           <UsageListener />
+          <SkipSetupCarryOver />
           <PreloadStudentPages />
           <ServerWakeNotice />
           <UpdateToast />

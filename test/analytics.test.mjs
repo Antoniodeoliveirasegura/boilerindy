@@ -112,6 +112,29 @@ test('rejects event names outside the allowlist', () => {
   assert.throws(() => normalizeAnalyticsBatch({ events: [{}] }), /event/i)
 })
 
+// The native app's sign-in calendar reminder
+// (Antoniodeoliveirasegura/boilerindy-app#150): accepted here first, so the
+// app's batches never carry a name the server would refuse.
+test('the calendar reminder events are accepted with their case, beside a page view', () => {
+  const rows = normalizeAnalyticsBatch({
+    events: [
+      { event_name: 'calendar_reminder_shown', props: { case: 'none' } },
+      { event_name: 'calendar_reminder_connect', props: { case: 'schedule' } },
+      { event_name: 'calendar_reminder_not_now', props: { case: 'brightspace' } },
+      { event_name: 'calendar_reminder_opted_out', props: { case: 'broken' } },
+      { event_name: 'page_view', page: '/dashboard' },
+    ],
+  })
+  assert.deepEqual(rows.map((row) => row.event_name), [
+    'calendar_reminder_shown',
+    'calendar_reminder_connect',
+    'calendar_reminder_not_now',
+    'calendar_reminder_opted_out',
+    'page_view',
+  ])
+  assert.deepEqual(rows[3].props, { case: 'broken' })
+})
+
 test('coerces page to a trimmed string or null and caps its length', () => {
   const [short] = normalizeAnalyticsBatch({
     events: [{ event_name: 'page_view', page: '  /dining  ' }],

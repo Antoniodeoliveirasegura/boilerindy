@@ -75,6 +75,7 @@ test('the codes clients depend on are pinned; board and advertiser keep their ex
     'ai_opt_in_schema_missing',
     'blocked_users_schema_missing',
     'board_schema_missing',
+    'calendar_reminders_schema_missing',
     'campus_events_schema_missing',
     'club_follows_schema_missing',
     'content_reports_schema_missing',

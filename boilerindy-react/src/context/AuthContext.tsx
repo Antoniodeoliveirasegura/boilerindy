@@ -32,6 +32,12 @@ type AuthUser = {
   hasPurdueLinked?: boolean
   /** True only after the student turns on AI suggestions in Settings. */
   aiOptIn?: boolean
+  /**
+   * True after the student turns calendar reminders off (Setup's "Don't ask
+   * again", Settings or the app). Missing from an API older than the switch;
+   * read it through calendarRemindersOff in lib/authApi.
+   */
+  calendarRemindersOff?: boolean
   [key: string]: unknown
 }
 

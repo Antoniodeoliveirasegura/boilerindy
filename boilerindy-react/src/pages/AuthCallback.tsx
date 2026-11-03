@@ -77,7 +77,7 @@ export default function AuthCallback() {
         const next = sessionStorage.getItem('postAuthNext')
         sessionStorage.removeItem('postAuthNext')
         const search = next ? `?next=${encodeURIComponent(next)}` : ''
-        navigate(resolvePostLoginPath(search, backendSession?.onboarding), { replace: true })
+        navigate(resolvePostLoginPath(search, backendSession?.onboarding, backendSession?.user), { replace: true })
       } catch (err) {
         // The detail goes to the console only. The page showed the error text
         // itself, and ?error_description comes straight from the URL, so

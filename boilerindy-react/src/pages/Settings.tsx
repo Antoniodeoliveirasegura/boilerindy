@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useSignOutAndRedirect } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { authRequest, type ApiRequestError } from '../lib/authApi'
+import { authRequest, calendarRemindersOff, saveCalendarRemindersOff, type ApiRequestError } from '../lib/authApi'
 import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
 import { clearGoogleConfirm, startGoogleConfirm } from '../lib/googleConfirm'
 import { signInWithGoogle, supabase } from '../lib/supabase'
@@ -86,6 +86,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [analyticsSaving, setAnalyticsSaving] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
+  const [remindersSaving, setRemindersSaving] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -214,6 +215,25 @@ export default function Settings() {
       setBanner(error instanceof Error ? error.message : 'Could not update your AI suggestions setting.')
     } finally {
       setAiSaving(false)
+    }
+  }
+
+  // Calendar reminders (Antoniodeoliveirasegura/boilerindy-app#150): saved on
+  // the account, where Setup's "Don't ask again" and the app turn them off
+  // too. Sign-in and Home's Finish Setup card read the refreshed session.
+  async function handleRemindersToggle(e: React.ChangeEvent<HTMLInputElement>) {
+    const nextOn = e.target.checked
+    setRemindersSaving(true)
+    setBanner('')
+    setStatus('')
+    try {
+      await saveCalendarRemindersOff(!nextOn)
+      await refreshSession()
+      setStatus(nextOn ? 'Calendar reminders turned on.' : 'Calendar reminders turned off.')
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : 'Could not update your calendar reminders.')
+    } finally {
+      setRemindersSaving(false)
     }
   }
 
@@ -623,6 +643,28 @@ export default function Settings() {
                 {feedBusy ? 'Creating…' : 'Create calendar link'}
               </button>
             )}
+          </section>
+
+          <section className="card card-pad r-ink">
+            <CardHead icon="clock" title="Calendar reminders" />
+            <label className="flex cursor-pointer select-none items-start gap-3">
+              <input
+                type="checkbox"
+                checked={!calendarRemindersOff(user)}
+                onChange={handleRemindersToggle}
+                disabled={remindersSaving}
+                className={CHECKBOX}
+              />
+              <span>
+                <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">
+                  Remind me to connect calendars
+                </span>
+                <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+                  While no calendar is connected, Setup opens after you sign in and Home shows a reminder.
+                  Saved to your account, not just this browser.
+                </span>
+              </span>
+            </label>
           </section>
 
           <PushNotificationsCard />

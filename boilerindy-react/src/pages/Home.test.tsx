@@ -29,14 +29,16 @@ vi.mock('../lib/authApi', () => ({
     if (path === '/api/me/tasks/meta') return tasks
     return {}
   }),
-  shouldSkipSetup: () => true,
+  // The account's choice alone here; lib/authApi.test.ts covers this browser's stand-in.
+  calendarRemindersOff: (user: { calendarRemindersOff?: boolean } | null) => user?.calendarRemindersOff === true,
 }))
 vi.mock('../lib/usageStats', () => ({ track: vi.fn() }))
 vi.mock('../components/SourceErrorNotice', () => ({ default: () => null }))
 vi.mock('../components/FeaturedDeal', () => ({ default: () => null }))
 vi.mock('../components/dashboard/SponsoredWidget', () => ({ default: () => null }))
+// Calendar reminders off keeps the Finish Setup card out of every test but its own.
 const auth = vi.hoisted(() => ({
-  user: { id: 'user-1', aiOptIn: false },
+  user: { id: 'user-1', aiOptIn: false, calendarRemindersOff: true },
   authConfig: {},
   getFirstName: () => 'Pete',
   onboarding: { linkedSourceCount: 0, classCount: 0, hasPurdueLinked: false, needsPurdueConnection: true, needsScheduleSource: false },
@@ -63,6 +65,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   auth.onboarding.linkedSourceCount = 0
   auth.user.aiOptIn = false
+  auth.user.calendarRemindersOff = true
   classes.items = []
   calendar.items = []
   calendar.down = false
@@ -90,6 +93,21 @@ it('shows a connect-your-schedule empty state and skips the digest when no calen
   expect(screen.queryByText(/Generating your week summary/)).toBeNull()
   expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
   expect(assistantCalls()).toHaveLength(0)
+})
+
+// Calendar reminders (Antoniodeoliveirasegura/boilerindy-app#150): the Finish
+// Setup card shows while they are on and setup is unfinished. Turning them off
+// hides only the card; the connect-your-schedule empty state stays.
+it('shows the Finish Setup card only while calendar reminders are on', async () => {
+  auth.user.calendarRemindersOff = false
+  const { unmount } = renderHome()
+  expect(await screen.findByRole('heading', { name: 'Finish Setup' })).toBeInTheDocument()
+  unmount()
+
+  auth.user.calendarRemindersOff = true
+  renderHome()
+  expect(await screen.findByRole('link', { name: /connect your schedule/i })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Finish Setup' })).toBeNull()
 })
 
 it('with AI suggestions on, asks for the digest once a calendar source is linked', async () => {
