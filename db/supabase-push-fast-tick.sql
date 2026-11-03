@@ -1,8 +1,10 @@
 -- The 30-second push tick (issue #550). POST /api/internal/push/fast-tick
 -- sends what cannot wait for the 5-minute reminder run: campus alert pushes
--- now (src/campusAlertPush.mjs, behind CAMPUS_ALERT_PUSH), and the Live
--- Activity updates later. Like the reminder run, it answers only the
--- PUSH_CRON_SECRET bearer token, and with the secret unset it is a 404.
+-- (src/campusAlertPush.mjs, behind CAMPUS_ALERT_PUSH), and the updates of
+-- Track this bus, the app's Live Activity (src/liveActivities.mjs, README step
+-- 58, once APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are set). Like the
+-- reminder run, it answers only the PUSH_CRON_SECRET bearer token, and with
+-- the secret unset it is a 404.
 --
 -- Production only: the job below calls the production server, so run it only
 -- in the production Supabase project, and only once the server carrying the
@@ -15,8 +17,9 @@
 -- retention job in db/supabase-retention.sql (README step 51) deletes that
 -- log after 7 days.
 --
--- With CAMPUS_ALERT_PUSH off the tick answers at once without asking IU or
--- the database, so the job can be scheduled before the switch goes on.
+-- With CAMPUS_ALERT_PUSH off and the APNs variables unset the tick answers at
+-- once without asking IU, TransLoc or the database, so the job can be
+-- scheduled before either goes on.
 --
 -- Replace <PUSH_CRON_SECRET> with the value set on Render, then run:
 --

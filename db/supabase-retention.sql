@@ -17,6 +17,10 @@
 --   boilerindy-retention-campus-alert-incidents  and incidents older than 12 months
 --                                         (issue #550; the tables are README
 --                                         step 56, so re-run this file after it)
+--   boilerindy-retention-live-activities  daily, Track this bus's live_activities
+--                                         a day after their 30 minutes end
+--                                         (issue #550; the table is README step
+--                                         58, so re-run this file after it)
 --
 -- One more keeps pg_cron's own run log in check. Every run of every job adds a
 -- row to cron.job_run_details and pg_cron never removes them; the keep-warm and
@@ -27,7 +31,7 @@
 --
 -- Plain SQL: no HTTP call, no secret, nothing for the server to do. Needs the
 -- pg_cron extension from db/supabase-keep-warm.sql (README step 29) and the
--- tables from steps 4, 11, 30, 55 and 56. Creates no tables.
+-- tables from steps 4, 11, 30, 55, 56 and 58. Creates no tables.
 --
 -- Paste the whole file into the Supabase SQL Editor once. Safe to run more
 -- than once: cron.schedule() with an existing job name updates that job in
@@ -41,7 +45,7 @@
 --     from cron.job_run_details d join cron.job j using (jobid)
 --     where j.jobname like 'boilerindy-retention-%'
 --     order by d.start_time desc limit 10;
--- Expect seven active jobs and "succeeded" runs; return_message says how many
+-- Expect eight active jobs and "succeeded" runs; return_message says how many
 -- rows each DELETE removed ("DELETE 0" on a quiet day).
 --
 -- Remove one (the others keep running):
@@ -87,6 +91,14 @@ select cron.schedule(
   '35 4 * * 0', -- 04:35 UTC every Sunday
   $$DELETE FROM campus_alert_incidents i WHERE i.opened_at < NOW() - INTERVAL '12 months'
       AND NOT EXISTS (SELECT 1 FROM campus_alert_messages m WHERE m.incident_id = i.id)$$
+);
+
+-- Track this bus (README step 58, issue #550): a Live Activity lives 30
+-- minutes, and its row is kept a day past that, ended or not, for the log.
+select cron.schedule(
+  'boilerindy-retention-live-activities',
+  '40 4 * * *', -- 04:40 UTC every day
+  $$DELETE FROM live_activities WHERE ends_at < NOW() - INTERVAL '1 day'$$
 );
 
 -- Seven days is enough to debug a failing job with the Verify queries above
