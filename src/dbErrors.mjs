@@ -150,6 +150,21 @@ export const DB_FEATURES = Object.freeze({
     'db/supabase-dining-favorite-alerts.sql',
     'Could not save notification settings.',
   ),
+  // Notification choices by kind on push_settings (#550): classes, the
+  // evening list, per-item reminders, quiet hours, campus alerts.
+  push_kinds: dbFeature(
+    'push_kinds',
+    'Notifications by kind',
+    'db/supabase-push-kinds.sql',
+    'Could not save notification settings.',
+  ),
+  // Track this bus, the app's Live Activity (#550): live_activities.
+  live_activities: dbFeature(
+    'live_activities',
+    'Track this bus',
+    'db/supabase-live-activities.sql',
+    'Could not track this bus.',
+  ),
   // The "Show AI suggestions" switch in Settings, users.ai_opt_in.
   ai_opt_in: dbFeature(
     'ai_opt_in',

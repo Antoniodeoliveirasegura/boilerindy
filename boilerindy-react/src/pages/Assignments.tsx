@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef, type RefObject } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { authRequest } from '../lib/authApi'
@@ -189,6 +189,21 @@ function getInsightsCacheKey(userId: string | undefined, mode: string) {
   return userId ? aiCacheKey('assignments', userId, `${mode}-${localIsoDate(startOfWeek())}`) : null
 }
 
+// Below lg the details card stacks under the whole list, a screen or more
+// below the row, so a tap on a phone seemed to do nothing. Bring the card
+// into view there and move focus to its title, so a screen reader says what
+// opened; from lg it sits beside the list and is already in view. No
+// `behavior`: the page's CSS scroll-behavior is smooth, and auto when the
+// student asks for reduced motion.
+function revealDetails(card: RefObject<HTMLDivElement | null>, title: RefObject<HTMLHeadingElement | null>) {
+  const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches
+  if (wide) return
+  requestAnimationFrame(() => {
+    card.current?.scrollIntoView({ block: 'start' })
+    title.current?.focus({ preventScroll: true })
+  })
+}
+
 export default function Assignments() {
   const { user, onboarding } = useAuth()
   const userId = user?.id as string | undefined
@@ -319,22 +334,11 @@ export default function Assignments() {
 
   const activeInsight = insightsMode === 'study' ? studyPlan : insightsText
 
-  // Below lg the details card stacks under the whole list, a screen or more
-  // below the row, so a tap on a phone seemed to do nothing. Bring the card
-  // into view there and move focus to its title, so a screen reader says what
-  // opened; from lg it sits beside the list and is already in view. No
-  // `behavior`: the page's CSS scroll-behavior is smooth, and auto when the
-  // student asks for reduced motion.
   const detailRef = useRef<HTMLDivElement>(null)
   const detailTitleRef = useRef<HTMLHeadingElement>(null)
   const selectItem = (item: MergedItem) => {
     setSelectedItem(item)
-    const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches
-    if (wide) return
-    requestAnimationFrame(() => {
-      detailRef.current?.scrollIntoView({ block: 'start' })
-      detailTitleRef.current?.focus({ preventScroll: true })
-    })
+    revealDetails(detailRef, detailTitleRef)
   }
 
   // Reload stored priorities when the signed-in user changes. Adjusting during
@@ -380,6 +384,28 @@ export default function Assignments() {
     }))
     return [...cal, ...manual]
   }, [items, taskMeta, priorities])
+
+  // A notification's link opens its task (issue #550): a deadline reminder
+  // carries /assignments?taskId=<id>&taskKind=calendar|manual. Once the lists
+  // have loaded, that task's details open as if it had been tapped, once per
+  // link, so the student can move on to another. A link to a task that is no
+  // longer here opens nothing. Adjusted during render, like the user switch
+  // above, rather than set from an effect.
+  const [searchParams] = useSearchParams()
+  const linkedTaskId = searchParams.get('taskId')
+  const linkedTaskKind = searchParams.get('taskKind')
+  const [openedLink, setOpenedLink] = useState<string | null>(null)
+  if (linkedTaskId && openedLink !== linkedTaskId && !loading) {
+    const manual = linkedTaskKind === 'manual' ? true : linkedTaskKind === 'calendar' ? false : null
+    const linked = mergedItems.find((item) => item.id === linkedTaskId && (manual === null || item.isManual === manual))
+    if (linked) {
+      setOpenedLink(linkedTaskId)
+      setSelectedItem(linked)
+    }
+  }
+  useEffect(() => {
+    if (openedLink) revealDetails(detailRef, detailTitleRef)
+  }, [openedLink])
 
   const categoriesWithManual = useMemo<Category[]>(() => {
     const n = mergedItems.filter((i) => i.isManual).length

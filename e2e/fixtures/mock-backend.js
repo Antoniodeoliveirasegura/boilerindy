@@ -69,9 +69,25 @@ function defaultOnboarding(overrides = {}) {
 function defaultPush(overrides = {}) {
   return {
     config: { enabled: true, publicKey: 'BNo-real-key-just-for-tests', ...(overrides.config || {}) },
-    settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false, ...(overrides.settings || {}) },
+    settings: {
+      deadlineReminders: true,
+      leadMinutes: 60,
+      diningFavoriteAlerts: false,
+      // The choices by kind (#550), as GET /api/push/settings answers them.
+      classReminders: false,
+      classLeadMinutes: 15,
+      digestMinute: 1080,
+      deadlineItems: true,
+      quietStart: 1380,
+      quietEnd: 480,
+      campusAlerts: true,
+      kindsMigrated: false,
+      ...(overrides.settings || {}),
+    },
     // False mirrors a server before db/supabase-dining-favorite-alerts.sql (#469).
     diningAlertsAvailable: overrides.diningAlertsAvailable !== false,
+    // True mirrors a server after db/supabase-push-kinds.sql (README step 53, #550).
+    kindsAvailable: overrides.kindsAvailable === true,
     subscriptions: (overrides.subscriptions || []).map((s, i) => ({
       id: s.id || `push-seed-${i + 1}`,
       endpoint: s.endpoint || `https://push.example/seed/${i + 1}`,
@@ -1257,6 +1273,7 @@ export const test = base.extend({
           enabled: state.push.config.enabled,
           settings: { ...state.push.settings },
           diningAlertsAvailable: state.push.diningAlertsAvailable,
+          kindsAvailable: state.push.kindsAvailable,
           subscriptions: state.push.subscriptions.map(({ id, createdAt, userAgent, lastUsedAt }) => ({
             id,
             createdAt,
@@ -1283,7 +1300,27 @@ export const test = base.extend({
           }
           state.push.settings.diningFavoriteAlerts = Boolean(b.diningFavoriteAlerts)
         }
-        return json(route, 200, { settings: { ...state.push.settings }, diningAlertsAvailable: state.push.diningAlertsAvailable })
+        // The choices by kind (#550): 503 before README step 53, and an
+        // evening list inside quiet hours refused, as src/routes/push.mjs does.
+        const kindKeys = ['classReminders', 'classLeadMinutes', 'digestMinute', 'deadlineItems', 'quietStart', 'quietEnd', 'campusAlerts']
+        if (kindKeys.some((key) => b[key] !== undefined)) {
+          if (!state.push.kindsAvailable) {
+            return json(route, 503, { error: { code: 'push_kinds_schema_missing', message: 'Notifications by kind is not set up yet. Please try again later.', status: 503 } })
+          }
+          const next = { ...state.push.settings }
+          for (const key of kindKeys) if (b[key] !== undefined) next[key] = b[key]
+          const { quietStart: qs, quietEnd: qe, digestMinute: dm } = next
+          const quiet = qs !== null && qe !== null && qs !== qe && dm !== null && (qs < qe ? dm >= qs && dm < qe : dm >= qs || dm < qe)
+          if (quiet) {
+            return json(route, 400, { error: { message: 'The evening list cannot go out during quiet hours. Pick a time outside them.', status: 400 } })
+          }
+          state.push.settings = next
+        }
+        return json(route, 200, {
+          settings: { ...state.push.settings },
+          diningAlertsAvailable: state.push.diningAlertsAvailable,
+          kindsAvailable: state.push.kindsAvailable,
+        })
       }
       if (pathname === '/api/push/subscriptions' && method === 'POST') {
         const { subscription, userAgent } = bodyOf()

@@ -3,12 +3,19 @@ import { Link } from 'react-router-dom'
 import Icon from '../Icons'
 import {
   DEFAULT_PUSH_SETTINGS,
+  DEFAULT_QUIET_END,
+  DEFAULT_QUIET_START,
+  DIGEST_MINUTE_OPTIONS,
   LEAD_MINUTE_OPTIONS,
+  QUIET_MINUTE_OPTIONS,
   describePushSupport,
   describeTestResult,
   fetchPushConfig,
   fetchPushSettings,
+  formatDayMinute,
   formatLeadMinutes,
+  inQuietHours,
+  withSaved,
   getCurrentPushSubscription,
   readPushSupportEnv,
   registerPushSubscription,
@@ -53,8 +60,10 @@ export default function PushNotificationsCard() {
   const [support] = useState<PushSupport>(() => describePushSupport(readPushSupportEnv()))
   const [permission, setPermission] = useState<NotificationPermission | null>(currentPermission)
   const [settings, setSettings] = useState<PushSettings>(DEFAULT_PUSH_SETTINGS)
-  // Favorite dish alerts need a server migration (issue #469).
+  // Favorite dish alerts need a server migration (issue #469), and so do the
+  // choices by kind: the evening list, quiet hours (issue #550, README step 53).
   const [diningAlertsAvailable, setDiningAlertsAvailable] = useState(false)
+  const [kindsAvailable, setKindsAvailable] = useState(false)
   const [deviceCount, setDeviceCount] = useState(0)
   const [thisDeviceOn, setThisDeviceOn] = useState(false)
   const [busy, setBusy] = useState<Busy>(null)
@@ -90,6 +99,7 @@ export default function PushNotificationsCard() {
       }
       setSettings(server.settings)
       setDiningAlertsAvailable(server.diningAlertsAvailable)
+      setKindsAvailable(server.kindsAvailable)
       setDeviceCount(count)
       setThisDeviceOn(subscription !== null)
       setPhase({ kind: 'ready', publicKey: config.publicKey })
@@ -209,10 +219,33 @@ export default function PushNotificationsCard() {
     )
   } else {
     // The server accepts any 5..10080, so a value saved elsewhere still shows.
-    const leadOptions: readonly number[] = LEAD_MINUTE_OPTIONS.includes(settings.leadMinutes)
-      ? LEAD_MINUTE_OPTIONS
-      : [...LEAD_MINUTE_OPTIONS, settings.leadMinutes].sort((a, b) => a - b)
+    const leadOptions = withSaved(LEAD_MINUTE_OPTIONS, settings.leadMinutes)
     const blocked = support.supported && permission === 'denied' && !thisDeviceOn
+    const quietOn = settings.quietStart !== null && settings.quietEnd !== null
+    const leadSelect = (
+      <div className="pl-[30px]">
+        <label htmlFor="push-lead-minutes" className="mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]">
+          Remind me
+        </label>
+        <select
+          id="push-lead-minutes"
+          data-testid="push-lead-select"
+          value={settings.leadMinutes}
+          disabled={!settings.deadlineReminders || (kindsAvailable && !settings.deadlineItems)}
+          onChange={(e) => {
+            const next = Number(e.target.value)
+            if (Number.isInteger(next)) updateSettings({ leadMinutes: next })
+          }}
+          className="input sm:max-w-[280px] disabled:opacity-50"
+        >
+          {leadOptions.map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {formatLeadMinutes(minutes)} before
+            </option>
+          ))}
+        </select>
+      </div>
+    )
 
     body = (
       <div className="space-y-4">
@@ -286,32 +319,61 @@ export default function PushNotificationsCard() {
             <span>
               <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Deadline reminders</span>
               <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
-                One notification per assignment ahead of its due time, on every device you turn on.
+                {kindsAvailable
+                  ? 'An evening list of what is due, and a reminder before each item if you want one, on every device you turn on.'
+                  : 'One notification per assignment ahead of its due time, on every device you turn on.'}
               </span>
             </span>
           </label>
-          <div className="pl-[30px]">
-            <label htmlFor="push-lead-minutes" className="mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]">
-              Remind me
-            </label>
-            <select
-              id="push-lead-minutes"
-              data-testid="push-lead-select"
-              value={settings.leadMinutes}
-              disabled={!settings.deadlineReminders}
-              onChange={(e) => {
-                const next = Number(e.target.value)
-                if (Number.isInteger(next)) updateSettings({ leadMinutes: next })
-              }}
-              className="input sm:max-w-[280px] disabled:opacity-50"
-            >
-              {leadOptions.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {formatLeadMinutes(minutes)} before
-                </option>
-              ))}
-            </select>
-          </div>
+          {kindsAvailable ? (
+            <>
+              {/* The evening list (issue #550): never inside quiet hours, so those times are offered disabled. */}
+              <div className="pl-[30px]">
+                <label htmlFor="push-digest-minute" className="mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]">
+                  Evening list
+                </label>
+                <select
+                  id="push-digest-minute"
+                  data-testid="push-digest-select"
+                  value={settings.digestMinute ?? 'off'}
+                  disabled={!settings.deadlineReminders}
+                  onChange={(e) => {
+                    const next = e.target.value === 'off' ? null : Number(e.target.value)
+                    if (next === null || Number.isInteger(next)) updateSettings({ digestMinute: next })
+                  }}
+                  className="input sm:max-w-[280px] disabled:opacity-50"
+                >
+                  <option value="off">Off</option>
+                  {withSaved(DIGEST_MINUTE_OPTIONS, settings.digestMinute).map((minute) => {
+                    const quiet = inQuietHours(minute, settings.quietStart, settings.quietEnd)
+                    return (
+                      <option key={minute} value={minute} disabled={quiet}>
+                        {formatDayMinute(minute)}
+                        {quiet ? ' (quiet hours)' : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+                  One notification naming what is due before the next day&apos;s list.
+                </p>
+              </div>
+              <label className="flex cursor-pointer select-none items-start gap-3 pl-[30px]">
+                <input
+                  type="checkbox"
+                  data-testid="push-items-toggle"
+                  checked={settings.deadlineItems}
+                  disabled={!settings.deadlineReminders}
+                  onChange={(e) => updateSettings({ deadlineItems: e.target.checked })}
+                  className="mt-0.5 size-[18px] shrink-0 accent-[var(--color-txt-0)] disabled:opacity-50"
+                />
+                <span className="text-[13px] font-semibold text-[var(--color-txt-1)]">Also remind me before each item</span>
+              </label>
+              {leadSelect}
+            </>
+          ) : (
+            leadSelect
+          )}
           <label className={`flex select-none items-start gap-3 ${diningAlertsAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
             <input
               type="checkbox"
@@ -330,6 +392,78 @@ export default function PushNotificationsCard() {
               </span>
             </span>
           </label>
+          {kindsAvailable && (
+            <>
+              {/* Classes come from the app on the phone; the setting is on the account, so it shows here. */}
+              <div className="pl-[30px]" data-testid="push-classes-note">
+                <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Classes</span>
+                <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+                  {settings.classReminders
+                    ? `Sent by the BoilerIndy app on your phone, ${settings.classLeadMinutes} minutes before each class.`
+                    : 'Sent by the BoilerIndy app on your phone. Turn them on there, in Profile.'}
+                </span>
+              </div>
+              <label className="flex cursor-pointer select-none items-start gap-3">
+                <input
+                  type="checkbox"
+                  data-testid="push-quiet-toggle"
+                  checked={quietOn}
+                  onChange={(e) =>
+                    updateSettings(
+                      e.target.checked
+                        ? { quietStart: DEFAULT_QUIET_START, quietEnd: DEFAULT_QUIET_END }
+                        : { quietStart: null, quietEnd: null },
+                    )
+                  }
+                  className="mt-0.5 size-[18px] shrink-0 accent-[var(--color-txt-0)]"
+                />
+                <span>
+                  <span className="block font-display text-[14px] font-bold text-[var(--color-txt-0)]">Quiet hours</span>
+                  <span className="mt-1 block text-[13px] leading-relaxed text-[var(--color-txt-2)]">
+                    Nothing arrives then but class reminders. A reminder waits for the end, or is dropped once its item is due.
+                  </span>
+                </span>
+              </label>
+              {quietOn && (
+                <div className="flex flex-wrap gap-3 pl-[30px]">
+                  {(
+                    [
+                      ['push-quiet-start', 'From', settings.quietStart],
+                      ['push-quiet-end', 'Until', settings.quietEnd],
+                    ] as const
+                  ).map(([id, label, value]) => (
+                    <div key={id}>
+                      <label htmlFor={id} className="mb-1.5 block text-[13px] font-semibold text-[var(--color-txt-1)]">
+                        {label}
+                      </label>
+                      <select
+                        id={id}
+                        data-testid={id}
+                        value={value ?? ''}
+                        onChange={(e) => {
+                          const next = Number(e.target.value)
+                          if (!Number.isInteger(next)) return
+                          // The server takes quiet hours as a pair.
+                          updateSettings(
+                            id === 'push-quiet-start'
+                              ? { quietStart: next, quietEnd: settings.quietEnd }
+                              : { quietStart: settings.quietStart, quietEnd: next },
+                          )
+                        }}
+                        className="input"
+                      >
+                        {withSaved(QUIET_MINUTE_OPTIONS, value).map((minute) => (
+                          <option key={minute} value={minute}>
+                            {formatDayMinute(minute)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <button

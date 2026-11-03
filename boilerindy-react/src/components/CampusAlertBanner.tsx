@@ -44,7 +44,8 @@ function useMinuteClock(): Date {
   return now
 }
 
-function AlertCard({ alert, checkedLine, onHide }: { alert: CampusAlert; checkedLine: string | null; onHide: () => void }) {
+/** One alert as the banner shows it; the /safety page shows it too, without `onHide`, so with no button to hide it. */
+export function AlertCard({ alert, checkedLine, onHide }: { alert: CampusAlert; checkedLine: string | null; onHide?: () => void }) {
   const now = useMinuteClock()
   const level = alert.level in CARD_TONES ? alert.level : 'danger'
   return (
@@ -78,14 +79,16 @@ function AlertCard({ alert, checkedLine, onHide }: { alert: CampusAlert; checked
           </a>
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onHide}
-        aria-label="Hide this alert"
-        className="-m-1 shrink-0 rounded-[var(--radius-sm)] p-1 text-[var(--color-txt-2)] hover:bg-[var(--color-txt-0)]/5 hover:text-[var(--color-txt-0)]"
-      >
-        <Icon name="close" size={16} />
-      </button>
+      {onHide && (
+        <button
+          type="button"
+          onClick={onHide}
+          aria-label="Hide this alert"
+          className="-m-1 shrink-0 rounded-[var(--radius-sm)] p-1 text-[var(--color-txt-2)] hover:bg-[var(--color-txt-0)]/5 hover:text-[var(--color-txt-0)]"
+        >
+          <Icon name="close" size={16} />
+        </button>
+      )}
     </div>
   )
 }

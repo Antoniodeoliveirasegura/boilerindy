@@ -69,6 +69,29 @@ test.describe('Task workflow', () => {
     await expect(page.getByRole('button', { name: 'Mark as not done', exact: true })).toHaveCount(0)
   })
 
+  // Issue #550, item 5: a deadline reminder's tap, from a browser
+  // notification or the app, opens /assignments?taskId=<id>&taskKind=..., and
+  // the page opens that task's details.
+  test("a reminder's link opens that task's details", async ({ page, mockApi }) => {
+    mockApi.login()
+    const inTwoDays = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+    mockApi.seedCalendarItems([
+      {
+        id: 'cal-e2e-2',
+        title: 'E2E lab report 4',
+        category: 'assignment',
+        startTime: inTwoDays.toISOString(),
+        endTime: inTwoDays.toISOString(),
+        allDay: false,
+        location: null,
+        description: '',
+      },
+    ])
+    await page.goto('/assignments?taskId=cal-e2e-2&taskKind=calendar')
+    await expect(page.getByRole('heading', { name: 'E2E lab report 4' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Mark done' })).toBeVisible()
+  })
+
   test('keeps the task list empty before anything is added', async ({ page, mockApi }) => {
     mockApi.login()
     await page.goto('/assignments')
