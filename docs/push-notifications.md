@@ -46,6 +46,10 @@ Chrome, Firefox, Edge or Safari.
    the `pg_cron` and `pg_net` extensions from `db/supabase-keep-warm.sql`.
 4. Turn notifications on for your own device in Settings and press "Send a test
    notification".
+5. Run `db/supabase-push-kinds.sql` (README step 53, issue #550) for the
+   choices by kind: the evening list, quiet hours and the daily cap. Until
+   then the Settings card and the reminder run work as before ([Choices by
+   kind](#choices-by-kind-the-evening-list-quiet-hours-and-the-daily-cap)).
 
 Rotating the VAPID pair invalidates every subscription; users will need to turn
 notifications on again on each device.
@@ -72,8 +76,8 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | Route | Purpose | Notes |
 |---|---|---|
 | `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest } }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. |
-| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts }, diningAlertsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
-| `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts? }` | `leadMinutes` 5 to 10080. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`. |
+| `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts, classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, kindsMigrated }, diningAlertsAvailable, kindsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `kindsAvailable` is false until `db/supabase-push-kinds.sql` runs, and until then the choices by kind read what that step will give the account; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
+| `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts?, classReminders?, classLeadMinutes?, digestMinute?, deadlineItems?, quietStart?, quietEnd?, campusAlerts?, kindsMigrated? }`; answers `{ settings, diningAlertsAvailable, kindsAvailable }` | `leadMinutes` 5 to 10080; `classLeadMinutes` 5, 10, 15 or 30; `digestMinute`, `quietStart` and `quietEnd` minutes past midnight on campus (0 to 1439) or null; quiet hours change as a pair, a null pair for none; `kindsMigrated` only `true`, which stamps the account once. An evening list inside quiet hours answers 400. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`, and a choice by kind before step 53 503 `push_kinds_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
 | `POST /api/me/push-token` | Body `{ token, platform, deviceName?, localReminders? }`, returns 201 `{ device: { id, createdAt, localReminders } }` | The native app. Upsert by token; at most 10 phones per user. `localReminders` defaults to false, and every registration replaces it. `push-write` limit. See [Native devices (Expo)](#native-devices-expo) and [Phones with local reminders](#phones-with-local-reminders). |
@@ -163,13 +167,15 @@ What reads it today:
   kept until something happens whose payload has no `expiresAt`.
 - `GET /api/push/config` reports `kinds: { version, digest }`.
 - `PUSH_KINDS_OFF` ([below](#stopping-a-kind-push_kinds_off)).
+- `src/pushPolicy.mjs`, the policy core: the daily cap and the kinds it
+  counts, the 30-minute merge, the default quiet hours and evening list, all
+  from the registry ([Choices by kind](#choices-by-kind-the-evening-list-quiet-hours-and-the-daily-cap)).
 
-The rest of issue #550 builds on it: settings by kind with digests, quiet
-hours and the daily cap (items 3 and 8), the phone's `kinds` and `channels`
-at registration (item 4), receipts (item 7) and campus alert pushes (item 9).
+The rest of issue #550 builds on it: the phone's `kinds` and `channels` at
+registration (item 4), receipts (item 7) and campus alert pushes (item 9).
 The copy and the links to the item (items 2 and 5) are in
-[Notification payload](#notification-payload). Browsers get the same payload
-and tag as phones.
+[Notification payload](#notification-payload), the choices by kind (items 3
+and 8) below. Browsers get the same payload and tag as phones.
 
 ### Version and digest
 
@@ -213,8 +219,10 @@ server stops sending, with no code change. A stopped kind is skipped before
 anything is read or claimed, so an item still in its window gets its reminder
 once the kind is back on:
 
-- `deadline`: the reminder run answers `{ ok: false, reason: "kind_off" }`,
-  and the phones that schedule their own reminders carry on.
+- `deadline`: the reminders before each item stop, and the phones that
+  schedule their own reminders carry on. `deadline-digest` stops the evening
+  lists. With both, the reminder run answers `{ ok: false, reason:
+  "kind_off" }` before reading anything.
 - `dining-favorites`: the dish alert run answers `reason: "kind_off"`.
 - `test`: `POST /api/push/test` answers 503 `push_kind_off`.
 
@@ -236,6 +244,64 @@ lists the kinds that are off.
 A run handles at most 200 users and 300 sends; the cron comes back 5 minutes
 later for the rest. Subscriptions that a push service reports gone (404 or 410)
 are deleted on the spot; other failures increment `failure_count`.
+
+That is the whole rule until README step 53 runs. After it, the choices by
+kind decide what goes and when (below).
+
+## Choices by kind, the evening list, quiet hours and the daily cap
+
+Issue #550, items 3 and 8. `db/supabase-push-kinds.sql` (README step 53) adds
+the choices by kind to `push_settings`, one row per account, so the website's
+card and the app show the same kinds:
+
+| Column | Setting | Default | Means |
+|---|---|---|---|
+| `deadline_reminders` | `deadlineReminders` | on | Deadlines at all: the evening list and the reminders. Older app builds still drive it. |
+| `digest_minute` | `digestMinute` | 1080 (6:00 PM) | The evening list's time, campus minutes past midnight; null for none. |
+| `deadline_items`, `lead_minutes` | `deadlineItems`, `leadMinutes` | off, 60 | A reminder before each item, `leadMinutes` ahead. |
+| `quiet_start`, `quiet_end` | `quietStart`, `quietEnd` | 1380 to 480 (11:00 PM to 8:00 AM) | Quiet hours; a null pair for none. |
+| `class_reminders`, `class_lead_minutes` | `classReminders`, `classLeadMinutes` | off, 15 | The app's class reminders, which the phone schedules. The website only shows them. |
+| `campus_alerts` | `campusAlerts` | on | Campus alert pushes (item 9, not sent yet). |
+| `kinds_migrated_at` | `kindsMigrated` | not set | When the first phone on an app build with kinds filled the account in from its old switches. |
+
+Existing rows keep their per-item reminders (`deadline_items` takes
+`deadline_reminders`) and gain the 6:00 PM list and quiet hours (owner
+decision 2); a new account starts with the list and no per-item reminders.
+Until step 53 runs, `GET /api/push/settings` answers `kindsAvailable: false`
+with the settings that step will give the account, a `PUT` of a choice by
+kind answers 503 `push_kinds_schema_missing`, the Settings card shows only
+what it showed before, and the reminder run sends a reminder before every
+item, as it did.
+
+What the reminder run then does for each student with deadlines on, on the
+campus clock (`src/pushPolicy.mjs`, with the shared vectors of the [kind
+registry](#test-vectors)):
+
+- **The evening list:** once the day's `digestMinute` has come, one push
+  naming what is not done and due before the next day's list ("3 due
+  tonight" / "By 11:59 PM" / "HW 3, Quiz 4 and Lab 2 report."; when
+  something on it is due tomorrow, "2 due by tomorrow at 10:00 AM" and "First
+  due at 11:59 PM"). Claimed as `deadline-digest:<YYYY-MM-DD>`, so it goes
+  once a day, and kept on a phone until its first item is due. It never goes
+  inside quiet hours (a time inside them is refused when saved, and a run
+  that falls inside them skips that day's list) and nothing goes when
+  nothing is due.
+- **The reminder before each item**, with `deadlineItems` on: `leadMinutes`
+  ahead, an all-day item at 9:00 AM on its day rather than an hour before
+  11:59 PM. A reminder whose time has come takes along the items due within
+  30 minutes after its own, so three items due at 11:59 PM make one push ("3
+  due in 1 h" / "HW 3, Quiz 4 and Lab 2 report are due by 11:59 PM."). Each
+  item is claimed as before; the extra items of a merged push are claimed as
+  `deadline-merged`. Inside quiet hours nothing is claimed: a reminder goes
+  when they end, or never once its item is due by then.
+- **The daily cap:** at most 6 server pushes a student a campus day across
+  the capped kinds (the evening list, reminders, dish alerts), counted from
+  today's claims in `push_deliveries` (a merged push counts once). Past it,
+  nothing more is claimed until campus midnight; an evening list past it is
+  skipped that day.
+
+The dish alerts follow the same quiet hours and cap. The summary each run
+logs counts `digests`, `held` (waiting out quiet hours) and `capped`.
 
 ## Favorite dish alerts (issue #469)
 

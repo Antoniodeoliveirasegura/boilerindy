@@ -8,8 +8,27 @@ import { authRequest } from './authApi'
 
 export type PushConfig = { enabled: boolean; publicKey: string | null }
 
-/** diningFavoriteAlerts: the once-a-day favorite dishes push (issue #469), off by default. */
-export type PushSettings = { deadlineReminders: boolean; leadMinutes: number; diningFavoriteAlerts: boolean }
+/**
+ * diningFavoriteAlerts: the once-a-day favorite dishes push (issue #469), off
+ * by default. The rest are the choices by kind (issue #550), on the account
+ * once the server has README step 53: classes (sent by the app), the evening
+ * list of what is due (`digestMinute`, minutes past midnight on campus, null
+ * for none), the reminder before each item (`deadlineItems`, `leadMinutes`
+ * ahead), quiet hours (a null pair for none) and campus alerts.
+ */
+export type PushSettings = {
+  deadlineReminders: boolean
+  leadMinutes: number
+  diningFavoriteAlerts: boolean
+  classReminders: boolean
+  classLeadMinutes: number
+  digestMinute: number | null
+  deadlineItems: boolean
+  quietStart: number | null
+  quietEnd: number | null
+  campusAlerts: boolean
+  kindsMigrated: boolean
+}
 
 export type PushSubscriptionSummary = {
   id: string
@@ -23,6 +42,8 @@ export type PushSettingsResponse = {
   settings: PushSettings
   /** False until db/supabase-dining-favorite-alerts.sql runs on the server (issue #469). */
   diningAlertsAvailable: boolean
+  /** False until db/supabase-push-kinds.sql (README step 53) runs on the server (issue #550). */
+  kindsAvailable: boolean
   subscriptions: PushSubscriptionSummary[]
 }
 
@@ -31,7 +52,23 @@ export type PushSettingsState = PushSettingsResponse & { notConfiguredMessage: s
 
 export type PushTestResult = { sent: number; failed: number; removed: number }
 
-export const DEFAULT_PUSH_SETTINGS: PushSettings = { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false }
+/** Quiet hours when they are on: 11:00 PM to 8:00 AM campus time. */
+export const DEFAULT_QUIET_START = 23 * 60
+export const DEFAULT_QUIET_END = 8 * 60
+
+export const DEFAULT_PUSH_SETTINGS: PushSettings = {
+  deadlineReminders: true,
+  leadMinutes: 60,
+  diningFavoriteAlerts: false,
+  classReminders: false,
+  classLeadMinutes: 15,
+  digestMinute: 18 * 60,
+  deadlineItems: false,
+  quietStart: DEFAULT_QUIET_START,
+  quietEnd: DEFAULT_QUIET_END,
+  campusAlerts: true,
+  kindsMigrated: false,
+}
 
 /** The server accepts any whole number of minutes in this range. */
 export const MIN_LEAD_MINUTES = 5
@@ -39,6 +76,34 @@ export const MAX_LEAD_MINUTES = 10080
 
 /** Lead times offered in Settings (15 minutes up to 1 day). */
 export const LEAD_MINUTE_OPTIONS: readonly number[] = [15, 30, 60, 120, 180, 360, 720, 1440]
+
+/** Times offered for the evening list: on the hour, 6:00 AM to 10:00 PM. */
+export const DIGEST_MINUTE_OPTIONS: readonly number[] = Array.from({ length: 17 }, (_, i) => (6 + i) * 60)
+
+/** Times offered for quiet hours: every hour of the day. */
+export const QUIET_MINUTE_OPTIONS: readonly number[] = Array.from({ length: 24 }, (_, i) => i * 60)
+
+/** "6:00 PM", "12:00 AM" for midnight: minutes past midnight on the campus clock. */
+export function formatDayMinute(minute: number): string {
+  const hour = Math.floor(minute / 60) % 24
+  const rest = minute % 60
+  return `${hour % 12 === 0 ? 12 : hour % 12}:${String(rest).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
+/**
+ * True when `minute` falls in quiet hours from `start` up to `end` (the end
+ * itself is outside), wrapping midnight when the start is later; the server's
+ * rule (src/pushPolicy.mjs). No quiet hours, or an empty window, hold nothing.
+ */
+export function inQuietHours(minute: number, start: number | null, end: number | null): boolean {
+  if (start === null || end === null || start === end) return false
+  return start < end ? minute >= start && minute < end : minute >= start || minute < end
+}
+
+/** `options` with `value` added in order when it is not one of them, so a time saved elsewhere still shows. */
+export function withSaved(options: readonly number[], value: number | null): readonly number[] {
+  return value === null || options.includes(value) ? options : [...options, value].sort((a, b) => a - b)
+}
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
@@ -177,17 +242,37 @@ function toCount(value: unknown): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
 }
 
-function normalizeSettings(raw: unknown): PushSettings {
+function dayMinuteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 24 * 60 ? value : null
+}
+
+export function normalizeSettings(raw: unknown): PushSettings {
   const source = raw && typeof raw === 'object' ? (raw as Partial<Record<keyof PushSettings, unknown>>) : {}
   const lead = typeof source.leadMinutes === 'number' ? source.leadMinutes : Number(source.leadMinutes)
+  const bool = (key: keyof PushSettings) =>
+    typeof source[key] === 'boolean' ? (source[key] as boolean) : (DEFAULT_PUSH_SETTINGS[key] as boolean)
+  // A server from before the choices by kind sends no quiet hours: the defaults stand.
+  const hasQuiet = 'quietStart' in source || 'quietEnd' in source
+  const quietStart = hasQuiet ? dayMinuteOrNull(source.quietStart) : DEFAULT_PUSH_SETTINGS.quietStart
+  const quietEnd = hasQuiet ? dayMinuteOrNull(source.quietEnd) : DEFAULT_PUSH_SETTINGS.quietEnd
+  const quietOn = quietStart !== null && quietEnd !== null && quietStart !== quietEnd
   return {
-    deadlineReminders:
-      typeof source.deadlineReminders === 'boolean' ? source.deadlineReminders : DEFAULT_PUSH_SETTINGS.deadlineReminders,
+    deadlineReminders: bool('deadlineReminders'),
     leadMinutes:
       Number.isInteger(lead) && lead >= MIN_LEAD_MINUTES && lead <= MAX_LEAD_MINUTES
         ? lead
         : DEFAULT_PUSH_SETTINGS.leadMinutes,
     diningFavoriteAlerts: source.diningFavoriteAlerts === true,
+    classReminders: source.classReminders === true,
+    classLeadMinutes: [5, 10, 15, 30].includes(source.classLeadMinutes as number)
+      ? (source.classLeadMinutes as number)
+      : DEFAULT_PUSH_SETTINGS.classLeadMinutes,
+    digestMinute: 'digestMinute' in source ? dayMinuteOrNull(source.digestMinute) : DEFAULT_PUSH_SETTINGS.digestMinute,
+    deadlineItems: bool('deadlineItems'),
+    quietStart: quietOn ? quietStart : null,
+    quietEnd: quietOn ? quietEnd : null,
+    campusAlerts: bool('campusAlerts'),
+    kindsMigrated: source.kindsMigrated === true,
   }
 }
 
@@ -223,6 +308,7 @@ export async function fetchPushSettings(): Promise<PushSettingsState> {
       enabled: data?.enabled === true,
       settings: normalizeSettings(data?.settings),
       diningAlertsAvailable: data?.diningAlertsAvailable === true,
+      kindsAvailable: data?.kindsAvailable === true,
       subscriptions: normalizeSubscriptions(data?.subscriptions),
       notConfiguredMessage: null,
     }
@@ -233,6 +319,7 @@ export async function fetchPushSettings(): Promise<PushSettingsState> {
         enabled: false,
         settings: { ...DEFAULT_PUSH_SETTINGS },
         diningAlertsAvailable: false,
+        kindsAvailable: false,
         subscriptions: [],
         notConfiguredMessage: apiError.message || 'Push notifications are not configured on this server yet.',
       }
