@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import express from 'express'
 import { createPushPublicRouter, createPushRouter } from '../../src/routes/push.mjs'
 import { settingsFromRow } from '../../src/pushReminders.mjs'
+import { NOTIFICATION_KINDS_VERSION, notificationKindsDigest } from '../../src/notificationKinds.mjs'
 import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 
 // Issue #191: the push routes as feature routers, booted on a small app with
@@ -37,16 +38,42 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot } = {}, run) {
+async function withApp(
+  {
+    user = STUDENT,
+    vapidKeys = KEYS,
+    cronSecret = CRON_SECRET,
+    tables = {},
+    expoAnswer = null,
+    getDiningSnapshot,
+    kindsOff,
+    expoAccessToken,
+    receiptsAnswer = null,
+    campusAlertPush,
+    readCampusAlert,
+    sendLiveActivity = null,
+    readArrivals = null,
+  } = {},
+  run,
+) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
-  // Stands in for sendExpoPush: records each request's messages and answers
-  // every one ok unless the test hands in its own answer.
+  // Stands in for sendExpoPush: records each request's messages and the access
+  // token it was handed, and answers every message ok unless the test hands
+  // in its own answer.
   const expoRequests = []
-  const sendExpo = async ({ messages }) => {
+  const expoTokens = []
+  const sendExpo = async ({ messages, accessToken }) => {
     expoRequests.push(messages)
+    expoTokens.push(accessToken)
     return expoAnswer ? expoAnswer(messages) : messages.map((m) => ({ token: m.to, ok: true, ticketId: `t-${m.to}` }))
+  }
+  // Stands in for fetchExpoReceipts (issue #550, item 7).
+  const receiptRequests = []
+  const getExpoReceipts = async ({ ids, accessToken }) => {
+    receiptRequests.push({ ids, accessToken })
+    return receiptsAnswer ? receiptsAnswer(ids) : { ok: true, receipts: new Map() }
   }
   const limiter = (name) => (req, _res, next) => {
     limiterHits.push(`${name} ${req.method} ${req.path}`)
@@ -64,12 +91,24 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       },
       pushWriteRateLimit: limiter('push-write'),
       pushTestRateLimit: limiter('push-test'),
+      widgetReadIpRateLimit: limiter('widget-read-ip'),
+      widgetReadRateLimit: limiter('widget-read'),
       vapidKeys,
       PUSH_CRON_SECRET: cronSecret,
       pushCronSecretMatches: (header) => Boolean(cronSecret) && header === `Bearer ${cronSecret}`,
       warnCronTransient: (route, error) => transientWarnings.push({ route, error }),
       getDiningSnapshot,
+      kindsOff,
+      expoAccessToken,
       sendExpo,
+      getExpoReceipts,
+      campusAlertPush,
+      readCampusAlert,
+      // The session's user for the Live Activity routes, which take a
+      // signed-out phone too; the APNs sender and the stop reads are stubs.
+      getCurrentUser: async () => user,
+      sendLiveActivity,
+      readArrivals,
     }),
   )
   // Stands in for apiNotFound: where the cron route falls through to.
@@ -84,16 +123,25 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       const text = await response.text()
       return { status: response.status, headers: response.headers, body: text ? JSON.parse(text) : null }
     }
-    await run({ call, supabase, limiterHits, transientWarnings, expoRequests })
+    await run({ call, supabase, limiterHits, transientWarnings, expoRequests, expoTokens, receiptRequests })
   })
 }
 
 // ── GET /api/push/config ────────────────────────────────────────────────────
 
 test('the public config reports the key, or that push is off, never cached, behind both public-read limiters', async () => {
-  for (const [vapidKeys, expected] of [
-    [KEYS, { enabled: true, publicKey: KEYS.publicKey }],
-    [null, { enabled: false, publicKey: null }],
+  // The kind registry's version and digest (issue #550), with push on or off,
+  // for the app to compare with its copy's, whether campus alerts are pushed:
+  // only with push on and CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on, and
+  // whether Track this bus runs, which server.mjs works out (liveActivitiesEnabled).
+  const kinds = { version: NOTIFICATION_KINDS_VERSION, digest: await notificationKindsDigest() }
+  assert.match(kinds.digest, /^[0-9a-f]{64}$/)
+  for (const [vapidKeys, campusAlertPush, liveActivities, expected] of [
+    [KEYS, false, false, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: false, liveActivities: false }],
+    [null, false, false, { enabled: false, publicKey: null, kinds, campusAlertPush: false, liveActivities: false }],
+    [KEYS, true, false, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: true, liveActivities: false }],
+    [null, true, false, { enabled: false, publicKey: null, kinds, campusAlertPush: false, liveActivities: false }],
+    [KEYS, false, true, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: false, liveActivities: true }],
   ]) {
     const hits = []
     const limiter = (name) => (req, _res, next) => {
@@ -101,7 +149,7 @@ test('the public config reports the key, or that push is off, never cached, behi
       next()
     }
     const app = express()
-    app.use(createPushPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), vapidKeys }))
+    app.use(createPushPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), vapidKeys, campusAlertPush, liveActivities }))
     await serve(app, async (base) => {
       const res = await fetch(`${base}/api/push/config`)
       assert.equal(res.status, 200)
@@ -140,8 +188,9 @@ test("GET /api/push/settings answers the student's settings and devices, never c
       enabled: true,
       settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 120 }),
       diningAlertsAvailable: true,
+      kindsAvailable: true,
       subscriptions: [{ id: 's1', createdAt: '2026-10-01T00:00:00.000Z', userAgent: 'Safari', lastUsedAt: null }],
-      devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z', localReminders: false }],
+      devices: [{ id: 'd1', platform: 'ios', deviceName: 'iPhone', createdAt: '2026-10-02T00:00:00.000Z', lastSeenAt: '2026-10-03T00:00:00.000Z', localReminders: false, kinds: null }],
     })
     assert.ok(!JSON.stringify(res.body).includes('PushToken'), 'the token is never returned')
     const [devices] = supabase.queriesOf('push_devices')
@@ -229,9 +278,24 @@ test('before README step 47 runs, the settings still list every phone, each with
   assert.match(String(log.mock.calls[0].arguments[0]), /db\/supabase-push-local-reminders\.sql/)
 })
 
+// A push_settings row once README step 53 has run (issue #550), at its defaults.
+const KINDS_ROW = {
+  class_reminders: false,
+  class_lead_minutes: 15,
+  digest_minute: 1080,
+  deadline_items: true,
+  quiet_start: 1380,
+  quiet_end: 480,
+  campus_alerts: true,
+  kinds_migrated_at: null,
+}
+
 test('PUT /api/push/settings validates the patch and keeps the field it does not change', async () => {
   const tables = {
-    push_settings: (chain) => (operation(chain) === 'upsert' ? { data: null, error: null } : { data: { deadline_reminders: true, lead_minutes: 60 }, error: null }),
+    push_settings: (chain) =>
+      operation(chain) === 'upsert'
+        ? { data: null, error: null }
+        : { data: { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: false, ...KINDS_ROW }, error: null },
   }
   await withApp({ tables }, async ({ call, supabase, limiterHits }) => {
     const bad = await call('PUT', '/api/push/settings', { deadlineReminders: 'yes' })
@@ -240,13 +304,11 @@ test('PUT /api/push/settings validates the patch and keeps the field it does not
 
     const res = await call('PUT', '/api/push/settings', { deadlineReminders: false })
     assert.equal(res.status, 200)
-    assert.deepEqual(res.body, { settings: settingsFromRow({ deadline_reminders: false, lead_minutes: 60 }), diningAlertsAvailable: true })
+    const saved = { deadline_reminders: false, lead_minutes: 60, dining_favorite_alerts: false, ...KINDS_ROW }
+    assert.deepEqual(res.body, { settings: settingsFromRow(saved), diningAlertsAvailable: true, kindsAvailable: true })
     const upsert = supabase.queriesOf('push_settings').find((q) => operation(q.chain) === 'upsert')
     const [row, options] = upsert.chain.find((c) => c.method === 'upsert').args
-    assert.deepEqual(
-      { ...row, updated_at: undefined },
-      { user_id: STUDENT.id, deadline_reminders: false, lead_minutes: 60, dining_favorite_alerts: false, updated_at: undefined },
-    )
+    assert.deepEqual({ ...row, updated_at: undefined }, { user_id: STUDENT.id, ...saved, updated_at: undefined })
     assert.ok(!Number.isNaN(Date.parse(row.updated_at)), 'updated_at is an ISO timestamp')
     assert.deepEqual(options, { onConflict: 'user_id' })
     assert.deepEqual(limiterHits, ['push-write PUT /api/push/settings', 'push-write PUT /api/push/settings'])
@@ -293,6 +355,10 @@ test('before db/supabase-dining-favorite-alerts.sql runs, the settings work with
       if (settingsSelect(chain).includes('dining_favorite_alerts')) {
         return { data: null, error: { code: '42703', message: 'column push_settings.dining_favorite_alerts does not exist' } }
       }
+      // Nor has README step 53 (issue #550), which comes after it.
+      if (settingsSelect(chain).includes('digest_minute')) {
+        return { data: null, error: { code: '42703', message: 'column push_settings.digest_minute does not exist' } }
+      }
       return { data: { deadline_reminders: true, lead_minutes: 60 }, error: null }
     },
     push_subscriptions: () => ({ data: [], error: null }),
@@ -302,6 +368,7 @@ test('before db/supabase-dining-favorite-alerts.sql runs, the settings work with
     const res = await call('GET', '/api/push/settings')
     assert.equal(res.status, 200)
     assert.equal(res.body.diningAlertsAvailable, false)
+    assert.equal(res.body.kindsAvailable, false)
     assert.equal(res.body.settings.diningFavoriteAlerts, false)
 
     const on = await call('PUT', '/api/push/settings', { diningFavoriteAlerts: true })
@@ -320,6 +387,7 @@ test('before db/supabase-dining-favorite-alerts.sql runs, the settings work with
 test('the reminder run also runs the favorite-dish alerts when it has the dining snapshot', async () => {
   const tables = {
     push_settings: () => ({ data: [], error: null }),
+    push_tickets: () => ({ data: [], error: null }),
   }
   const snapshots = []
   await withApp({ tables, getDiningSnapshot: async (options) => (snapshots.push(options), { ok: true, locations: [] }) }, async ({ call }) => {
@@ -414,8 +482,9 @@ function deviceTables({ existing = [], settings = () => ({ data: null, error: nu
     push_settings: settings,
     push_devices: (chain) => {
       if (operation(chain) !== 'upsert') return { data: existing, error: null }
-      const { local_reminders: localReminders } = upsertedRow(chain)
-      return { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z', ...(localReminders === undefined ? {} : { local_reminders: localReminders }) }, error: null }
+      const row = upsertedRow(chain)
+      const stored = Object.fromEntries(['local_reminders', 'kinds', 'channels', 'kinds_version', 'redact'].filter((column) => column in row).map((column) => [column, row[column]]))
+      return { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z', ...stored }, error: null }
     },
   }
 }
@@ -424,7 +493,7 @@ test('POST /api/me/push-token registers the phone and makes sure the student has
   await withApp({ tables: deviceTables() }, async ({ call, supabase, limiterHits }) => {
     const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', deviceName: '  Ana iPhone  ' })
     assert.equal(res.status, 201)
-    assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false } })
+    assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false, kinds: null, channels: null, kindsVersion: null, redact: false } })
     assert.deepEqual(limiterHits, ['push-write POST /api/me/push-token'])
 
     const [settings] = supabase.queriesOf('push_settings')
@@ -444,6 +513,12 @@ test('POST /api/me/push-token registers the phone and makes sure the student has
       last_seen_at: undefined,
       failure_count: 0,
       local_reminders: false,
+      // An older build's body: no kinds, which the reminder runs read as such (issue #550).
+      kinds: null,
+      channels: null,
+      kinds_version: null,
+      redact: false,
+      activity_start_token: null,
     })
     assert.ok(!Number.isNaN(Date.parse(row.last_seen_at)))
     assert.deepEqual(options, { onConflict: 'token' })
@@ -456,7 +531,7 @@ test('POST /api/me/push-token stores localReminders, and registering again repla
   await withApp({ tables: deviceTables({ existing: [{ id: 'd1', token: PHONE }] }) }, async ({ call, supabase }) => {
     const on = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', localReminders: true })
     assert.equal(on.status, 201)
-    assert.deepEqual(on.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: true } })
+    assert.deepEqual(on.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: true, kinds: null, channels: null, kindsVersion: null, redact: false } })
 
     const off = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', localReminders: false })
     assert.equal(off.body.device.localReminders, false)
@@ -469,7 +544,7 @@ test('POST /api/me/push-token stores localReminders, and registering again repla
     assert.deepEqual(upserts.map((q) => upsertedRow(q.chain).local_reminders), [true, false, true, false])
     for (const q of upserts) {
       assert.deepEqual(q.chain.find((c) => c.method === 'upsert').args[1], { onConflict: 'token' }, 'the same row, by token')
-      assert.equal(selectOf(q.chain), 'id, created_at, local_reminders')
+      assert.equal(selectOf(q.chain), 'id, created_at, local_reminders, kinds, channels, kinds_version, redact')
     }
   })
 })
@@ -501,7 +576,7 @@ test('before README step 47 runs, a phone still registers, without the flag, and
     for (let i = 0; i < 2; i += 1) {
       const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', deviceName: 'Ana iPhone', localReminders: true })
       assert.equal(res.status, 201, 'registration is not broken')
-      assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false } }, 'the answer says the flag was not stored')
+      assert.deepEqual(res.body, { device: { id: 'd1', createdAt: '2026-10-08T00:00:00.000Z', localReminders: false, kinds: null, channels: null, kindsVersion: null, redact: false } }, 'the answer says the flag was not stored')
     }
     const upserts = supabase.queriesOf('push_devices').filter((q) => operation(q.chain) === 'upsert')
     assert.equal(upserts.length, 4, 'each registration is tried with the column, then without it')
@@ -647,6 +722,108 @@ test('POST /api/push/test reaches a phone with local reminders on too', async ()
   })
 })
 
+// Issue #550, item 2: each device hears what it gets. A phone with local
+// reminders gets its reminders from the phone, so it is told so; every other
+// phone, like the browsers, keeps the old words. One Expo request per wording.
+test('POST /api/push/test words the push for each phone', async () => {
+  const OTHER = 'ExponentPushToken[phone000000000000000002]'
+  const tables = {
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({
+      data: [
+        { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: true },
+        { id: 'd2', user_id: STUDENT.id, token: OTHER, platform: 'ios', failure_count: 0, local_reminders: false },
+      ],
+      error: null,
+    }),
+  }
+  await withApp({ tables }, async ({ call, supabase, expoRequests }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.deepEqual(res.body, { sent: 2, failed: 0, removed: 0 })
+    assert.deepEqual(
+      expoRequests.map((messages) => messages.map((m) => [m.to, m.title, m.body])),
+      [
+        [[PHONE, 'Notifications are on for this iPhone', 'Favorite dish alerts come here. Class and task reminders come from the phone itself.']],
+        [[OTHER, 'BoilerIndy notifications are on', 'You will get deadline reminders on this device.']],
+      ],
+    )
+    const [devices] = supabase.queriesOf('push_devices')
+    assert.match(devices.chain.find((c) => c.method === 'select').args[0], /\bplatform\b/)
+  })
+})
+
+// Issue #550: PUSH_KINDS_OFF and EXPO_ACCESS_TOKEN, as server.mjs hands them in.
+test('POST /api/push/test answers 503 push_kind_off while PUSH_KINDS_OFF lists test, and sends nothing', async () => {
+  const tables = {
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [{ id: 'd1', user_id: STUDENT.id, token: PHONE, failure_count: 0 }], error: null }),
+  }
+  await withApp({ tables, kindsOff: new Set(['test']) }, async ({ call, supabase, expoRequests }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.equal(res.status, 503)
+    assert.deepEqual(res.body, { error: { code: 'push_kind_off', message: 'Test notifications are switched off on this server.', status: 503 } })
+    assert.equal(supabase.queries.length, 0)
+    assert.deepEqual(expoRequests, [])
+  })
+  // Another kind switched off leaves the test send alone.
+  await withApp({ tables, kindsOff: new Set(['dining-favorites']) }, async ({ call }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { sent: 1, failed: 0, removed: 0 })
+  })
+})
+
+test('every Expo request carries the access token, from the test send and the reminder run alike, and no answer does', async () => {
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, failure_count: 0 }
+  const soon = new Date(Date.now() + 30 * 60_000).toISOString()
+  // The run reads the real clock, so no evening list and no quiet hours: one
+  // reminder at any hour (with the defaults, 6:00 PM to 11:00 PM added the
+  // evening list and the night held the reminder).
+  const settings = { user_id: STUDENT.id, lead_minutes: 60, deadline_items: true, digest_minute: null, quiet_start: null, quiet_end: null }
+  const tables = {
+    push_settings: () => ({ data: [settings], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    calendar_items: () => ({ data: [{ id: 'a', title: 'HW 3', start_time: soon, category: 'assignment', all_day: false }], error: null }),
+    user_manual_tasks: () => ({ data: [], error: null }),
+    user_task_completions: () => ({ data: [], error: null }),
+    push_deliveries: () => ({ data: [], error: null }),
+    // One ticket from an earlier send is due its receipt.
+    push_tickets: (chain) =>
+      operation(chain) === 'select' ? { data: [{ ticket_id: 'old', device_id: 'd1', sent_at: '2026-01-01T00:00:00.000Z' }], error: null } : { data: null, error: null },
+  }
+  await withApp({ tables, expoAccessToken: 'expo-access-token-for-tests' }, async ({ call, expoRequests, expoTokens, receiptRequests }) => {
+    const testSend = await call('POST', '/api/push/test', {})
+    assert.equal(testSend.status, 200)
+    const tick = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
+    assert.equal(tick.status, 200)
+    assert.equal(tick.body.sent, 1)
+    assert.deepEqual(expoRequests.map((messages) => messages.map((m) => m.data.kind)), [['test'], ['deadline']])
+    assert.deepEqual(expoTokens, ['expo-access-token-for-tests', 'expo-access-token-for-tests'])
+    assert.deepEqual(receiptRequests, [{ ids: ['old'], accessToken: 'expo-access-token-for-tests' }], 'the receipts reader carries it too')
+    assert.ok(!JSON.stringify([testSend.body, tick.body]).includes('expo-access-token-for-tests'))
+  })
+  await withApp({ tables }, async ({ call, expoTokens }) => {
+    await call('POST', '/api/push/test', {})
+    assert.deepEqual(expoTokens, [''], 'none set, none sent')
+  })
+})
+
+test('a reminder run with kinds switched off skips them before claiming anything', async () => {
+  // Only the receipts of earlier sends are read: any other query would fail the run.
+  const snapshots = []
+  const getDiningSnapshot = async (options) => (snapshots.push(options), { ok: true, locations: [] })
+  const tables = { push_tickets: () => ({ data: [], error: null }) }
+  await withApp({ tables, getDiningSnapshot, kindsOff: new Set(['deadline', 'deadline-digest', 'dining-favorites']) }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
+    assert.equal(res.status, 200)
+    assert.equal(res.body.reason, 'kind_off')
+    assert.equal(res.body.dining.reason, 'kind_off')
+    assert.deepEqual(supabase.queries.map((q) => q.table), ['push_tickets'])
+    assert.deepEqual(snapshots, [], 'the menu is not even read')
+  })
+})
+
 // ── POST /api/internal/push/run-reminders ───────────────────────────────────
 
 test('the reminder runner falls through without a cron token and refuses a wrong one', async () => {
@@ -663,7 +840,7 @@ test('the reminder runner falls through without a cron token and refuses a wrong
 })
 
 test('with the token, a tick runs and answers its summary', async () => {
-  const tables = { push_settings: () => ({ data: [], error: null }) }
+  const tables = { push_settings: () => ({ data: [], error: null }), push_tickets: () => ({ data: [], error: null }) }
   await withApp({ tables }, async ({ call, supabase }) => {
     const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
     assert.equal(res.status, 200)
@@ -696,4 +873,454 @@ test('a Supabase 504 on both attempts answers 503 and goes to warnCronTransient;
     assert.deepEqual(res.body, { ok: false, error: 'Reminder run failed.' })
     assert.deepEqual(transientWarnings, [])
   })
+})
+
+// ── POST /api/internal/push/fast-tick (issue #550, campus alerts) ───────────
+
+const CRON_AUTH = { authorization: `Bearer ${CRON_SECRET}` }
+// Demo text only: never an emergency in a test.
+const demoAlert = () => ({
+  id: 'demo-1',
+  sentAt: new Date(Date.now() - 60_000).toISOString(),
+  headline: 'Demo alert: This is sample text, not a real emergency',
+  message: null,
+  instruction: null,
+  severity: 'Severe',
+  test: false,
+  normal: false,
+})
+
+test('the fast tick falls through without a cron token, refuses a wrong one, and with campus alert pushes and Live Activities off reads nothing', async () => {
+  await withApp({ cronSecret: '' }, async ({ call }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, { authorization: 'Bearer anything' })
+    assert.equal(res.status, 404)
+  })
+  let reads = 0
+  const readCampusAlert = async () => {
+    reads += 1
+    return { fetchedAt: Date.now(), alert: demoAlert() }
+  }
+  await withApp({ campusAlertPush: true, readCampusAlert }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, { authorization: 'Bearer wrong' })
+    assert.equal(res.status, 401)
+    assert.deepEqual(res.body, { error: { message: 'Invalid cron secret.', status: 401 } })
+    assert.equal(supabase.queries.length, 0)
+  })
+  // Off: campus alert pushes, and Track this bus without the APNs key or
+  // stopped by PUSH_KINDS_OFF. No stop is read either.
+  let stopReads = 0
+  const readArrivals = async () => {
+    stopReads += 1
+    return null
+  }
+  for (const live of [{}, { sendLiveActivity: async () => ({ ok: true }), kindsOff: new Set(['bus-live-activity']) }]) {
+    await withApp({ campusAlertPush: false, readCampusAlert, readArrivals, ...live }, async ({ call, supabase }) => {
+      const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+      assert.equal(res.status, 200)
+      assert.deepEqual(res.body, { campusAlerts: { ok: false, reason: 'off' }, liveActivities: { ok: false, reason: 'off' } })
+      assert.equal(supabase.queries.length, 0)
+    })
+  }
+  assert.equal(reads, 0, 'IU is never asked while the push is off')
+  assert.equal(stopReads, 0)
+})
+
+test('the fast tick pushes a new campus alert with the Expo access token, logs one line, and skips a tick that comes while it runs', async (t) => {
+  const logs = t.mock.method(console, 'log', () => {})
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let reads = 0
+  const readCampusAlert = async () => {
+    reads += 1
+    await gate
+    return { fetchedAt: Date.now(), alert: demoAlert() }
+  }
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: false, kinds: null, channels: null }
+  const tables = {
+    campus_alert_messages: () => ({ data: null, error: null }),
+    campus_alert_incidents: (chain) => {
+      const op = operation(chain)
+      if (op === 'select') return { data: [], error: null }
+      if (op === 'update') return { data: [{ id: 'claimed' }], error: null }
+      return { data: null, error: null }
+    },
+    push_settings: () => ({ data: [], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    push_tickets: () => ({ data: null, error: null }),
+  }
+  await withApp({ tables, campusAlertPush: true, readCampusAlert, expoAccessToken: 'expo-token-for-tests' }, async ({ call, supabase, expoRequests, expoTokens }) => {
+    const first = call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    while (reads === 0) await new Promise((resolve) => setTimeout(resolve, 5))
+    const second = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.deepEqual([second.status, second.body], [200, { skipped: 'busy' }])
+    release()
+    const res = await first
+    assert.equal(res.status, 200)
+    assert.equal(res.body.campusAlerts.role, 'new')
+    assert.deepEqual(res.body.campusAlerts.pushed, ['campus-alert'])
+    assert.equal(res.body.campusAlerts.sent, 1)
+    assert.equal(expoRequests.length, 1)
+    assert.deepEqual(expoRequests[0].map((m) => [m.to, m.interruptionLevel, m.data.kind]), [[PHONE, 'time-sensitive', 'campus-alert']])
+    assert.deepEqual(expoTokens, ['expo-token-for-tests'])
+    const [record] = supabase.queriesOf('campus_alert_messages').filter((q) => operation(q.chain) === 'insert')
+    assert.equal(record.chain.find((c) => c.method === 'insert').args[0].role, 'new')
+  })
+  const lines = logs.mock.calls.map((c) => String(c.arguments[0])).filter((line) => line.startsWith('[push] campus alert:'))
+  assert.equal(lines.length, 1)
+  assert.ok(!lines[0].includes(PHONE) && !lines[0].includes('expo-token-for-tests') && !lines[0].includes('ranAt'))
+})
+
+test('a Supabase 504 in the fast tick, on both attempts, answers 503 and goes to warnCronTransient', async () => {
+  const gateway = () => ({ data: null, error: { message: 'Gateway Timeout' }, status: 504 })
+  const readCampusAlert = async () => ({ fetchedAt: Date.now(), alert: demoAlert() })
+  await withApp({ tables: { campus_alert_messages: gateway }, campusAlertPush: true, readCampusAlert }, async ({ call, supabase, transientWarnings }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.equal(res.status, 503)
+    assert.equal(supabase.queriesOf('campus_alert_messages').length, 2, 'retried once')
+    assert.deepEqual(transientWarnings.map((w) => [w.route, w.error.status]), [['POST /api/internal/push/fast-tick', 504]])
+  })
+})
+
+// ── Track this bus: /api/live-activities and the fast tick (issue #550) ─────
+
+const ACTIVITY = '6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5'
+const ACTIVITY_TOKEN = 'a1'.repeat(32)
+const startBody = (extra = {}) => ({ activityId: ACTIVITY, token: ACTIVITY_TOKEN, env: 'production', stop: 'riverwalk-apartments', routeId: 4, ...extra })
+// APNs as a stub: records each push and takes it.
+function stubApns() {
+  const pushes = []
+  return {
+    pushes,
+    send: async (push) => {
+      pushes.push(push)
+      return { ok: true, status: 200 }
+    },
+  }
+}
+
+test('POST and PATCH answer 503 live_activity_disabled, before any query, while the APNs key is unset, push is off or the kind is stopped; DELETE still ends one', async () => {
+  const tables = { live_activities: () => ({ data: [{ activity_id: ACTIVITY }], error: null }) }
+  for (const off of [{}, { sendLiveActivity: stubApns().send, vapidKeys: null }, { sendLiveActivity: stubApns().send, kindsOff: new Set(['bus-live-activity']) }]) {
+    await withApp({ tables, ...off }, async ({ call, supabase }) => {
+      for (const [method, path, body] of [
+        ['POST', '/api/live-activities', startBody()],
+        ['PATCH', `/api/live-activities/${ACTIVITY}`, { token: ACTIVITY_TOKEN }],
+      ]) {
+        const res = await call(method, path, body)
+        assert.equal(res.status, 503, `${method} ${JSON.stringify(off)}`)
+        assert.deepEqual(res.body, { error: { code: 'live_activity_disabled', message: 'Track this bus is not available right now.', status: 503 } })
+      }
+      assert.equal(supabase.queries.length, 0)
+      const ended = await call('DELETE', `/api/live-activities/${ACTIVITY}`)
+      assert.deepEqual([ended.status, ended.body], [200, { ended: true }])
+    })
+  }
+})
+
+test('POST /api/live-activities checks the body before any query', async () => {
+  await withApp({ sendLiveActivity: stubApns().send }, async ({ call, supabase }) => {
+    for (const body of [{}, startBody({ activityId: 'not-an-id' }), startBody({ token: 'zz' }), startBody({ env: 'sandbox' }), startBody({ stop: 'Not a key!' }), startBody({ routeId: '4' })]) {
+      const res = await call('POST', '/api/live-activities', body)
+      assert.equal(res.status, 400, JSON.stringify(body))
+      assert.equal(typeof res.body.error.message, 'string')
+    }
+    assert.equal(supabase.queries.length, 0)
+  })
+})
+
+test('POST /api/live-activities starts a 30-minute activity, signed in or signed out, behind both widget-read limiters', async () => {
+  for (const user of [STUDENT, null]) {
+    const inserted = []
+    const tables = {
+      live_activities: (chain) => {
+        const row = chain.find((c) => c.method === 'insert').args[0]
+        inserted.push(row)
+        return { data: { ends_at: row.ends_at }, error: null }
+      },
+    }
+    await withApp({ user, tables, sendLiveActivity: stubApns().send }, async ({ call, limiterHits }) => {
+      const before = Date.now()
+      const res = await call('POST', '/api/live-activities', startBody({ activityId: ACTIVITY.toUpperCase(), token: ACTIVITY_TOKEN.toUpperCase() }))
+      assert.equal(res.status, 201)
+      const life = Date.parse(res.body.endsAt) - before
+      assert.ok(life >= 30 * 60_000 && life < 30 * 60_000 + 5000, `${life} ms`)
+      assert.deepEqual(limiterHits, ['widget-read-ip POST /api/live-activities', 'widget-read POST /api/live-activities'])
+    })
+    const { ends_at: _endsAt, ...row } = inserted[0]
+    assert.deepEqual(row, {
+      activity_id: ACTIVITY,
+      user_id: user ? user.id : null,
+      push_token: ACTIVITY_TOKEN,
+      apns_env: 'production',
+      stop_key: 'riverwalk-apartments',
+      route_id: 4,
+    })
+  }
+})
+
+test('sending an activity again keeps its end, an ended one answers 409, and a missing table answers 503 live_activities_schema_missing', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const endsAt = '2026-11-04T15:30:00.000Z'
+  let open = true
+  const tables = {
+    live_activities: (chain) => {
+      if (operation(chain) === 'insert') return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } }
+      return { data: open ? [{ ends_at: endsAt }] : [], error: null }
+    },
+  }
+  await withApp({ tables, sendLiveActivity: stubApns().send }, async ({ call, supabase }) => {
+    const again = await call('POST', '/api/live-activities', startBody({ token: 'b2'.repeat(32) }))
+    assert.deepEqual([again.status, again.body], [200, { endsAt }])
+    const [, refresh] = supabase.queriesOf('live_activities')
+    assert.deepEqual(refresh.chain.find((c) => c.method === 'update').args[0], { push_token: 'b2'.repeat(32), apns_env: 'production', stop_key: 'riverwalk-apartments', route_id: 4 })
+    assert.ok(hasCall(refresh.chain, 'eq', 'activity_id', ACTIVITY) && hasCall(refresh.chain, 'is', 'ended_at', null))
+    open = false
+    const ended = await call('POST', '/api/live-activities', startBody())
+    assert.deepEqual([ended.status, ended.body.error.code], [409, 'live_activity_ended'])
+  })
+  const missing = { live_activities: () => ({ data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.live_activities' in the schema cache" } }) }
+  await withApp({ tables: missing, sendLiveActivity: stubApns().send }, async ({ call }) => {
+    for (const [method, path, body] of [
+      ['POST', '/api/live-activities', startBody()],
+      ['PATCH', `/api/live-activities/${ACTIVITY}`, { token: ACTIVITY_TOKEN }],
+      ['DELETE', `/api/live-activities/${ACTIVITY}`, undefined],
+    ]) {
+      const res = await call(method, path, body)
+      assert.deepEqual([res.status, res.body.error.code], [503, 'live_activities_schema_missing'], method)
+    }
+  })
+})
+
+test('PATCH replaces the push token of an open activity and DELETE ends it, both by its id', async () => {
+  let open = true
+  const tables = { live_activities: () => ({ data: open ? [{ ends_at: '2026-11-04T15:30:00.000Z', activity_id: ACTIVITY }] : [], error: null }) }
+  await withApp({ user: null, tables, sendLiveActivity: stubApns().send }, async ({ call, supabase, limiterHits }) => {
+    const patched = await call('PATCH', `/api/live-activities/${ACTIVITY.toUpperCase()}`, { token: 'C3'.repeat(32) })
+    assert.deepEqual([patched.status, patched.body], [200, { endsAt: '2026-11-04T15:30:00.000Z' }])
+    const [patch] = supabase.queriesOf('live_activities')
+    assert.deepEqual(patch.chain.find((c) => c.method === 'update').args[0], { push_token: 'c3'.repeat(32) })
+    assert.ok(hasCall(patch.chain, 'eq', 'activity_id', ACTIVITY) && hasCall(patch.chain, 'is', 'ended_at', null))
+    const ended = await call('DELETE', `/api/live-activities/${ACTIVITY}`)
+    assert.deepEqual([ended.status, ended.body], [200, { ended: true }])
+    const end = supabase.queriesOf('live_activities')[1].chain.find((c) => c.method === 'update').args[0]
+    assert.equal(end.last_state, 'ended|student')
+    assert.ok(Date.parse(end.ended_at) <= Date.now())
+    open = false
+    const gone = await call('PATCH', `/api/live-activities/${ACTIVITY}`, { token: ACTIVITY_TOKEN })
+    assert.deepEqual([gone.status, gone.body.error.code], [404, 'live_activity_not_found'])
+    assert.deepEqual((await call('DELETE', `/api/live-activities/${ACTIVITY}`)).body, { ended: false })
+    const queries = supabase.queries.length
+    for (const [method, path, body] of [
+      ['PATCH', '/api/live-activities/not-an-id', { token: ACTIVITY_TOKEN }],
+      ['PATCH', `/api/live-activities/${ACTIVITY}`, { token: 'not hex' }],
+      ['DELETE', '/api/live-activities/not-an-id', undefined],
+    ]) {
+      assert.equal((await call(method, path, body)).status, 400)
+    }
+    assert.equal(supabase.queries.length, queries)
+    assert.ok(limiterHits.every((hit) => /^widget-read(-ip)? (PATCH|DELETE) /.test(hit)))
+  })
+})
+
+test('the fast tick keeps the Live Activities current with campus alerts off, and logs one line without a token or an id', async (t) => {
+  const logs = t.mock.method(console, 'log', () => {})
+  const now = Date.now()
+  const row = {
+    activity_id: ACTIVITY,
+    push_token: ACTIVITY_TOKEN,
+    apns_env: 'production',
+    stop_key: 'riverwalk-apartments',
+    route_id: 4,
+    ends_at: new Date(now + 20 * 60_000).toISOString(),
+    ended_at: null,
+    last_state: null,
+    last_pushed_at: null,
+  }
+  const tables = { live_activities: (chain) => (operation(chain) === 'update' ? { data: [{ activity_id: ACTIVITY }], error: null } : { data: [row], error: null }) }
+  const reads = []
+  const readArrivals = async (stop) => {
+    reads.push(stop)
+    const at = new Date(now + 7 * 60_000).toISOString()
+    return { place: { key: stop, name: 'Riverwalk Apartments', routes: [] }, fetchedAt: new Date(now).toISOString(), arrivals: [{ routeId: 4, routeNum: '5', routeName: 'Purple', color: '#7A3E9D', at, source: 'transloc', vehicleId: 11 }] }
+  }
+  const apns = stubApns()
+  await withApp({ tables, sendLiveActivity: apns.send, readArrivals }, async ({ call }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body.campusAlerts, { ok: false, reason: 'off' })
+    assert.deepEqual([res.body.liveActivities.open, res.body.liveActivities.updates], [1, 1])
+  })
+  assert.deepEqual(reads, ['riverwalk-apartments'])
+  assert.deepEqual(apns.pushes.map((push) => [push.token, push.env, push.priority, push.payload.aps.event]), [[ACTIVITY_TOKEN, 'production', 5, 'update']])
+  const lines = logs.mock.calls.map((c) => String(c.arguments[0])).filter((line) => line.startsWith('[push] live activities:'))
+  assert.equal(lines.length, 1)
+  assert.ok(!lines[0].includes(ACTIVITY_TOKEN) && !lines[0].includes(ACTIVITY) && !lines[0].includes('ranAt'))
+})
+
+test('the two halves of the fast tick fail apart: a Live Activity error answers 500 after the campus alert went out', async (t) => {
+  t.mock.method(console, 'log', () => {})
+  const errors = t.mock.method(console, 'error', () => {})
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: false, kinds: null, channels: null }
+  const tables = {
+    campus_alert_messages: () => ({ data: null, error: null }),
+    campus_alert_incidents: (chain) => (operation(chain) === 'update' ? { data: [{ id: 'claimed' }], error: null } : { data: operation(chain) === 'select' ? [] : null, error: null }),
+    push_settings: () => ({ data: [], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    push_tickets: () => ({ data: null, error: null }),
+    live_activities: () => ({ data: null, error: { code: 'XX000', message: 'internal error' }, status: 500 }),
+  }
+  const readCampusAlert = async () => ({ fetchedAt: Date.now(), alert: demoAlert() })
+  await withApp({ tables, campusAlertPush: true, readCampusAlert, sendLiveActivity: stubApns().send, readArrivals: async () => null }, async ({ call, expoRequests }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.deepEqual([res.status, res.body], [500, { ok: false, error: 'Fast tick failed.' }])
+    assert.equal(expoRequests.length, 1, 'the campus alert went out first')
+  })
+  assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).startsWith('POST /api/internal/push/fast-tick:')))
+})
+
+// ── Issue #550, README step 53: the choices by kind ─────────────────────────
+
+test('PUT /api/push/settings saves the choices by kind, refuses an evening list inside quiet hours, and marks an account migrated once', async () => {
+  let saved = { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: false, ...KINDS_ROW }
+  const tables = {
+    push_settings: (chain) => {
+      if (operation(chain) === 'upsert') {
+        saved = chain.find((c) => c.method === 'upsert').args[0]
+        return { data: null, error: null }
+      }
+      return { data: saved, error: null }
+    },
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const res = await call('PUT', '/api/push/settings', {
+      classReminders: true,
+      classLeadMinutes: 10,
+      digestMinute: 19 * 60,
+      deadlineItems: false,
+      quietStart: 22 * 60,
+      quietEnd: 7 * 60,
+      campusAlerts: false,
+    })
+    assert.equal(res.status, 200)
+    assert.equal(res.body.kindsAvailable, true)
+    const { classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, deadlineReminders } = res.body.settings
+    assert.deepEqual(
+      { classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, deadlineReminders },
+      { classReminders: true, classLeadMinutes: 10, digestMinute: 1140, deadlineItems: false, quietStart: 1320, quietEnd: 420, campusAlerts: false, deadlineReminders: true },
+    )
+    assert.deepEqual(
+      [saved.class_reminders, saved.class_lead_minutes, saved.digest_minute, saved.deadline_items, saved.quiet_start, saved.quiet_end, saved.campus_alerts],
+      [true, 10, 1140, false, 1320, 420, false],
+    )
+
+    // An evening list inside quiet hours, either way round, is refused and nothing changes.
+    for (const body of [{ digestMinute: 22 * 60 + 30 }, { quietStart: 18 * 60, quietEnd: 8 * 60 }]) {
+      const refused = await call('PUT', '/api/push/settings', body)
+      assert.equal(refused.status, 400, JSON.stringify(body))
+      assert.match(refused.body.error.message, /evening list cannot go out during quiet hours/)
+    }
+    assert.deepEqual([saved.digest_minute, saved.quiet_start], [1140, 1320])
+
+    // Quiet hours off, and the list moved into what were quiet hours: fine now.
+    const off = await call('PUT', '/api/push/settings', { quietStart: null, quietEnd: null })
+    assert.deepEqual([off.status, off.body.settings.quietStart, off.body.settings.quietEnd], [200, null, null])
+    assert.equal((await call('PUT', '/api/push/settings', { digestMinute: 23 * 60 })).status, 200)
+
+    // The first phone on an app build with kinds marks the account migrated, once.
+    assert.equal(saved.kinds_migrated_at, null)
+    const migrated = await call('PUT', '/api/push/settings', { kindsMigrated: true })
+    assert.equal(migrated.body.settings.kindsMigrated, true)
+    const first = saved.kinds_migrated_at
+    assert.ok(!Number.isNaN(Date.parse(first)))
+    await call('PUT', '/api/push/settings', { kindsMigrated: true })
+    assert.equal(saved.kinds_migrated_at, first)
+  })
+})
+
+test('before README step 53, a choice by kind answers 503 push_kinds_schema_missing and the old fields still save', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const upserts = []
+  const tables = {
+    push_settings: (chain) => {
+      if (operation(chain) === 'upsert') {
+        upserts.push(chain.find((c) => c.method === 'upsert').args[0])
+        return { data: null, error: null }
+      }
+      if (settingsSelect(chain).includes('digest_minute')) {
+        return { data: null, error: { code: '42703', message: 'column push_settings.digest_minute does not exist' } }
+      }
+      return { data: { deadline_reminders: true, lead_minutes: 60, dining_favorite_alerts: true }, error: null }
+    },
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [], error: null }),
+  }
+  await withApp({ tables }, async ({ call }) => {
+    const read = await call('GET', '/api/push/settings')
+    assert.deepEqual([read.body.kindsAvailable, read.body.diningAlertsAvailable], [false, true])
+    // What step 53 will give this row, shown ahead of it.
+    assert.deepEqual([read.body.settings.deadlineItems, read.body.settings.digestMinute], [true, 1080])
+
+    for (const body of [{ digestMinute: 1140 }, { quietStart: null, quietEnd: null }, { classReminders: true }, { kindsMigrated: true }]) {
+      const res = await call('PUT', '/api/push/settings', body)
+      assert.equal(res.status, 503, JSON.stringify(body))
+      assert.equal(res.body.error.code, 'push_kinds_schema_missing')
+    }
+    assert.equal(upserts.length, 0)
+
+    const lead = await call('PUT', '/api/push/settings', { leadMinutes: 30 })
+    assert.equal(lead.status, 200)
+    assert.equal(lead.body.kindsAvailable, false)
+    assert.deepEqual(Object.keys(upserts[0]).sort(), ['deadline_reminders', 'dining_favorite_alerts', 'lead_minutes', 'updated_at', 'user_id'])
+  })
+})
+
+// Issue #550, item 4 (README step 54): what an app build with kinds reports.
+test('POST /api/me/push-token stores the kinds and channels a phone reports, and before step 54 registers without them', async (t) => {
+  await withApp({ tables: deviceTables() }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', {
+      token: PHONE,
+      platform: 'ios',
+      kinds: ['dining-favorites', 'campus-alert', 'class'],
+      channels: ['dining', 'safety'],
+      kindsVersion: 1,
+      redact: true,
+      activityStartToken: 'a1b2c3d4e5f60718',
+    })
+    assert.equal(res.status, 201)
+    assert.deepEqual(res.body.device, {
+      id: 'd1',
+      createdAt: '2026-10-08T00:00:00.000Z',
+      localReminders: false,
+      kinds: ['dining-favorites', 'campus-alert'],
+      channels: ['dining', 'safety'],
+      kindsVersion: 1,
+      redact: true,
+    })
+    assert.ok(!JSON.stringify(res.body).includes('a1b2c3d4e5f60718'), 'the start token is never returned')
+    const upsert = supabase.queriesOf('push_devices').find((q) => operation(q.chain) === 'upsert')
+    const row = upsertedRow(upsert.chain)
+    assert.deepEqual([row.kinds, row.channels, row.kinds_version, row.redact, row.activity_start_token], [['dining-favorites', 'campus-alert'], ['dining', 'safety'], 1, true, 'a1b2c3d4e5f60718'])
+  })
+
+  const log = t.mock.method(console, 'error', () => {})
+  const before = {
+    push_settings: () => ({ data: null, error: null }),
+    push_devices: (chain) => {
+      if (operation(chain) !== 'upsert') return { data: [], error: null }
+      if ('kinds' in upsertedRow(chain)) return { data: null, error: { code: 'PGRST204', message: "Could not find the 'kinds' column of 'push_devices' in the schema cache" } }
+      return { data: { id: 'd1', created_at: '2026-10-08T00:00:00.000Z', local_reminders: upsertedRow(chain).local_reminders }, error: null }
+    },
+  }
+  await withApp({ tables: before }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'ios', kinds: ['dining-favorites'], localReminders: true })
+    assert.equal(res.status, 201)
+    assert.deepEqual([res.body.device.kinds, res.body.device.localReminders], [null, true], 'stored as an older build, with its flag')
+    const upserts = supabase.queriesOf('push_devices').filter((q) => operation(q.chain) === 'upsert')
+    assert.deepEqual(upserts.map((q) => selectOf(q.chain)), ['id, created_at, local_reminders, kinds, channels, kinds_version, redact', 'id, created_at, local_reminders'])
+  })
+  assert.match(String(log.mock.calls[0].arguments[0]), /db\/supabase-push-device-kinds\.sql/)
 })

@@ -61,6 +61,25 @@ test.describe('Campus alert banner', () => {
     await expect(page.getByRole('main')).toBeVisible()
   })
 
+  // Issue #550, item 9: where a campus alert push opens, signed in or not.
+  // Demo text only: never an emergency in a test.
+  test('/safety shows the alert itself, with no button to hide it and no banner above it, then the all clear', async ({ page, mockApi }) => {
+    mockApi.seedCampusAlert(activeAlert({ id: 'demo-1', headline: 'Demo alert: This is sample text, not a real emergency', message: 'Sample description from the demo alert.' }))
+    await page.goto('/safety?incident=5677aad2-b992-54c4-a75d-d2b3617130f1')
+    await expect(page.getByRole('heading', { level: 1, name: 'Campus Alerts' })).toBeVisible()
+    await expect(page.getByTestId('preview-bar')).toContainText("You're viewing IU's campus alerts.")
+    const card = page.getByTestId('safety-alert')
+    await expect(card.getByRole('alert')).toContainText('Demo alert: This is sample text, not a real emergency')
+    await expect(card).toContainText('Sample description from the demo alert.')
+    await expect(card.getByRole('button', { name: 'Hide this alert' })).toHaveCount(0)
+    await expect(page.getByTestId('campus-alert')).toHaveCount(0)
+
+    mockApi.seedCampusAlert({ enabled: true, active: false, alert: null, checkedAt: new Date().toISOString(), stale: false })
+    await page.reload()
+    await expect(page.getByRole('status')).toContainText('No active alert. IU Indianapolis has not reported an emergency on campus.')
+    await expect(page.getByTestId('safety-alert')).toHaveCount(0)
+  })
+
   test('nothing shows while the read is off or IU has given the all clear', async ({ page, mockApi }) => {
     await page.goto('/dining')
     await expect(page.getByTestId('preview-bar')).toContainText(PREVIEW_MESSAGE)

@@ -111,7 +111,7 @@ export default function Login() {
     if (loading || !user || finishing.current) return
     // Already signed in (e.g. the installed app opening on /login): skip the
     // setup screen when a schedule source is already connected.
-    navigate(resolvePostLoginPath(search, onboarding), { replace: true })
+    navigate(resolvePostLoginPath(search, onboarding, user), { replace: true })
   }, [loading, user, onboarding, navigate, search])
 
   function clearErrors() {
@@ -294,7 +294,7 @@ export default function Login() {
     })
 
     navigate(
-      flow === 'signup' ? parseNextPath(search) : resolvePostLoginPath(search, signedIn?.onboarding),
+      flow === 'signup' ? parseNextPath(search) : resolvePostLoginPath(search, signedIn?.onboarding, signedIn?.user),
       { replace: true },
     )
   }

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { authRequest, shouldSkipSetup } from '../lib/authApi'
+import { authRequest, calendarRemindersOff } from '../lib/authApi'
 import AiMarkdown from '../components/AiMarkdown'
 import Icon from '../components/Icons'
 import SourceErrorNotice from '../components/SourceErrorNotice'
@@ -1025,7 +1025,8 @@ export default function Home() {
   const needsPurdueConnection = onboarding?.needsPurdueConnection
   const needsScheduleSource = onboarding?.needsScheduleSource
   const purdueLinkingOff = authConfig?.supportsPurdueLink === false
-  const showSetupBanner = (needsPurdueConnection || needsScheduleSource) && !shouldSkipSetup()
+  // Off with calendar reminders (Settings, Setup's "Don't ask again" or the app).
+  const showSetupBanner = (needsPurdueConnection || needsScheduleSource) && !calendarRemindersOff(user)
   const hasNoCalendarSources = onboarding?.linkedSourceCount === 0
   const displayClass = scheduleState.displayClass
 

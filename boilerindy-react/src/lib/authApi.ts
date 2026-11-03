@@ -123,6 +123,91 @@ export function setSkipSetup(skip: boolean): void {
   }
 }
 
+// Calendar reminders (Antoniodeoliveirasegura/boilerindy-app#150): the account
+// keeps the choice as user.calendarRemindersOff, so the app and every browser
+// follow it. pih-skip-setup was the whole story before that and is still
+// written, for a tab running an older build. This key says the browser's flag
+// has reached the account; like pih-skip-setup it belongs to the browser, not
+// to one student, so it carries no user id.
+export const SKIP_SETUP_SAVED_KEY = 'pih-skip-setup-saved'
+
+function skipSetupSaved(): boolean {
+  try {
+    return localStorage.getItem(SKIP_SETUP_SAVED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function setSkipSetupSaved(saved: boolean): void {
+  try {
+    if (saved) localStorage.setItem(SKIP_SETUP_SAVED_KEY, '1')
+    else localStorage.removeItem(SKIP_SETUP_SAVED_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+type RemindersUser = { calendarRemindersOff?: unknown } | null | undefined
+
+/**
+ * Whether the student turned calendar reminders off: no trip to /setup after
+ * signing in and no Finish Setup card on Home. The account decides, except
+ * that a "Don't ask again" this browser holds and the account does not have
+ * yet (saved before the account kept the choice, or refused with a 503 before
+ * db/supabase-calendar-reminders.sql runs) still counts. An API that sends no
+ * flag leaves the browser's choice alone, as before.
+ */
+export function calendarRemindersOff(user: RemindersUser): boolean {
+  const off = user?.calendarRemindersOff
+  if (typeof off !== 'boolean') return shouldSkipSetup()
+  return off || (shouldSkipSetup() && !skipSetupSaved())
+}
+
+/**
+ * Save the calendar reminders choice on the account (PATCH /api/me/profile),
+ * then copy it to this browser's flag for an older tab. Rejects with the API's
+ * error, such as 503 calendar_reminders_schema_missing, and then changes
+ * nothing here. The caller re-reads the session.
+ */
+export async function saveCalendarRemindersOff(off: boolean): Promise<void> {
+  const data = (await authRequest('/api/me/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({ calendarRemindersOff: off }),
+  })) as { user?: RemindersUser } | null
+  setSkipSetup(off)
+  // An API from before the switch answers without the flag, so the account
+  // has nothing yet and this browser's flag stays the stand-in.
+  setSkipSetupSaved(data?.user?.calendarRemindersOff === off)
+}
+
+/**
+ * Setup's "Don't ask again": reminders stop in this browser at once, and stay
+ * stopped when the request fails, until SkipSetupCarryOver gets the choice to
+ * the account on a later visit. Rejects as saveCalendarRemindersOff does.
+ */
+export function stopCalendarReminders(): Promise<void> {
+  setSkipSetup(true)
+  setSkipSetupSaved(false)
+  return saveCalendarRemindersOff(true)
+}
+
+/**
+ * True when this browser holds a "Don't ask again" that the account lacks, so
+ * SkipSetupCarryOver should send it (once per browser, the first time it
+ * goes through). When the account already has reminders off this records
+ * that, so a later "on" from the app or another browser wins over the old flag.
+ */
+export function skipSetupToCarryOver(user: RemindersUser): boolean {
+  const off = user?.calendarRemindersOff
+  if (typeof off !== 'boolean' || !shouldSkipSetup() || skipSetupSaved()) return false
+  if (off) {
+    setSkipSetupSaved(true)
+    return false
+  }
+  return true
+}
+
 /**
  * A `next` value as a same-site path, or null. Resolved the way the browser
  * and the router will resolve it, because a prefix check is not enough: URL
@@ -158,14 +243,15 @@ export type OnboardingLike = { needsScheduleSource?: boolean } | null | undefine
 /**
  * Where to send a signed-in user who arrived at /login: an explicit safe
  * `next` wins; otherwise students who already connected a schedule source (or
- * chose to skip setup) go to the dashboard, and everyone else to setup. Before
- * this, every launch of the installed app landed on the setup screen because
- * parseNextPath only knew about the skip flag.
+ * turned calendar reminders off, see calendarRemindersOff) go to the
+ * dashboard, and everyone else to setup. Before this, every launch of the
+ * installed app landed on the setup screen because parseNextPath only knew
+ * about the skip flag.
  */
-export function resolvePostLoginPath(search: string, onboarding?: OnboardingLike): string {
+export function resolvePostLoginPath(search: string, onboarding?: OnboardingLike, user?: RemindersUser): string {
   const next = safeNextPath(new URLSearchParams(search).get('next'))
   if (next) return next
-  if (shouldSkipSetup()) return '/dashboard'
+  if (calendarRemindersOff(user)) return '/dashboard'
   if (onboarding && onboarding.needsScheduleSource === false) return '/dashboard'
   return '/setup'
 }

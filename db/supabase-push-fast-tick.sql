@@ -1,0 +1,45 @@
+-- The 30-second push tick (issue #550). POST /api/internal/push/fast-tick
+-- sends what cannot wait for the 5-minute reminder run: campus alert pushes
+-- (src/campusAlertPush.mjs, behind CAMPUS_ALERT_PUSH), and the updates of
+-- Track this bus, the app's Live Activity (src/liveActivities.mjs, README step
+-- 58, once APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are set). Like the
+-- reminder run, it answers only the PUSH_CRON_SECRET bearer token, and with
+-- the secret unset it is a 404.
+--
+-- Production only: the job below calls the production server, so run it only
+-- in the production Supabase project, and only once the server carrying the
+-- route is live. Nothing here runs by itself; the block stays commented so the
+-- file is safe in any project. Requires the pg_cron and pg_net extensions from
+-- db/supabase-keep-warm.sql (README step 29); pg_cron's '30 seconds' schedule
+-- needs pg_cron 1.5 or later, which Supabase has.
+--
+-- Each run adds a row to cron.job_run_details, about 2,900 a day; the
+-- retention job in db/supabase-retention.sql (README step 51) deletes that
+-- log after 7 days.
+--
+-- With CAMPUS_ALERT_PUSH off and the APNs variables unset the tick answers at
+-- once without asking IU, TransLoc or the database, so the job can be
+-- scheduled before either goes on.
+--
+-- Replace <PUSH_CRON_SECRET> with the value set on Render, then run:
+--
+--   select cron.schedule(
+--     'boilerindy-push-fast-tick',
+--     '30 seconds',
+--     $$
+--     select net.http_post(
+--       url := 'https://boilerindy-api.onrender.com/api/internal/push/fast-tick',
+--       headers := '{"Authorization": "Bearer <PUSH_CRON_SECRET>", "Content-Type": "application/json"}'::jsonb,
+--       body := '{}'::jsonb,
+--       timeout_milliseconds := 25000
+--     );
+--     $$
+--   );
+--
+-- Verify:
+--   select jobname, schedule, active from cron.job where jobname = 'boilerindy-push-fast-tick';
+--   select status, return_message, start_time from cron.job_run_details
+--     where jobid = (select jobid from cron.job where jobname = 'boilerindy-push-fast-tick')
+--     order by start_time desc limit 5;
+--
+-- Remove with: select cron.unschedule('boilerindy-push-fast-tick');

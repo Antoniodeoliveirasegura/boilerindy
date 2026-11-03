@@ -30,6 +30,10 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 |---|---|
 | `page_view` | Any route change (path in props) |
 | `source_synced` | A calendar source is connected or re-synced |
+| `calendar_reminder_shown` | The native app shows its sign-in reminder to connect a calendar (Antoniodeoliveirasegura/boilerindy-app#150; `case`: `none` when nothing is connected, `schedule` or `brightspace` for the one that is missing, `broken` when one stopped syncing). Allowlisted here before any app build sends it |
+| `calendar_reminder_connect` | The student presses that reminder's Connect button (`case`, as above) |
+| `calendar_reminder_not_now` | The student closes that reminder without turning reminders off (`case`, as above) |
+| `calendar_reminder_opted_out` | The student closes that reminder with "Don't remind me again" ticked, which turns reminders off for the account (`case`, as above) |
 | `board_post_created` | A board post is published |
 | `assistant_message_sent` | A campus-assistant message is sent (event only - never the text) |
 | `dining_viewed` | Dining page opened |
@@ -42,6 +46,15 @@ in `boilerindy-react/src/` names an event the constant lacks (#421).
 | `friends_viewed` | Friends page opened |
 | `study_groups_viewed` | Study groups page opened |
 | `share_clicked` | A Share button on Transit, Dining or Free Food is pressed, before the share sheet opens or the link is copied (`page` prop: `transit`, `dining` or `free-food`, plus `kind: event` when one free-food event is shared rather than the list, or `via: qr` when the QR button beside Share shows the view as a code; never the link or the event). See [share-links.md](share-links.md) |
+| `notification_opened` | The native app opens a notification, by a tap or one of its actions (`kind`: a kind id from `src/notificationKinds.mjs`; `action`: `default` for a tap, else the action, such as `mark-done`; never the notification's text) |
+| `notification_setting_changed` | A notification kind is turned on or off in the app's Notifications settings (`kind`, `on`) |
+| `notification_permission` | The app's notification permission prompt is answered (`result`: `granted` or `denied`; `from`: where it was asked, such as an offer or the Notifications card) |
+| `notification_offer` | One of the app's notification offers is answered (`kind`, `accepted`) |
+
+The four `notification_*` events come from the native app
+(Antoniodeoliveirasegura/boilerindy-app#172, item 9) and were allowlisted
+before any app build sends them (issue #550), so a batch carrying one is never
+refused.
 
 ## Privacy guarantees
 

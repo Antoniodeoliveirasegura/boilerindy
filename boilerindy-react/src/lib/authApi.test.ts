@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   authRequest,
+  calendarRemindersOff,
   parseNextPath,
   registerSupabaseUser,
   resolvePostLoginPath,
   safeNextPath,
+  saveCalendarRemindersOff,
   shouldSkipSetup,
   setSkipSetup,
+  skipSetupToCarryOver,
+  stopCalendarReminders,
 } from './authApi'
 import { captureSignupRef, readSignupRef } from './signupRef'
 
@@ -104,6 +108,108 @@ describe('resolvePostLoginPath', () => {
     expect(resolvePostLoginPath('', { needsScheduleSource: true })).toBe('/dashboard')
     expect(resolvePostLoginPath('?next=/board', { needsScheduleSource: false })).toBe('/board')
     expect(resolvePostLoginPath('?next=//evil.example.com', { needsScheduleSource: false })).toBe('/dashboard')
+  })
+
+  test("reads calendar reminders from the account (Antoniodeoliveirasegura/boilerindy-app#150)", () => {
+    expect(resolvePostLoginPath('', { needsScheduleSource: true }, { calendarRemindersOff: true })).toBe('/dashboard')
+    expect(resolvePostLoginPath('', { needsScheduleSource: true }, { calendarRemindersOff: false })).toBe('/setup')
+    expect(resolvePostLoginPath('?next=/board', { needsScheduleSource: true }, { calendarRemindersOff: true })).toBe('/board')
+    // A "Don't ask again" this browser holds that the account lacks still counts.
+    setSkipSetup(true)
+    expect(resolvePostLoginPath('', { needsScheduleSource: true }, { calendarRemindersOff: false })).toBe('/dashboard')
+  })
+})
+
+// Calendar reminders (Antoniodeoliveirasegura/boilerindy-app#150): the account
+// keeps the choice, and this browser's pih-skip-setup, which an older tab
+// still reads, stands in until the account has it.
+describe('calendar reminders', () => {
+  function jsonResponse(status: number, body: unknown) {
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+  const answered = (off: boolean) =>
+    vi.fn().mockImplementation(async () => jsonResponse(200, { user: { id: 'u1', calendarRemindersOff: off } }))
+  const notSetUp = () =>
+    vi.fn().mockImplementation(async () =>
+      jsonResponse(503, {
+        error: {
+          message: 'The calendar reminders setting is not set up yet. Please try again later.',
+          code: 'calendar_reminders_schema_missing',
+          status: 503,
+        },
+      }),
+    )
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  test('the account decides once it sends the flag', () => {
+    expect(calendarRemindersOff({ calendarRemindersOff: true })).toBe(true)
+    expect(calendarRemindersOff({ calendarRemindersOff: false })).toBe(false)
+  })
+
+  test('without the flag from the API, this browser decides, as before', () => {
+    expect(calendarRemindersOff({})).toBe(false)
+    expect(calendarRemindersOff(null)).toBe(false)
+    setSkipSetup(true)
+    expect(calendarRemindersOff({})).toBe(true)
+    expect(calendarRemindersOff(undefined)).toBe(true)
+  })
+
+  test('saving sends the choice and copies it to this browser for an older tab', async () => {
+    const fetchMock = answered(true)
+    vi.stubGlobal('fetch', fetchMock)
+    await saveCalendarRemindersOff(true)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/me/profile')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ calendarRemindersOff: true }) })
+    expect(shouldSkipSetup()).toBe(true)
+    // The account has the choice now, so turning reminders back on in the app wins.
+    expect(calendarRemindersOff({ calendarRemindersOff: false })).toBe(false)
+
+    vi.stubGlobal('fetch', answered(false))
+    await saveCalendarRemindersOff(false)
+    expect(shouldSkipSetup()).toBe(false)
+  })
+
+  test('a refused save changes nothing in this browser', async () => {
+    vi.stubGlobal('fetch', notSetUp())
+    await expect(saveCalendarRemindersOff(true)).rejects.toMatchObject({ status: 503, code: 'calendar_reminders_schema_missing' })
+    expect(shouldSkipSetup()).toBe(false)
+    expect(calendarRemindersOff({ calendarRemindersOff: false })).toBe(false)
+  })
+
+  test("Setup's Don't ask again holds in this browser at once, and after a refused save", async () => {
+    // Saved and turned back on earlier, so this browser's flag had reached the account.
+    vi.stubGlobal('fetch', answered(true))
+    await saveCalendarRemindersOff(true)
+    vi.stubGlobal('fetch', answered(false))
+    await saveCalendarRemindersOff(false)
+
+    vi.stubGlobal('fetch', notSetUp())
+    const saving = stopCalendarReminders()
+    expect(shouldSkipSetup()).toBe(true)
+    await expect(saving).rejects.toMatchObject({ code: 'calendar_reminders_schema_missing' })
+    expect(calendarRemindersOff({ calendarRemindersOff: false })).toBe(true)
+    expect(skipSetupToCarryOver({ calendarRemindersOff: false })).toBe(true)
+  })
+
+  test('an API from before the switch answers without the flag, so this browser keeps the choice', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { items: [], ok: true })))
+    await stopCalendarReminders()
+    expect(calendarRemindersOff({})).toBe(true)
+    expect(calendarRemindersOff({ calendarRemindersOff: false })).toBe(true)
+    expect(skipSetupToCarryOver({ calendarRemindersOff: false })).toBe(true)
+  })
+
+  test('only a browser flag the account lacks is carried over, and an account that has it settles the flag', () => {
+    expect(skipSetupToCarryOver({ calendarRemindersOff: false })).toBe(false)
+    setSkipSetup(true)
+    expect(skipSetupToCarryOver({})).toBe(false)
+    expect(skipSetupToCarryOver(null)).toBe(false)
+    expect(skipSetupToCarryOver({ calendarRemindersOff: false })).toBe(true)
+    expect(skipSetupToCarryOver({ calendarRemindersOff: true })).toBe(false)
+    // The account had it, so turning reminders back on in the app wins over the old flag.
+    expect(skipSetupToCarryOver({ calendarRemindersOff: false })).toBe(false)
+    expect(calendarRemindersOff({ calendarRemindersOff: false })).toBe(false)
   })
 })
 

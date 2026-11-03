@@ -22,6 +22,9 @@ const DEFAULT_USER = {
   purdueEmail: 'student@purdue.edu',
   purdueUsername: null,
   hasPurdueLinked: true,
+  // Calendar reminders on, as for every account until the student turns them
+  // off (Antoniodeoliveirasegura/boilerindy-app#150).
+  calendarRemindersOff: false,
 }
 
 const DEFAULT_CREDENTIALS = { email: 'student@purdue.edu', password: 'correct-horse-battery' }
@@ -69,9 +72,25 @@ function defaultOnboarding(overrides = {}) {
 function defaultPush(overrides = {}) {
   return {
     config: { enabled: true, publicKey: 'BNo-real-key-just-for-tests', ...(overrides.config || {}) },
-    settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false, ...(overrides.settings || {}) },
+    settings: {
+      deadlineReminders: true,
+      leadMinutes: 60,
+      diningFavoriteAlerts: false,
+      // The choices by kind (#550), as GET /api/push/settings answers them.
+      classReminders: false,
+      classLeadMinutes: 15,
+      digestMinute: 1080,
+      deadlineItems: true,
+      quietStart: 1380,
+      quietEnd: 480,
+      campusAlerts: true,
+      kindsMigrated: false,
+      ...(overrides.settings || {}),
+    },
     // False mirrors a server before db/supabase-dining-favorite-alerts.sql (#469).
     diningAlertsAvailable: overrides.diningAlertsAvailable !== false,
+    // True mirrors a server after db/supabase-push-kinds.sql (README step 53, #550).
+    kindsAvailable: overrides.kindsAvailable === true,
     subscriptions: (overrides.subscriptions || []).map((s, i) => ({
       id: s.id || `push-seed-${i + 1}`,
       endpoint: s.endpoint || `https://push.example/seed/${i + 1}`,
@@ -653,6 +672,9 @@ export const test = base.extend({
       pendingLoginCode: false,
       // The next resend answers that the pending sign-in timed out.
       loginCodeTimedOut: false,
+      // True mirrors a server before db/supabase-calendar-reminders.sql: a
+      // profile save that sets calendarRemindersOff answers 503.
+      calendarRemindersMissing: false,
       classes: [],
       classesMeta: { selectedTermKey: null, selectedTermLabel: '', totalInTerm: 0 },
       calendarItems: [],
@@ -994,6 +1016,25 @@ export const test = base.extend({
         return json(route, 200, { major: state.major })
       }
 
+      // The account switches Settings and Setup save, answered with the user
+      // as server.mjs answers them (buildSessionPayload).
+      if (pathname === '/api/me/profile' && method === 'PATCH') {
+        const body = bodyOf()
+        if (typeof body.calendarRemindersOff === 'boolean' && state.calendarRemindersMissing) {
+          return json(route, 503, {
+            error: {
+              message: 'The calendar reminders setting is not set up yet. Please try again later.',
+              code: 'calendar_reminders_schema_missing',
+              status: 503,
+            },
+          })
+        }
+        for (const key of ['calendarRemindersOff', 'aiOptIn', 'analyticsOptOut']) {
+          if (typeof body[key] === 'boolean') state.user[key] = body[key]
+        }
+        return json(route, 200, { user: { ...state.user } })
+      }
+
       if (pathname === '/api/me/calendar-feed' && method === 'GET') {
         return json(route, 200, { feedUrl: state.feedUrl })
       }
@@ -1257,6 +1298,7 @@ export const test = base.extend({
           enabled: state.push.config.enabled,
           settings: { ...state.push.settings },
           diningAlertsAvailable: state.push.diningAlertsAvailable,
+          kindsAvailable: state.push.kindsAvailable,
           subscriptions: state.push.subscriptions.map(({ id, createdAt, userAgent, lastUsedAt }) => ({
             id,
             createdAt,
@@ -1283,7 +1325,27 @@ export const test = base.extend({
           }
           state.push.settings.diningFavoriteAlerts = Boolean(b.diningFavoriteAlerts)
         }
-        return json(route, 200, { settings: { ...state.push.settings }, diningAlertsAvailable: state.push.diningAlertsAvailable })
+        // The choices by kind (#550): 503 before README step 53, and an
+        // evening list inside quiet hours refused, as src/routes/push.mjs does.
+        const kindKeys = ['classReminders', 'classLeadMinutes', 'digestMinute', 'deadlineItems', 'quietStart', 'quietEnd', 'campusAlerts']
+        if (kindKeys.some((key) => b[key] !== undefined)) {
+          if (!state.push.kindsAvailable) {
+            return json(route, 503, { error: { code: 'push_kinds_schema_missing', message: 'Notifications by kind is not set up yet. Please try again later.', status: 503 } })
+          }
+          const next = { ...state.push.settings }
+          for (const key of kindKeys) if (b[key] !== undefined) next[key] = b[key]
+          const { quietStart: qs, quietEnd: qe, digestMinute: dm } = next
+          const quiet = qs !== null && qe !== null && qs !== qe && dm !== null && (qs < qe ? dm >= qs && dm < qe : dm >= qs || dm < qe)
+          if (quiet) {
+            return json(route, 400, { error: { message: 'The evening list cannot go out during quiet hours. Pick a time outside them.', status: 400 } })
+          }
+          state.push.settings = next
+        }
+        return json(route, 200, {
+          settings: { ...state.push.settings },
+          diningAlertsAvailable: state.push.diningAlertsAvailable,
+          kindsAvailable: state.push.kindsAvailable,
+        })
       }
       if (pathname === '/api/push/subscriptions' && method === 'POST') {
         const { subscription, userAgent } = bodyOf()
@@ -1481,6 +1543,10 @@ export const test = base.extend({
       },
       timeOutLoginCode() {
         state.loginCodeTimedOut = true
+      },
+      // A server before db/supabase-calendar-reminders.sql (missing = true), or after it.
+      setCalendarRemindersMissing(missing = true) {
+        state.calendarRemindersMissing = missing
       },
       setOnboarding(overrides) {
         state.onboarding = defaultOnboarding(overrides)

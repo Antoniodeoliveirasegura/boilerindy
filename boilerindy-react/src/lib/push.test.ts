@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import {
+  DEFAULT_PUSH_SETTINGS,
   LEAD_MINUTE_OPTIONS,
   MAX_LEAD_MINUTES,
   MIN_LEAD_MINUTES,
@@ -7,8 +8,12 @@ import {
   describeTestResult,
   fetchPushConfig,
   fetchPushSettings,
+  formatDayMinute,
   formatLeadMinutes,
+  inQuietHours,
+  normalizeSettings,
   readPushSupportEnv,
+  withSaved,
   urlBase64ToUint8Array,
   type PushSupportEnv,
 } from './push'
@@ -181,8 +186,9 @@ describe('push API wrappers', () => {
     )
     await expect(fetchPushSettings()).resolves.toEqual({
       enabled: true,
-      settings: { deadlineReminders: false, leadMinutes: 120, diningFavoriteAlerts: false },
+      settings: { ...DEFAULT_PUSH_SETTINGS, deadlineReminders: false, leadMinutes: 120 },
       diningAlertsAvailable: false,
+      kindsAvailable: false,
       subscriptions,
       notConfiguredMessage: null,
     })
@@ -205,8 +211,9 @@ describe('push API wrappers', () => {
     )
     await expect(fetchPushSettings()).resolves.toEqual({
       enabled: false,
-      settings: { deadlineReminders: true, leadMinutes: 60, diningFavoriteAlerts: false },
+      settings: { ...DEFAULT_PUSH_SETTINGS },
       diningAlertsAvailable: false,
+      kindsAvailable: false,
       subscriptions: [],
       notConfiguredMessage: 'Push tables are missing.',
     })
@@ -229,5 +236,63 @@ describe('push API wrappers', () => {
   it('fetchPushSettings rethrows any other failure', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: { message: 'boom' } }))
     await expect(fetchPushSettings()).rejects.toThrow('boom')
+  })
+})
+
+// Issue #550: the choices by kind and the helpers the Settings card draws them with.
+describe('choices by kind', () => {
+  it('formatDayMinute writes minutes past midnight as a campus clock time', () => {
+    expect([0, 60, 480, 720, 1080, 1380, 1439].map(formatDayMinute)).toEqual([
+      '12:00 AM',
+      '1:00 AM',
+      '8:00 AM',
+      '12:00 PM',
+      '6:00 PM',
+      '11:00 PM',
+      '11:59 PM',
+    ])
+  })
+
+  it('inQuietHours follows the server: from the start, up to but not including the end, wrapping midnight', () => {
+    expect([1379, 1380, 0, 479, 480].map((m) => inQuietHours(m, 1380, 480))).toEqual([false, true, true, true, false])
+    expect([779, 780, 839, 840].map((m) => inQuietHours(m, 780, 840))).toEqual([false, true, true, false])
+    expect(inQuietHours(1400, null, null)).toBe(false)
+    expect(inQuietHours(600, 600, 600)).toBe(false)
+  })
+
+  it('withSaved keeps a saved value that is not on the list, in order', () => {
+    expect(withSaved([60, 120], 90)).toEqual([60, 90, 120])
+    expect(withSaved([60, 120], 60)).toEqual([60, 120])
+    expect(withSaved([60, 120], null)).toEqual([60, 120])
+  })
+
+  it('normalizeSettings reads the choices by kind, and a null pair as no quiet hours', () => {
+    const settings = normalizeSettings({
+      deadlineReminders: true,
+      leadMinutes: 30,
+      classReminders: true,
+      classLeadMinutes: 10,
+      digestMinute: null,
+      deadlineItems: true,
+      quietStart: null,
+      quietEnd: null,
+      campusAlerts: false,
+      kindsMigrated: true,
+    })
+    expect(settings).toEqual({
+      ...DEFAULT_PUSH_SETTINGS,
+      leadMinutes: 30,
+      classReminders: true,
+      classLeadMinutes: 10,
+      digestMinute: null,
+      deadlineItems: true,
+      quietStart: null,
+      quietEnd: null,
+      campusAlerts: false,
+      kindsMigrated: true,
+    })
+    // Out-of-range values fall back; half a quiet pair is no quiet hours.
+    const odd = normalizeSettings({ classLeadMinutes: 20, digestMinute: 2000, quietStart: 1380, quietEnd: null })
+    expect([odd.classLeadMinutes, odd.digestMinute, odd.quietStart, odd.quietEnd]).toEqual([15, null, null, null])
   })
 })

@@ -35,6 +35,9 @@ import session from 'express-session'
 import { createClient } from '@supabase/supabase-js'
 import { createClubDirectoryCache } from './src/boilerlinkClubs.mjs'
 import { loadVapidKeys } from './src/webPush.mjs'
+import { createApnsSender, loadApnsConfig } from './src/apnsLiveActivity.mjs'
+import { liveActivitiesEnabled } from './src/liveActivities.mjs'
+import { kindsOffFromSetting } from './src/notificationKinds.mjs'
 import { describeFailure } from './src/cronTick.mjs'
 import { findDiningFood, getDiningSnapshot, todayYmdInZone } from './src/nutrisliceDining.mjs'
 import { getDiningUpcoming } from './src/diningHeadliners.mjs'
@@ -56,7 +59,7 @@ import { createStudyGroupsRouter } from './src/routes/studyGroups.mjs'
 import { createMarketplaceRouter } from './src/routes/marketplace.mjs'
 import { createFriendsRouter } from './src/routes/friends.mjs'
 import { createDiningPublicRouter, createDiningRouter } from './src/routes/dining.mjs'
-import { createCampusPublicRouter } from './src/routes/campus.mjs'
+import { createCampusPublicRouter, createTransitReads } from './src/routes/campus.mjs'
 import { createPushPublicRouter, createPushRouter } from './src/routes/push.mjs'
 import { createBoardRouter } from './src/routes/board.mjs'
 import { createAssistantRouter } from './src/routes/assistant.mjs'
@@ -555,6 +558,37 @@ try {
 } catch (err) {
   console.error(`[push] VAPID keys rejected (${err.message}): push notifications are disabled.`)
 }
+// The kinds of notification an operator has stopped without a deploy
+// (PUSH_KINDS_OFF, kind ids from src/notificationKinds.mjs), and the Expo
+// access token every native push carries once the project's enhanced push
+// security is on (EXPO_ACCESS_TOKEN). Both go to the push router (issue #550).
+const pushKindsOff = kindsOffFromSetting(process.env.PUSH_KINDS_OFF)
+if (pushKindsOff.ignored.length) {
+  console.warn(`[push] PUSH_KINDS_OFF names no kind this server sends: ${pushKindsOff.ignored.join(', ')}`)
+}
+if (pushKindsOff.off.size) console.warn(`[push] kinds switched off by PUSH_KINDS_OFF: ${[...pushKindsOff.off].join(', ')}`)
+const EXPO_ACCESS_TOKEN = String(process.env.EXPO_ACCESS_TOKEN || '').trim()
+// Campus alert pushes (issue #550, docs/campus-alerts.md): CAMPUS_ALERT_PUSH,
+// off by default, works only with CAMPUS_ALERTS on, which stays the one switch
+// that turns off the banner and the push alike.
+const campusAlertPushEnabled = envSwitch('CAMPUS_ALERTS') && envSwitch('CAMPUS_ALERT_PUSH')
+// Track this bus, the app's Live Activity (issue #550,
+// docs/push-notifications.md): its updates go straight to APNs, signed with
+// the auth key in APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID. Without all three
+// the config says liveActivities: false and the routes answer 503
+// live_activity_disabled. A key that does not load is logged without its
+// contents. The push tick reads each activity's stop through the same
+// TransLoc reads, and the same 15 s arrivals cache, as the campus routes.
+let apnsSender = null
+try {
+  const apnsConfig = loadApnsConfig()
+  if (apnsConfig) apnsSender = createApnsSender({ config: apnsConfig })
+  else console.warn('[push] APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID not set: Track this bus (Live Activities) is off.')
+} catch (err) {
+  console.error(`[push] APNs key rejected (${err.message}): Track this bus (Live Activities) is off.`)
+}
+const liveActivitiesOn = liveActivitiesEnabled({ send: apnsSender?.send, vapidKeys, kindsOff: pushKindsOff.off })
+const transitReads = createTransitReads({ getCached })
 
 // ── Public reads (issue #250) ────────────────────────────────────────────────
 // The session-free upstream proxies are registered here, before the session
@@ -570,8 +604,8 @@ try {
 // lists the downtown rows only with CAMPUS_EVENTS_DOWNTOWN on, as that read does.
 // The sources one serves the demo calendars (issue #521). The campus one's
 // alert read asks IU only with CAMPUS_ALERTS on (issue #34).
-app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache, campusAlertsEnabled: envSwitch('CAMPUS_ALERTS') }))
-app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }))
+app.use(createCampusPublicRouter({ transitVehiclesIpRateLimit, transitVehiclesRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, publicReadIpRateLimit, publicReadRateLimit, clubsReadRateLimit, getCached, clubDirectoryCache, campusAlertsEnabled: envSwitch('CAMPUS_ALERTS'), transitReads }))
+app.use(createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys, campusAlertPush: campusAlertPushEnabled, liveActivities: liveActivitiesOn }))
 app.use(createDiningPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, getDiningSnapshot, findDiningFood, getDiningUpcoming }))
 app.use(createCampusEventsPublicRouter({ supabase, publicReadIpRateLimit, publicReadRateLimit, getCached, sharedEventsFeed: envSwitch('CAMPUS_EVENTS_FEED'), downtownEnabled: envSwitch('CAMPUS_EVENTS_DOWNTOWN') }))
 app.use(createSourcesPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, demoCalendarsEnabled }))
@@ -862,9 +896,15 @@ async function getCached(key, ttlMs, producer) {
 // /api/push/config is mounted in the public reads block above, which is also
 // where the VAPID keys are loaded. The cron bearer token and its check are
 // read near the top of this file, and warnCronTransient sits with the Sentry
-// warnings below; the sources router is handed them too.
+// warnings below; the sources router is handed them too. The 30-second tick
+// reads IU's alert feed through getCached, sharing the banner's reading, and
+// pushes IU's tests to the admins (ADMIN_EMAILS and users.is_admin). Track
+// this bus's routes (/api/live-activities) take a signed-out phone too, so
+// they read the session's user with getCurrentUser rather than requireAuth,
+// under the widget-read limits; the tick sends its updates with the APNs
+// sender and reads the stops through transitReads.
 // ============================================================
-app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot }))
+app.use(createPushRouter({ supabase, requireAuth, pushWriteRateLimit, pushTestRateLimit, widgetReadIpRateLimit, widgetReadRateLimit, vapidKeys, PUSH_CRON_SECRET, pushCronSecretMatches, warnCronTransient, getDiningSnapshot, kindsOff: pushKindsOff.off, expoAccessToken: EXPO_ACCESS_TOKEN, getCached, campusAlertPush: campusAlertPushEnabled, adminEmails: [...adminEmails], getCurrentUser, sendLiveActivity: apnsSender?.send ?? null, readArrivals: transitReads.readArrivals }))
 
 // A feed that timed out, dropped the connection or answered a gateway status
 // is the feed host's outage, not a bug here, and the source row already shows
