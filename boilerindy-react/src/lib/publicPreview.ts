@@ -1,13 +1,14 @@
 // The app routes a signed-out visitor may open (issue #366): live dining and
 // transit, the campus map and the free food on campus calendars, which read
 // only session-free data (the map reads Purdue's public building layer
-// straight from ArcGIS). App.tsx leaves exactly these without RequireAuth,
-// AppLayout shows the preview bar on them instead of the navbar, and
-// public/sitemap.xml lists them (publicPreview.test.ts checks both against
+// straight from ArcGIS), and IU's campus alert at /safety, where a campus
+// alert push opens (issue #550). App.tsx leaves exactly these without
+// RequireAuth, AppLayout shows the preview bar on them instead of the navbar,
+// and public/sitemap.xml lists them (publicPreview.test.ts checks both against
 // this list).
 import { normalizeRoutePath } from './routePath'
 
-export const PREVIEW_PATHS = ['/dining', '/transit', '/map', '/free-food'] as const
+export const PREVIEW_PATHS = ['/dining', '/transit', '/map', '/free-food', '/safety'] as const
 
 export type PreviewPath = (typeof PREVIEW_PATHS)[number]
 
@@ -28,6 +29,7 @@ export const PREVIEW_MESSAGES: Record<PreviewPath, string> = {
   '/transit': PREVIEW_MESSAGE,
   '/map': "You're previewing the campus map. Create a free account to find each of your classes on it.",
   '/free-food': "You're previewing free food on campus. Create a free account to add events from your own calendar.",
+  '/safety': "You're viewing IU's campus alerts. Create a free account to get them as notifications.",
 }
 
 /** The bar's message on a preview route; the dining and transit one anywhere else. */

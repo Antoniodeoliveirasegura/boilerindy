@@ -6,6 +6,7 @@ import {
   buildTestPayload,
   deadlineItemUrl,
   deliverToPushDevices,
+  deviceTakes,
   describeDueIn,
   dueMomentOf,
   endOfDayInZone,
@@ -441,6 +442,8 @@ function reminderClient({ subs = [], devices = [], devicesError = null, flagColu
     if (op.table === 'user_task_completions') return { data: [], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'select') return { data: [], error: null }
     if (op.table === 'push_deliveries' && op.kind === 'insert') return { data: null, error: null }
+    // Expo tickets kept for their receipts (issue #550, README step 55).
+    if (op.table === 'push_tickets' && op.kind === 'insert') return { data: null, error: null }
     throw new Error(`unexpected query ${op.table} ${op.kind}`)
   })
 }
@@ -571,7 +574,7 @@ test('a phone with local reminders gets no deadline reminder, while the browser 
   assert.equal(client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert').length, 1, 'claimed once, as before')
   assert.deepEqual(summary, { ok: true, ranAt: NOW.toISOString(), users: 1, checked: 1, sent: 2, failed: 0, removed: 0, skipped: 0, digests: 0, held: 0, capped: 0 })
   const deviceQuery = client.calls.find((c) => c.table === 'push_devices' && c.kind === 'select')
-  assert.equal(deviceQuery.payload, 'id, user_id, token, platform, failure_count, local_reminders')
+  assert.equal(deviceQuery.payload, 'id, user_id, token, platform, failure_count, local_reminders, kinds, channels')
 })
 
 test('a student whose only phone has local reminders is skipped, and nothing is claimed', async () => {
@@ -620,7 +623,7 @@ test('before README step 47 runs, every phone gets its deadline reminder, and th
   assert.deepEqual(first.expoSends, [PHONE], 'the phone is not read as gone')
   assert.equal(first.summary.sent, 2)
   const selects = first.client.calls.filter((c) => c.table === 'push_devices' && c.kind === 'select').map((c) => c.payload)
-  assert.deepEqual(selects, ['id, user_id, token, platform, failure_count, local_reminders', 'id, user_id, token, platform, failure_count'])
+  assert.deepEqual(selects, ['id, user_id, token, platform, failure_count, local_reminders, kinds, channels', 'id, user_id, token, platform, failure_count'])
   const second = await run()
   assert.deepEqual(second.expoSends, [PHONE])
   assert.equal(log.mock.callCount(), 1, 'the next tick does not log it again')
@@ -674,6 +677,53 @@ test('Expo answers keep the books: gone is deleted, a strike counts, a success c
   assert.deepEqual({ sent: summary.sent, failed: summary.failed, removed: summary.removed }, { sent: 1, failed: 3, removed: 2 })
   assert.deepEqual(warnings, ['[push] native delivery failed (MessageRateExceeded)', '[push] native delivery failed (InvalidCredentials)'])
   assert.ok(warnings.every((line) => !line.includes('PushToken')), 'tokens never reach the log')
+  // Issue #550, item 7: the ticket of the message Expo took is kept for its receipt.
+  const tickets = client.calls.filter((c) => c.table === 'push_tickets')
+  assert.deepEqual(tickets.map((c) => [c.kind, c.payload]), [['insert', [{ ticket_id: 't', kind: 'deadline', device_id: 'd-back', sent_at: NOW.toISOString() }]]])
+})
+
+// Issue #550, item 4: a phone that listed its kinds at registration gets only
+// those from the server (and the test push); an older build, with no list,
+// keeps the local-reminders rule.
+test('deviceTakes: listed kinds only for a phone that listed them, the old rule for an older build', () => {
+  const listed = { kinds: ['dining-favorites', 'deadline-digest'] }
+  assert.deepEqual(['deadline', 'deadline-digest', 'dining-favorites', 'campus-alert', 'test'].map((kind) => deviceTakes(listed, kind)), [false, true, true, false, true])
+  assert.equal(deviceTakes({ kinds: [] }, 'dining-favorites'), false, 'an empty list takes nothing but the test push')
+  assert.equal(deviceTakes({ kinds: [] }, 'test'), true)
+  const older = { kinds: null, local_reminders: true }
+  assert.deepEqual(['deadline', 'deadline-digest', 'dining-favorites', 'test'].map((kind) => deviceTakes(older, kind)), [false, false, true, true])
+  assert.deepEqual(['deadline', 'dining-favorites'].map((kind) => deviceTakes({ local_reminders: false }, kind)), [true, true])
+  // The campus all clear goes with the alert (its registry default follows it).
+  assert.deepEqual(['campus-alert', 'campus-all-clear'].map((kind) => deviceTakes({ kinds: ['campus-alert'] }, kind)), [true, true])
+  assert.deepEqual(['campus-alert', 'campus-all-clear'].map((kind) => deviceTakes(listed, kind)), [false, false])
+  assert.equal(deviceTakes(older, 'campus-all-clear'), true)
+})
+
+test('a phone gets only the kinds it listed, and a channel only when it listed it', async () => {
+  const devices = [
+    { id: 'd-all', user_id: 'u1', token: 'ExponentPushToken[all]', failure_count: 0, kinds: ['deadline', 'dining-favorites'], channels: ['deadlines', 'dining'] },
+    { id: 'd-dining', user_id: 'u1', token: 'ExponentPushToken[dining]', failure_count: 0, kinds: ['dining-favorites'], channels: null },
+    { id: 'd-old', user_id: 'u1', token: 'ExponentPushToken[old]', failure_count: 0, local_reminders: false },
+  ]
+  const client = reminderClient({ devices })
+  const messages = []
+  const summary = await runDeadlineReminders({
+    client,
+    keys: { publicKey: 'x' },
+    now: NOW,
+    sendExpo: async ({ messages: batch }) => (messages.push(...batch), ok(batch)),
+    log: { warn() {} },
+  })
+  // The deadline goes to the phone that listed it and to the older build, not to the dining-only phone.
+  assert.deepEqual(messages.map((m) => [m.to, m.channelId ?? null]), [
+    ['ExponentPushToken[all]', 'deadlines'],
+    ['ExponentPushToken[old]', null],
+  ])
+  assert.equal(summary.sent, 2)
+  // Untouched, the dining-only phone keeps its place for the next push.
+  const outcome = await deliverToPushDevices({ client, devices, payload: buildTestPayload(), send: async ({ messages: batch }) => ok(batch), now: NOW })
+  assert.equal(outcome.sent, 3, 'the test push reaches every phone')
+  assert.deepEqual(outcome.devices.map((d) => d.id).sort(), ['d-all', 'd-dining', 'd-old'])
 })
 
 test('loadPushDevices drops struck-out phones and reads a missing table as none', async () => {

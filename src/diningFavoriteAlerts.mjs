@@ -8,7 +8,11 @@
 // run does nothing. Each student is claimed once per day in push_deliveries
 // as "dining-favorites:<YYYY-MM-DD>" before anything is sent, so overlapping
 // runs cannot both notify, and a student with no favorite on the menu is not
-// claimed (a menu that changes later in the day can still match).
+// claimed (a menu that changes later in the day can still match). The alert
+// goes 30 minutes before the first meal that serves a starred dish (issue
+// #550, item 6: 10:00 AM for lunch, 4:00 PM for dinner, 8:00 AM for
+// breakfast), not at the first run after 8:00 AM; until then the student is
+// left unclaimed (`early` in the summary).
 //
 // Pure pieces (the window, the matching, the copy) are exported for the tests;
 // the runner takes the Supabase client, the VAPID keys and the dining snapshot
@@ -26,7 +30,7 @@ import { normalizeItemName } from './diningFavorites.mjs'
 import { MAX_DEVICE_STRIKES, sendExpoPush } from './expoPush.mjs'
 import { sendWebPush } from './webPush.mjs'
 import { queryError } from './cronTick.mjs'
-import { countCappedToday, deliverToPushDevices, isMissingTableError, loadPushDevices, settingsFromRow } from './pushReminders.mjs'
+import { countCappedToday, deliverToPushDevices, deviceTakes, isMissingTableError, loadPushDevices, settingsFromRow } from './pushReminders.mjs'
 import { DAILY_CAP, isQuietMinute, quietWindow } from './pushPolicy.mjs'
 import { todayYmdInZone } from './nutrisliceDining.mjs'
 
@@ -42,6 +46,22 @@ const NAMED_DISHES = 3
 export function inAlertWindow(now = new Date()) {
   const minutes = minutesInZone(now)
   return minutes >= DINING_ALERT_FROM_MINUTES && minutes < DINING_ALERT_UNTIL_MINUTES
+}
+
+// When an alert goes for a meal (issue #550, item 6): 30 minutes before the
+// meal windows of src/diningMeals.mjs open it, and never before 8:00 AM, when
+// the day's menu is firm. Lunch and brunch at 10:00 AM, dinner at 4:00 PM,
+// breakfast and anything the windows do not name at 8:00 AM.
+const MEAL_ALERT_MINUTES = { breakfast: 8 * 60, brunch: 10 * 60, lunch: 10 * 60, dinner: 16 * 60 }
+
+/**
+ * The campus minute past midnight a student's alert goes, before the first
+ * meal of the day that serves one of their starred dishes. A dish with no
+ * meal counts as served from the morning.
+ */
+export function alertMinuteFor(matches) {
+  const minutes = matches.flatMap((dish) => (dish.meals.length ? dish.meals : [null]).map((meal) => MEAL_ALERT_MINUTES[meal] ?? DINING_ALERT_FROM_MINUTES))
+  return Math.max(DINING_ALERT_FROM_MINUTES, Math.min(...minutes, DINING_ALERT_UNTIL_MINUTES))
 }
 
 /** The claim key for a student's alert on a campus date. */
@@ -188,7 +208,7 @@ export async function runDiningFavoriteAlerts({
   maxSends = 300,
   log = console,
 }) {
-  const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0, held: 0, capped: 0 }
+  const summary = { users: 0, matched: 0, sent: 0, failed: 0, removed: 0, skipped: 0, early: 0, held: 0, capped: 0 }
   if (!keys) return { ...summary, reason: 'no_vapid_keys' }
   if (kindsOff.has('dining-favorites')) return { ...summary, reason: 'kind_off' }
   if (!inAlertWindow(now)) return { ...summary, reason: 'outside_window' }
@@ -261,12 +281,20 @@ export async function runDiningFavoriteAlerts({
     devicesByUser.get(device.user_id).push(device)
   }
 
+  const nowMinute = minutesInZone(now)
   for (const [userId, matches] of matchesByUser) {
     if (summary.sent + summary.failed >= maxSends) break
     const subs = subsByUser.get(userId) || []
-    const devices = (devicesByUser.get(userId) || []).filter((d) => (d.failure_count || 0) < MAX_DEVICE_STRIKES)
+    // Only the phones that take dish alerts (issue #550, item 4: all of them
+    // but one that listed its kinds without this one).
+    const devices = (devicesByUser.get(userId) || []).filter((d) => (d.failure_count || 0) < MAX_DEVICE_STRIKES && deviceTakes(d, 'dining-favorites'))
     if (!subs.length && !devices.length) {
       summary.skipped += 1
+      continue
+    }
+    // Before the meal that serves a starred dish (item 6): not yet, and nothing claimed.
+    if (nowMinute < alertMinuteFor(matches)) {
+      summary.early += 1
       continue
     }
     if (kindsAvailable) {

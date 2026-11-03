@@ -15,6 +15,7 @@ import {
   dishesOnMenu,
   favoritesOnMenu,
   inAlertWindow,
+  alertMinuteFor,
   isMissingColumnError,
   mealEndsAt,
   runDiningFavoriteAlerts,
@@ -204,6 +205,7 @@ function alertsClient({ deliveryConflict = false, settingsError = null, devices 
       return { data: Array.from({ length: cappedToday }, () => ({ kind: 'deadline' })), error: null }
     }
     if (op.table === 'push_deliveries' && op.kind === 'select') return { data: [{ user_id: 'u3' }], error: null }
+    if (op.table === 'push_tickets' && op.kind === 'insert') return { data: null, error: null }
     if (op.table === 'push_deliveries' && op.kind === 'insert') {
       return deliveryConflict ? { data: null, error: { code: '23505', message: 'duplicate key' } } : { data: null, error: null }
     }
@@ -230,11 +232,11 @@ test('the run claims and sends one alert to each student whose favorite is on th
     client,
     keys: KEYS,
     getSnapshot: async (options) => (snapshots.push(options), SNAPSHOT),
-    now: at('08:05'),
+    now: at('16:05'), // Beef Stroganoff is a dinner dish: its alert goes from 4:00 PM (issue #550)
     send,
     log: { warn() {} },
   })
-  assert.deepEqual(summary, { users: 1, matched: 1, sent: 1, failed: 0, removed: 0, skipped: 1, held: 0, capped: 0 })
+  assert.deepEqual(summary, { users: 1, matched: 1, sent: 1, failed: 0, removed: 0, skipped: 1, early: 0, held: 0, capped: 0 })
   assert.deepEqual(sent, [
     {
       endpoint: 'https://push.example/1',
@@ -245,7 +247,7 @@ test('the run claims and sends one alert to each student whose favorite is on th
     },
   ])
   const claim = client.calls.find((c) => c.table === 'push_deliveries' && c.kind === 'insert')
-  assert.deepEqual(claim.payload, { user_id: 'u1', item_key: 'dining-favorites:2026-10-14', kind: 'dining-favorites', sent_at: at('08:05').toISOString() })
+  assert.deepEqual(claim.payload, { user_id: 'u1', item_key: 'dining-favorites:2026-10-14', kind: 'dining-favorites', sent_at: at('16:05').toISOString() })
   // Only students not yet sent today are read, and the opted-in filter is on the switch.
   const settings = client.calls.find((c) => c.table === 'push_settings')
   assert.deepEqual(settings.filters[0], ['eq', 'dining_favorite_alerts', true])
@@ -266,7 +268,7 @@ async function runWithPhones(client) {
     client,
     keys: KEYS,
     getSnapshot: async () => SNAPSHOT,
-    now: at('08:05'),
+    now: at('16:05'),
     send: async () => ({ ok: true, status: 201 }),
     sendExpo: async ({ messages: batch }) => {
       expo.push(...batch.map((m) => [m.to, m.data.kind]))
@@ -295,8 +297,8 @@ test('on a phone the dish alert is passive and silent, and kept until its last m
   assert.equal(message.categoryId, 'dining')
   assert.equal(message.priority, 'normal')
   assert.equal('sound' in message, false, 'no sound')
-  // Beef Stroganoff is a dinner dish: from 8:05 AM to midnight.
-  assert.equal(message.ttl, (16 * 60 - 5) * 60)
+  // Beef Stroganoff is a dinner dish: from 4:05 PM to midnight.
+  assert.equal(message.ttl, (8 * 60 - 5) * 60)
 })
 
 test('before README step 47 runs, the favorite-dish alert still reaches the phones', async (t) => {
@@ -306,13 +308,13 @@ test('before README step 47 runs, the favorite-dish alert still reaches the phon
   assert.deepEqual(expo, [[PHONE, 'dining-favorites']])
   assert.equal(summary.sent, 2)
   const selects = client.calls.filter((c) => c.table === 'push_devices' && c.kind === 'select').map((c) => c.payload)
-  assert.deepEqual(selects, ['id, user_id, token, platform, failure_count, local_reminders', 'id, user_id, token, platform, failure_count'])
+  assert.deepEqual(selects, ['id, user_id, token, platform, failure_count, local_reminders, kinds, channels', 'id, user_id, token, platform, failure_count'])
 })
 
 test('a claim that already exists is skipped: two overlapping runs send once', async () => {
   const client = alertsClient({ deliveryConflict: true })
   let sends = 0
-  const summary = await runDiningFavoriteAlerts({ client, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at('12:00'), send: async () => (sends++, { ok: true }) })
+  const summary = await runDiningFavoriteAlerts({ client, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at('16:30'), send: async () => (sends++, { ok: true }) })
   assert.equal(sends, 0)
   assert.equal(summary.users, 0)
   assert.equal(summary.skipped, 2)
@@ -347,29 +349,61 @@ test('a dish alert waits out quiet hours and stops at the daily cap', async () =
   const run = (client, hhmm) => runDiningFavoriteAlerts({ client, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at(hhmm), send: async () => ({ ok: true, status: 201 }), log: { warn() {} } })
   const claimsOf = (client) => client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert')
 
-  // Quiet hours until 9:00 AM: at 8:05 the alert waits; at 9:00 it goes.
-  const early = { quiet_start: 7 * 60, quiet_end: 9 * 60 }
-  let client = alertsClient({ quiet: early })
-  let summary = await run(client, '08:05')
+  // Quiet hours from 3:00 to 5:00 PM: at 4:05 the dinner alert waits; at 5:00 it goes.
+  const afternoon = { quiet_start: 15 * 60, quiet_end: 17 * 60 }
+  let client = alertsClient({ quiet: afternoon })
+  let summary = await run(client, '16:05')
   assert.deepEqual([summary.held, summary.users, claimsOf(client).length], [1, 0, 0])
-  client = alertsClient({ quiet: early })
-  summary = await run(client, '09:00')
+  client = alertsClient({ quiet: afternoon })
+  summary = await run(client, '17:00')
   assert.deepEqual([summary.held, summary.users, claimsOf(client).length], [0, 1, 1])
 
   // Six capped pushes already today: no seventh.
   client = alertsClient({ cappedToday: 6 })
-  summary = await run(client, '12:00')
+  summary = await run(client, '16:30')
   assert.deepEqual([summary.capped, summary.users, claimsOf(client).length], [1, 0, 0])
   client = alertsClient({ cappedToday: 5 })
-  summary = await run(client, '12:00')
+  summary = await run(client, '16:30')
   assert.deepEqual([summary.capped, summary.users], [0, 1])
 
   // Before README step 53 neither applies, and the alert goes as before.
-  client = alertsClient({ quiet: early, cappedToday: 6, before53: true })
-  summary = await run(client, '08:05')
+  client = alertsClient({ quiet: afternoon, cappedToday: 6, before53: true })
+  summary = await run(client, '16:05')
   assert.deepEqual([summary.held, summary.capped, summary.users], [0, 0, 1])
   assert.deepEqual(
     client.calls.filter((c) => c.table === 'push_settings').map((c) => c.payload),
     ['user_id, quiet_start, quiet_end', 'user_id'],
   )
+})
+
+// Issue #550, item 6: the alert goes 30 minutes before the first meal that
+// serves a starred dish, not at the first run after 8:00 AM.
+test('the alert goes 30 minutes before the first meal that serves a starred dish', async () => {
+  const dish = (meals) => ({ name: 'Dish', location: 'Tower Dining', hall: 'tower-dining', meals })
+  assert.equal(alertMinuteFor([dish(['breakfast'])]), 8 * 60)
+  assert.equal(alertMinuteFor([dish(['lunch'])]), 10 * 60)
+  assert.equal(alertMinuteFor([dish(['brunch'])]), 10 * 60)
+  assert.equal(alertMinuteFor([dish(['dinner'])]), 16 * 60)
+  assert.equal(alertMinuteFor([dish(['dinner']), dish(['lunch', 'dinner'])]), 10 * 60, 'the first meal of the day wins')
+  assert.equal(alertMinuteFor([dish([])]), 8 * 60, 'a dish with no meal counts from the morning')
+  assert.equal(alertMinuteFor([dish(['late-night'])]), 8 * 60)
+
+  // u1's Beef Stroganoff is on at dinner: at 3:55 PM it is too early, and nothing is claimed.
+  const run = (client, hhmm) => runDiningFavoriteAlerts({ client, keys: KEYS, getSnapshot: async () => SNAPSHOT, now: at(hhmm), send: async () => ({ ok: true, status: 201 }), log: { warn() {} } })
+  let client = alertsClient()
+  let summary = await run(client, '15:55')
+  assert.deepEqual([summary.early, summary.users], [1, 0])
+  assert.equal(client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert').length, 0)
+  client = alertsClient()
+  summary = await run(client, '16:00')
+  assert.deepEqual([summary.early, summary.users, summary.sent], [0, 1, 1])
+})
+
+test('a phone that listed its kinds without the dish alerts does not get them', async () => {
+  const devices = [
+    { id: 'd1', user_id: 'u1', token: PHONE, failure_count: 0, kinds: ['deadline'], channels: ['deadlines'] },
+    { id: 'd2', user_id: 'u1', token: 'ExponentPushToken[phone000000000000000002]', failure_count: 0, kinds: ['dining-favorites'], channels: ['dining'] },
+  ]
+  const { messages } = await runWithPhones(alertsClient({ devices }))
+  assert.deepEqual(messages.map((m) => [m.to, m.channelId]), [['ExponentPushToken[phone000000000000000002]', 'dining']])
 })

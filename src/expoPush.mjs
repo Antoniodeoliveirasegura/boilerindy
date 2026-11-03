@@ -38,7 +38,7 @@
 // Everything except sendExpoPush is pure; sendExpoPush takes `fetchImpl`, so
 // test/expoPush.test.mjs runs it without the network.
 
-import { serverPushKind } from './notificationKinds.mjs'
+import { NOTIFICATION_KINDS, notificationKind, serverPushKind } from './notificationKinds.mjs'
 import { fetchUpstreamJson } from './upstreamFetch.mjs'
 
 export const EXPO_PUSH_SEND_URL = 'https://exp.host/--/api/v2/push/send'
@@ -65,15 +65,34 @@ export function isExpoToken(token) {
   return typeof token === 'string' && token.length <= PUSH_TOKEN_MAX_LENGTH && EXPO_TOKEN_RE.test(token)
 }
 
+// A Live Activity push-to-start token: APNs hands it over as hex.
+const ACTIVITY_START_TOKEN_RE = /^[A-Za-z0-9]{8,400}$/
+const KNOWN_CHANNELS = new Set(NOTIFICATION_KINDS.channels.map((channel) => channel.id))
+
+// A list of names, of which only those `known` accepts are kept, once each and
+// in order. Null when absent; false when it is not a list of strings.
+function knownNames(value, known) {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value) || value.length > 50 || !value.every((name) => typeof name === 'string')) return false
+  return [...new Set(value.filter(known))]
+}
+
 /**
  * Validate a POST /api/me/push-token body:
- * `{ token, platform, deviceName?, localReminders? }`. Returns
- * { ok: true, token, platform, deviceName, localReminders } or
- * { ok: false, error }. A device name longer than DEVICE_NAME_MAX_LENGTH is cut
- * rather than refused, as the web route does with the user agent.
- * `localReminders` (Antoniodeoliveirasegura/boilerindy-app#55) says the app
- * schedules the student's reminders on the phone itself; it must be a boolean
- * when present, and a body without it means false.
+ * `{ token, platform, deviceName?, localReminders?, kinds?, channels?,
+ * kindsVersion?, redact?, activityStartToken? }`. Returns { ok: true, ... }
+ * with each field, or { ok: false, error }. A device name longer than
+ * DEVICE_NAME_MAX_LENGTH is cut rather than refused, as the web route does
+ * with the user agent. `localReminders` (Antoniodeoliveirasegura/boilerindy-app#55)
+ * says the app schedules the student's reminders on the phone itself; it must
+ * be a boolean when present, and a body without it means false.
+ *
+ * The rest come from app builds with the kind registry (issue #550, item 4):
+ * `kinds`, the server kinds the phone shows, and `channels`, the Android
+ * channels it created, are lists whose unknown names are dropped (null when
+ * absent: an older build); `kindsVersion` is the registry version the build
+ * carries; `redact` says the app lock is on; `activityStartToken` is the Live
+ * Activity push-to-start token, kept and never returned.
  */
 export function parsePushTokenBody(body) {
   const input = body && typeof body === 'object' ? body : {}
@@ -87,8 +106,32 @@ export function parsePushTokenBody(body) {
   if ('localReminders' in input && typeof input.localReminders !== 'boolean') {
     return { ok: false, error: 'localReminders must be true or false.' }
   }
+  const kinds = knownNames(input.kinds, (id) => Boolean(notificationKind(id)?.server))
+  if (kinds === false) return { ok: false, error: 'kinds must be a list of kind ids.' }
+  const channels = knownNames(input.channels, (id) => KNOWN_CHANNELS.has(id))
+  if (channels === false) return { ok: false, error: 'channels must be a list of channel ids.' }
+  const version = input.kindsVersion ?? null
+  if (version !== null && !(Number.isInteger(version) && version >= 1 && version <= 32767)) {
+    return { ok: false, error: 'kindsVersion must be a whole number from 1.' }
+  }
+  if ('redact' in input && typeof input.redact !== 'boolean') return { ok: false, error: 'redact must be true or false.' }
+  const startToken = input.activityStartToken ?? null
+  if (startToken !== null && !(typeof startToken === 'string' && ACTIVITY_START_TOKEN_RE.test(startToken))) {
+    return { ok: false, error: 'activityStartToken must be the token APNs gave, in hex.' }
+  }
   const name = typeof input.deviceName === 'string' ? input.deviceName.trim().slice(0, DEVICE_NAME_MAX_LENGTH) : ''
-  return { ok: true, token: input.token, platform, deviceName: name || null, localReminders: input.localReminders === true }
+  return {
+    ok: true,
+    token: input.token,
+    platform,
+    deviceName: name || null,
+    localReminders: input.localReminders === true,
+    kinds,
+    channels,
+    kindsVersion: version,
+    redact: input.redact === true,
+    activityStartToken: startToken,
+  }
 }
 
 /** Split `list` into arrays of at most `size` items, in order. */
@@ -136,23 +179,31 @@ export function expoTtlSeconds(kind, payload, now = new Date()) {
  *   priority 5), and `'high'` for the rest;
  * - `ttl` from expoTtlSeconds.
  *
+ * A payload with `silent: true` of a kind that goes silent in quiet hours
+ * (the campus all clear at night) goes as a passive kind does: level
+ * `passive`, no sound, priority `'normal'`. Other kinds ignore the flag.
+ *
  * `url` and `kind` ride in `data` for the app to open the right screen on a
  * tap, with `itemId` and `itemKind` when the payload names an item (a
  * deadline's task, for its Mark done action). The payload tag becomes
  * `collapseId` (both platforms) and `tag` (Android), the counterparts of the
- * Topic header and the service worker's notification tag. No `channelId` yet:
- * Android hides a notification whose channel the phone has not created, so it
- * waits until phones report theirs (issue #550, item 4).
+ * Topic header and the service worker's notification tag. `channelId`, the
+ * kind's Android channel, goes only to a row whose `channels` (what the phone
+ * reported at registration, issue #550 item 4) lists it: Android hides a
+ * notification whose channel the phone has not created, so an older build
+ * keeps Expo's default channel.
  */
 export function buildExpoMessages(rows, payload, { now = new Date() } = {}) {
   const kind = serverPushKind(payload.kind)
   if (!kind) throw new Error(`buildExpoMessages: "${payload.kind}" is not a kind the server pushes (src/notificationKinds.mjs).`)
   const tag = payload.tag ? String(payload.tag).slice(0, COLLAPSE_ID_MAX) : null
-  const fields = { interruptionLevel: kind.level, threadId: kind.thread }
+  const silent = payload.silent === true && kind.quietHours === 'goes-silent'
+  const level = silent ? 'passive' : kind.level
+  const fields = { interruptionLevel: level, threadId: kind.thread }
   if (kind.relevance !== null) fields.relevanceScore = kind.relevance
   if (kind.category) fields.categoryId = kind.category
-  if (kind.sound) fields.sound = 'default'
-  fields.priority = kind.level === 'passive' ? 'normal' : 'high'
+  if (kind.sound && !silent) fields.sound = 'default'
+  fields.priority = level === 'passive' ? 'normal' : 'high'
   fields.ttl = expoTtlSeconds(kind, payload, now)
   const data = { url: payload.url ?? null, kind: kind.id, tag }
   if (payload.itemId) Object.assign(data, { itemId: String(payload.itemId), itemKind: payload.itemKind ?? null })
@@ -165,6 +216,7 @@ export function buildExpoMessages(rows, payload, { now = new Date() } = {}) {
       ...fields,
     }
     if (payload.subtitle) message.subtitle = clip(payload.subtitle, SUBTITLE_MAX)
+    if (kind.channel && Array.isArray(row.channels) && row.channels.includes(kind.channel)) message.channelId = kind.channel
     if (tag) {
       message.collapseId = tag
       message.tag = tag
@@ -252,4 +304,47 @@ export async function sendExpoPush({ messages, fetchImpl = globalThis.fetch, tim
     results.push(...parseExpoTickets(batch, body))
   }
   return results
+}
+
+export const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts'
+export const EXPO_RECEIPTS_PER_REQUEST = 1000 // Expo's cap (PUSH_TOO_MANY_RECEIPTS past it)
+
+/**
+ * Read the receipts of `ids` (ticket ids from sendExpoPush) from Expo, at most
+ * EXPO_RECEIPTS_PER_REQUEST per request (issue #550, item 7). Never throws:
+ * answers { ok: true, receipts } with a Map of ticket id to { status: 'ok' }
+ * or { status: 'error', error } (Expo's `details.error`, such as
+ * DeviceNotRegistered, else 'UnknownError'), leaving out an id Expo has no
+ * receipt for yet; or { ok: false, error } with the transport error when a
+ * request gets no answer, the receipts read so far kept. Receipt messages,
+ * which can quote the token, are dropped.
+ */
+export async function fetchExpoReceipts({ ids, fetchImpl = globalThis.fetch, timeoutMs = EXPO_TIMEOUT_MS, accessToken = '' }) {
+  const headers = { Accept: 'application/json', 'Accept-Encoding': 'gzip, deflate', 'Content-Type': 'application/json' }
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  const receipts = new Map()
+  for (const batch of chunk(ids || [], EXPO_RECEIPTS_PER_REQUEST)) {
+    let body
+    try {
+      body = await fetchUpstreamJson('Expo', EXPO_RECEIPTS_URL, {
+        fetchImpl,
+        timeoutMs,
+        init: { method: 'POST', headers, body: JSON.stringify({ ids: batch }) },
+      })
+    } catch (err) {
+      return { ok: false, error: transportError(err), receipts }
+    }
+    const data = body?.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : null
+    if (!data) return { ok: false, error: 'bad_response', receipts }
+    for (const id of batch) {
+      const receipt = data[id]
+      if (!receipt || typeof receipt !== 'object') continue
+      if (receipt.status === 'ok') receipts.set(id, { status: 'ok' })
+      else {
+        const error = typeof receipt.details?.error === 'string' && /^[A-Za-z]{1,64}$/.test(receipt.details.error) ? receipt.details.error : 'UnknownError'
+        receipts.set(id, { status: 'error', error })
+      }
+    }
+  }
+  return { ok: true, receipts }
 }

@@ -42,7 +42,7 @@ import { MAX_DEVICE_STRIKES, buildExpoMessages, sendExpoPush } from './expoPush.
 import { queryError } from './cronTick.mjs'
 import { DB_FEATURES, logSchemaMissingOnce } from './dbErrors.mjs'
 import { isMissingColumnError } from './moderation.mjs'
-import { notificationKind } from './notificationKinds.mjs'
+import { NOTIFICATION_KINDS, notificationKind } from './notificationKinds.mjs'
 import {
   ALL_DAY_REMINDER_MINUTE,
   CAPPED_KINDS,
@@ -491,24 +491,72 @@ export async function withLocalRemindersColumn(buildQuery) {
   return buildQuery(false)
 }
 
+// README steps 54 and 55, likewise.
+const DEVICE_KINDS_SCHEMA = { feature: 'push_device_kinds', sqlFile: 'db/supabase-push-device-kinds.sql' }
+const TICKETS_SCHEMA = { feature: 'push_tickets', sqlFile: 'db/supabase-push-tickets.sql' }
+
+/**
+ * Run a push_devices query that reads or writes what a phone reports at
+ * registration (issue #550: kinds, channels, kinds_version, redact and
+ * activity_start_token, README step 54) as well as local_reminders (step 47),
+ * stepping down while a step has not run. `buildQuery({ kinds, local })` names
+ * the columns of the steps it is told exist. A missing local_reminders means
+ * step 54 is missing too, since it comes later, so that goes straight to
+ * neither. Each fallback logs its file once; rows without the columns read as
+ * an older build (no kinds) with local reminders off.
+ * @template R
+ * @param {(columns: { kinds: boolean, local: boolean }) => PromiseLike<R>} buildQuery
+ * @returns {Promise<R>}
+ */
+export async function withDeviceColumns(buildQuery) {
+  const full = await buildQuery({ kinds: true, local: true })
+  if (!isMissingColumnError(full?.error)) return full
+  if (String(full.error.message || '').includes('local_reminders')) {
+    logSchemaMissingOnce(LOCAL_REMINDERS_SCHEMA, full.error)
+    return buildQuery({ kinds: false, local: false })
+  }
+  logSchemaMissingOnce(DEVICE_KINDS_SCHEMA, full.error)
+  return withLocalRemindersColumn((local) => buildQuery({ kinds: false, local }))
+}
+
+// Kinds whose default goes with another's ({ follows }), by the kind they follow.
+const FOLLOWS = new Map(NOTIFICATION_KINDS.kinds.filter((kind) => kind.default?.follows).map((kind) => [kind.id, kind.default.follows]))
+
+/**
+ * Whether a phone takes a server push of `kind` (issue #550, item 4). A phone
+ * that listed its kinds at registration takes those only, a kind that goes
+ * with one it listed (the campus all clear with the alert), and the test push,
+ * which a student sends to check every device; a kind it schedules itself is
+ * never on its list, so nothing reaches it twice. An older build, with no
+ * list, follows README step 47: no deadline pushes to a phone with local
+ * reminders on.
+ */
+export function deviceTakes(device, kind) {
+  if (Array.isArray(device.kinds)) {
+    return kind === 'test' || device.kinds.includes(kind) || (FOLLOWS.has(kind) && device.kinds.includes(FOLLOWS.get(kind)))
+  }
+  if (kind === 'deadline' || kind === 'deadline-digest') return device.local_reminders !== true
+  return true
+}
+
 /**
  * The phones to send to for these students: push_devices rows as
- * { id, user_id, token, platform, failure_count, local_reminders }, where
- * local_reminders is missing before README step 47 runs (read as false). A
+ * { id, user_id, token, platform, failure_count, local_reminders, kinds,
+ * channels }, where local_reminders is missing before README step 47 runs
+ * (read as false) and kinds and channels before step 54 (an older build). A
  * device that has reached MAX_DEVICE_STRIKES is deleted here and left out,
  * which is how a device with five strikes is "skipped and deleted on the next
  * run". A missing table reads as no devices; any other database error throws a
  * SupabaseQueryError, so the cron route can tell a Supabase hiccup from a bug.
- * Every phone is returned whatever its local_reminders: the deadline run leaves
- * out the ones with the flag, the other senders do not. Returns
- * { devices, removed }.
+ * Every phone is returned: deliverToPushDevices sends each push only to the
+ * phones that take its kind (deviceTakes). Returns { devices, removed }.
  */
 export async function loadPushDevices(client, userIds, { log = console } = {}) {
   if (!userIds.length) return { devices: [], removed: 0 }
-  const res = await withLocalRemindersColumn((withFlag) =>
+  const res = await withDeviceColumns(({ kinds, local }) =>
     client
       .from('push_devices')
-      .select(withFlag ? 'id, user_id, token, platform, failure_count, local_reminders' : 'id, user_id, token, platform, failure_count')
+      .select(['id, user_id, token, platform, failure_count', ...(local ? ['local_reminders'] : []), ...(kinds ? ['kinds', 'channels'] : [])].join(', '))
       .in('user_id', userIds),
   )
   if (res.error) {
@@ -529,23 +577,45 @@ export async function loadPushDevices(client, userIds, { log = console } = {}) {
   return { devices: rows.filter((row) => (row.failure_count || 0) < MAX_DEVICE_STRIKES), removed }
 }
 
+// Keeps the Expo ticket of each message for its receipt (README step 55,
+// src/pushReceipts.mjs). Bookkeeping only: before step 55 the table is missing
+// and the log names the file once, and any other failure is logged by its code
+// and never fails the send.
+async function keepTickets(client, tickets, log) {
+  if (!tickets.length) return
+  try {
+    const res = await client.from('push_tickets').insert(tickets)
+    if (!res?.error) return
+    if (isMissingTableError(res.error)) logSchemaMissingOnce(TICKETS_SCHEMA, res.error)
+    else log.warn(`[push] could not keep ${tickets.length} Expo ticket(s) (${res.error.code || 'error'})`)
+  } catch (error) {
+    log.warn(`[push] could not keep ${tickets.length} Expo ticket(s) (${error?.code || 'error'})`)
+  }
+}
+
 /**
  * Send one payload to a student's phones through Expo and keep the books on
  * each row: a success clears the strikes, DeviceNotRegistered deletes the
  * row, and a strike adds one to failure_count (see src/expoPush.mjs for which
- * errors are strikes). Returns { sent, failed, removed, devices }, where
+ * errors are strikes). Only the phones that take the payload's kind get it
+ * (deviceTakes); the rest pass through untouched. Each ticket Expo answers is
+ * kept for its receipt. Returns { sent, failed, removed, devices }, where
  * `devices` is what is left to send the next item to, with the updated counts.
  * `now` is the clock the messages' lifetimes are counted from.
  */
 export async function deliverToPushDevices({ client, devices, payload, send = sendExpoPush, log = console, now = new Date() }) {
   const outcome = { sent: 0, failed: 0, removed: 0, devices: [] }
   const live = devices.filter((row) => (row.failure_count || 0) < MAX_DEVICE_STRIKES)
-  if (live.length === 0) return outcome
-  const results = await send({ messages: buildExpoMessages(live, payload, { now }) })
-  for (const [i, row] of live.entries()) {
+  const taking = live.filter((row) => deviceTakes(row, payload.kind))
+  outcome.devices.push(...live.filter((row) => !taking.includes(row)))
+  if (taking.length === 0) return outcome
+  const results = await send({ messages: buildExpoMessages(taking, payload, { now }) })
+  const tickets = []
+  for (const [i, row] of taking.entries()) {
     const result = results[i] || { ok: false, error: 'no_ticket', gone: false, strike: false }
     if (result.ok) {
       outcome.sent += 1
+      if (result.ticketId) tickets.push({ ticket_id: result.ticketId, kind: payload.kind, device_id: row.id, sent_at: now.toISOString() })
       if (row.failure_count) {
         await client.from('push_devices').update({ failure_count: 0 }).eq('id', row.id)
       }
@@ -567,6 +637,7 @@ export async function deliverToPushDevices({ client, devices, payload, send = se
       outcome.devices.push(row)
     }
   }
+  await keepTickets(client, tickets, log)
   return outcome
 }
 
@@ -763,9 +834,6 @@ export async function runDeadlineReminders({
   summary.removed += loaded.removed
   const devicesByUser = new Map()
   for (const device of loaded.devices) {
-    // The app on this phone schedules the student's reminders itself (local
-    // reminders on), so a deadline push from here would be a second copy.
-    if (device.local_reminders === true) continue
     if (!devicesByUser.has(device.user_id)) devicesByUser.set(device.user_id, [])
     devicesByUser.get(device.user_id).push(device)
   }
@@ -775,10 +843,13 @@ export async function runDeadlineReminders({
   for (const row of settingsRows) {
     let subs = subsByUser.get(row.user_id) || []
     let devices = devicesByUser.get(row.user_id) || []
-    // A student whose only devices are phones with local reminders on is
-    // skipped like one with no devices, and nothing is claimed, so an item
-    // still gets its reminder if they turn local reminders off before it is due.
-    if (subs.length === 0 && devices.length === 0) {
+    // A phone that schedules the student's deadlines itself (it does not list
+    // them, or an older build with local reminders on) would get a second
+    // copy, so it takes none from here (deviceTakes). A student none of whose
+    // devices takes them is skipped like one with no devices, and nothing is
+    // claimed, so an item still gets its reminder if that changes before it is due.
+    const reaches = (kind) => subs.length > 0 || devices.some((device) => deviceTakes(device, kind))
+    if (!reaches('deadline') && !reaches('deadline-digest')) {
       summary.skipped += 1
       continue
     }
@@ -787,8 +858,8 @@ export async function runDeadlineReminders({
     const quiet = kindsAvailable ? quietWindow(settings.quietStart, settings.quietEnd) : null
     const quietNow = isQuietMinute(minutesInZone(now), quiet)
     const digest = kindsAvailable && digestsOn && settings.digestMinute !== null ? digestWindow(today, settings.digestMinute) : null
-    const digestDue = Boolean(digest) && nowMs >= digest.at && !quietNow
-    const itemsDue = itemsOn && settings.deadlineItems
+    const digestDue = Boolean(digest) && nowMs >= digest.at && !quietNow && reaches('deadline-digest')
+    const itemsDue = itemsOn && settings.deadlineItems && reaches('deadline')
     if (!digestDue && !itemsDue) continue
 
     const lists = await loadDeadlineItems(client, row.user_id, {

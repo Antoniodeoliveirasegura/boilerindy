@@ -50,6 +50,7 @@ const Transit = lazyRoute(() => import('./pages/Transit'))
 const Parking = lazyRoute(() => import('./pages/Parking'))
 const Clubs = lazyRoute(() => import('./pages/Clubs'))
 const Services = lazyRoute(() => import('./pages/Services'))
+const Safety = lazyRoute(() => import('./pages/Safety'))
 const Board = lazyRoute(() => import('./pages/Board'))
 const ConnectSchedule = lazyRoute(() => import('./pages/ConnectSchedule'))
 const Settings = lazyRoute(() => import('./pages/Settings'))
@@ -242,13 +243,15 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              {/* The public preview (issue #366): signed-out visitors may open these
-                  four, which read only public data, and get AppLayout's preview bar.
-                  The list lives in lib/publicPreview.ts. */}
+              {/* The public preview (issue #366): signed-out visitors may open these,
+                  which read only public data, and get AppLayout's preview bar. The
+                  list lives in lib/publicPreview.ts. /safety is where a campus alert
+                  push opens (issue #550), signed in or not. */}
               <Route path="/dining" element={<Dining />} />
               <Route path="/transit" element={<Transit />} />
               <Route path="/map" element={<Map />} />
               <Route path="/free-food" element={<FreeFood />} />
+              <Route path="/safety" element={<Safety />} />
               <Route
                 path="/parking"
                 element={

@@ -108,24 +108,32 @@ self.addEventListener('fetch', (event) => {
 //   with the item it names when there is one ('/assignments?taskId=...',
 //   '/dining?hall=tower-dining&meal=lunch', issue #550). Web notifications have
 //   no subtitle line, so a subtitle (a dish alert's hall and meals) leads the
-//   body. Everything below is best-effort: a malformed payload still
-//   shows a notification (userVisibleOnly requires one), and a failed
-//   re-subscribe is left for the user to redo from Settings.
+//   body. A campus all clear replaces its alert under the same tag: by day it
+//   carries `renotify: true`, so the replacement alerts again, and in quiet
+//   hours `silent: true`, so it makes no sound. Everything below is
+//   best-effort: a malformed payload still shows a notification
+//   (userVisibleOnly requires one), and a failed re-subscribe is left for the
+//   user to redo from Settings.
 // ---------------------------------------------------------------------------
 
 const NOTIFICATION_ICON = '/icons/icon-192.png'
 
 function parsePushPayload(data) {
-  const fallback = { title: 'BoilerIndy', body: '', url: '/', tag: undefined }
+  const fallback = { title: 'BoilerIndy', body: '', url: '/', tag: undefined, silent: false, renotify: false }
   if (!data) return fallback
   try {
     const parsed = data.json()
     if (parsed && typeof parsed === 'object') {
+      const tag = typeof parsed.tag === 'string' && parsed.tag ? parsed.tag : undefined
+      const silent = parsed.silent === true
       return {
         title: typeof parsed.title === 'string' && parsed.title ? parsed.title : fallback.title,
         body: [parsed.subtitle, parsed.body].filter((part) => typeof part === 'string' && part).join('\n'),
         url: typeof parsed.url === 'string' && parsed.url ? parsed.url : '/',
-        tag: typeof parsed.tag === 'string' && parsed.tag ? parsed.tag : undefined,
+        tag,
+        silent,
+        // renotify without a tag makes showNotification throw.
+        renotify: Boolean(tag) && !silent && parsed.renotify === true,
       }
     }
   } catch {
@@ -139,13 +147,15 @@ function parsePushPayload(data) {
 }
 
 self.addEventListener('push', (event) => {
-  const { title, body, url, tag } = parsePushPayload(event.data)
+  const { title, body, url, tag, silent, renotify } = parsePushPayload(event.data)
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       icon: NOTIFICATION_ICON,
       badge: NOTIFICATION_ICON,
       tag,
+      silent,
+      renotify,
       data: { url },
     }),
   )
