@@ -45,3 +45,16 @@ pnpm run check:conventions
 Install Chromium once with `pnpm exec playwright install chromium` before the
 first Playwright run. CI also scans the PR description; check yours before you
 post it with `PR_BODY="$(cat body.md)" node scripts/check-conventions.mjs pr-body`.
+
+## End-to-end tests (Autosana)
+
+`.autosana/` is the source of truth for end-to-end coverage of the live site.
+`.github/workflows/autosana-web.yml` runs the `smoke` suite in Autosana's
+cloud browser after every production deploy; it needs the `AUTOSANA_KEY`
+repository secret. When you add or change a flow, describe the visitor's goal,
+keep the steps in between flexible and end with a precise check. Use
+paragraphs or bullets, not numbered steps, quote UI text only when the test is
+about that text, and leave URLs out unless the test is about a URL (runs open
+the site for you). Run `autosana flows validate` before you push. See
+https://docs.autosana.ai/code-managed-flows and
+https://docs.autosana.ai/writing-effective-flow-instructions.

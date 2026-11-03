@@ -1,0 +1,33 @@
+name: Autosana web smoke
+
+# Runs the code-managed smoke suite in .autosana/smoke in Autosana's cloud
+# browser against https://www.boilerindy.app after every production deploy.
+# Preview deployments sit behind Vercel's login, so their events are skipped.
+# A failing flow fails the job. Needs the AUTOSANA_KEY repository secret.
+on:
+  deployment_status:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    if: "github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # On the job, not the workflow: every Vercel deployment event starts a
+    # workflow run, and a skipped one must not cancel a real one.
+    concurrency:
+      group: autosana-web
+      cancel-in-progress: true
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Run the smoke suite on Autosana
+        uses: autosana/autosana-ci@main
+        with:
+          api-key: ${{ secrets.AUTOSANA_KEY }}
+          platform: web
+          app-id: boilerindy-site
+          name: BoilerIndy site
+          url: https://www.boilerindy.app
+          suite-keys: smoke

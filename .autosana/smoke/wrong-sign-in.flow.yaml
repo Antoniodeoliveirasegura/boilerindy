@@ -1,0 +1,9 @@
+name: Wrong sign-in on the website shows an error
+instructions: |
+  As a visitor with no BoilerIndy account, go to the sign-in page and sign in with email using these details:
+    email: autosana-check@example.com
+    password: not-a-real-password-42
+
+  Verify that:
+  - the page shows an error saying the email or password is wrong
+  - you are still on the sign-in page and not signed in

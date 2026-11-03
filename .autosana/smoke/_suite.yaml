@@ -1,0 +1,4 @@
+name: Website smoke
+description: Signed-out checks of the live site. CI runs this suite after every production deploy.
+labels: [smoke]
+parallelize_flows: true

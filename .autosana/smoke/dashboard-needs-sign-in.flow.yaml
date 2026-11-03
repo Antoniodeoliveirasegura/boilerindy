@@ -1,0 +1,5 @@
+name: Signed-out visit to the dashboard asks to sign in
+instructions: |
+  As a visitor who is not signed in, open https://www.boilerindy.app/dashboard directly.
+
+  Verify you land on the sign-in page instead of the dashboard, and nothing from the signed-in app (classes, schedule or an account menu) is shown.

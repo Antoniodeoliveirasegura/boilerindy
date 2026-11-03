@@ -1,0 +1,8 @@
+name: Visitor finds the shuttle routes
+instructions: |
+  As a visitor who is not signed in, start on the home page and get to the live JAGLINE bus preview without signing in or creating an account.
+
+  Verify the bus page shows all of these:
+  - a campus map
+  - the JAGLINE routes by name, each marked as running or not running now
+  - either buses on the map, or, if none is running, a message saying no buses are active

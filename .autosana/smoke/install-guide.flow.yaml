@@ -1,0 +1,5 @@
+name: Install guide is reachable from sign-in
+instructions: |
+  As a visitor who is not signed in, go to the sign-in page and open the guide for adding BoilerIndy to your phone's home screen.
+
+  Verify the guide shows the steps for an iPhone. Then switch it to Android and verify the steps change to the Android ones.

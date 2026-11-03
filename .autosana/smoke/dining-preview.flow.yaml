@@ -1,0 +1,8 @@
+name: Visitor sees today's dining menu
+instructions: |
+  As a visitor who is not signed in, start on the home page and get to the live dining preview without signing in or creating an account.
+
+  Verify the campus dining page shows all of these:
+  - which day's menu it is showing
+  - Tower Dining, marked as open or closed right now, with its hours for today
+  - at least one dish on today's menu with its calorie count, or, if no menu is posted for today, a message saying so
