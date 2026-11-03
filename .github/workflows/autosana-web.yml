@@ -8,6 +8,10 @@ on:
   deployment_status:
   workflow_dispatch:
 
+# The action reports through this job, so the token only needs to read.
+permissions:
+  contents: read
+
 jobs:
   smoke:
     if: "github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')"
