@@ -693,6 +693,10 @@ test('deviceTakes: listed kinds only for a phone that listed them, the old rule 
   const older = { kinds: null, local_reminders: true }
   assert.deepEqual(['deadline', 'deadline-digest', 'dining-favorites', 'test'].map((kind) => deviceTakes(older, kind)), [false, false, true, true])
   assert.deepEqual(['deadline', 'dining-favorites'].map((kind) => deviceTakes({ local_reminders: false }, kind)), [true, true])
+  // The campus all clear goes with the alert (its registry default follows it).
+  assert.deepEqual(['campus-alert', 'campus-all-clear'].map((kind) => deviceTakes({ kinds: ['campus-alert'] }, kind)), [true, true])
+  assert.deepEqual(['campus-alert', 'campus-all-clear'].map((kind) => deviceTakes(listed, kind)), [false, false])
+  assert.equal(deviceTakes(older, 'campus-all-clear'), true)
 })
 
 test('a phone gets only the kinds it listed, and a channel only when it listed it', async () => {

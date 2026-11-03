@@ -38,7 +38,24 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot, kindsOff, expoAccessToken, receiptsAnswer = null } = {}, run) {
+async function withApp(
+  {
+    user = STUDENT,
+    vapidKeys = KEYS,
+    cronSecret = CRON_SECRET,
+    tables = {},
+    expoAnswer = null,
+    getDiningSnapshot,
+    kindsOff,
+    expoAccessToken,
+    receiptsAnswer = null,
+    campusAlertPush,
+    readCampusAlert,
+    sendLiveActivity = null,
+    readArrivals = null,
+  } = {},
+  run,
+) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
@@ -74,6 +91,8 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       },
       pushWriteRateLimit: limiter('push-write'),
       pushTestRateLimit: limiter('push-test'),
+      widgetReadIpRateLimit: limiter('widget-read-ip'),
+      widgetReadRateLimit: limiter('widget-read'),
       vapidKeys,
       PUSH_CRON_SECRET: cronSecret,
       pushCronSecretMatches: (header) => Boolean(cronSecret) && header === `Bearer ${cronSecret}`,
@@ -83,6 +102,13 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       expoAccessToken,
       sendExpo,
       getExpoReceipts,
+      campusAlertPush,
+      readCampusAlert,
+      // The session's user for the Live Activity routes, which take a
+      // signed-out phone too; the APNs sender and the stop reads are stubs.
+      getCurrentUser: async () => user,
+      sendLiveActivity,
+      readArrivals,
     }),
   )
   // Stands in for apiNotFound: where the cron route falls through to.
@@ -105,12 +131,17 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
 
 test('the public config reports the key, or that push is off, never cached, behind both public-read limiters', async () => {
   // The kind registry's version and digest (issue #550), with push on or off,
-  // for the app to compare with its copy's.
+  // for the app to compare with its copy's, whether campus alerts are pushed:
+  // only with push on and CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on, and
+  // whether Track this bus runs, which server.mjs works out (liveActivitiesEnabled).
   const kinds = { version: NOTIFICATION_KINDS_VERSION, digest: await notificationKindsDigest() }
   assert.match(kinds.digest, /^[0-9a-f]{64}$/)
-  for (const [vapidKeys, expected] of [
-    [KEYS, { enabled: true, publicKey: KEYS.publicKey, kinds }],
-    [null, { enabled: false, publicKey: null, kinds }],
+  for (const [vapidKeys, campusAlertPush, liveActivities, expected] of [
+    [KEYS, false, false, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: false, liveActivities: false }],
+    [null, false, false, { enabled: false, publicKey: null, kinds, campusAlertPush: false, liveActivities: false }],
+    [KEYS, true, false, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: true, liveActivities: false }],
+    [null, true, false, { enabled: false, publicKey: null, kinds, campusAlertPush: false, liveActivities: false }],
+    [KEYS, false, true, { enabled: true, publicKey: KEYS.publicKey, kinds, campusAlertPush: false, liveActivities: true }],
   ]) {
     const hits = []
     const limiter = (name) => (req, _res, next) => {
@@ -118,7 +149,7 @@ test('the public config reports the key, or that push is off, never cached, behi
       next()
     }
     const app = express()
-    app.use(createPushPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), vapidKeys }))
+    app.use(createPushPublicRouter({ publicReadIpRateLimit: limiter('public-read-ip'), publicReadRateLimit: limiter('public-read'), vapidKeys, campusAlertPush, liveActivities }))
     await serve(app, async (base) => {
       const res = await fetch(`${base}/api/push/config`)
       assert.equal(res.status, 200)
@@ -838,6 +869,313 @@ test('a Supabase 504 on both attempts answers 503 and goes to warnCronTransient;
     assert.deepEqual(res.body, { ok: false, error: 'Reminder run failed.' })
     assert.deepEqual(transientWarnings, [])
   })
+})
+
+// ── POST /api/internal/push/fast-tick (issue #550, campus alerts) ───────────
+
+const CRON_AUTH = { authorization: `Bearer ${CRON_SECRET}` }
+// Demo text only: never an emergency in a test.
+const demoAlert = () => ({
+  id: 'demo-1',
+  sentAt: new Date(Date.now() - 60_000).toISOString(),
+  headline: 'Demo alert: This is sample text, not a real emergency',
+  message: null,
+  instruction: null,
+  severity: 'Severe',
+  test: false,
+  normal: false,
+})
+
+test('the fast tick falls through without a cron token, refuses a wrong one, and with campus alert pushes and Live Activities off reads nothing', async () => {
+  await withApp({ cronSecret: '' }, async ({ call }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, { authorization: 'Bearer anything' })
+    assert.equal(res.status, 404)
+  })
+  let reads = 0
+  const readCampusAlert = async () => {
+    reads += 1
+    return { fetchedAt: Date.now(), alert: demoAlert() }
+  }
+  await withApp({ campusAlertPush: true, readCampusAlert }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, { authorization: 'Bearer wrong' })
+    assert.equal(res.status, 401)
+    assert.deepEqual(res.body, { error: { message: 'Invalid cron secret.', status: 401 } })
+    assert.equal(supabase.queries.length, 0)
+  })
+  // Off: campus alert pushes, and Track this bus without the APNs key or
+  // stopped by PUSH_KINDS_OFF. No stop is read either.
+  let stopReads = 0
+  const readArrivals = async () => {
+    stopReads += 1
+    return null
+  }
+  for (const live of [{}, { sendLiveActivity: async () => ({ ok: true }), kindsOff: new Set(['bus-live-activity']) }]) {
+    await withApp({ campusAlertPush: false, readCampusAlert, readArrivals, ...live }, async ({ call, supabase }) => {
+      const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+      assert.equal(res.status, 200)
+      assert.deepEqual(res.body, { campusAlerts: { ok: false, reason: 'off' }, liveActivities: { ok: false, reason: 'off' } })
+      assert.equal(supabase.queries.length, 0)
+    })
+  }
+  assert.equal(reads, 0, 'IU is never asked while the push is off')
+  assert.equal(stopReads, 0)
+})
+
+test('the fast tick pushes a new campus alert with the Expo access token, logs one line, and skips a tick that comes while it runs', async (t) => {
+  const logs = t.mock.method(console, 'log', () => {})
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let reads = 0
+  const readCampusAlert = async () => {
+    reads += 1
+    await gate
+    return { fetchedAt: Date.now(), alert: demoAlert() }
+  }
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: false, kinds: null, channels: null }
+  const tables = {
+    campus_alert_messages: () => ({ data: null, error: null }),
+    campus_alert_incidents: (chain) => {
+      const op = operation(chain)
+      if (op === 'select') return { data: [], error: null }
+      if (op === 'update') return { data: [{ id: 'claimed' }], error: null }
+      return { data: null, error: null }
+    },
+    push_settings: () => ({ data: [], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    push_tickets: () => ({ data: null, error: null }),
+  }
+  await withApp({ tables, campusAlertPush: true, readCampusAlert, expoAccessToken: 'expo-token-for-tests' }, async ({ call, supabase, expoRequests, expoTokens }) => {
+    const first = call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    while (reads === 0) await new Promise((resolve) => setTimeout(resolve, 5))
+    const second = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.deepEqual([second.status, second.body], [200, { skipped: 'busy' }])
+    release()
+    const res = await first
+    assert.equal(res.status, 200)
+    assert.equal(res.body.campusAlerts.role, 'new')
+    assert.deepEqual(res.body.campusAlerts.pushed, ['campus-alert'])
+    assert.equal(res.body.campusAlerts.sent, 1)
+    assert.equal(expoRequests.length, 1)
+    assert.deepEqual(expoRequests[0].map((m) => [m.to, m.interruptionLevel, m.data.kind]), [[PHONE, 'time-sensitive', 'campus-alert']])
+    assert.deepEqual(expoTokens, ['expo-token-for-tests'])
+    const [record] = supabase.queriesOf('campus_alert_messages').filter((q) => operation(q.chain) === 'insert')
+    assert.equal(record.chain.find((c) => c.method === 'insert').args[0].role, 'new')
+  })
+  const lines = logs.mock.calls.map((c) => String(c.arguments[0])).filter((line) => line.startsWith('[push] campus alert:'))
+  assert.equal(lines.length, 1)
+  assert.ok(!lines[0].includes(PHONE) && !lines[0].includes('expo-token-for-tests') && !lines[0].includes('ranAt'))
+})
+
+test('a Supabase 504 in the fast tick, on both attempts, answers 503 and goes to warnCronTransient', async () => {
+  const gateway = () => ({ data: null, error: { message: 'Gateway Timeout' }, status: 504 })
+  const readCampusAlert = async () => ({ fetchedAt: Date.now(), alert: demoAlert() })
+  await withApp({ tables: { campus_alert_messages: gateway }, campusAlertPush: true, readCampusAlert }, async ({ call, supabase, transientWarnings }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.equal(res.status, 503)
+    assert.equal(supabase.queriesOf('campus_alert_messages').length, 2, 'retried once')
+    assert.deepEqual(transientWarnings.map((w) => [w.route, w.error.status]), [['POST /api/internal/push/fast-tick', 504]])
+  })
+})
+
+// ── Track this bus: /api/live-activities and the fast tick (issue #550) ─────
+
+const ACTIVITY = '6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5'
+const ACTIVITY_TOKEN = 'a1'.repeat(32)
+const startBody = (extra = {}) => ({ activityId: ACTIVITY, token: ACTIVITY_TOKEN, env: 'production', stop: 'riverwalk-apartments', routeId: 4, ...extra })
+// APNs as a stub: records each push and takes it.
+function stubApns() {
+  const pushes = []
+  return {
+    pushes,
+    send: async (push) => {
+      pushes.push(push)
+      return { ok: true, status: 200 }
+    },
+  }
+}
+
+test('POST and PATCH answer 503 live_activity_disabled, before any query, while the APNs key is unset, push is off or the kind is stopped; DELETE still ends one', async () => {
+  const tables = { live_activities: () => ({ data: [{ activity_id: ACTIVITY }], error: null }) }
+  for (const off of [{}, { sendLiveActivity: stubApns().send, vapidKeys: null }, { sendLiveActivity: stubApns().send, kindsOff: new Set(['bus-live-activity']) }]) {
+    await withApp({ tables, ...off }, async ({ call, supabase }) => {
+      for (const [method, path, body] of [
+        ['POST', '/api/live-activities', startBody()],
+        ['PATCH', `/api/live-activities/${ACTIVITY}`, { token: ACTIVITY_TOKEN }],
+      ]) {
+        const res = await call(method, path, body)
+        assert.equal(res.status, 503, `${method} ${JSON.stringify(off)}`)
+        assert.deepEqual(res.body, { error: { code: 'live_activity_disabled', message: 'Track this bus is not available right now.', status: 503 } })
+      }
+      assert.equal(supabase.queries.length, 0)
+      const ended = await call('DELETE', `/api/live-activities/${ACTIVITY}`)
+      assert.deepEqual([ended.status, ended.body], [200, { ended: true }])
+    })
+  }
+})
+
+test('POST /api/live-activities checks the body before any query', async () => {
+  await withApp({ sendLiveActivity: stubApns().send }, async ({ call, supabase }) => {
+    for (const body of [{}, startBody({ activityId: 'not-an-id' }), startBody({ token: 'zz' }), startBody({ env: 'sandbox' }), startBody({ stop: 'Not a key!' }), startBody({ routeId: '4' })]) {
+      const res = await call('POST', '/api/live-activities', body)
+      assert.equal(res.status, 400, JSON.stringify(body))
+      assert.equal(typeof res.body.error.message, 'string')
+    }
+    assert.equal(supabase.queries.length, 0)
+  })
+})
+
+test('POST /api/live-activities starts a 30-minute activity, signed in or signed out, behind both widget-read limiters', async () => {
+  for (const user of [STUDENT, null]) {
+    const inserted = []
+    const tables = {
+      live_activities: (chain) => {
+        const row = chain.find((c) => c.method === 'insert').args[0]
+        inserted.push(row)
+        return { data: { ends_at: row.ends_at }, error: null }
+      },
+    }
+    await withApp({ user, tables, sendLiveActivity: stubApns().send }, async ({ call, limiterHits }) => {
+      const before = Date.now()
+      const res = await call('POST', '/api/live-activities', startBody({ activityId: ACTIVITY.toUpperCase(), token: ACTIVITY_TOKEN.toUpperCase() }))
+      assert.equal(res.status, 201)
+      const life = Date.parse(res.body.endsAt) - before
+      assert.ok(life >= 30 * 60_000 && life < 30 * 60_000 + 5000, `${life} ms`)
+      assert.deepEqual(limiterHits, ['widget-read-ip POST /api/live-activities', 'widget-read POST /api/live-activities'])
+    })
+    const { ends_at: _endsAt, ...row } = inserted[0]
+    assert.deepEqual(row, {
+      activity_id: ACTIVITY,
+      user_id: user ? user.id : null,
+      push_token: ACTIVITY_TOKEN,
+      apns_env: 'production',
+      stop_key: 'riverwalk-apartments',
+      route_id: 4,
+    })
+  }
+})
+
+test('sending an activity again keeps its end, an ended one answers 409, and a missing table answers 503 live_activities_schema_missing', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const endsAt = '2026-11-04T15:30:00.000Z'
+  let open = true
+  const tables = {
+    live_activities: (chain) => {
+      if (operation(chain) === 'insert') return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } }
+      return { data: open ? [{ ends_at: endsAt }] : [], error: null }
+    },
+  }
+  await withApp({ tables, sendLiveActivity: stubApns().send }, async ({ call, supabase }) => {
+    const again = await call('POST', '/api/live-activities', startBody({ token: 'b2'.repeat(32) }))
+    assert.deepEqual([again.status, again.body], [200, { endsAt }])
+    const [, refresh] = supabase.queriesOf('live_activities')
+    assert.deepEqual(refresh.chain.find((c) => c.method === 'update').args[0], { push_token: 'b2'.repeat(32), apns_env: 'production', stop_key: 'riverwalk-apartments', route_id: 4 })
+    assert.ok(hasCall(refresh.chain, 'eq', 'activity_id', ACTIVITY) && hasCall(refresh.chain, 'is', 'ended_at', null))
+    open = false
+    const ended = await call('POST', '/api/live-activities', startBody())
+    assert.deepEqual([ended.status, ended.body.error.code], [409, 'live_activity_ended'])
+  })
+  const missing = { live_activities: () => ({ data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.live_activities' in the schema cache" } }) }
+  await withApp({ tables: missing, sendLiveActivity: stubApns().send }, async ({ call }) => {
+    for (const [method, path, body] of [
+      ['POST', '/api/live-activities', startBody()],
+      ['PATCH', `/api/live-activities/${ACTIVITY}`, { token: ACTIVITY_TOKEN }],
+      ['DELETE', `/api/live-activities/${ACTIVITY}`, undefined],
+    ]) {
+      const res = await call(method, path, body)
+      assert.deepEqual([res.status, res.body.error.code], [503, 'live_activities_schema_missing'], method)
+    }
+  })
+})
+
+test('PATCH replaces the push token of an open activity and DELETE ends it, both by its id', async () => {
+  let open = true
+  const tables = { live_activities: () => ({ data: open ? [{ ends_at: '2026-11-04T15:30:00.000Z', activity_id: ACTIVITY }] : [], error: null }) }
+  await withApp({ user: null, tables, sendLiveActivity: stubApns().send }, async ({ call, supabase, limiterHits }) => {
+    const patched = await call('PATCH', `/api/live-activities/${ACTIVITY.toUpperCase()}`, { token: 'C3'.repeat(32) })
+    assert.deepEqual([patched.status, patched.body], [200, { endsAt: '2026-11-04T15:30:00.000Z' }])
+    const [patch] = supabase.queriesOf('live_activities')
+    assert.deepEqual(patch.chain.find((c) => c.method === 'update').args[0], { push_token: 'c3'.repeat(32) })
+    assert.ok(hasCall(patch.chain, 'eq', 'activity_id', ACTIVITY) && hasCall(patch.chain, 'is', 'ended_at', null))
+    const ended = await call('DELETE', `/api/live-activities/${ACTIVITY}`)
+    assert.deepEqual([ended.status, ended.body], [200, { ended: true }])
+    const end = supabase.queriesOf('live_activities')[1].chain.find((c) => c.method === 'update').args[0]
+    assert.equal(end.last_state, 'ended|student')
+    assert.ok(Date.parse(end.ended_at) <= Date.now())
+    open = false
+    const gone = await call('PATCH', `/api/live-activities/${ACTIVITY}`, { token: ACTIVITY_TOKEN })
+    assert.deepEqual([gone.status, gone.body.error.code], [404, 'live_activity_not_found'])
+    assert.deepEqual((await call('DELETE', `/api/live-activities/${ACTIVITY}`)).body, { ended: false })
+    const queries = supabase.queries.length
+    for (const [method, path, body] of [
+      ['PATCH', '/api/live-activities/not-an-id', { token: ACTIVITY_TOKEN }],
+      ['PATCH', `/api/live-activities/${ACTIVITY}`, { token: 'not hex' }],
+      ['DELETE', '/api/live-activities/not-an-id', undefined],
+    ]) {
+      assert.equal((await call(method, path, body)).status, 400)
+    }
+    assert.equal(supabase.queries.length, queries)
+    assert.ok(limiterHits.every((hit) => /^widget-read(-ip)? (PATCH|DELETE) /.test(hit)))
+  })
+})
+
+test('the fast tick keeps the Live Activities current with campus alerts off, and logs one line without a token or an id', async (t) => {
+  const logs = t.mock.method(console, 'log', () => {})
+  const now = Date.now()
+  const row = {
+    activity_id: ACTIVITY,
+    push_token: ACTIVITY_TOKEN,
+    apns_env: 'production',
+    stop_key: 'riverwalk-apartments',
+    route_id: 4,
+    ends_at: new Date(now + 20 * 60_000).toISOString(),
+    ended_at: null,
+    last_state: null,
+    last_pushed_at: null,
+  }
+  const tables = { live_activities: (chain) => (operation(chain) === 'update' ? { data: [{ activity_id: ACTIVITY }], error: null } : { data: [row], error: null }) }
+  const reads = []
+  const readArrivals = async (stop) => {
+    reads.push(stop)
+    const at = new Date(now + 7 * 60_000).toISOString()
+    return { place: { key: stop, name: 'Riverwalk Apartments', routes: [] }, fetchedAt: new Date(now).toISOString(), arrivals: [{ routeId: 4, routeNum: '5', routeName: 'Purple', color: '#7A3E9D', at, source: 'transloc', vehicleId: 11 }] }
+  }
+  const apns = stubApns()
+  await withApp({ tables, sendLiveActivity: apns.send, readArrivals }, async ({ call }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body.campusAlerts, { ok: false, reason: 'off' })
+    assert.deepEqual([res.body.liveActivities.open, res.body.liveActivities.updates], [1, 1])
+  })
+  assert.deepEqual(reads, ['riverwalk-apartments'])
+  assert.deepEqual(apns.pushes.map((push) => [push.token, push.env, push.priority, push.payload.aps.event]), [[ACTIVITY_TOKEN, 'production', 5, 'update']])
+  const lines = logs.mock.calls.map((c) => String(c.arguments[0])).filter((line) => line.startsWith('[push] live activities:'))
+  assert.equal(lines.length, 1)
+  assert.ok(!lines[0].includes(ACTIVITY_TOKEN) && !lines[0].includes(ACTIVITY) && !lines[0].includes('ranAt'))
+})
+
+test('the two halves of the fast tick fail apart: a Live Activity error answers 500 after the campus alert went out', async (t) => {
+  t.mock.method(console, 'log', () => {})
+  const errors = t.mock.method(console, 'error', () => {})
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, platform: 'ios', failure_count: 0, local_reminders: false, kinds: null, channels: null }
+  const tables = {
+    campus_alert_messages: () => ({ data: null, error: null }),
+    campus_alert_incidents: (chain) => (operation(chain) === 'update' ? { data: [{ id: 'claimed' }], error: null } : { data: operation(chain) === 'select' ? [] : null, error: null }),
+    push_settings: () => ({ data: [], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    push_tickets: () => ({ data: null, error: null }),
+    live_activities: () => ({ data: null, error: { code: 'XX000', message: 'internal error' }, status: 500 }),
+  }
+  const readCampusAlert = async () => ({ fetchedAt: Date.now(), alert: demoAlert() })
+  await withApp({ tables, campusAlertPush: true, readCampusAlert, sendLiveActivity: stubApns().send, readArrivals: async () => null }, async ({ call, expoRequests }) => {
+    const res = await call('POST', '/api/internal/push/fast-tick', undefined, CRON_AUTH)
+    assert.deepEqual([res.status, res.body], [500, { ok: false, error: 'Fast tick failed.' }])
+    assert.equal(expoRequests.length, 1, 'the campus alert went out first')
+  })
+  assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).startsWith('POST /api/internal/push/fast-tick:')))
 })
 
 // ── Issue #550, README step 53: the choices by kind ─────────────────────────

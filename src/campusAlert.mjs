@@ -20,8 +20,9 @@
 //
 // Shape, like src/circuitNews.mjs: a pure reader (payload in, message out),
 // the answer builder for GET /api/campus-alert, and a fetch shell with an
-// injectable fetch. The route (src/routes/campus.mjs) caches a reading for
-// 15 s through the server's shared stale-on-failure cache. See
+// injectable fetch. The route (src/routes/campus.mjs) and the push tick
+// (src/campusAlertPush.mjs) share one reading, cached for 15 s through the
+// server's shared stale-on-failure cache (readCampusAlertCached). See
 // docs/campus-alerts.md.
 
 export const IU_ALERT_FEED_URL = 'https://exdd-resources.webapps.iu.edu/api/public/v1/rave/indianapolis?output=json'
@@ -33,6 +34,9 @@ export const MAX_MESSAGE_CHARS = 2000
 // not be reached since; the answer marks it stale so a banner can say when it
 // was last checked.
 export const STALE_AFTER_MS = 2 * 60 * 1000
+// IU is asked at most this often per process, whoever reads the alert.
+export const CAMPUS_ALERT_CACHE_MS = 15 * 1000
+const CAMPUS_ALERT_CACHE_KEY = 'campus:alert'
 const FETCH_TIMEOUT_MS = 8_000
 const USER_AGENT = 'BoilerIndy campus app (+https://www.boilerindy.app)'
 const NORMAL_HEADLINE = /campus status normal/i
@@ -145,4 +149,15 @@ export async function fetchCampusAlert({ fetchImpl = globalThis.fetch, now = () 
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * IU's feed through server.mjs's shared stale-on-failure cache (getCached):
+ * { fetchedAt, alert }, asked of IU at most every CAMPUS_ALERT_CACHE_MS. The
+ * banner's read and the push tick share the one reading, so the tick never
+ * adds a request to IU. While IU cannot be reached the cache keeps serving its
+ * last reading, whose fetchedAt shows its age; with none it throws.
+ */
+export function readCampusAlertCached(getCached, options = {}) {
+  return getCached(CAMPUS_ALERT_CACHE_KEY, CAMPUS_ALERT_CACHE_MS, () => fetchCampusAlert(options))
 }

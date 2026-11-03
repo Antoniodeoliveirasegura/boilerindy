@@ -25,17 +25,26 @@ test('schedules one job per table, each deleting only rows past its window', () 
       'boilerindy-retention-push-deliveries',
       'boilerindy-retention-sessions',
       'boilerindy-retention-push-tickets',
+      'boilerindy-retention-campus-alert-messages',
+      'boilerindy-retention-campus-alert-incidents',
+      'boilerindy-retention-live-activities',
       'boilerindy-retention-cron-history',
     ],
   )
   assert.deepEqual(
-    jobs.map((j) => j.command),
+    jobs.map((j) => j.command.replace(/\s+/g, ' ')),
     [
       "DELETE FROM analytics_events WHERE created_at < NOW() - INTERVAL '12 months'",
       "DELETE FROM push_deliveries WHERE sent_at < NOW() - INTERVAL '60 days'",
       'DELETE FROM user_sessions WHERE expire < NOW()',
       // Expo push tickets (issue #550): a receipt is gone from Expo after 24 hours.
       "DELETE FROM push_tickets WHERE sent_at < NOW() - INTERVAL '2 days'",
+      // Campus alerts (issue #550, item 9): a year, like the analytics; an
+      // incident goes once no message names it.
+      "DELETE FROM campus_alert_messages WHERE sent_at < NOW() - INTERVAL '12 months'",
+      "DELETE FROM campus_alert_incidents i WHERE i.opened_at < NOW() - INTERVAL '12 months' AND NOT EXISTS (SELECT 1 FROM campus_alert_messages m WHERE m.incident_id = i.id)",
+      // Track this bus (issue #550): a day past each activity's 30 minutes.
+      "DELETE FROM live_activities WHERE ends_at < NOW() - INTERVAL '1 day'",
       "DELETE FROM cron.job_run_details WHERE start_time < NOW() - INTERVAL '7 days'",
     ],
   )

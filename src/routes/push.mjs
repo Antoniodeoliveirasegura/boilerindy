@@ -1,8 +1,20 @@
 import express from 'express'
+import { normalizeApnsToken } from '../apnsLiveActivity.mjs'
+import { readCampusAlertCached } from '../campusAlert.mjs'
+import { runCampusAlertPush } from '../campusAlertPush.mjs'
 import { runCronTick } from '../cronTick.mjs'
-import { DB_FEATURES, respondSchemaMissing } from '../dbErrors.mjs'
+import { DB_FEATURES, respondDbError, respondSchemaMissing } from '../dbErrors.mjs'
 import { isMissingColumnError, runDiningFavoriteAlerts } from '../diningFavoriteAlerts.mjs'
 import { fetchExpoReceipts, parsePushTokenBody, sendExpoPush } from '../expoPush.mjs'
+import {
+  endLiveActivity,
+  liveActivitiesEnabled,
+  parseActivityId,
+  parseLiveActivityStart,
+  runLiveActivities,
+  startLiveActivity,
+  updateLiveActivityToken,
+} from '../liveActivities.mjs'
 import {
   KIND_SETTING_COLUMNS,
   buildTestPayload,
@@ -42,6 +54,13 @@ import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 // issue #550). The public config reports the registry's version and digest,
 // the kinds PUSH_KINDS_OFF names are not sent, and every Expo request carries
 // EXPO_ACCESS_TOKEN when it is set.
+//
+// The 30-second tick, POST /api/internal/push/fast-tick, pushes IU's campus
+// alerts (src/campusAlertPush.mjs) behind CAMPUS_ALERTS and CAMPUS_ALERT_PUSH,
+// and keeps Track this bus, the app's Live Activity, current over APNs
+// (src/liveActivities.mjs) once APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are
+// set. The app reports each Live Activity at /api/live-activities, signed in
+// or out, which is why those routes ask for no session.
 
 const PUSH_MAX_SUBSCRIPTIONS_PER_USER = 10
 const PUSH_MAX_DEVICES_PER_USER = 10
@@ -68,6 +87,16 @@ function pushKindOffResponse(res) {
   return res.status(503).json({
     error: { code: 'push_kind_off', message: 'Test notifications are switched off on this server.', status: 503 },
   })
+}
+
+function liveActivityDisabled(res) {
+  return res.status(503).json({
+    error: { code: 'live_activity_disabled', message: 'Track this bus is not available right now.', status: 503 },
+  })
+}
+
+function liveActivityGone(res, status, code) {
+  return res.status(status).json({ error: { code, message: 'This bus is no longer being tracked.', status } })
 }
 
 function summarizePushSubscription(row) {
@@ -110,9 +139,11 @@ function summarizePushDevice(row) {
 }
 
 /**
- * GET /api/push/config, the public key a browser subscribes with, and the
- * kind registry's version and digest (`kinds`), which the app compares with
- * its own copy's. server.mjs mounts this in its public reads block, before the
+ * GET /api/push/config, the public key a browser subscribes with, the kind
+ * registry's version and digest (`kinds`), which the app compares with its own
+ * copy's, and whether campus alerts are pushed (`campusAlertPush`) and Track
+ * this bus runs (`liveActivities`), so a client offers each only where it does
+ * something. server.mjs mounts this in its public reads block, before the
  * session middleware, where the route used to be registered. Paths stay
  * absolute (`/api/push/config`) so docs/RATE_LIMITS.md and its guard test read
  * the same whether a route lives here or in server.mjs.
@@ -121,15 +152,24 @@ function summarizePushDevice(row) {
  * @param {Function}    deps.publicReadIpRateLimit the per-address cap across the public reads
  * @param {Function}    deps.publicReadRateLimit   the shared public-read bucket
  * @param {object|null} deps.vapidKeys             loadVapidKeys() from src/webPush.mjs, or null when push is off
+ * @param {boolean}     [deps.campusAlertPush]     CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on
+ * @param {boolean}     [deps.liveActivities]      liveActivitiesEnabled() from src/liveActivities.mjs:
+ *   the APNs key set, push on, and the kind not in PUSH_KINDS_OFF
  */
-export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }) {
+export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys, campusAlertPush = false, liveActivities = false }) {
   const router = express.Router()
   // The registry is fixed for the life of the process, so its digest is taken once.
   const kinds = notificationKindsDigest().then((digest) => ({ version: NOTIFICATION_KINDS_VERSION, digest }))
 
   async function handlePushConfig(_req, res) {
     res.set('Cache-Control', 'no-store')
-    res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null, kinds: await kinds })
+    res.json({
+      enabled: Boolean(vapidKeys),
+      publicKey: vapidKeys ? vapidKeys.publicKey : null,
+      kinds: await kinds,
+      campusAlertPush: Boolean(vapidKeys) && campusAlertPush,
+      liveActivities: Boolean(liveActivities),
+    })
   }
 
   router.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
@@ -158,12 +198,32 @@ export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLi
  * @param {Function}    [deps.sendExpo]            sendExpoPush from src/expoPush.mjs, the default;
  *   the tests hand in a fake so nothing reaches Expo
  * @param {Function}    [deps.getExpoReceipts]     fetchExpoReceipts from src/expoPush.mjs, the default
+ * @param {Function}    [deps.getCached]           server.mjs's shared stale-on-failure cache, through
+ *   which the fast tick reads IU's alert feed with the banner (readCampusAlertCached)
+ * @param {boolean}     [deps.campusAlertPush]     CAMPUS_ALERTS and CAMPUS_ALERT_PUSH both on; off,
+ *   the fast tick reads nothing
+ * @param {string[]}    [deps.adminEmails]         ADMIN_EMAILS, lowercased: with users.is_admin, the
+ *   accounts IU's test alerts are pushed to
+ * @param {Function}    [deps.readCampusAlert]     how the fast tick reads the alert; the default reads
+ *   it through getCached, and the tests hand in a fake
+ * @param {Function}    deps.widgetReadIpRateLimit the per-address cap on the widgets' arrivals read,
+ *   which the Live Activity routes share
+ * @param {Function}    deps.widgetReadRateLimit   the widget-read bucket (issue #549)
+ * @param {Function}    [deps.getCurrentUser]      server.mjs's session user, or null: the Live
+ *   Activity routes take a signed-out phone too
+ * @param {Function}    [deps.sendLiveActivity]    the APNs sender's send (createApnsSender in
+ *   src/apnsLiveActivity.mjs), or null while APNS_KEY_P8, APNS_KEY_ID and APNS_TEAM_ID are unset;
+ *   the tests hand in a stub
+ * @param {Function}    [deps.readArrivals]        a stop's arrivals through the widgets' cache
+ *   (createTransitReads in src/routes/campus.mjs), which the fast tick's Live Activities read
  */
 export function createPushRouter({
   supabase,
   requireAuth,
   pushWriteRateLimit,
   pushTestRateLimit,
+  widgetReadIpRateLimit,
+  widgetReadRateLimit,
   vapidKeys,
   PUSH_CRON_SECRET,
   pushCronSecretMatches,
@@ -173,6 +233,13 @@ export function createPushRouter({
   expoAccessToken = '',
   sendExpo = sendExpoPush,
   getExpoReceipts = fetchExpoReceipts,
+  getCached = null,
+  campusAlertPush = false,
+  adminEmails = [],
+  readCampusAlert = getCached ? () => readCampusAlertCached(getCached) : null,
+  getCurrentUser = async () => null,
+  sendLiveActivity = null,
+  readArrivals = null,
 }) {
   const router = express.Router()
   // Every Expo request, from the test send and the cron runs alike, carries
@@ -573,6 +640,127 @@ export function createPushRouter({
     }
     console.error('POST /api/internal/push/run-reminders:', outcome.error?.message || outcome.error)
     res.status(500).json({ ok: false, error: 'Reminder run failed.' })
+  })
+
+  // Track this bus (issue #550; boilerindy-app#173, item 5): the app reports
+  // each Live Activity it starts, and the fast tick below keeps it current
+  // over APNs (src/liveActivities.mjs). Signed in or out (decision 4 of the
+  // notifications build): a signed-out phone is held to the widget-read limits
+  // on its address and the activity's 30-minute life. The activity id, which
+  // only the phone knows, is what PATCH and DELETE ask for. While Track this
+  // bus is off, POST and PATCH answer 503 live_activity_disabled; DELETE always
+  // works, since ending one is always safe.
+  const liveActivitiesOn = liveActivitiesEnabled({ send: sendLiveActivity, vapidKeys, kindsOff })
+
+  // Body { activityId, token, env, stop, routeId? }; 201 { endsAt } for a new
+  // activity, 200 with the same endsAt when the app sends one again.
+  router.post('/api/live-activities', widgetReadIpRateLimit, widgetReadRateLimit, async (req, res) => {
+    if (!liveActivitiesOn) return liveActivityDisabled(res)
+    const parsed = parseLiveActivityStart(req.body)
+    if (!parsed.ok) return res.status(400).json({ error: { message: parsed.error, status: 400 } })
+    try {
+      const user = await getCurrentUser(req)
+      const started = await startLiveActivity(supabase, parsed.activity, { userId: user?.id ?? null })
+      if (started.status === 'ended') return liveActivityGone(res, 409, 'live_activity_ended')
+      res.status(started.status === 'started' ? 201 : 200).json({ endsAt: started.endsAt })
+    } catch (error) {
+      respondDbError(res, error, DB_FEATURES.live_activities)
+    }
+  })
+
+  // Body { token }: the activity's new push token, which ActivityKit can hand
+  // the app while the activity runs.
+  router.patch('/api/live-activities/:activityId', widgetReadIpRateLimit, widgetReadRateLimit, async (req, res) => {
+    if (!liveActivitiesOn) return liveActivityDisabled(res)
+    const activityId = parseActivityId(req.params.activityId)
+    const token = normalizeApnsToken(req.body?.token)
+    if (!activityId || !token) {
+      return res.status(400).json({ error: { message: 'A Live Activity id and its push token, in hex, are required.', status: 400 } })
+    }
+    try {
+      const updated = await updateLiveActivityToken(supabase, activityId, token)
+      if (!updated) return liveActivityGone(res, 404, 'live_activity_not_found')
+      res.json({ endsAt: updated.endsAt })
+    } catch (error) {
+      respondDbError(res, error, DB_FEATURES.live_activities)
+    }
+  })
+
+  // The student ended it on the phone: no more pushes. { ended } says whether
+  // an open activity had the id.
+  router.delete('/api/live-activities/:activityId', widgetReadIpRateLimit, widgetReadRateLimit, async (req, res) => {
+    const activityId = parseActivityId(req.params.activityId)
+    if (!activityId) return res.status(400).json({ error: { message: 'A Live Activity id is required.', status: 400 } })
+    try {
+      res.json({ ended: await endLiveActivity(supabase, activityId) })
+    } catch (error) {
+      respondDbError(res, error, DB_FEATURES.live_activities)
+    }
+  })
+
+  // The 30-second tick (issue #550), called by the pg_cron job in
+  // db/supabase-push-fast-tick.sql (README step 57) with the same bearer
+  // token: campus alerts first (src/campusAlertPush.mjs), then the Live
+  // Activities (src/liveActivities.mjs), each under its own runCronTick, so a
+  // failure in one leaves the other its turn. With both off it answers at once
+  // and reads nothing. A tick that comes while the last one is still sending
+  // (a broadcast to every device can outlast 30 s) is skipped; the lock is per
+  // process, and the claims in the database cover a second instance. A
+  // transient Supabase failure gets one retry, as the reminder run's does.
+  const OFF = Object.freeze({ ok: false, reason: 'off' })
+  let fastTickRunning = false
+  router.post('/api/internal/push/fast-tick', async (req, res, next) => {
+    if (!PUSH_CRON_SECRET) return next()
+    if (!pushCronSecretMatches(req.get('authorization'))) {
+      return res.status(401).json({ error: { message: 'Invalid cron secret.', status: 401 } })
+    }
+    const campusOn = campusAlertPush && Boolean(readCampusAlert)
+    const liveOn = liveActivitiesOn && Boolean(readArrivals)
+    if (!campusOn && !liveOn) return res.json({ campusAlerts: OFF, liveActivities: OFF })
+    if (fastTickRunning) return res.json({ skipped: 'busy' })
+    fastTickRunning = true
+    try {
+      const summary = { campusAlerts: OFF, liveActivities: OFF }
+      const failures = []
+      if (campusOn) {
+        const outcome = await runCronTick('fast-tick', () =>
+          runCampusAlertPush({ client: supabase, keys: vapidKeys, readAlert: readCampusAlert, kindsOff, adminEmails, sendExpo: sendToExpo }),
+        )
+        if (outcome.ok) {
+          summary.campusAlerts = outcome.summary
+          // A line only for a message seen for the first time: its role, the
+          // incident, and the counts. Never a token or an endpoint.
+          if (outcome.summary.role) console.log(`[push] campus alert: ${JSON.stringify({ ...outcome.summary, ranAt: undefined })}`)
+        } else {
+          failures.push(outcome)
+        }
+      }
+      if (liveOn) {
+        const outcome = await runCronTick('fast-tick live activities', () => runLiveActivities({ client: supabase, send: sendLiveActivity, readArrivals }))
+        if (outcome.ok) {
+          summary.liveActivities = outcome.summary
+          // A line only when a push went out or failed or an activity ended:
+          // counts and APNs' reason codes, never a token or an activity id.
+          const live = outcome.summary
+          if (live.updates || live.arriving || live.failed || Object.keys(live.ended).length) {
+            console.log(`[push] live activities: ${JSON.stringify({ ...live, ranAt: undefined })}`)
+          }
+        } else {
+          failures.push(outcome)
+        }
+      }
+      if (!failures.length) return res.json(summary)
+      for (const failure of failures) {
+        if (failure.transient) warnCronTransient('POST /api/internal/push/fast-tick', failure.error)
+        else console.error('POST /api/internal/push/fast-tick:', failure.error?.message || failure.error)
+      }
+      if (failures.every((failure) => failure.transient)) {
+        return res.status(503).json({ ok: false, error: 'Fast tick skipped: upstream unavailable, the next tick will retry.' })
+      }
+      res.status(500).json({ ok: false, error: 'Fast tick failed.' })
+    } finally {
+      fastTickRunning = false
+    }
   })
 
   return router

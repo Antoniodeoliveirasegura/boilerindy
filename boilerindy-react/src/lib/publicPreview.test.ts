@@ -21,6 +21,7 @@ describe('isPreviewPath', () => {
     expect(isPreviewPath('/transit/')).toBe(true)
     expect(isPreviewPath('/map')).toBe(true)
     expect(isPreviewPath('/free-food/')).toBe(true)
+    expect(isPreviewPath('/safety')).toBe(true)
   })
 
   // The router matches routes in any letter case, so /Dining rendered the
@@ -49,6 +50,8 @@ describe('the bar message', () => {
     expect(previewMessage('/Free-Food')).toBe(
       "You're previewing free food on campus. Create a free account to add events from your own calendar.",
     )
+    // Issue #550: where a campus alert push opens.
+    expect(previewMessage('/safety')).toBe("You're viewing IU's campus alerts. Create a free account to get them as notifications.")
     expect(Object.keys(PREVIEW_MESSAGES)).toEqual([...PREVIEW_PATHS])
   })
 

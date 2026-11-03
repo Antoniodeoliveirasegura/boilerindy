@@ -200,6 +200,18 @@ test('each kind the server pushes gets its own level, thread, sound, priority an
   assert.deepEqual([alert.interruptionLevel, alert.threadId, alert.relevanceScore, alert.priority, alert.ttl], ['time-sensitive', 'safety', 1, 'high', 30 * 60])
 })
 
+// Issue #550, item 9: the campus all clear goes silent in quiet hours. Only a
+// kind that goes silent takes the flag; an alert stays time-sensitive.
+test('a silent all clear goes as a passive kind does, and the flag means nothing to other kinds', () => {
+  const clear = { title: 'IU Indianapolis alert', body: 'Demo alert: Campus Status Normal', url: '/safety?incident=demo', tag: 'campus-demo', kind: 'campus-all-clear' }
+  const [loud] = buildExpoMessages([{ token: token(1) }], clear, { now: NOW })
+  assert.deepEqual([loud.interruptionLevel, loud.sound, loud.priority, loud.collapseId], ['active', 'default', 'high', 'campus-demo'])
+  const [silent] = buildExpoMessages([{ token: token(1) }], { ...clear, silent: true }, { now: NOW })
+  assert.deepEqual([silent.interruptionLevel, 'sound' in silent, silent.priority, silent.ttl, silent.collapseId], ['passive', false, 'normal', 2 * 60 * 60, 'campus-demo'])
+  const [alert] = buildExpoMessages([{ token: token(1) }], { ...clear, kind: 'campus-alert', silent: true }, { now: NOW })
+  assert.deepEqual([alert.interruptionLevel, alert.sound, alert.priority], ['time-sensitive', 'default', 'high'])
+})
+
 // Issue #550, item 5: a deadline names its task, for the app's Mark done.
 test('a payload that names an item carries it in data, beside the link to it', () => {
   const [message] = buildExpoMessages(

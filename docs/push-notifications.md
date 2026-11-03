@@ -10,7 +10,10 @@ A phone that schedules its reminders itself gets no deadline reminders from
 the server: see [Phones with local reminders](#phones-with-local-reminders).
 Every notification belongs to a kind of the kind registry (issue #550), which
 sets how loud it is, how it stacks and how long it is worth delivering: see
-[Kind registry](#kind-registry).
+[Kind registry](#kind-registry). IU's campus alerts go out from a second,
+30-second tick: see [The 30-second tick](#the-30-second-tick-campus-alerts).
+The same tick keeps Track this bus, the app's Live Activity, current over
+APNs: see [Track this bus](#track-this-bus-the-live-activity).
 
 ## How it fits together
 
@@ -50,6 +53,9 @@ Chrome, Firefox, Edge or Safari.
    choices by kind: the evening list, quiet hours and the daily cap. Until
    then the Settings card and the reminder run work as before ([Choices by
    kind](#choices-by-kind-the-evening-list-quiet-hours-and-the-daily-cap)).
+6. For Track this bus: run `db/supabase-live-activities.sql` (README step 58),
+   create an APNs auth key, and set `APNS_KEY_P8`, `APNS_KEY_ID` and
+   `APNS_TEAM_ID` on Render ([Track this bus](#track-this-bus-the-live-activity)).
 
 Rotating the VAPID pair invalidates every subscription; users will need to turn
 notifications on again on each device.
@@ -64,6 +70,8 @@ notifications on again on each device.
 | `PUSH_CRON_SECRET` | Bearer token for the reminder runner. Blank means the route falls through to the JSON 404. |
 | `PUSH_KINDS_OFF` | Kind ids from the [kind registry](#kind-registry), separated by commas, that the server stops sending. Blank sends every kind. See [Stopping a kind](#stopping-a-kind-push_kinds_off). |
 | `EXPO_ACCESS_TOKEN` | The project's Expo access token, sent with every native push for Expo's enhanced push security. Blank sends none. Set it before turning that setting on: see [Native devices (Expo)](#native-devices-expo). |
+| `CAMPUS_ALERT_PUSH` | `off` by default. With `CAMPUS_ALERTS` on too, the 30-second tick pushes IU's campus alerts. See [The 30-second tick](#the-30-second-tick-campus-alerts). |
+| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | The APNs auth key that signs Track this bus's updates: the `.p8` file's contents (its line breaks, or `\n` for each), its 10-character key id, and the 10-character team id. All three or none; blank leaves Track this bus off. Secret: never logged or returned. See [Track this bus](#track-this-bus-the-live-activity). |
 
 The server validates the pair at boot (length, curve membership, and that the
 public key matches the private one) and logs a clear error instead of sending
@@ -71,11 +79,11 @@ requests that push services would reject with 403.
 
 ## API
 
-All routes except `config` and `run-reminders` require a signed-in session.
+All routes except `config`, `/api/live-activities`, `run-reminders` and `fast-tick` require a signed-in session.
 
 | Route | Purpose | Notes |
 |---|---|---|
-| `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest } }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. |
+| `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest }, campusAlertPush, liveActivities }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. `campusAlertPush` is true while campus alerts are pushed (push on, and `CAMPUS_ALERTS` and `CAMPUS_ALERT_PUSH` on), so a client offers that choice only then. `liveActivities` is true while Track this bus runs (the `APNS_*` variables set, push on, and `bus-live-activity` not in `PUSH_KINDS_OFF`), so the app offers it only then. |
 | `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts, classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, kindsMigrated }, diningAlertsAvailable, kindsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders, kinds }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `kindsAvailable` is false until `db/supabase-push-kinds.sql` runs, and until then the choices by kind read what that step will give the account; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
 | `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts?, classReminders?, classLeadMinutes?, digestMinute?, deadlineItems?, quietStart?, quietEnd?, campusAlerts?, kindsMigrated? }`; answers `{ settings, diningAlertsAvailable, kindsAvailable }` | `leadMinutes` 5 to 10080; `classLeadMinutes` 5, 10, 15 or 30; `digestMinute`, `quietStart` and `quietEnd` minutes past midnight on campus (0 to 1439) or null; quiet hours change as a pair, a null pair for none; `kindsMigrated` only `true`, which stamps the account once. An evening list inside quiet hours answers 400. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`, and a choice by kind before step 53 503 `push_kinds_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
@@ -84,13 +92,20 @@ All routes except `config` and `run-reminders` require a signed-in session.
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
 | `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). 503 `push_kind_off` while `PUSH_KINDS_OFF` lists `test`. |
 | `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
+| `POST /api/internal/push/fast-tick` | Returns `{ campusAlerts, liveActivities }`, the summaries of the campus alert run and the Live Activity run, or `{ skipped: 'busy' }` | The same bearer token and retry, each half retried on its own. Every 30 seconds ([below](#the-30-second-tick-campus-alerts)); a half that is off answers `{ ok: false, reason: 'off' }`, and with both off the tick reads nothing. |
+| `POST /api/live-activities` | Body `{ activityId, token, env, stop, routeId? }`, returns 201 `{ endsAt }`, or 200 with the same `endsAt` for an activity sent again | Track this bus: the app's Live Activity, signed in or out. `widget-read` limits. 503 `live_activity_disabled` while it is off, 409 `live_activity_ended` for an activity already over. See [Track this bus](#track-this-bus-the-live-activity). |
+| `PATCH /api/live-activities/:activityId` | Body `{ token }`, returns `{ endsAt }` | The activity's new push token. 404 `live_activity_not_found` once it is over. |
+| `DELETE /api/live-activities/:activityId` | Returns `{ ended }` | The student ended it on the phone; no more pushes. Answers even while Track this bus is off. |
 
 Error shape follows the rest of the API: `{ error: { message, status, code? } }`.
 `code` is `push_not_configured` (tables missing, 503), `push_disabled` (no
 VAPID keys, 503), or on the test send `push_kind_off` (`PUSH_KINDS_OFF` lists
 `test`, 503). On `/api/me/push-token` a missing `push_devices` table is
 `push_not_configured` too, with a message that names
-`db/supabase-push-devices.sql`.
+`db/supabase-push-devices.sql`. The Live Activity routes answer
+`live_activity_disabled`, `live_activities_schema_missing`,
+`live_activity_ended` and `live_activity_not_found`
+([api-error-codes.md](api-error-codes.md)).
 
 ## Notification payload
 
@@ -170,9 +185,12 @@ What reads it today:
 - `src/pushPolicy.mjs`, the policy core: the daily cap and the kinds it
   counts, the 30-minute merge, the default quiet hours and evening list, all
   from the registry ([Choices by kind](#choices-by-kind-the-evening-list-quiet-hours-and-the-daily-cap)).
+- `src/liveActivities.mjs`: the Live Activity's 30-minute life and the 60
+  seconds an update is kept ([Track this bus](#track-this-bus-the-live-activity)).
 
-The rest of issue #550 builds on it: campus alert pushes (item 9) and the
-Live Activity's sender are still to come. The copy and the links to the item
+The rest of issue #550 builds on it: campus alert pushes (item 9) are in [The
+30-second tick](#the-30-second-tick-campus-alerts), and the Live Activity's
+sender in [Track this bus](#track-this-bus-the-live-activity). The copy and the links to the item
 (items 2 and 5) are in [Notification payload](#notification-payload), the
 choices by kind (items 3 and 8) and the dish alerts' timing (item 6) below,
 and what a phone takes and the receipts (items 4 and 7) under [Native devices
@@ -263,7 +281,7 @@ card and the app show the same kinds:
 | `deadline_items`, `lead_minutes` | `deadlineItems`, `leadMinutes` | off, 60 | A reminder before each item, `leadMinutes` ahead. |
 | `quiet_start`, `quiet_end` | `quietStart`, `quietEnd` | 1380 to 480 (11:00 PM to 8:00 AM) | Quiet hours; a null pair for none. |
 | `class_reminders`, `class_lead_minutes` | `classReminders`, `classLeadMinutes` | off, 15 | The app's class reminders, which the phone schedules. The website only shows them. |
-| `campus_alerts` | `campusAlerts` | on | Campus alert pushes (item 9, not sent yet). |
+| `campus_alerts` | `campusAlerts` | on | Campus alert pushes and their all clears ([The 30-second tick](#the-30-second-tick-campus-alerts)). Before step 53 every account gets them. |
 | `kinds_migrated_at` | `kindsMigrated` | not set | When the first phone on an app build with kinds filled the account in from its old switches. |
 
 Existing rows keep their per-item reminders (`deadline_items` takes
@@ -488,8 +506,9 @@ registry](#kind-registry) reports more when it registers at
 
 Every registration replaces them, so a body from an older build stores no
 `kinds`. A phone with `kinds` then gets a server push only of a kind it
-listed, and the test push, which a student sends to check every device
-(`deviceTakes` in `src/pushReminders.mjs`); a message names its kind's
+listed, a kind whose registry default follows one it listed (the campus all
+clear follows the alert), and the test push, which a student sends to check
+every device (`deviceTakes` in `src/pushReminders.mjs`); a message names its kind's
 Android channel only when the phone listed it. A phone with no `kinds` is an
 older build and keeps the rule of [Phones with local
 reminders](#phones-with-local-reminders). The answer echoes `kinds`,
@@ -539,6 +558,145 @@ it. Browsers are unchanged.
   `withLocalRemindersColumn` in `src/pushReminders.mjs`, which retries without
   it.
 
+## The 30-second tick: campus alerts
+
+Issue #550, item 9 (issue #34). The pg_cron job in
+`db/supabase-push-fast-tick.sql` (README step 57, production only) calls
+`POST /api/internal/push/fast-tick` every 30 seconds with the same bearer
+token as the reminder run. The tick reads IU's alert for the Indianapolis
+campus through the banner's cache, so IU is never asked more often than
+before, and `src/campusAlertPush.mjs` pushes:
+
+- an incident's first message, as `campus-alert` (time-sensitive; it ignores
+  quiet hours and the daily cap), to every phone that takes the kind and every
+  browser, of each account whose `campus_alerts` is on (every account before
+  step 53);
+- IU's "Campus Status Normal" that closes it, as `campus-all-clear`, under the
+  alert's tag `campus-<incident>`, so it replaces the alert; in a student's
+  quiet hours it is silent (`passive`, no sound, Web Push urgency `low`);
+- IU's tests to admins only (`users.is_admin` or `ADMIN_EMAILS`).
+
+Updates and finals only change the banner, and a message first seen more than
+30 minutes after IU sent it is not pushed. Each push is claimed on its
+incident (`alert_pushed_at`, `clear_pushed_at`, README step 56) before it is
+sent, and a tick that comes while the last one is still sending is skipped,
+so nothing goes twice. An Expo request that got no tickets back is sent once
+more after 2 seconds. Without VAPID keys, with `CAMPUS_ALERT_PUSH` or
+`CAMPUS_ALERTS` off, or with `campus-alert` in `PUSH_KINDS_OFF`, nothing is
+pushed. The rules, the incidents and the operations are in
+[campus-alerts.md](campus-alerts.md#push-notifications). After the campus
+alerts, the same tick runs the Live Activities ([Track this
+bus](#track-this-bus-the-live-activity)); each half has its own retry, so a
+failure in one leaves the other its turn.
+
+## Track this bus: the Live Activity
+
+Issue #550 ("Later"; boilerindy-app#173, item 5). The app shows a bus coming
+to a stop as a Live Activity on the Lock Screen and in the Dynamic Island, and
+this server keeps it current over APNs (`bus-live-activity` in the [kind
+registry](#kind-registry)). The app half, which starts and ends the activity
+and draws it, is step 13 of the notifications build; until it ships, nothing
+calls these routes.
+
+1. The app sees `liveActivities: true` in `GET /api/push/config`, starts the
+   activity from the arrivals it shows, and sends `POST /api/live-activities`
+   `{ activityId, token, env, stop, routeId? }`: ActivityKit's id for it, its
+   push token in hex, `production` (TestFlight and the App Store) or
+   `development` (a build run from Xcode), the place key from
+   `GET /api/transit/places`, and the route of the bus (left out, the next
+   bus of any route there). Signed in or out (decision 4 of the build): every
+   phone is held to the `widget-read` limits on its address, and every
+   activity lives 30 minutes at most, the answer's `endsAt`. A new push token
+   from ActivityKit goes to `PATCH /api/live-activities/:activityId`, and the
+   student ending it to `DELETE`; the activity id, which only the phone knows,
+   is what both ask for. `live_activities` (README step 58) keeps one row per
+   activity, `user_id` empty when signed out.
+2. Every 30 seconds the fast tick reads each open activity's stop through the
+   widgets' 15-second arrivals cache, once per stop, so TransLoc is never asked
+   more often than before, and `src/liveActivities.mjs` sends:
+   - the first reading after a start, so the phone and the server agree from
+     then on;
+   - then an update only when the bus's due time moves by a minute or more,
+     and at most once a minute, at priority 5. The phone counts down to the
+     time it was sent by itself, so the passing minutes need no push;
+   - "Arriving" once the bus is due within a minute, at priority 10 with an
+     alert ("Route 5 Purple is arriving", "At Riverwalk Apartments") and the
+     default sound, once;
+   - every update with `stale-date` 3 minutes ahead, so the activity dims if
+     the updates stop;
+   - an `end`, with `dismissal-date` 2 minutes ahead, once the bus has come
+     (after Arriving it is no longer due, or a bus due within two minutes is
+     gone), after the 30 minutes, at the end of service (no bus coming and the
+     route past its hours in `src/transitHours.mjs`; a last bus still coming
+     keeps it going), or when its stop is gone from TransLoc.
+
+   It follows one bus: the soonest on its route, then that vehicle while
+   TransLoc names it, so a second bus on the route does not take over. If that
+   bus disappears while still minutes away, the next one takes its place. It
+   ends without a push when the student ends it, or when APNs answers that the
+   token is gone (410, or a 400 `BadDeviceToken`).
+3. `src/apnsLiveActivity.mjs` sends each push to
+   `https://api.push.apple.com/3/device/<token>` (`api.sandbox.push.apple.com`
+   for `development`) with `apns-push-type: liveactivity`, `apns-topic:
+   com.boilerindy.app.push-type.liveactivity`, the priority, and
+   `apns-expiration` 60 seconds ahead for an update (the registry's TTL) or an
+   hour for an end. One HTTP/2 session per host (`node:http2`) is kept between
+   ticks. Token auth: an ES256 JWT naming the key and the team, signed with
+   `node:crypto` by the `.p8` key and renewed every 50 minutes, since APNs
+   refuses one older than an hour or renewed more often than every 20 minutes;
+   a 403 `ExpiredProviderToken` renews it and sends once more.
+
+The body is `{ "aps": { "timestamp", "event", "content-state",
+"stale-date"?, "dismissal-date"?, "alert"? } }`, dates in Unix seconds. The
+content state, which the app's ActivityKit `ContentState` decodes:
+
+```json
+{ "phase": "due", "arrivesAt": 815497620, "routeNum": "5", "routeName": "Purple", "color": "#7A3E9D" }
+```
+
+| Key | What it is |
+|---|---|
+| `phase` | `due` or `arriving` while it runs; at the end, why it ended: `arrived`, `expired` (the 30 minutes), `no-service` or `stop-gone`. |
+| `arrivesAt` | When the bus is due, in seconds since 2001-01-01T00:00:00Z: the number Swift's `Codable` reads as a `Date`, which is how ActivityKit decodes `content-state`. Null at the end. |
+| `routeNum`, `routeName`, `color` | The route of the bus it shows, from the arrivals read; null when unknown. |
+
+When something goes wrong:
+
+- Each push is claimed before it is sent by changing `last_state` from the
+  value the tick read (and setting `ended_at` for an end), so overlapping
+  ticks or a second instance never send twice.
+- APNs busy or down (429, a 5xx, a timeout, no connection) or refusing the key
+  (403): that push's claim goes back and the tick stops; the next tick sends
+  it again, and meanwhile the activity dims at its stale date.
+- TransLoc down: the arrivals cache serves its last answer, and one older than
+  a minute pushes nothing. The 30 minutes still end the activity.
+- Any other refusal of one push (a 400) ends that activity, with APNs' reason
+  code in the log.
+- The log has one `[push] live activities:` line for a tick that sent, failed
+  or ended something: the counts and APNs' reason codes, never a token or an
+  activity id. The `.p8` key is never logged; a key that does not load is
+  refused at boot with a message that does not quote it.
+
+Track this bus runs only with `APNS_KEY_P8`, `APNS_KEY_ID` and `APNS_TEAM_ID`
+set, the VAPID keys loaded (they gate every push), and `bus-live-activity` not
+in `PUSH_KINDS_OFF`; the config's `liveActivities` says so. Off, `POST` and
+`PATCH` answer 503 `live_activity_disabled`, `DELETE` still ends an activity,
+and the tick reads nothing for it.
+
+Owner setup, once this server is released (nothing calls the routes until the
+app half ships, so the order is free):
+
+1. Run `db/supabase-live-activities.sql` (README step 58), then re-run step 50,
+   and step 51 for the retention job that deletes each row a day after its 30
+   minutes.
+2. In the Apple Developer portal, under Keys, create a key with Apple Push
+   Notifications service (APNs) enabled and download its `.p8` file (it
+   downloads once). Note its Key ID and the Team ID.
+3. Set `APNS_KEY_P8` (the file's contents), `APNS_KEY_ID` and `APNS_TEAM_ID` on
+   Render. Until all three load, the boot log says Track this bus is off.
+4. Make sure the fast tick's job (README step 57) is scheduled, then track a
+   real bus from a TestFlight build: it updates, says Arriving, and ends.
+
 ## Platform notes
 
 - iPhone and iPad deliver web push only to apps added to the Home Screen
@@ -563,6 +721,13 @@ it. Browsers are unchanged.
   or unset `PUSH_CRON_SECRET`.
 - Stop one kind, on every device the server sends it to: add its id to
   `PUSH_KINDS_OFF` on Render ([Stopping a kind](#stopping-a-kind-push_kinds_off)).
+- Pause campus alert pushes only, keeping the banners: set
+  `CAMPUS_ALERT_PUSH=off` on Render, or
+  `select cron.unschedule('boilerindy-push-fast-tick');` (which pauses Track
+  this bus too).
+- Pause Track this bus only: add `bus-live-activity` to `PUSH_KINDS_OFF`, or
+  unset an `APNS_*` variable. Activities already running get no more pushes
+  and dim at their stale date; the app stops offering it.
 - The ledger prunes itself: `db/supabase-retention.sql` (README step 51,
   issue #528) schedules `boilerindy-retention-push-deliveries`, which deletes
   rows older than 60 days every Sunday. Without it, by hand:
