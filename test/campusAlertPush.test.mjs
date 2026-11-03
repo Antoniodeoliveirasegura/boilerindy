@@ -11,7 +11,7 @@ import {
 } from '../src/campusAlertPush.mjs'
 import { fakeSupabase, operation } from './routes/fakeSupabase.mjs'
 
-// Issue #550, item 9: IU's campus alerts pushed from the 30-second tick. The
+// Issue #550, item 9: IU's campus alerts pushed from the fast tick. The
 // database is an in-memory one behind the shared recording fake, so a test can
 // run tick after tick and read the incidents and messages they leave; the
 // senders are fakes, so nothing reaches a push service. Every alert here is

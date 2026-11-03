@@ -15,13 +15,22 @@
 -- session-free /api/health every 5 minutes, well inside Render's idle window.
 -- The GitHub workflow stays on as the backstop. See docs/keep-warm.md.
 --
--- Paste the whole file into the Supabase SQL Editor once. Safe to run more
--- than once: cron.schedule() with an existing job name updates that job in
--- place instead of adding a second one. Nothing here touches the public
--- schema, so there is no table, no RLS and no server code involved; if the
--- job is ever removed the app keeps working, it just cold-starts again.
+-- Production unscheduled the ping on 2026-11-03, after the database ran out of
+-- memory (docs/database-outage.md): the push jobs from steps 30 and 57 call the
+-- API every 5 minutes and every minute, which keeps Render awake on their own,
+-- so the ping only added work. This file still creates pg_cron and pg_net,
+-- which every scheduled job in db/ needs; the ping is the commented block at
+-- the bottom, for a project that runs neither push job.
 --
--- Verify after a few minutes (the same queries are repeated at the bottom):
+-- Paste the whole file into the Supabase SQL Editor once. Safe to run more
+-- than once, and so is the block: cron.schedule() with an existing job name
+-- updates that job in place instead of adding a second one. Nothing here
+-- touches the public schema, so there is no table, no RLS and no server code
+-- involved; without the ping the app keeps working, it cold-starts only when
+-- nothing else has called it for 15 minutes.
+--
+-- With the block scheduled, verify after a few minutes (the same queries are
+-- repeated at the bottom):
 --   select jobid, jobname, schedule, active from cron.job;
 --   select status, return_message, start_time from cron.job_run_details
 --     order by start_time desc limit 10;
@@ -43,17 +52,19 @@ grant usage on schema cron to postgres;
 grant all privileges on all tables in schema cron to postgres;
 create extension if not exists pg_net with schema extensions;
 
-select cron.schedule(
-  'boilerindy-keep-warm',
-  '*/5 * * * *',
-  $$
-  select net.http_get(
-    url := 'https://boilerindy-api.onrender.com/api/health',
-    timeout_milliseconds := 60000
-  );
-  $$
-);
-
+-- The ping, only for a project that runs neither push job (see the top):
+--
+--   select cron.schedule(
+--     'boilerindy-keep-warm',
+--     '*/5 * * * *',
+--     $$
+--     select net.http_get(
+--       url := 'https://boilerindy-api.onrender.com/api/health',
+--       timeout_milliseconds := 60000
+--     );
+--     $$
+--   );
+--
 -- Check it is running:
 --   select jobid, jobname, schedule, active from cron.job;
 --   select status, return_message, start_time from cron.job_run_details

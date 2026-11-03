@@ -1,7 +1,7 @@
 -- Track this bus (issue #550, "Later"; boilerindy-app#173, item 5): the Live
 -- Activity's server half. The app starts a Live Activity on the Lock Screen
 -- and in the Dynamic Island for a bus coming to a stop, and reports the
--- activity's APNs push token at POST /api/live-activities. The 30-second push
+-- activity's APNs push token at POST /api/live-activities. The push fast
 -- tick (POST /api/internal/push/fast-tick, which the pg_cron job in
 -- db/supabase-push-fast-tick.sql calls) reads the stop's arrivals through the
 -- widgets' 15-second cache and sends each open activity its updates straight

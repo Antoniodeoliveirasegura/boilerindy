@@ -1,0 +1,54 @@
+name: Database health
+
+# Fails when the API cannot read its database, so GitHub sends an email about it.
+# On 2026-11-03 the Supabase project ran out of memory and stopped answering for
+# three and a half hours, and nothing noticed until a student opened the app:
+# GET /api/health is the keep-warm probe and never touches the database, so it
+# stayed 200 the whole time. GET /api/health/db reads one row and answers 503
+# database_unavailable when it cannot. docs/database-outage.md has the rest.
+#
+# Caveats worth knowing:
+# - Scheduled workflows only run from the DEFAULT branch (main), so this file is
+#   inert until the next develop -> main release; use "Run workflow"
+#   (workflow_dispatch) to try it from any branch in the meantime.
+# - GitHub emails a failed scheduled run to whoever last changed the cron line
+#   below (or re-enabled the workflow), when their notification settings send
+#   Actions failures.
+# - GitHub throttles scheduled workflows (docs/keep-warm.md saw gaps of up to
+#   4.5 hours), so this catches a long outage, not a short one. Sentry's
+#   "database: unavailable" issue opens within a minute of the first failed
+#   request, and an external monitor on the same URL alerts within minutes
+#   (docs/database-outage.md).
+# - Override the target without editing this file by setting a repo variable
+#   DB_HEALTH_URL (Settings -> Secrets and variables -> Actions -> Variables).
+
+on:
+  schedule:
+    - cron: '7-59/15 * * * *' # every 15 min, off the top of the hour
+  workflow_dispatch: {}
+
+concurrency:
+  group: db-health
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read /api/health/db
+        env:
+          DB_HEALTH_URL: ${{ vars.DB_HEALTH_URL || 'https://boilerindy-api.onrender.com/api/health/db' }}
+        run: |
+          # Three tries a minute apart, so a Render cold start or a passing blip
+          # does not fail the run; three answers other than 200 do.
+          for attempt in 1 2 3; do
+            status=$(curl -sS -o body.json -w '%{http_code}' --max-time 90 "$DB_HEALTH_URL") || status=000
+            echo "Attempt $attempt: HTTP $status $(head -c 300 body.json 2>/dev/null)"
+            if [ "$status" = "200" ]; then exit 0; fi
+            [ "$attempt" = 3 ] || sleep 60
+          done
+          echo "::error::$DB_HEALTH_URL did not answer 200 in three tries: the API cannot read its database. See docs/database-outage.md."
+          exit 1

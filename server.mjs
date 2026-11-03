@@ -91,7 +91,22 @@ import { isSessionStale } from './src/sessionFreshness.mjs'
 import { hasPendingSignIn, pendingSignInSubject } from './src/twoFactor.mjs'
 import { isEmailConfigured, sendAdvertiserPasswordResetEmail, sendEmail } from './src/email.mjs'
 import { apiNotFound } from './src/apiNotFound.mjs'
-import { createFinalErrorHandler } from './src/finalErrorHandler.mjs'
+import { createDatabaseOutageHandler, createFinalErrorHandler } from './src/finalErrorHandler.mjs'
+import { configureDatabaseOutageLog } from './src/databaseUnavailable.mjs'
+import { createDatabaseHealth } from './src/databaseHealth.mjs'
+
+// While the database cannot be reached, every route that needs it answers 503
+// database_unavailable; the Render log gets one line a minute and Sentry one
+// event every 15 minutes, all in one issue (src/databaseUnavailable.mjs,
+// 2026-11-03). Without a DSN captureMessage is a no-op.
+configureDatabaseOutageLog({
+  report: ({ what, where, failedRequests }) =>
+    Sentry.captureMessage('database: unavailable', {
+      level: 'error',
+      fingerprint: ['database-unavailable'],
+      extra: { what, where, failedRequests },
+    }),
+})
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -219,6 +234,19 @@ app.use((req, _res, next) => {
 // an external pinger hitting this every ~10 min keeps the Render service warm
 // and avoids the ~50s cold-start on the next real login.
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
+// The database probe for uptime monitors (docs/database-outage.md): 200 when one
+// row id comes back, 503 database_unavailable when the database cannot be
+// reached. /api/health above never touches Supabase, which is why it stayed 200
+// through the 2026-11-03 outage. Before the session middleware for the same
+// reason as /api/health; one read every 10 s serves every caller.
+const checkDatabaseHealth = createDatabaseHealth({ supabase })
+app.get('/api/health/db', async (_req, res) => {
+  const result = await checkDatabaseHealth()
+  res.set('Cache-Control', 'no-store')
+  if (!result.ok) res.set('Retry-After', '30')
+  res.status(result.status).json(result.body)
+})
 
 // Sessions live in Postgres rather than in this process (issue #111). Render's
 // free tier spins down after ~15 min idle, and the express-session default
@@ -896,7 +924,7 @@ async function getCached(key, ttlMs, producer) {
 // /api/push/config is mounted in the public reads block above, which is also
 // where the VAPID keys are loaded. The cron bearer token and its check are
 // read near the top of this file, and warnCronTransient sits with the Sentry
-// warnings below; the sources router is handed them too. The 30-second tick
+// warnings below; the sources router is handed them too. The fast tick
 // reads IU's alert feed through getCached, sharing the banner's reading, and
 // pushes IU's tests to the admins (ADMIN_EMAILS and users.is_admin). Track
 // this bus's routes (/api/live-activities) take a signed-out phone too, so
@@ -1093,6 +1121,12 @@ app.use(createAnalyticsRouter({ supabase, requireAuth, analyticsRateLimit }))
 // (src/asyncRoutes.mjs, issue #197) is gone (issue #291).
 
 app.use('/api', apiNotFound)
+
+// A database outage that escapes a route (the session store's read fails on
+// every signed-in request) answers 503 database_unavailable here, before
+// Sentry's handler: the outage log above reports it once, not once a request,
+// and Sentry 11's handler has no filter of its own (src/finalErrorHandler.mjs).
+app.use(createDatabaseOutageHandler())
 
 // Capture anything that escapes a route handler. Registered after all routes
 // (Express error-middleware ordering); no-op without a DSN.

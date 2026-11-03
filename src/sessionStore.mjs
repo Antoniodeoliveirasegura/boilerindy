@@ -17,6 +17,7 @@
 // working exactly as they do against MemoryStore.
 
 import session from 'express-session'
+import { describeDatabaseFailure, isDatabaseUnavailableError } from './databaseUnavailable.mjs'
 
 export const SESSION_TABLE = 'user_sessions'
 
@@ -145,12 +146,22 @@ export class SupabaseSessionStore extends session.Store {
  * default, which is exactly today's behaviour. Same "inert and safe until
  * migrated" shape as the password_changed_at work in #132.
  *
+ * A database that cannot be reached at boot is not a missing table
+ * (2026-11-03): falling back then would keep the whole process on the
+ * MemoryStore after the database came back, and sign everyone out at the next
+ * restart. The store is kept; its reads answer 503 database_unavailable until
+ * the database answers again.
+ *
  * @param {{ from: Function }} client - service-role Supabase client
  * @returns {Promise<SupabaseSessionStore|null>}
  */
 export async function createSessionStore(client, { tableName = SESSION_TABLE } = {}) {
   try {
     const { error } = await client.from(tableName).select('sid').limit(1)
+    if (error && isDatabaseUnavailableError(error)) {
+      console.warn(`[session] the database cannot be reached at boot (${describeDatabaseFailure(error)}); keeping the ${tableName} store.`)
+      return new SupabaseSessionStore(client, { tableName })
+    }
     if (error) {
       console.warn(
         `[session] ${tableName} is not available (${error.message}). ` +

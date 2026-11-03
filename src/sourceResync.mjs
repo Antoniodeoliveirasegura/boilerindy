@@ -14,7 +14,11 @@ import { queryError } from './cronTick.mjs'
 
 export const DEFAULT_STALE_MS = 6 * 60 * 60 * 1000 // ready sources: re-sync after 6 h
 export const DEFAULT_ERROR_RETRY_MS = 24 * 60 * 60 * 1000 // error sources: retry daily
-export const DEFAULT_BATCH = 15 // sources per run
+// Sources per run. 15 until 2026-11-03: the feeds linked together come due
+// together, and 11 of them (about 2,000 items in 30 s) landed in one run every
+// 6 hours on a database with no memory to spare. Four spread such a wave over
+// three hourly runs, and still cover 24 sources at the 6-hour staleness.
+export const DEFAULT_BATCH = 4
 export const DEFAULT_BUDGET_MS = 60 * 1000 // stop starting new syncs after this
 export const CANDIDATE_LIMIT = 200
 
