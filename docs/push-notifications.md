@@ -8,6 +8,9 @@ the same delivery path. The native app registers Expo push tokens at
 Expo's push service (issue #194): see [Native devices (Expo)](#native-devices-expo).
 A phone that schedules its reminders itself gets no deadline reminders from
 the server: see [Phones with local reminders](#phones-with-local-reminders).
+Every notification belongs to a kind of the kind registry (issue #550), which
+sets how loud it is, how it stacks and how long it is worth delivering: see
+[Kind registry](#kind-registry).
 
 ## How it fits together
 
@@ -53,6 +56,8 @@ notifications on again on each device.
 | `VAPID_PRIVATE_KEY` | 32-byte scalar, base64url. Secret; signs every push request. |
 | `VAPID_SUBJECT` | `mailto:` or `https:` contact for push services. Default `mailto:support@boilerindy.app`. |
 | `PUSH_CRON_SECRET` | Bearer token for the reminder runner. Blank means the route falls through to the JSON 404. |
+| `PUSH_KINDS_OFF` | Kind ids from the [kind registry](#kind-registry), separated by commas, that the server stops sending. Blank sends every kind. See [Stopping a kind](#stopping-a-kind-push_kinds_off). |
+| `EXPO_ACCESS_TOKEN` | The project's Expo access token, sent with every native push for Expo's enhanced push security. Blank sends none. Set it before turning that setting on: see [Native devices (Expo)](#native-devices-expo). |
 
 The server validates the pair at boot (length, curve membership, and that the
 public key matches the private one) and logs a clear error instead of sending
@@ -64,19 +69,20 @@ All routes except `config` and `run-reminders` require a signed-in session.
 
 | Route | Purpose | Notes |
 |---|---|---|
-| `GET /api/push/config` | `{ enabled, publicKey }` | Public; `public-read` rate limit. |
+| `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest } }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. |
 | `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts }, diningAlertsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
 | `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts? }` | `leadMinutes` 5 to 10080. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`. |
 | `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
 | `POST /api/me/push-token` | Body `{ token, platform, deviceName?, localReminders? }`, returns 201 `{ device: { id, createdAt, localReminders } }` | The native app. Upsert by token; at most 10 phones per user. `localReminders` defaults to false, and every registration replaces it. `push-write` limit. See [Native devices (Expo)](#native-devices-expo) and [Phones with local reminders](#phones-with-local-reminders). |
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
-| `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). |
+| `POST /api/push/test` | Returns `{ sent, failed, removed }` | Every browser and phone the student registered. `push-test` limit (10 per hour). 503 `push_kind_off` while `PUSH_KINDS_OFF` lists `test`. |
 | `POST /api/internal/push/run-reminders` | Returns the run summary | `Authorization: Bearer <PUSH_CRON_SECRET>`. A Supabase 5xx or timeout is retried once after 1.5 s; one that persists answers 503 and the next tick tries again (issue #242). |
 
 Error shape follows the rest of the API: `{ error: { message, status, code? } }`.
-`code` is `push_not_configured` (tables missing, 503) or `push_disabled` (no
-VAPID keys, 503). On `/api/me/push-token` a missing `push_devices` table is
+`code` is `push_not_configured` (tables missing, 503), `push_disabled` (no
+VAPID keys, 503), or on the test send `push_kind_off` (`PUSH_KINDS_OFF` lists
+`test`, 503). On `/api/me/push-token` a missing `push_devices` table is
 `push_not_configured` too, with a message that names
 `db/supabase-push-devices.sql`.
 
@@ -85,12 +91,123 @@ VAPID keys, 503). On `/api/me/push-token` a missing `push_devices` table is
 The encrypted body is JSON:
 
 ```json
-{ "title": "Assignment due in 45 min", "body": "HW 3 is due at 10:45 AM.", "url": "/assignments", "tag": "deadline-calendar-<id>", "kind": "deadline" }
+{ "title": "Assignment due in 45 min", "body": "HW 3 is due at 10:45 AM.", "url": "/assignments", "tag": "deadline-calendar-<id>", "kind": "deadline", "expiresAt": "2026-09-08T14:45:00.000Z" }
 ```
 
 `tag` doubles as the push `Topic` header, so a device that was offline gets
 only the latest message per item. Test notifications use `kind: "test"` and
-open `/settings`.
+open `/settings`. `kind` is always a kind id from the
+[kind registry](#kind-registry). `expiresAt`, on deadline reminders (the due
+moment) and favorite-dish alerts (the end of the last meal that serves a
+starred dish), is when the news stops being true: it sets how long Expo keeps
+a phone's undelivered copy. The service worker ignores it, and Web Push still
+keeps a message for 24 hours.
+
+## Kind registry
+
+Issue #550 (item 10) turns BoilerIndy's notifications into kinds, each with
+its own loudness, grouping, lifetime and quiet-hours rule.
+`src/notificationKinds.mjs` lists every kind, the phone's and the server's,
+and is the one place both sides read them from: this server imports it, and
+the native app keeps a generated copy (`src/lib/notification-kinds.json` in
+boilerindy-app, written by its sync script from this file on
+`origin/develop`). The module imports nothing and reads no environment
+variable, so it can be copied on its own and bundled for a browser, which
+`test/notificationKinds.test.mjs` checks.
+
+| Kind | Sent by | iOS level | Thread | Relevance | Android channel | Sound | Quiet hours | Kept for | Daily cap | Tap |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `class` | the phone | time-sensitive | class | | `classes` | yes | ignores | | no | `/events/[id]` |
+| `deadline` | the phone; this server for browsers and older builds | active | deadline | 0.7 | `deadlines` | yes | moved to the end, or dropped; merged within 30 min | until due | yes | `/assignments?taskId&taskKind` |
+| `deadline-digest` | the same | active | deadline | 0.8 | `deadlines` | yes | never inside | until the first item is due | yes, folds into the next | `/assignments` |
+| `dining-favorites` | this server | passive | dining | 0.3 | `dining` | no | never inside | until the meal ends | yes, 1 a day | `/dining?hall&meal` |
+| `campus-alert` | this server, to every device that allows it | time-sensitive | safety | 1 | `safety` | yes | ignores | 30 min | no | `/safety?incident` |
+| `campus-all-clear` | the same | active | safety | 0.6 | `safety` | yes | goes silent | 2 h | no | `/safety?incident` |
+| `runout` | the phone | passive | notices | | `local-reminder-notices` | no | moved to the end | | no | opens the app |
+| `test` | this server | active | account | 0.2 | `general` | yes | ignores | 1 h | no | `/settings` |
+| `bus-alert` (later) | this server | time-sensitive | transit | 0.9 | `transit` | yes | ignores | until the bus is due | its own | `/transit?stop` |
+| `room-change` (later) | this server | active | class | 0.9 | `classes` | yes | moved to the end; dropped at the start | until the class starts | yes | `/schedule?item&at` |
+| `bus-live-activity` | this server, over APNs | Lock Screen and Dynamic Island | | | iOS only | at Arriving | ignores | 60 s an update; 30 min in all | no | `boilerindyapp://map?view=transit&stop` |
+
+A tap on what the server sends goes to the website path its `url` carries,
+which the app maps to a screen; a local notification carries the app route.
+The actions, each of which opens the app: Directions on classes and room
+changes, Mark done on deadlines, See the menu on dish alerts, Track on bus
+alerts. The Live Activity's End button is its own. The registry also holds
+the Android channels (name, importance, and lock screen visibility: classes
+and deadlines are private), the action categories, each kind's default
+(classes off, 15 minutes before; deadlines as a 6:00 PM list with "1 hour
+before each" off; dish alerts off; campus alerts on where notifications are
+already allowed) and where the app offers it, and the account defaults that
+are not one kind's: quiet hours from 11:00 PM to 8:00 AM campus time, and at
+most 6 server pushes to a student a day.
+
+What reads it today:
+
+- `buildExpoMessages` (`src/expoPush.mjs`) sets each message's fields by
+  kind ([Native devices (Expo)](#native-devices-expo)). Only a kind the
+  server pushes goes out (`serverPushKind`): a kind only the phone sends, a
+  later kind, the Live Activity or an unknown name throws, and so does a kind
+  kept until something happens whose payload has no `expiresAt`.
+- `GET /api/push/config` reports `kinds: { version, digest }`.
+- `PUSH_KINDS_OFF` ([below](#stopping-a-kind-push_kinds_off)).
+
+The rest of issue #550 builds on it: the copy and tap links (items 2 and 5),
+settings by kind with digests, quiet hours and the daily cap (items 3 and 8),
+the phone's `kinds` and `channels` at registration (item 4), receipts (item
+7) and campus alert pushes (item 9). Web Push is unchanged: browsers get the
+same payload and tag as before.
+
+### Version and digest
+
+`NOTIFICATION_KINDS` is everything a copy has to agree on. Its digest is the
+SHA-256, in lowercase hex, of its canonical JSON: the keys of every object
+sorted by UTF-16 code unit, arrays in order, no whitespace (`canonicalJson`).
+In Node:
+
+```js
+import { createHash } from 'node:crypto'
+import { NOTIFICATION_KINDS, canonicalJson } from './src/notificationKinds.mjs'
+
+createHash('sha256').update(canonicalJson(NOTIFICATION_KINDS)).digest('hex')
+```
+
+`notificationKindsDigest()` takes the same digest with Web Crypto. Any change
+to the registry, even one field of one kind, bumps
+`NOTIFICATION_KINDS_VERSION`: `test/notificationKinds.test.mjs` pins the
+digest of every version and fails on a change without a bump, printing the
+pair to add. `GET /api/push/config` reports both, so once the app has its
+copy, drift shows in three places: the app's test recomputes its copy's
+digest, its `scripts/api-smoke.mjs` compares it with production's, and the
+test here catches a change made without a new version.
+
+### Test vectors
+
+`vectors` holds the cases both repos' quiet-hours and digest code must pass,
+on the two days of 2027 the campus clocks change: the night into 2027-03-14
+(11:00 PM EST to 8:00 AM EDT, 8 hours) and the night into 2027-11-07 (11:00
+PM EDT to 8:00 AM EST, 10 hours), and the 6:00 PM digest around both, each
+listing what is due until the next day's (23 and 25 hours on the days of the
+change). Quiet hours and digest times are campus wall-clock minutes, never
+"now plus N hours"; the first minute of quiet hours is inside them and the
+minute they end is not. The test checks every vector against `zonedTimeMs`
+(`src/campusTime.mjs`).
+
+### Stopping a kind: PUSH_KINDS_OFF
+
+`PUSH_KINDS_OFF` lists kind ids, separated by commas or spaces, that the
+server stops sending, with no code change. A stopped kind is skipped before
+anything is read or claimed, so an item still in its window gets its reminder
+once the kind is back on:
+
+- `deadline`: the reminder run answers `{ ok: false, reason: "kind_off" }`,
+  and the phones that schedule their own reminders carry on.
+- `dining-favorites`: the dish alert run answers `reason: "kind_off"`.
+- `test`: `POST /api/push/test` answers 503 `push_kind_off`.
+
+Words that name no kind this server sends (a typo, or `class` and `runout`,
+which only the phone sends) are ignored, and the boot log names them; it also
+lists the kinds that are off.
 
 ## Which items get a reminder
 
@@ -128,10 +245,14 @@ student's favorite dishes (the stars on the Dining page) on that day's menu.
   claimed, and the next tick checks again.
 - The payload: `{ "title": "Beef Stroganoff is on the menu today", "body":
   "Beef Stroganoff (dinner, Tower Dining).", "url": "/dining", "tag":
-  "dining-favorites-<YYYY-MM-DD>", "kind": "dining-favorites" }`, three dishes
+  "dining-favorites-<YYYY-MM-DD>", "kind": "dining-favorites", "expiresAt":
+  "<the end of the last meal that serves one of the dishes>" }`, three dishes
   named at most, then "and N more". It goes to every browser and phone the
   student has, phones with local reminders included, through the same
-  delivery path as the reminders.
+  delivery path as the reminders. On a phone it is passive: no sound, in its
+  own stack ([Kind registry](#kind-registry)). The meals end by the clock's
+  usual windows in `src/diningMeals.mjs`: breakfast at 10:30 AM, brunch and
+  lunch at 4:30 PM, dinner and anything else at midnight.
 
 ## Native devices (Expo)
 
@@ -167,11 +288,25 @@ EAS.
 A message carries the title and body the browsers get (clipped to 120 and 500
 characters, since Expo refuses a notification over 4 KiB and a calendar feed
 title has no limit), `data: { url, kind, tag }` for the app to open the right
-screen on a tap, `sound: "default"`, `priority: "high"`, the same 24 hour
-`ttl` as Web Push, and the payload tag as `collapseId` and `tag`, so a phone
-that was offline shows only the latest message per item. There is no
-`channelId`: without one Expo uses a default Android channel it creates
-itself, while a named channel the app has not created hides the notification.
+screen on a tap, the payload tag as `collapseId` and `tag`, so a phone that
+was offline shows only the latest message per item, and the fields its kind
+sets in the [kind registry](#kind-registry) (issue #550, item 1):
+
+| Kind | `interruptionLevel` | `threadId` | `relevanceScore` | `categoryId` | `sound` | `priority` | `ttl` |
+|---|---|---|---|---|---|---|---|
+| `deadline` | `active` | `deadline` | 0.7 | `deadline` | `default` | `high` | until the item is due |
+| `dining-favorites` | `passive` | `dining` | 0.3 | `dining` | none | `normal` | until the last meal that serves a starred dish ends |
+| `test` | `active` | `account` | 0.2 | none | `default` | `high` | 1 hour |
+
+A passive kind plays no sound and goes at normal priority, which iOS may hold
+and deliver in a batch (APNs priority 5); the rest go at high priority. The
+`ttl` ends when the news stops being true, where every message used to be
+kept for 24 hours, and a reminder already due goes with `ttl: 0` (now or
+never). A payload's `subtitle`, when a kind has one, goes too (clipped to 120
+characters). There is still no `channelId`: without one Expo uses a default
+Android channel it creates itself, while a named channel the app has not
+created hides the notification, so channels wait until phones report the ones
+they created (item 4).
 
 What Expo answers, and what happens to the row:
 
@@ -197,11 +332,16 @@ Not done yet:
   minutes after the send and kept for 24 hours). Until receipts are polled, a
   phone that APNs or FCM drops is only noticed when a later ticket says
   `DeviceNotRegistered`.
-- Expo access tokens. If "enhanced push security" is turned on for the project
-  in the EAS dashboard, Expo refuses every send without an
-  `Authorization: Bearer` access token (`UNAUTHORIZED`, which reads here as a
-  failed request, no strikes). The server sends none, so leave that setting
-  off until one is wired in.
+
+Expo access tokens (issue #550, owner decision 7). With "enhanced push
+security" on for the project in the EAS dashboard, Expo refuses every send
+that lacks the project's access token. When `EXPO_ACCESS_TOKEN` is set, every
+Expo request carries it as `Authorization: Bearer <token>`, from the test send
+and the reminder runs alike; nothing logs or returns it. The order matters:
+create the token (expo.dev/settings/access-tokens), set `EXPO_ACCESS_TOKEN` on
+Render and let it deploy, and only then turn enhanced push security on. The
+other way round, every send fails as `http_401 UNAUTHORIZED` (a failed
+request, no strikes) until the token arrives.
 
 Owner setup, once:
 
@@ -281,6 +421,8 @@ it. Browsers are unchanged.
   tables for when keys return.
 - Pause reminders only: `select cron.unschedule('boilerindy-push-reminders');`
   or unset `PUSH_CRON_SECRET`.
+- Stop one kind, on every device the server sends it to: add its id to
+  `PUSH_KINDS_OFF` on Render ([Stopping a kind](#stopping-a-kind-push_kinds_off)).
 - The ledger prunes itself: `db/supabase-retention.sql` (README step 51,
   issue #528) schedules `boilerindy-retention-push-deliveries`, which deletes
   rows older than 60 days every Sunday. Without it, by hand:

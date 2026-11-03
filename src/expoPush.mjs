@@ -23,21 +23,27 @@
 //   failed, and none gets a strike, because an Expo outage says nothing
 //   about the devices.
 //
+// Each message is built by its kind (issue #550, item 1): the kind registry
+// (src/notificationKinds.mjs) sets its interruption level, thread, relevance
+// score, actions category, sound, priority and lifetime, so a dish alert
+// arrives quietly in its own stack and a deadline reminder expires when it is
+// due, where every message used to be loud and kept for 24 hours.
+//
 // Expo push tokens are capabilities: anyone holding one can notify that phone
 // through Expo. Nothing here logs one, the routes never return one, and the
-// ticket messages, which quote the token, are dropped.
+// ticket messages, which quote the token, are dropped. The same goes for the
+// project's Expo access token, which only ever travels in the Authorization
+// header.
 //
 // Everything except sendExpoPush is pure; sendExpoPush takes `fetchImpl`, so
 // test/expoPush.test.mjs runs it without the network.
 
+import { serverPushKind } from './notificationKinds.mjs'
 import { fetchUpstreamJson } from './upstreamFetch.mjs'
 
 export const EXPO_PUSH_SEND_URL = 'https://exp.host/--/api/v2/push/send'
 export const EXPO_CHUNK_SIZE = 100 // Expo's cap on messages per send request
 export const EXPO_TIMEOUT_MS = 8000
-// Same lifetime as a Web Push message (DEFAULT_TTL_SECONDS in webPush.mjs).
-// Without it Expo keeps an undelivered message for four weeks.
-export const EXPO_TTL_SECONDS = 24 * 60 * 60
 export const MAX_DEVICE_STRIKES = 5
 export const PUSH_TOKEN_MAX_LENGTH = 200
 export const DEVICE_NAME_MAX_LENGTH = 120
@@ -47,6 +53,7 @@ export const PUSH_DEVICE_PLATFORMS = ['ios', 'android']
 // length limit, so the text is clipped well below that; APNs takes a collapse
 // id of at most 64 bytes.
 const TITLE_MAX = 120
+const SUBTITLE_MAX = 120
 const BODY_MAX = 500
 const COLLAPSE_ID_MAX = 64
 
@@ -98,24 +105,63 @@ function clip(text, max) {
 }
 
 /**
- * One Expo message per device row (`{ token }`) for a payload in the shape
- * the Web Push path sends: `{ title, body, url, tag, kind }`. `url` and
- * `kind` ride in `data` for the app to open the right screen on a tap. The
- * payload tag becomes `collapseId` (both platforms) and `tag` (Android), the
- * counterparts of the Topic header and the service worker's notification tag.
+ * How many seconds Expo may hold an undelivered message for `kind`: the
+ * kind's fixed ttl, or the time left until the payload's `expiresAt` for a
+ * kind kept until something happens (a deadline until it is due, a dish alert
+ * until its meal ends), never below 0. Without a ttl Expo would keep the
+ * message for four weeks. Throws when such a kind's payload has no valid
+ * `expiresAt`: the builders in src/pushReminders.mjs and
+ * src/diningFavoriteAlerts.mjs always set one.
  */
-export function buildExpoMessages(rows, payload) {
+export function expoTtlSeconds(kind, payload, now = new Date()) {
+  if (Number.isInteger(kind.ttl?.seconds)) return kind.ttl.seconds
+  const until = Date.parse(payload?.expiresAt ?? '')
+  if (!Number.isFinite(until)) {
+    throw new Error(`A ${kind.id} notification needs expiresAt: it is kept until ${kind.ttl?.until ?? 'it expires'}.`)
+  }
+  return Math.max(0, Math.floor((until - now.getTime()) / 1000))
+}
+
+/**
+ * One Expo message per device row (`{ token }`) for a payload in the shape
+ * the Web Push path sends: `{ title, body, url, tag, kind }`, plus an optional
+ * `subtitle` and the `expiresAt` its kind's ttl may need. `kind` must be one
+ * the server pushes (serverPushKind in src/notificationKinds.mjs), or this
+ * throws: only registry kinds go out. The kind sets the rest:
+ *
+ * - `interruptionLevel`, `threadId`, `relevanceScore` and `categoryId`, as
+ *   the registry says;
+ * - `sound: 'default'` only for a kind with a sound;
+ * - `priority: 'normal'` for a passive kind, which iOS may hold and batch (APNs
+ *   priority 5), and `'high'` for the rest;
+ * - `ttl` from expoTtlSeconds.
+ *
+ * `url` and `kind` ride in `data` for the app to open the right screen on a
+ * tap. The payload tag becomes `collapseId` (both platforms) and `tag`
+ * (Android), the counterparts of the Topic header and the service worker's
+ * notification tag. No `channelId` yet: Android hides a notification whose
+ * channel the phone has not created, so it waits until phones report theirs
+ * (issue #550, item 4).
+ */
+export function buildExpoMessages(rows, payload, { now = new Date() } = {}) {
+  const kind = serverPushKind(payload.kind)
+  if (!kind) throw new Error(`buildExpoMessages: "${payload.kind}" is not a kind the server pushes (src/notificationKinds.mjs).`)
   const tag = payload.tag ? String(payload.tag).slice(0, COLLAPSE_ID_MAX) : null
+  const fields = { interruptionLevel: kind.level, threadId: kind.thread }
+  if (kind.relevance !== null) fields.relevanceScore = kind.relevance
+  if (kind.category) fields.categoryId = kind.category
+  if (kind.sound) fields.sound = 'default'
+  fields.priority = kind.level === 'passive' ? 'normal' : 'high'
+  fields.ttl = expoTtlSeconds(kind, payload, now)
   return rows.map((row) => {
     const message = {
       to: row.token,
       title: clip(payload.title, TITLE_MAX),
       body: clip(payload.body, BODY_MAX),
-      data: { url: payload.url ?? null, kind: payload.kind ?? null, tag },
-      sound: 'default',
-      priority: 'high',
-      ttl: EXPO_TTL_SECONDS,
+      data: { url: payload.url ?? null, kind: kind.id, tag },
+      ...fields,
     }
+    if (payload.subtitle) message.subtitle = clip(payload.subtitle, SUBTITLE_MAX)
     if (tag) {
       message.collapseId = tag
       message.tag = tag
@@ -168,8 +214,18 @@ function transportError(err) {
  * each of its messages failed with the transport error ('timeout',
  * 'network', 'http_<status>' plus Expo's error code when it gives one, or
  * 'bad_response') and no strike; the other chunks are still sent.
+ *
+ * `accessToken` is the project's Expo access token (EXPO_ACCESS_TOKEN), sent
+ * as a Bearer token when set. With "enhanced push security" on for the
+ * project, Expo refuses every request without it (http_401 UNAUTHORIZED).
  */
-export async function sendExpoPush({ messages, fetchImpl = globalThis.fetch, timeoutMs = EXPO_TIMEOUT_MS }) {
+export async function sendExpoPush({ messages, fetchImpl = globalThis.fetch, timeoutMs = EXPO_TIMEOUT_MS, accessToken = '' }) {
+  const headers = {
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Content-Type': 'application/json',
+  }
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`
   const results = []
   for (const batch of chunk(messages || [], EXPO_CHUNK_SIZE)) {
     let body
@@ -177,15 +233,7 @@ export async function sendExpoPush({ messages, fetchImpl = globalThis.fetch, tim
       body = await fetchUpstreamJson('Expo', EXPO_PUSH_SEND_URL, {
         fetchImpl,
         timeoutMs,
-        init: {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Accept-Encoding': 'gzip, deflate',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(batch),
-        },
+        init: { method: 'POST', headers, body: JSON.stringify(batch) },
       })
     } catch (err) {
       const error = transportError(err)

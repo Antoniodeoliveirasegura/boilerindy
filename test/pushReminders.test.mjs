@@ -111,6 +111,8 @@ test('reminder copy is short, campus-time, and category aware', () => {
     url: '/assignments',
     tag: 'deadline-calendar-a',
     kind: 'deadline',
+    // Issue #550: a phone keeps an undelivered reminder until the item is due.
+    expiresAt: '2026-09-08T14:45:00.000Z',
   })
   assert.equal(buildDeadlinePayload({ key: 'manual:1', title: 'Call', category: 'manual_task', dueAt: new Date('2026-09-08T14:30:00Z') }, NOW).title, 'Task due in 30 min')
   assert.equal(buildTestPayload().kind, 'test')
@@ -221,6 +223,23 @@ test('runDeadlineReminders reports missing tables, missing keys, and duplicate c
   assert.equal(c.checked, 1)
 })
 
+// Issue #550: PUSH_KINDS_OFF=deadline stops the run before it reads or claims
+// anything, so an item still in its window gets its reminder once the kind is
+// back on.
+test('with deadline switched off the run reads nothing and claims nothing', async () => {
+  const quiet = makeClient(() => {
+    throw new Error('no query expected')
+  })
+  const off = await runDeadlineReminders({ client: quiet, keys: { publicKey: 'x' }, now: NOW, kindsOff: new Set(['deadline']) })
+  assert.deepEqual(off, { ok: false, reason: 'kind_off', ranAt: NOW.toISOString(), users: 0, checked: 0, sent: 0, failed: 0, removed: 0, skipped: 0 })
+  assert.equal(quiet.calls.length, 0)
+
+  // Another kind switched off leaves the deadlines alone.
+  const missing = makeClient(() => ({ data: null, error: { code: 'PGRST205', message: 'Could not find the table' } }))
+  const other = await runDeadlineReminders({ client: missing, keys: { publicKey: 'x' }, now: NOW, kindsOff: new Set(['dining-favorites', 'test']) })
+  assert.equal(other.reason, 'not_configured', 'the run went on to read the settings')
+})
+
 test('a transient 504 on the settings query is retried once through runCronTick, and the retry sends', async () => {
   let settingsCalls = 0
   const sends = []
@@ -317,6 +336,12 @@ test('a student with one browser and one phone gets the reminder on both, claime
   assert.deepEqual(
     expoSends[0].map((m) => ({ to: m.to, title: m.title, body: m.body, data: m.data })),
     [{ to: PHONE, title: 'Assignment due in 45 min', body: 'HW 3 is due at 10:45 AM.', data: { url: '/assignments', kind: 'deadline', tag: 'deadline-calendar-a' } }],
+  )
+  // Issue #550: the deadline kind's fields, and a lifetime that ends when HW 3 is due.
+  const [message] = expoSends[0]
+  assert.deepEqual(
+    [message.interruptionLevel, message.threadId, message.categoryId, message.sound, message.priority, message.ttl],
+    ['active', 'deadline', 'deadline', 'default', 'high', 45 * 60],
   )
   const claims = client.calls.filter((c) => c.table === 'push_deliveries' && c.kind === 'insert')
   assert.equal(claims.length, 1, 'the delivery row is written once for both devices')

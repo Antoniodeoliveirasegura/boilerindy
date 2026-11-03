@@ -13,6 +13,7 @@ import {
   settingsFromRow,
   withLocalRemindersColumn,
 } from '../pushReminders.mjs'
+import { NOTIFICATION_KINDS_VERSION, notificationKindsDigest } from '../notificationKinds.mjs'
 import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 
 // Push notifications (issue #9): Web Push subscriptions, settings, test sends
@@ -33,6 +34,11 @@ import { isValidSubscription, sendWebPush } from '../webPush.mjs'
 // the test send and the reminders cover both kinds of device, except that a
 // phone registered with localReminders: true gets no deadline reminders
 // (Antoniodeoliveirasegura/boilerindy-app#55, see src/pushReminders.mjs).
+//
+// Every notification is a kind of the kind registry (src/notificationKinds.mjs,
+// issue #550). The public config reports the registry's version and digest,
+// the kinds PUSH_KINDS_OFF names are not sent, and every Expo request carries
+// EXPO_ACCESS_TOKEN when it is set.
 
 const PUSH_MAX_SUBSCRIPTIONS_PER_USER = 10
 const PUSH_MAX_DEVICES_PER_USER = 10
@@ -52,6 +58,12 @@ function pushNotConfigured(res, sqlFile = PUSH_SQL_FILE) {
 function pushDisabledResponse(res) {
   return res.status(503).json({
     error: { code: 'push_disabled', message: 'Push notifications are switched off on this server.', status: 503 },
+  })
+}
+
+function pushKindOffResponse(res) {
+  return res.status(503).json({
+    error: { code: 'push_kind_off', message: 'Test notifications are switched off on this server.', status: 503 },
   })
 }
 
@@ -78,11 +90,12 @@ function summarizePushDevice(row) {
 }
 
 /**
- * GET /api/push/config, the public key a browser subscribes with. server.mjs
- * mounts this in its public reads block, before the session middleware, where
- * the route used to be registered. Paths stay absolute (`/api/push/config`)
- * so docs/RATE_LIMITS.md and its guard test read the same whether a route
- * lives here or in server.mjs.
+ * GET /api/push/config, the public key a browser subscribes with, and the
+ * kind registry's version and digest (`kinds`), which the app compares with
+ * its own copy's. server.mjs mounts this in its public reads block, before the
+ * session middleware, where the route used to be registered. Paths stay
+ * absolute (`/api/push/config`) so docs/RATE_LIMITS.md and its guard test read
+ * the same whether a route lives here or in server.mjs.
  *
  * @param {object}      deps
  * @param {Function}    deps.publicReadIpRateLimit the per-address cap across the public reads
@@ -91,10 +104,12 @@ function summarizePushDevice(row) {
  */
 export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLimit, vapidKeys }) {
   const router = express.Router()
+  // The registry is fixed for the life of the process, so its digest is taken once.
+  const kinds = notificationKindsDigest().then((digest) => ({ version: NOTIFICATION_KINDS_VERSION, digest }))
 
-  function handlePushConfig(_req, res) {
+  async function handlePushConfig(_req, res) {
     res.set('Cache-Control', 'no-store')
-    res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null })
+    res.json({ enabled: Boolean(vapidKeys), publicKey: vapidKeys ? vapidKeys.publicKey : null, kinds: await kinds })
   }
 
   router.get('/api/push/config', publicReadIpRateLimit, publicReadRateLimit, handlePushConfig)
@@ -117,6 +132,9 @@ export function createPushPublicRouter({ publicReadIpRateLimit, publicReadRateLi
  * @param {Function}    deps.pushCronSecretMatches checks an Authorization header against it
  * @param {Function}    deps.warnCronTransient     server.mjs's warning for a transient failure that
  *   survived the tick's retry; the source re-sync route uses these three too
+ * @param {Set<string>} [deps.kindsOff]            the kinds PUSH_KINDS_OFF stops (kindsOffFromSetting
+ *   in src/notificationKinds.mjs); none by default
+ * @param {string}      [deps.expoAccessToken]     EXPO_ACCESS_TOKEN, sent with every Expo request when set
  * @param {Function}    [deps.sendExpo]            sendExpoPush from src/expoPush.mjs, the default;
  *   the tests hand in a fake so nothing reaches Expo
  */
@@ -130,9 +148,14 @@ export function createPushRouter({
   pushCronSecretMatches,
   warnCronTransient,
   getDiningSnapshot,
+  kindsOff = new Set(),
+  expoAccessToken = '',
   sendExpo = sendExpoPush,
 }) {
   const router = express.Router()
+  // Every Expo request, from the test send and the cron runs alike, carries
+  // the access token; nothing else ever sees it.
+  const sendToExpo = (options) => sendExpo({ ...options, accessToken: expoAccessToken })
 
   // The favorite-dish switch (issue #469) is a column that
   // db/supabase-dining-favorite-alerts.sql adds. Until it runs the settings
@@ -418,7 +441,7 @@ export function createPushRouter({
     }
     // Then the phones, with the same strike and removal bookkeeping as the
     // reminder runner.
-    const native = await deliverToPushDevices({ client: supabase, devices: loaded.devices, payload, send: sendExpo })
+    const native = await deliverToPushDevices({ client: supabase, devices: loaded.devices, payload, send: sendToExpo })
     outcome.sent += native.sent
     outcome.failed += native.failed
     outcome.removed += native.removed
@@ -427,6 +450,7 @@ export function createPushRouter({
 
   router.post('/api/push/test', pushTestRateLimit, requireAuth, async (req, res) => {
     if (!vapidKeys) return pushDisabledResponse(res)
+    if (kindsOff.has('test')) return pushKindOffResponse(res)
     try {
       const outcome = await deliverPushToUser(req.currentUser.id, buildTestPayload(), { topic: 'test' })
       res.json(outcome)
@@ -450,9 +474,9 @@ export function createPushRouter({
     // The favorite-dish alerts (issue #469) ride the same tick; re-running a
     // tick is safe for them too, since each student is claimed once a day.
     const outcome = await runCronTick('run-reminders', async () => {
-      const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys })
+      const summary = await runDeadlineReminders({ client: supabase, keys: vapidKeys, sendExpo: sendToExpo, kindsOff })
       if (getDiningSnapshot) {
-        summary.dining = await runDiningFavoriteAlerts({ client: supabase, keys: vapidKeys, getSnapshot: getDiningSnapshot })
+        summary.dining = await runDiningFavoriteAlerts({ client: supabase, keys: vapidKeys, getSnapshot: getDiningSnapshot, sendExpo: sendToExpo, kindsOff })
       }
       return summary
     })

@@ -143,6 +143,8 @@ code starts reading a name that file does not list (issue #210).
 | `CAMPUS_EVENTS_CLASSIFY` | `off` (default; `on`, `1` or `true` turn it on, `shadow` stores Jev's answers without using them). With `TYPESAFE_API_KEY` set, the shared campus events ingest asks Jev, TypeSafe's classifier, four questions about each new or edited listing and refines `free_food`, `open_to_all`, `category` and `venue_kind` by thresholds tuned on 2026-10-18. Only the public listing text is sent. Start with `shadow`. See [docs/campus-events-ingest.md](docs/campus-events-ingest.md#jev-classification) |
 | `TYPESAFE_API_KEY` | [console.typesafe.ai/keys](https://console.typesafe.ai/keys). Read only when `CAMPUS_EVENTS_CLASSIFY` is `on` or `shadow`: a key alone sends nothing |
 | `VAPID_SUBJECT` | Contact address push services can reach. Defaults to `mailto:support@boilerindy.app` |
+| `PUSH_KINDS_OFF` | Blank (default). Kind ids from `src/notificationKinds.mjs`, comma-separated, that the server stops sending without a code change, for example `dining-favorites`. See [docs/push-notifications.md](docs/push-notifications.md#kind-registry) |
+| `EXPO_ACCESS_TOKEN` | Blank (default). Expo access token sent with every native push. Set it before turning on enhanced push security for the project in EAS, which refuses every send without it |
 | `GROQ_REASONING_EFFORT` | Reasoning effort passed to Groq for assistant replies |
 | `DOTENV_CONFIG_QUIET` | `true` keeps dotenv from printing its summary line at boot |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, `PLAYWRIGHT_BROWSERS_PATH` | Local-only: where the Purdue schedule auto-capture finds its browser |

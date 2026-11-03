@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import express from 'express'
 import { createPushPublicRouter, createPushRouter } from '../../src/routes/push.mjs'
 import { settingsFromRow } from '../../src/pushReminders.mjs'
+import { NOTIFICATION_KINDS_VERSION, notificationKindsDigest } from '../../src/notificationKinds.mjs'
 import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 
 // Issue #191: the push routes as feature routers, booted on a small app with
@@ -37,15 +38,18 @@ async function serve(app, run) {
   }
 }
 
-async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot } = {}, run) {
+async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SECRET, tables = {}, expoAnswer = null, getDiningSnapshot, kindsOff, expoAccessToken } = {}, run) {
   const supabase = fakeSupabase(tables)
   const limiterHits = []
   const transientWarnings = []
-  // Stands in for sendExpoPush: records each request's messages and answers
-  // every one ok unless the test hands in its own answer.
+  // Stands in for sendExpoPush: records each request's messages and the access
+  // token it was handed, and answers every message ok unless the test hands
+  // in its own answer.
   const expoRequests = []
-  const sendExpo = async ({ messages }) => {
+  const expoTokens = []
+  const sendExpo = async ({ messages, accessToken }) => {
     expoRequests.push(messages)
+    expoTokens.push(accessToken)
     return expoAnswer ? expoAnswer(messages) : messages.map((m) => ({ token: m.to, ok: true, ticketId: `t-${m.to}` }))
   }
   const limiter = (name) => (req, _res, next) => {
@@ -69,6 +73,8 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       pushCronSecretMatches: (header) => Boolean(cronSecret) && header === `Bearer ${cronSecret}`,
       warnCronTransient: (route, error) => transientWarnings.push({ route, error }),
       getDiningSnapshot,
+      kindsOff,
+      expoAccessToken,
       sendExpo,
     }),
   )
@@ -84,16 +90,20 @@ async function withApp({ user = STUDENT, vapidKeys = KEYS, cronSecret = CRON_SEC
       const text = await response.text()
       return { status: response.status, headers: response.headers, body: text ? JSON.parse(text) : null }
     }
-    await run({ call, supabase, limiterHits, transientWarnings, expoRequests })
+    await run({ call, supabase, limiterHits, transientWarnings, expoRequests, expoTokens })
   })
 }
 
 // ── GET /api/push/config ────────────────────────────────────────────────────
 
 test('the public config reports the key, or that push is off, never cached, behind both public-read limiters', async () => {
+  // The kind registry's version and digest (issue #550), with push on or off,
+  // for the app to compare with its copy's.
+  const kinds = { version: NOTIFICATION_KINDS_VERSION, digest: await notificationKindsDigest() }
+  assert.match(kinds.digest, /^[0-9a-f]{64}$/)
   for (const [vapidKeys, expected] of [
-    [KEYS, { enabled: true, publicKey: KEYS.publicKey }],
-    [null, { enabled: false, publicKey: null }],
+    [KEYS, { enabled: true, publicKey: KEYS.publicKey, kinds }],
+    [null, { enabled: false, publicKey: null, kinds }],
   ]) {
     const hits = []
     const limiter = (name) => (req, _res, next) => {
@@ -644,6 +654,69 @@ test('POST /api/push/test reaches a phone with local reminders on too', async ()
     assert.equal(res.status, 200)
     assert.deepEqual(res.body, { sent: 1, failed: 0, removed: 0 })
     assert.deepEqual(expoRequests.map((messages) => messages.map((m) => m.to)), [[PHONE]])
+  })
+})
+
+// Issue #550: PUSH_KINDS_OFF and EXPO_ACCESS_TOKEN, as server.mjs hands them in.
+test('POST /api/push/test answers 503 push_kind_off while PUSH_KINDS_OFF lists test, and sends nothing', async () => {
+  const tables = {
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [{ id: 'd1', user_id: STUDENT.id, token: PHONE, failure_count: 0 }], error: null }),
+  }
+  await withApp({ tables, kindsOff: new Set(['test']) }, async ({ call, supabase, expoRequests }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.equal(res.status, 503)
+    assert.deepEqual(res.body, { error: { code: 'push_kind_off', message: 'Test notifications are switched off on this server.', status: 503 } })
+    assert.equal(supabase.queries.length, 0)
+    assert.deepEqual(expoRequests, [])
+  })
+  // Another kind switched off leaves the test send alone.
+  await withApp({ tables, kindsOff: new Set(['dining-favorites']) }, async ({ call }) => {
+    const res = await call('POST', '/api/push/test', {})
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body, { sent: 1, failed: 0, removed: 0 })
+  })
+})
+
+test('every Expo request carries the access token, from the test send and the reminder run alike, and no answer does', async () => {
+  const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, failure_count: 0 }
+  const soon = new Date(Date.now() + 30 * 60_000).toISOString()
+  const tables = {
+    push_settings: () => ({ data: [{ user_id: STUDENT.id, lead_minutes: 60 }], error: null }),
+    push_subscriptions: () => ({ data: [], error: null }),
+    push_devices: () => ({ data: [phone], error: null }),
+    calendar_items: () => ({ data: [{ id: 'a', title: 'HW 3', start_time: soon, category: 'assignment', all_day: false }], error: null }),
+    user_manual_tasks: () => ({ data: [], error: null }),
+    user_task_completions: () => ({ data: [], error: null }),
+    push_deliveries: () => ({ data: [], error: null }),
+  }
+  await withApp({ tables, expoAccessToken: 'expo-access-token-for-tests' }, async ({ call, expoRequests, expoTokens }) => {
+    const testSend = await call('POST', '/api/push/test', {})
+    assert.equal(testSend.status, 200)
+    const tick = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
+    assert.equal(tick.status, 200)
+    assert.equal(tick.body.sent, 1)
+    assert.deepEqual(expoRequests.map((messages) => messages.map((m) => m.data.kind)), [['test'], ['deadline']])
+    assert.deepEqual(expoTokens, ['expo-access-token-for-tests', 'expo-access-token-for-tests'])
+    assert.ok(!JSON.stringify([testSend.body, tick.body]).includes('expo-access-token-for-tests'))
+  })
+  await withApp({ tables }, async ({ call, expoTokens }) => {
+    await call('POST', '/api/push/test', {})
+    assert.deepEqual(expoTokens, [''], 'none set, none sent')
+  })
+})
+
+test('a reminder run with kinds switched off skips them before claiming anything', async () => {
+  // No table handlers: any query at all would fail the run.
+  const snapshots = []
+  const getDiningSnapshot = async (options) => (snapshots.push(options), { ok: true, locations: [] })
+  await withApp({ getDiningSnapshot, kindsOff: new Set(['deadline', 'dining-favorites']) }, async ({ call, supabase }) => {
+    const res = await call('POST', '/api/internal/push/run-reminders', undefined, { authorization: `Bearer ${CRON_SECRET}` })
+    assert.equal(res.status, 200)
+    assert.equal(res.body.reason, 'kind_off')
+    assert.equal(res.body.dining.reason, 'kind_off')
+    assert.equal(supabase.queries.length, 0)
+    assert.deepEqual(snapshots, [], 'the menu is not even read')
   })
 })
 
