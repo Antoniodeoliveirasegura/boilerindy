@@ -137,7 +137,7 @@ message shows again.
 ## Push notifications
 
 Issue #550, item 9. `POST /api/internal/push/fast-tick`, which a pg_cron job
-calls every 30 seconds (README step 57, production only), reads IU's message
+calls every minute (every 30 seconds until 2026-11-03; README step 57, production only), reads IU's message
 through the banner's cache (`readCampusAlertCached` in `src/campusAlert.mjs`),
 so the push adds no request to IU. `src/campusAlertPush.mjs` keeps each
 message once in `campus_alert_messages` and groups the messages into
@@ -171,7 +171,8 @@ message once in `campus_alert_messages` and groups the messages into
 - A reading the cache kept serving while IU could not be reached is not
   acted on, so an all clear only ever follows a Normal actually read.
 - IU's feed holds only the latest message, so the tick can miss a Normal that
-  a new message replaced within 30 seconds. An open incident therefore ends
+  a new message replaced within a minute (the tick's interval since
+  2026-11-03, 30 seconds before). An open incident therefore ends
   without an all clear when a message comes after its final, or more than 12
   hours after its last message, and that message opens a new incident. Two
   emergencies inside one incident, before IU's Normal and without a final

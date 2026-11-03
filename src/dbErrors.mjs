@@ -15,14 +15,17 @@
 //   isSchemaMissingError(err)     true when Supabase reports a table or column that does not
 //                                 exist yet, i.e. a migration has not run. A missing function
 //                                 (PGRST202, 42883), operator or type is a query bug and
-//                                 answers false.
+//                                 answers false, and so does a database that cannot be
+//                                 reached (PGRST002 mentions the schema cache too).
 //   respondSchemaMissing(res, config, err?)
 //                                 503 { error: { message, code, status } } for a feature that
 //                                 is not set up; logs the SQL file to run once per process
 //                                 for each feature, file and database error (code and message).
 //   respondDbError(res, err, config)
-//                                 respondSchemaMissing for a schema-missing error, otherwise
-//                                 logs code and message and answers 500 with config.fallback.
+//                                 503 database_unavailable when the database cannot be reached
+//                                 (src/databaseUnavailable.mjs), respondSchemaMissing for a
+//                                 schema-missing error, otherwise logs code and message and
+//                                 answers 500 with config.fallback.
 //   SOFT_DELETE_SQL_FILE          db/supabase-soft-delete.sql, the migration that adds
 //                                 deleted_at to the board, marketplace, lost and found,
 //                                 guide and deals tables (issue #195).
@@ -34,9 +37,10 @@
 //   respondRouteError(res, err, { label, fallback })
 //                                 for routes with no DB_FEATURES entry (tasks, grades, dining
 //                                 favorites, account routes): a missing row or a malformed id
-//                                 (PGRST116, 22P02) answers 404 without a log line; anything
-//                                 else logs `${label}:` code and message and answers 500 with
-//                                 fallback, never the database text (issue #206).
+//                                 (PGRST116, 22P02) answers 404 without a log line, a database
+//                                 that cannot be reached answers 503 database_unavailable;
+//                                 anything else logs `${label}:` code and message and answers
+//                                 500 with fallback, never the database text (issue #206).
 //   logRouteError(label, err)     that log line alone, for a route that answers on its own.
 //
 // Every answer from this module uses the standard envelope
@@ -45,6 +49,7 @@
 // console.error is forwarded to Sentry (captureConsoleIntegration) and a
 // Postgres detail can hold row values.
 
+import { isDatabaseUnavailableError, respondDatabaseUnavailable } from './databaseUnavailable.mjs'
 import { isMissingColumnError } from './moderation.mjs'
 
 /**
@@ -233,6 +238,9 @@ const MISSING_RELATION_OR_COLUMN = /\b(?:relation|column) .+ does not exist/
  * "Could not find the table", or a relation or column that "does not exist".
  * A missing function, operator or type (42883, 42704, PGRST202) is a query bug
  * and is never schema-missing, so it keeps the 500 path that logs every time.
+ * Nor is a database that cannot be reached: PostgREST's PGRST002 ("Could not
+ * query the database for the schema cache. Retrying.") while Postgres restarts
+ * mentions the schema cache too, and read as missing tables on 2026-11-03.
  * @param {unknown} err
  * @returns {boolean}
  */
@@ -241,6 +249,7 @@ export function isSchemaMissingError(err) {
   const code = String(err.code || '')
   if (SCHEMA_MISSING_CODES.has(code)) return true
   if (QUERY_BUG_CODES.has(code)) return false
+  if (isDatabaseUnavailableError(err)) return false
   const message = String(err.message || '')
   return (
     message.includes('schema cache') ||
@@ -336,6 +345,7 @@ function respondNotFound(res) {
 }
 
 export function respondDbError(res, err, config) {
+  if (isDatabaseUnavailableError(err)) return respondDatabaseUnavailable(res, err, { where: config.feature })
   if (isSchemaMissingError(err)) return respondSchemaMissing(res, config, err)
   // No log line: a client asking for a row that is not there is not an error,
   // and captureConsoleIntegration would file every miss in Sentry (issue #196).
@@ -397,9 +407,10 @@ export function logRouteError(label, err) {
 
 /**
  * Answer a failed route that has no DB_FEATURES entry. A missing row or a
- * malformed id answers 404 `Not found.` without logging; any other error is
- * logged with logRouteError and answers 500 with `fallback`. The database
- * message never reaches the client.
+ * malformed id answers 404 `Not found.` without logging, and a database that
+ * cannot be reached 503 database_unavailable; any other error is logged with
+ * logRouteError and answers 500 with `fallback`. The database message never
+ * reaches the client.
  * @param {{ status: (code: number) => any }} res Express response
  * @param {unknown} err
  * @param {{ label: string, fallback?: string }} options label starts the log line;
@@ -407,6 +418,7 @@ export function logRouteError(label, err) {
  */
 export function respondRouteError(res, err, { label = 'Route error', fallback = 'Something went wrong. Please try again.' } = {}) {
   if (isNotFoundError(err)) return respondNotFound(res)
+  if (isDatabaseUnavailableError(err)) return respondDatabaseUnavailable(res, err, { where: label })
   logRouteError(label, err)
   return res.status(500).json({ error: { message: fallback, status: 500 } })
 }

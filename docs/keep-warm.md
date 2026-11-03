@@ -25,11 +25,17 @@ sleep, so most visits still hit a cold start.
 
 ## The three layers
 
-1. **Supabase pg_cron job - primary.** `db/supabase-keep-warm.sql` schedules
-   `boilerindy-keep-warm`, a `pg_cron` job that uses `pg_net` to `GET
-   /api/health` every 5 minutes from inside the Postgres database. The
-   database never sleeps and pg_cron is not throttled, so the instance stays
-   up. It creates no tables and touches nothing in the public schema.
+1. **Supabase pg_cron jobs - primary.** Until 2026-11-03 this was its own job:
+   `db/supabase-keep-warm.sql` scheduled `boilerindy-keep-warm`, a `pg_cron`
+   job that uses `pg_net` to `GET /api/health` every 5 minutes from inside the
+   Postgres database. The database never sleeps and pg_cron is not throttled,
+   so the instance stays up. By then the push reminder run (step 30, every 5
+   minutes) and the fast tick (step 57, every minute) were calling the API
+   from pg_cron too, which keeps it awake just as well, so production
+   unscheduled the ping when the database ran out of memory that day
+   ([database-outage.md](database-outage.md)). The file still creates
+   `pg_cron` and `pg_net`, and keeps the ping as a commented block for a
+   project that runs neither push job.
 2. **GitHub workflow - backstop.** The schedule is now `2-59/5 * * * *`:
    every 5 minutes, offset from the top of the hour because GitHub documents
    that on-the-hour jobs are the first to be delayed. It only runs from `main`
@@ -50,9 +56,10 @@ sleep, so most visits still hit a cold start.
 
 1. Open the Supabase dashboard for the live project, go to SQL Editor, paste
    the whole of `db/supabase-keep-warm.sql` and run it. It enables `pg_cron`
-   and `pg_net` if they are not on yet and schedules the job. Safe to re-run:
+   and `pg_net` if they are not on yet. In a project that runs neither push
+   job, run its commented block too, which schedules the ping. Safe to re-run:
    scheduling under an existing job name updates that job in place.
-2. If the API ever moves, edit the `url` in the file and run it again.
+2. If the API ever moves, edit the `url` in the block and run it again.
 
 No-SQL alternative: an [UptimeRobot](https://uptimerobot.com) HTTP monitor on
 `https://boilerindy-api.onrender.com/api/health` with a 5-minute interval does
@@ -72,7 +79,10 @@ A cold start shows up as 20 s or more. In the Supabase SQL Editor:
     select status, return_message, start_time from cron.job_run_details
       order by start_time desc limit 10;
 
-Expect one `boilerindy-keep-warm` row and a `succeeded` run every 5 minutes.
+In production, expect `boilerindy-push-reminders` succeeding every 5 minutes
+and `boilerindy-push-fast-tick` every minute, and no `boilerindy-keep-warm` row
+since 2026-11-03; where the ping is scheduled, its row with a `succeeded` run
+every 5 minutes.
 `return_message` reports that pg_net queued the request (`1 row`), not the HTTP
 status; the responses themselves sit in `net._http_response` for a few hours:
 

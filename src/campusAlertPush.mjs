@@ -2,7 +2,7 @@
 // website and the app shows IU's alert for the Indianapolis campus to a
 // student who has BoilerIndy open; this pushes it to the students who do not.
 //
-// The 30-second tick (POST /api/internal/push/fast-tick, src/routes/push.mjs)
+// The fast tick (POST /api/internal/push/fast-tick, src/routes/push.mjs)
 // reads IU's feed through the banner's cache (readCampusAlertCached), so it
 // never adds a request to IU. The feed holds one message, the latest. The tick
 // keeps each message it sees once (campus_alert_messages, README step 56) and

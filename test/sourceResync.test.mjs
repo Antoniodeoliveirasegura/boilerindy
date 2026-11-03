@@ -63,10 +63,11 @@ test('pending sources count as never synced; unknown statuses are skipped', () =
 })
 
 test('caps a tick at the batch size', () => {
-  assert.equal(DEFAULT_BATCH, 15)
+  // Four since 2026-11-03, so the feeds that come due together spread over runs.
+  assert.equal(DEFAULT_BATCH, 4)
   const rows = Array.from({ length: 40 }, (_, i) => row({ id: `s${i}`, last_synced_at: hoursAgo(100 - i) }))
   const picked = pickSourcesToResync(rows, { now: NOW })
-  assert.equal(picked.length, 15)
+  assert.equal(picked.length, 4)
   assert.equal(picked[0].id, 's0') // the oldest sync goes first
   assert.equal(pickSourcesToResync(rows, { now: NOW, batch: 3 }).length, 3)
 })

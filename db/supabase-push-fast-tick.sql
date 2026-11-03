@@ -1,4 +1,4 @@
--- The 30-second push tick (issue #550). POST /api/internal/push/fast-tick
+-- The push fast tick (issue #550), every minute. POST /api/internal/push/fast-tick
 -- sends what cannot wait for the 5-minute reminder run: campus alert pushes
 -- (src/campusAlertPush.mjs, behind CAMPUS_ALERT_PUSH), and the updates of
 -- Track this bus, the app's Live Activity (src/liveActivities.mjs, README step
@@ -6,14 +6,25 @@
 -- reminder run, it answers only the PUSH_CRON_SECRET bearer token, and with
 -- the secret unset it is a 404.
 --
+-- It ran every 30 seconds until 2026-11-03, when the production database ran
+-- out of memory (docs/database-outage.md) and the job moved to every minute:
+-- half the runs, and a campus alert still reaches phones within a minute of
+-- IU posting it, inside the 2-minute freshness the push allows IU's feed
+-- (STALE_AFTER_MS in src/campusAlert.mjs). Track this bus already sends at most
+-- one update a minute (PUSH_GAP_SECONDS in src/liveActivities.mjs). An existing
+-- job moves without its command, so the secret is never retyped:
+--   select cron.alter_job(
+--     (select jobid from cron.job where jobname = 'boilerindy-push-fast-tick'),
+--     schedule := '* * * * *'
+--   );
+--
 -- Production only: the job below calls the production server, so run it only
 -- in the production Supabase project, and only once the server carrying the
 -- route is live. Nothing here runs by itself; the block stays commented so the
 -- file is safe in any project. Requires the pg_cron and pg_net extensions from
--- db/supabase-keep-warm.sql (README step 29); pg_cron's '30 seconds' schedule
--- needs pg_cron 1.5 or later, which Supabase has.
+-- db/supabase-keep-warm.sql (README step 29).
 --
--- Each run adds a row to cron.job_run_details, about 2,900 a day; the
+-- Each run adds a row to cron.job_run_details, about 1,440 a day; the
 -- retention job in db/supabase-retention.sql (README step 51) deletes that
 -- log after 7 days.
 --
@@ -25,7 +36,7 @@
 --
 --   select cron.schedule(
 --     'boilerindy-push-fast-tick',
---     '30 seconds',
+--     '* * * * *',
 --     $$
 --     select net.http_post(
 --       url := 'https://boilerindy-api.onrender.com/api/internal/push/fast-tick',
