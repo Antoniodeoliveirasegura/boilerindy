@@ -776,8 +776,12 @@ test('POST /api/push/test answers 503 push_kind_off while PUSH_KINDS_OFF lists t
 test('every Expo request carries the access token, from the test send and the reminder run alike, and no answer does', async () => {
   const phone = { id: 'd1', user_id: STUDENT.id, token: PHONE, failure_count: 0 }
   const soon = new Date(Date.now() + 30 * 60_000).toISOString()
+  // The run reads the real clock, so no evening list and no quiet hours: one
+  // reminder at any hour (with the defaults, 6:00 PM to 11:00 PM added the
+  // evening list and the night held the reminder).
+  const settings = { user_id: STUDENT.id, lead_minutes: 60, deadline_items: true, digest_minute: null, quiet_start: null, quiet_end: null }
   const tables = {
-    push_settings: () => ({ data: [{ user_id: STUDENT.id, lead_minutes: 60 }], error: null }),
+    push_settings: () => ({ data: [settings], error: null }),
     push_subscriptions: () => ({ data: [], error: null }),
     push_devices: () => ({ data: [phone], error: null }),
     calendar_items: () => ({ data: [{ id: 'a', title: 'HW 3', start_time: soon, category: 'assignment', all_day: false }], error: null }),
