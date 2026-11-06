@@ -29,20 +29,23 @@ export const WIDGET_IDS = [
   'sponsored',
 ]
 
-// Shown to a brand-new user (or after a reset). Order/visibility mirrors the
-// current dashboard's most useful sections.
+// Shown to a brand-new user (or after a reset). The day comes first, as on the
+// phone (Antoniodeoliveirasegura/boilerindy-app#203): the next class, the live
+// buses, the quick actions and today's events, then the rest in the order they
+// had before. The app draws the widgets it supports in this same order.
 export const DEFAULT_LAYOUT = [
+  { id: 'next-class', size: 'half', visible: true },
+  { id: 'live-shuttles', size: 'half', visible: true },
+  { id: 'quick-actions', size: 'full', visible: true },
+  { id: 'todays-events', size: 'half', visible: true },
+  // Today's free stretches beside today's events, so Customize's plain grid
+  // (no dense packing while editing) has no half-width hole here.
+  { id: 'free-time', size: 'half', visible: true },
   { id: 'week-ahead', size: 'full', visible: true },
   { id: 'smart-alerts', size: 'full', visible: true },
-  { id: 'quick-actions', size: 'full', visible: true },
-  { id: 'next-class', size: 'half', visible: true },
-  // The Circuit's headlines (issue #470), beside the next class so news is seen
-  // without scrolling. Existing layouts get it appended hidden.
+  // The Circuit's headlines (issue #470). Existing layouts get it appended hidden.
   { id: 'campus-news', size: 'half', visible: true },
-  { id: 'free-time', size: 'half', visible: true },
-  { id: 'todays-events', size: 'half', visible: true },
   { id: 'tasks-due', size: 'half', visible: true },
-  { id: 'live-shuttles', size: 'half', visible: true },
   { id: 'dining', size: 'half', visible: true },
   { id: 'board', size: 'half', visible: true },
   // GPA traded places with Campus News: a number that changes once a term.

@@ -104,3 +104,15 @@ test('every default layout entry is a valid, known widget', () => {
     assert.ok(WIDGET_IDS.includes(w.id), `${w.id} is in the catalogue`)
   }
 })
+
+// The default opens on the day, as the phone's Home does
+// (Antoniodeoliveirasegura/boilerindy-app#203). The app draws the widgets it
+// supports in the saved order, so the second list is its Home for a new account.
+test('the default layout opens on the day: next class, buses, quick actions, today', () => {
+  const ids = DEFAULT_LAYOUT.map((w) => w.id)
+  assert.deepEqual(ids.slice(0, 4), ['next-class', 'live-shuttles', 'quick-actions', 'todays-events'])
+  const app = new Set(['week-ahead', 'quick-actions', 'next-class', 'todays-events', 'tasks-due', 'live-shuttles', 'dining', 'campus-news'])
+  assert.deepEqual(ids.filter((id) => app.has(id)), [
+    'next-class', 'live-shuttles', 'quick-actions', 'todays-events', 'week-ahead', 'campus-news', 'tasks-due', 'dining',
+  ])
+})
