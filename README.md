@@ -403,6 +403,7 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 
 - Framework: Express
 - Session: `express-session` (cookie-based, `httpOnly`, `sameSite: lax`)
+- Cross-site writes: any `POST`, `PUT`, `PATCH` or `DELETE` a browser sends from another site gets 403 `cross_site_request` (`src/crossSiteWrites.mjs`), and request bodies are parsed as JSON only, so another site's form cannot sign a visitor in or out
 - Database: Supabase (Postgres via `@supabase/supabase-js`)
 - Auth: local email/password + optional Purdue CAS
 - External integrations: Nutrislice dining API, TransLoc transit API, Groq (AI)
