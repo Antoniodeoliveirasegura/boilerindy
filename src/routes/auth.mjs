@@ -17,6 +17,7 @@ import { verifyPassword } from '../passwordHash.mjs'
 import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
+import { forgetPushChannels } from '../pushChannels.mjs'
 import { isSessionStale } from '../sessionFreshness.mjs'
 import { sanitizeSignupRef } from '../signupRef.mjs'
 import { applyPasswordChange, applyPasswordSet, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
@@ -570,6 +571,8 @@ export function createAuthRouter({
       if (stampError) {
         console.warn('[updateUserProfile] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
       }
+      // Push channels end with the older sessions (src/pushChannels.mjs).
+      await forgetPushChannels(supabase, userId)
     }
 
     return data
@@ -1164,6 +1167,8 @@ export function createAuthRouter({
       if (stampError) {
         console.warn('[password-reset-complete] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
       }
+      // Push channels end with the older sessions (src/pushChannels.mjs).
+      await forgetPushChannels(supabase, tokenData.user.id)
       // This browser keeps its session: it is the one that just reset.
       if (req.session?.userId === tokenData.user.id) {
         req.session.authAt = stamp
