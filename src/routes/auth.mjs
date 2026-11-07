@@ -1400,8 +1400,9 @@ export function createAuthRouter({
   })
 
   // The mock page posts an HTML form, and server.mjs parses only JSON, so this
-  // route parses its own form body, ahead of the limiter that reads `t` from it.
-  router.post('/auth/purdue/dev/link', express.urlencoded({ extended: false }), purdueLinkFlowRateLimit, resolvePurdueLinkActor, async (req, res) => {
+  // path parses its own form body, ahead of the limiter that reads `t` from it.
+  router.use('/auth/purdue/dev/link', express.urlencoded({ extended: false }))
+  router.post('/auth/purdue/dev/link', purdueLinkFlowRateLimit, resolvePurdueLinkActor, async (req, res) => {
     const native = req.linkHandoff
     const nextPath = sanitizeNext(req.body.next)
     if (!purdueLinkingEnabled) {
