@@ -252,9 +252,42 @@ export function normalizeTopic(topic) {
   return cleaned || null
 }
 
+// The push services browsers subscribe through. The endpoint comes from the
+// client, and the server POSTs every notification to it, so it must be one of
+// these hosts and nothing else: FCM (Chrome, Samsung Internet, Opera and the
+// other Chromium browsers; android.googleapis.com for old Chrome
+// subscriptions), Mozilla autopush (Firefox), Apple (Safari) and WNS (Edge).
+// A `*.` entry matches any subdomain of the rest, not the bare name.
+export const PUSH_SERVICE_HOSTS = Object.freeze([
+  'fcm.googleapis.com',
+  'android.googleapis.com',
+  '*.push.services.mozilla.com',
+  '*.push.apple.com',
+  '*.notify.windows.com',
+])
+
+/**
+ * True for an https URL on a push service host (PUSH_SERVICE_HOSTS) with the
+ * default port and no credentials, at most 2048 characters. Parsed with the
+ * same URL parser that later builds the VAPID audience, so an endpoint that
+ * passes here can always be sent to.
+ */
+export function isPushServiceEndpoint(endpoint) {
+  if (typeof endpoint !== 'string' || endpoint.length > 2048 || !/^https:\/\/\S+$/.test(endpoint)) return false
+  let url
+  try {
+    url = new URL(endpoint)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'https:' || url.port || url.username || url.password) return false
+  const host = url.hostname.toLowerCase()
+  return PUSH_SERVICE_HOSTS.some((entry) => (entry.startsWith('*.') ? host.endsWith(entry.slice(1)) : host === entry))
+}
+
 export function isValidSubscription(sub) {
   if (!sub || typeof sub !== 'object') return false
-  if (typeof sub.endpoint !== 'string' || !/^https:\/\/\S+$/.test(sub.endpoint) || sub.endpoint.length > 2048) return false
+  if (!isPushServiceEndpoint(sub.endpoint)) return false
   const keys = sub.keys
   if (!keys || typeof keys.p256dh !== 'string' || typeof keys.auth !== 'string') return false
   try {
@@ -266,7 +299,10 @@ export function isValidSubscription(sub) {
 
 /**
  * Deliver one payload to one subscription. Never throws: the result tells the
- * caller whether to keep, retry, or delete the subscription.
+ * caller whether to keep, retry, or delete the subscription. A subscription
+ * that fails isValidSubscription, a stored one on a host that is not a push
+ * service included, comes back gone so the caller deletes it. Redirects are
+ * not followed: push services answer the POST themselves.
  */
 export async function sendWebPush({
   subscription,
@@ -284,12 +320,13 @@ export async function sendWebPush({
     return { ok: false, status: 0, gone: true, retry: false, error: 'invalid subscription' }
   }
   let body
+  let authorization
   try {
     body = encryptPayload(typeof payload === 'string' ? payload : JSON.stringify(payload), subscription.keys)
+    ;({ authorization } = createVapidAuthorization({ endpoint: subscription.endpoint, keys, now }))
   } catch (err) {
-    return { ok: false, status: 0, gone: false, retry: false, error: err.message }
+    return { ok: false, status: 0, gone: false, retry: false, error: err?.message || 'could not build the push request' }
   }
-  const { authorization } = createVapidAuthorization({ endpoint: subscription.endpoint, keys, now })
   const headers = {
     'Content-Type': 'application/octet-stream',
     'Content-Encoding': 'aes128gcm',
@@ -306,6 +343,7 @@ export async function sendWebPush({
       method: 'POST',
       headers,
       body,
+      redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (err) {

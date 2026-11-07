@@ -235,15 +235,23 @@ async function broadcast({ client, keys, audience, kind, payloadFor, send, sendE
   const ttl = notificationKind(kind).ttl.seconds
   await eachLimit(audience.subs, WEB_PUSH_CONCURRENCY, async (sub) => {
     const payload = payloadFor(sub.user_id)
-    const result = await send({
-      subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      payload,
-      keys,
-      ttl,
-      urgency: kind === 'campus-alert' ? 'high' : payload.silent ? 'low' : 'normal',
-      topic: payload.tag,
-      now: now.getTime(),
-    })
+    // One browser must never stop the rest or the phones after them: the
+    // incident is already claimed, so a throw here would lose the alert for
+    // everyone. sendWebPush does not throw; this holds for any sender.
+    let result
+    try {
+      result = await send({
+        subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        payload,
+        keys,
+        ttl,
+        urgency: kind === 'campus-alert' ? 'high' : payload.silent ? 'low' : 'normal',
+        topic: payload.tag,
+        now: now.getTime(),
+      })
+    } catch (err) {
+      result = { ok: false, status: 0, gone: false, retry: true, error: err?.message || 'send threw' }
+    }
     if (result.ok) {
       outcome.sent += 1
       return

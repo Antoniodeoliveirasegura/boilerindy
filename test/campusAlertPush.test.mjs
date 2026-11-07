@@ -261,6 +261,28 @@ test("an incident's first message is pushed once, to every phone and browser tha
   assert.equal(out.web.length, 2)
 })
 
+test('a browser whose send throws costs only that browser: the others and every phone still get the alert', async () => {
+  const db = memoryDb(campus())
+  const out = senders()
+  const send = out.send
+  out.send = async (args) => {
+    if (args.subscription.endpoint === 'https://push.example.com/browser-admin') throw new TypeError('Invalid URL')
+    return send(args)
+  }
+  const first = await tick(db, out, { alert: alertAt('demo-1', NOW) })
+  assert.deepEqual(
+    { role: first.role, pushed: first.pushed, sent: first.sent, failed: first.failed, removed: first.removed },
+    { role: 'new', pushed: ['campus-alert'], sent: 4, failed: 1, removed: 0 },
+  )
+  assert.deepEqual(endpoints(out.web), ['browser-listed'])
+  assert.equal(out.expo.length, 1)
+  assert.deepEqual(tokens(out.expo[0]), ['phone-admin', 'phone-listed', 'phone-older'])
+  // The message is recorded, so the next tick neither loses nor repeats it,
+  // and the row stays: a throw is not the push service saying it is gone.
+  assert.equal(db.tables.campus_alert_messages.length, 1)
+  assert.ok(db.tables.push_subscriptions.some((sub) => sub.id === 'browser-admin'))
+})
+
 test('updates only change the banner, and the Normal pushes one all clear that replaces the alert, silent in quiet hours', async () => {
   const db = memoryDb(campus())
   const out = senders()
