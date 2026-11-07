@@ -19,8 +19,9 @@ function buildApp() {
   const app = express()
   const seen = []
 
+  // JSON only, as on the server: another site's HTML form can send a form
+  // body but not a JSON one (see src/crossSiteWrites.mjs).
   app.use(express.json())
-  app.use(express.urlencoded({ extended: true }))
   // The same default server.mjs installs, for the same reason.
   app.use((req, _res, next) => {
     if (req.body === undefined) req.body = {}
@@ -89,6 +90,18 @@ test('a POST with a content-type no parser claims behaves the same', async () =>
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: 'email=a@b.c',
+    })
+    assert.equal(res.status, 400)
+  })
+})
+
+test('a form body is not parsed, so its fields never reach the route', async () => {
+  const { app } = buildApp()
+  await withServer(app, async (base) => {
+    const res = await fetch(`${base}/api/sign-in`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'email=student%40purdue.edu&password=x',
     })
     assert.equal(res.status, 400)
   })
