@@ -115,8 +115,10 @@ its Sunday, `weekStartYmd`), cut down to the rows the menu code reads
 icons) and kept for `NUTRISLICE_CACHE_MS`, at most `MAX_CACHE_WEEKS` (24),
 the week written longest ago dropped first. A new date in a cached week costs
 only the schools list; concurrent misses share one week download; a failed
-download is never kept; a forced refresh past its floor refetches the date's
-weeks. A date missing from its week has no menu (it used to fall back to the
+download never replaces a good week, and is answered again from memory for
+`FAILURE_RETRY_MS` (5 minutes) before the week is asked for again, so a meal
+Nutrislice keeps refusing costs one request every few minutes, not one per
+call; a forced refresh past its floor refetches the date's weeks. A date missing from its week has no menu (it used to fall back to the
 week's first day, which was another day's menu).
 
 ## Weekend hours (issue #465)
@@ -235,8 +237,11 @@ about 2.3 KB (`[{ date, menu_items: [names], images: [url or null],
 holiday_text }]`; weekends are not in it). `src/diningHeadliners.mjs` reads it
 for lunch and dinner, this week and the six after it, keyed by the week's
 Sunday and cached for `NUTRISLICE_CACHE_MS`, keeping the last good digest
-through an outage. Menus are posted about six weeks ahead (on 2026-10-17 they
-ran through 2026-11-27).
+through an outage. A digest that fails with no good copy is remembered as
+empty for `FAILURE_RETRY_MS`, and concurrent reads share one request per
+digest: the look-ahead is a public read, and a refused week used to cost a
+request on every page view. Menus are posted about six weeks ahead (on
+2026-10-17 they ran through 2026-11-27).
 
 `GET /api/dining/upcoming` (session-free, public-read limiter pair,
 `public, max-age=600, s-maxage=1800`) merges two sources from today on:
