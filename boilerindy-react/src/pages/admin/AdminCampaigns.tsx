@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icons'
 import { listAdminCampaigns, updateAdminCampaign } from '../../lib/adminApi'
+import type { ApiRequestError } from '../../lib/authApi'
 import { AlertBanner, EmptyState, PageHeader, StatusBadge } from './adminShared'
 import { CAMPAIGN_STATUS_META, formatDateTime } from './adminHelpers'
 import { useConfirm } from '../../hooks/useConfirm'
@@ -124,10 +125,17 @@ export default function AdminCampaigns() {
     setError('')
     setSuccess('')
     try {
-      const data = (await updateAdminCampaign(campaign.id, { status })) as { campaign: Campaign }
+      // The version on this card: the server refuses the change if the
+      // advertiser edited the campaign since the list loaded.
+      const data = (await updateAdminCampaign(campaign.id, { status, updatedAt: campaign.updatedAt ?? '' })) as {
+        campaign: Campaign
+      }
       setCampaigns((prev) => prev.map((row) => (row.id === campaign.id ? data.campaign : row)))
       setSuccess(`"${campaign.name}" is now ${label.toLowerCase()}.`)
     } catch (err) {
+      // Changed since the list loaded: show the campaign as it is now, then
+      // say why (a load clears the banner when it starts).
+      if ((err as ApiRequestError)?.status === 409) await load()
       setError(err instanceof Error ? err.message : 'Could not update campaign.')
     } finally {
       setBusyId(null)
