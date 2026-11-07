@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { devNull, tmpdir } from 'node:os'
+import path from 'node:path'
 import { findAssistantCredits, findDashes, isCreditExemptCommit, isDashExempt } from '../scripts/lib/conventions.mjs'
 
 // README "Conventions". The rules apply to every contributor, with or without
@@ -115,7 +117,7 @@ test('isCreditExemptCommit skips only the listed landed commit, by full SHA', ()
   assert.equal(isCreditExemptCommit(undefined), false)
 })
 
-test('the committed hooks are executable in git and call the checker', () => {
+test('the committed hooks are executable in git and call the installed checker', () => {
   // The mode is read from the index, not the filesystem, so a Windows checkout
   // (which cannot store the executable bit) gives the same answer as CI.
   for (const [hook, subcommand] of [
@@ -126,19 +128,93 @@ test('the committed hooks are executable in git and call the checker', () => {
     assert.match(entry, /^100755 /, `.githooks/${hook} must be tracked as executable (git update-index --chmod=+x)`)
     const body = read(`.githooks/${hook}`)
     assert.match(body, /^#!\/bin\/sh/, `.githooks/${hook} needs a POSIX sh shebang`)
-    assert.ok(body.includes(`scripts/check-conventions.mjs ${subcommand}`), `.githooks/${hook} must run "${subcommand}"`)
+    // The copy setup-git-hooks.mjs puts beside the installed hook, never the
+    // working tree's scripts/check-conventions.mjs.
+    assert.ok(body.includes('checker="$(dirname "$0")/boilerindy-conventions/check-conventions.mjs"'), `.githooks/${hook} must run the installed checker`)
+    assert.ok(body.includes(`exec node "$checker" ${subcommand}`), `.githooks/${hook} must run "${subcommand}"`)
+    assert.equal(body.includes('scripts/check-conventions.mjs'), false, `.githooks/${hook} must not run the working tree's checker`)
   }
 })
 
-test('pnpm install wires the hooks and both package roots refuse npm', () => {
+test('pnpm install wires the hooks and both package roots refuse npm without fetching anything', () => {
   const root = JSON.parse(read('package.json')).scripts
   const frontend = JSON.parse(read('boilerindy-react/package.json')).scripts
-  assert.equal(root.prepare, 'node scripts/setup-git-hooks.mjs', 'root "prepare" must point git at .githooks/')
+  assert.equal(root.prepare, 'node scripts/setup-git-hooks.mjs', 'root "prepare" must install the hooks')
+  const lifecycle = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish', 'prepublishOnly', 'prepack', 'postpack']
   for (const [name, scripts] of [['package.json', root], ['boilerindy-react/package.json', frontend]]) {
-    assert.match(scripts.preinstall ?? '', /only-allow pnpm/, `${name} "preinstall" must run only-allow pnpm`)
+    // The check runs before the lockfile's packages exist, so it must not
+    // download one (npx, dlx and friends fetch whatever the registry serves).
+    assert.match(scripts.preinstall ?? '', /npm_config_user_agent/, `${name} "preinstall" must check the package manager`)
+    for (const stage of lifecycle) {
+      assert.doesNotMatch(scripts[stage] ?? '', /\b(npx|pnpx|bunx|dlx)\b/, `${name} "${stage}" must not download and run a package`)
+    }
+    for (const [agent, status] of [['pnpm/11.6.0 npm/? node/v22.22.3 darwin arm64', 0], ['npm/10.9.8 node/v22.22.3 darwin arm64', 1], ['yarn/1.22.22 npm/? node/v22.22.3 darwin arm64', 1], ['', 0]]) {
+      const run = spawnSync('/bin/sh', ['-c', scripts.preinstall], { env: { PATH: process.env.PATH, npm_config_user_agent: agent }, encoding: 'utf8' })
+      assert.equal(run.status, status, `${name} "preinstall" under "${agent}"`)
+    }
   }
   assert.match(root['check:conventions'] ?? '', /check-conventions\.mjs dashes/, 'check:conventions must run the dash scan')
   assert.match(root['check:conventions'] ?? '', /check-conventions\.mjs commits/, 'check:conventions must run the commit scan')
+})
+
+test('setup-git-hooks.mjs installs the hooks where no checked-out branch can change them', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'boilerindy-hooks-'))
+  // A throwaway clone with no global or system git config, so neither this
+  // machine's settings (signing, a global hooks path) nor a hook running these
+  // tests (GIT_DIR, GIT_INDEX_FILE) leaks in.
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com' }
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[name]
+  const run = (cmd, args) => spawnSync(cmd, args, { cwd: dir, env, encoding: 'utf8' })
+  const git = (...args) => {
+    const res = run('git', args)
+    assert.equal(res.status, 0, `git ${args.join(' ')}: ${res.stderr}`)
+    return res.stdout.trim()
+  }
+  try {
+    git('init', '-q', '-b', 'develop')
+    const files = ['.githooks/pre-commit', '.githooks/commit-msg', 'scripts/setup-git-hooks.mjs', 'scripts/check-conventions.mjs', 'scripts/lib/conventions.mjs']
+    for (const file of files) {
+      mkdirSync(path.join(dir, path.dirname(file)), { recursive: true })
+      copyFileSync(new URL(file, ROOT), path.join(dir, file))
+    }
+    for (const hook of ['pre-commit', 'commit-msg']) chmodSync(path.join(dir, '.githooks', hook), 0o755)
+    git('add', '.')
+    git('commit', '-q', '--no-verify', '-m', 'base')
+    // A clone set up the old way, which ran the hooks of the checked-out tree.
+    git('config', 'core.hooksPath', '.githooks')
+
+    const setup = run('node', ['scripts/setup-git-hooks.mjs'])
+    assert.equal(setup.status, 0, setup.stderr)
+    assert.equal(run('git', ['config', '--get', 'core.hooksPath']).status, 1, 'the relative hooks path is removed')
+    const hooksDir = path.join(dir, '.git', 'hooks')
+    for (const hook of ['pre-commit', 'commit-msg']) {
+      assert.equal(readFileSync(path.join(hooksDir, hook), 'utf8'), read(`.githooks/${hook}`))
+      assert.ok(statSync(path.join(hooksDir, hook)).mode & 0o100, `${hook} is installed executable`)
+    }
+    assert.equal(readFileSync(path.join(hooksDir, 'boilerindy-conventions', 'lib', 'conventions.mjs'), 'utf8'), read('scripts/lib/conventions.mjs'))
+    assert.equal(run('node', ['scripts/setup-git-hooks.mjs']).stdout, '', 'a second run changes nothing and says nothing')
+
+    // A branch that adds its own hook and empties the checker in its tree...
+    git('switch', '-q', '-c', 'outside')
+    const marker = path.join(dir, 'hook-ran')
+    writeFileSync(path.join(dir, '.githooks', 'post-checkout'), `#!/bin/sh\necho ran >> "${marker}"\n`)
+    chmodSync(path.join(dir, '.githooks', 'post-checkout'), 0o755)
+    writeFileSync(path.join(dir, 'scripts', 'check-conventions.mjs'), 'process.exit(0)\n')
+    git('add', '.')
+    git('commit', '-q', '--no-verify', '-m', 'outside')
+    git('switch', '-q', 'develop')
+    git('switch', '-q', 'outside')
+    // ...gets neither run: checking it out runs no hook of its own, and the
+    // installed pre-commit hook still refuses a staged dash.
+    assert.equal(existsSync(marker), false, 'the branch\'s post-checkout hook did not run')
+    writeFileSync(path.join(dir, 'notes.md'), `a ${EM} b\n`)
+    git('add', 'notes.md')
+    const commit = run('git', ['commit', '-q', '-m', 'notes'])
+    assert.notEqual(commit.status, 0, 'the installed pre-commit hook refused the staged dash')
+    assert.match(commit.stdout + commit.stderr, /notes\.md/, 'it names the file with the dash')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('the CI conventions job runs all three checks with full history', () => {
