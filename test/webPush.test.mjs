@@ -8,8 +8,10 @@ import {
   decryptPayload,
   encryptPayload,
   generateVapidKeys,
+  isPushServiceEndpoint,
   isValidSubscription,
   loadVapidKeys,
+  PUSH_SERVICE_HOSTS,
   normalizeTopic,
   sendWebPush,
   verifyVapidToken,
@@ -129,14 +131,50 @@ test('createVapidAuthorization signs a verifiable ES256 token scoped to the endp
 })
 
 test('isValidSubscription and normalizeTopic guard the wire format', () => {
-  const good = { endpoint: 'https://push.example/abc', keys: { p256dh: RFC.receiverPublic, auth: RFC.auth } }
+  const good = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: RFC.receiverPublic, auth: RFC.auth } }
   assert.equal(isValidSubscription(good), true)
-  assert.equal(isValidSubscription({ ...good, endpoint: 'http://push.example/abc' }), false)
+  assert.equal(isValidSubscription({ ...good, endpoint: 'http://fcm.googleapis.com/fcm/send/abc' }), false)
   assert.equal(isValidSubscription({ ...good, keys: { p256dh: 'nope', auth: RFC.auth } }), false)
   assert.equal(isValidSubscription(null), false)
   assert.equal(normalizeTopic('deadline:calendar/123!'), 'deadlinecalendar123')
   assert.equal(normalizeTopic('x'.repeat(50)).length, 32)
   assert.equal(normalizeTopic(''), null)
+})
+
+test('a subscription endpoint must be a push service the browsers use, and must parse', () => {
+  const keys = { p256dh: RFC.receiverPublic, auth: RFC.auth }
+  for (const endpoint of [
+    'https://fcm.googleapis.com/fcm/send/abc',
+    'https://fcm.googleapis.com/wp/abc',
+    'https://android.googleapis.com/gcm/send/abc',
+    'https://updates.push.services.mozilla.com/wpush/v2/abc',
+    'https://web.push.apple.com/abc',
+    'https://wns2-par02p.notify.windows.com/w/?token=abc',
+    'https://FCM.googleapis.com:443/fcm/send/abc',
+  ]) {
+    assert.equal(isPushServiceEndpoint(endpoint), true, endpoint)
+    assert.equal(isValidSubscription({ endpoint, keys }), true, endpoint)
+  }
+  for (const endpoint of [
+    'https://push.example/abc',
+    'https://fcm.googleapis.com.example/abc',
+    'https://evilfcm.googleapis.com/abc',
+    'https://push.services.mozilla.com/abc',
+    'https://evilnotify.windows.com/abc',
+    'https://collector.example/fcm.googleapis.com/abc',
+    'https://fcm.googleapis.com:8443/abc',
+    'https://user:pass@fcm.googleapis.com/abc',
+    'https://x:y',
+    'https://x:99999',
+    'https://[',
+    'https://fcm.googleapis.com/a b',
+    `https://fcm.googleapis.com/${'a'.repeat(2048)}`,
+    null,
+  ]) {
+    assert.equal(isPushServiceEndpoint(endpoint), false, String(endpoint))
+    assert.equal(isValidSubscription({ endpoint, keys }), false, String(endpoint))
+  }
+  assert.ok(Object.isFrozen(PUSH_SERVICE_HOSTS))
 })
 
 function fakeFetch(status, text = '') {
@@ -190,4 +228,31 @@ test('sendWebPush posts an encrypted body with VAPID headers and classifies resp
   assert.equal(invalid.gone, true)
   const unconfigured = await sendWebPush({ subscription, payload, keys: null, fetchImpl: ok.impl })
   assert.equal(unconfigured.ok, false)
+})
+
+test('sendWebPush never throws and never follows a redirect', async () => {
+  const pair = generateVapidKeys()
+  const keys = loadVapidKeys({ VAPID_PUBLIC_KEY: pair.publicKey, VAPID_PRIVATE_KEY: pair.privateKey })
+  const p256dh = generateVapidKeys().publicKey
+  const auth = base64UrlEncode(Buffer.alloc(16, 7))
+  const payload = { title: 't', tag: 'campus-demo', kind: 'campus-alert' }
+
+  // A stored endpoint the URL parser refuses (it once passed the old check)
+  // comes back gone, so the caller deletes the row, and nothing is fetched.
+  const fetched = fakeFetch(201)
+  for (const endpoint of ['https://x:y', 'https://x:99999', 'https://[']) {
+    const result = await sendWebPush({ subscription: { endpoint, keys: { p256dh, auth } }, payload, keys, fetchImpl: fetched.impl })
+    assert.deepEqual(result, { ok: false, status: 0, gone: true, retry: false, error: 'invalid subscription' })
+  }
+  assert.equal(fetched.calls.length, 0)
+
+  const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh, auth } }
+  // Building the VAPID header throws: the result says so instead.
+  const unreadable = { ...keys, get privateKey() { throw new Error('key unavailable') } }
+  const broken = await sendWebPush({ subscription, payload, keys: unreadable, fetchImpl: fetched.impl })
+  assert.deepEqual(broken, { ok: false, status: 0, gone: false, retry: false, error: 'key unavailable' })
+  assert.equal(fetched.calls.length, 0)
+
+  await sendWebPush({ subscription, payload, keys, fetchImpl: fetched.impl })
+  assert.equal(fetched.calls[0].init.redirect, 'error')
 })

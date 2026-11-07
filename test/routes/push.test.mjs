@@ -17,7 +17,7 @@ const KEYS = { publicKey: 'BPublicKeyForTests', privateKey: 'privateKeyForTests'
 const CRON_SECRET = 'cron-secret-for-tests'
 const PHONE = 'ExponentPushToken[phone000000000000000001]'
 
-function validSubscription(endpoint = 'https://push.example.com/send/abc') {
+function validSubscription(endpoint = 'https://fcm.googleapis.com/fcm/send/abc') {
   return {
     endpoint,
     keys: {
@@ -411,15 +411,34 @@ test('POST /api/push/subscriptions needs push on and a valid subscription', asyn
   })
 })
 
+test('POST /api/push/subscriptions takes only a push service endpoint', async () => {
+  await withApp({}, async ({ call, supabase }) => {
+    // Well-formed keys each time: only the endpoint is wrong.
+    for (const endpoint of [
+      'https://push.example.com/send/abc',
+      'https://collector.example/fcm.googleapis.com/fcm/send/abc',
+      'https://fcm.googleapis.com.example/fcm/send/abc',
+      'https://fcm.googleapis.com:8443/fcm/send/abc',
+      'https://user:pass@fcm.googleapis.com/fcm/send/abc',
+      'https://x:y',
+      'https://[',
+    ]) {
+      const res = await call('POST', '/api/push/subscriptions', { subscription: validSubscription(endpoint) })
+      assert.equal(res.status, 400, endpoint)
+    }
+    assert.equal(supabase.queries.length, 0)
+  })
+})
+
 test('a new device past the ten-device cap is refused, a known one re-registers', async () => {
-  const known = 'https://push.example.com/send/known'
-  const existing = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, endpoint: i === 0 ? known : `https://push.example.com/send/${i}` }))
+  const known = 'https://fcm.googleapis.com/fcm/send/known'
+  const existing = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, endpoint: i === 0 ? known : `https://fcm.googleapis.com/fcm/send/${i}` }))
   const tables = {
     push_subscriptions: (chain) =>
       operation(chain) === 'upsert' ? { data: { id: 's0', created_at: '2026-10-01T00:00:00.000Z' }, error: null } : { data: existing, error: null },
   }
   await withApp({ tables }, async ({ call, supabase }) => {
-    const refused = await call('POST', '/api/push/subscriptions', { subscription: validSubscription('https://push.example.com/send/new') })
+    const refused = await call('POST', '/api/push/subscriptions', { subscription: validSubscription('https://fcm.googleapis.com/fcm/send/new') })
     assert.equal(refused.status, 409)
     assert.match(refused.body.error.message, /at most 10 devices/)
 
@@ -445,13 +464,13 @@ test("DELETE /api/push/subscriptions removes only the student's own device", asy
   await withApp({ tables }, async ({ call, supabase }) => {
     const missing = await call('DELETE', '/api/push/subscriptions', {})
     assert.equal(missing.status, 400)
-    const res = await call('DELETE', '/api/push/subscriptions', { endpoint: 'https://push.example.com/send/abc' })
+    const res = await call('DELETE', '/api/push/subscriptions', { endpoint: 'https://fcm.googleapis.com/fcm/send/abc' })
     assert.equal(res.status, 200)
     assert.deepEqual(res.body, { removed: true })
     const [del] = supabase.queriesOf('push_subscriptions')
     assert.equal(operation(del.chain), 'delete')
     assert.ok(hasCall(del.chain, 'eq', 'user_id', STUDENT.id))
-    assert.ok(hasCall(del.chain, 'eq', 'endpoint', 'https://push.example.com/send/abc'))
+    assert.ok(hasCall(del.chain, 'eq', 'endpoint', 'https://fcm.googleapis.com/fcm/send/abc'))
   })
 })
 
@@ -615,7 +634,7 @@ test('POST /api/me/push-token needs push on and a valid token and platform, chec
     assert.equal(supabase.queries.length, 0)
   })
   await withApp({}, async ({ call, supabase }) => {
-    const badToken = await call('POST', '/api/me/push-token', { token: 'https://push.example.com/send/abc', platform: 'ios' })
+    const badToken = await call('POST', '/api/me/push-token', { token: 'https://fcm.googleapis.com/fcm/send/abc', platform: 'ios' })
     assert.equal(badToken.status, 400)
     assert.deepEqual(badToken.body, { error: { message: 'token must be an Expo push token, ExponentPushToken[...].', status: 400 } })
     const badPlatform = await call('POST', '/api/me/push-token', { token: PHONE, platform: 'web' })
