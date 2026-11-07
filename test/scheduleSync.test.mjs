@@ -8,11 +8,17 @@ import assert from 'node:assert/strict'
 import {
   planSync,
   classifyFetchError,
+  countFeedEvents,
   expandRecurringEvents,
   detectTimezoneFromFeed,
   icalText,
   cleanTitle,
+  FEED_TOO_MANY_EVENTS,
+  FEED_TOO_MANY_ITEMS,
+  MAX_FEED_EVENTS,
+  MAX_FEED_ITEMS,
 } from '../src/scheduleSync.mjs'
+import { FEED_TOO_LARGE, FeedRefusedError, PROVIDER_NOT_ALLOWED } from '../src/urlSafety.mjs'
 
 const TZ = 'America/Indiana/Indianapolis'
 
@@ -315,4 +321,114 @@ test('planSync stores the cleaned title but classifies and dedupes on the raw su
 test('planSync leaves Purdue class titles untouched (#121)', () => {
   const plan = planSync({ a: vevent({ summary: 'CS 180 Lecture' }) }, purdueSource())
   assert.equal(plan.itemsToInsert[0].title, 'CS 180 Lecture')
+})
+
+// ── Import limits ───────────────────────────────────────────────────────────
+
+// A rule with one occurrence a day for `days` days, counting its expansions.
+function dailyRule(days, counter) {
+  return {
+    options: { freq: 'DAILY', byHour: [9], byMinute: [30] },
+    between: () => {
+      counter.calls += 1
+      return Array.from({ length: days }, (_, i) => new Date(Date.UTC(2026, 0, 12 + i, 14, 30)))
+    },
+  }
+}
+
+test('countFeedEvents counts VEVENT begin lines only', () => {
+  const text = [
+    'BEGIN:VCALENDAR',
+    'BEGIN:VEVENT', 'SUMMARY:one', 'END:VEVENT',
+    'begin:vevent', 'SUMMARY:two', 'END:VEVENT',
+    'BEGIN:VTODO', 'END:VTODO',
+    // A trailing space still counts; text that only mentions it, inline or on
+    // a folded line, does not.
+    'BEGIN:VEVENT ', 'DESCRIPTION:BEGIN:VEVENT', ' BEGIN:VEVENT', 'END:VEVENT',
+    'END:VCALENDAR', '',
+  ].join('\r\n')
+  assert.equal(countFeedEvents(text), 3)
+  assert.equal(countFeedEvents(text.replaceAll('\r\n', '\n')), 3)
+  assert.equal(countFeedEvents(''), 0)
+  assert.equal(countFeedEvents(null), 0)
+  assert.equal(MAX_FEED_EVENTS, 5000)
+  assert.match(FEED_TOO_MANY_EVENTS, /more than 5,000 events/)
+})
+
+test('planSync refuses a feed whose events repeat into more than 5,000 items, and stops expanding past the limit', () => {
+  assert.equal(MAX_FEED_ITEMS, 5000)
+  const counter = { calls: 0 }
+  const feed = (events) =>
+    Object.fromEntries(
+      Array.from({ length: events }, (_, i) => [`e${i}`, vevent({ uid: `evt-${i}`, summary: `Daily ${i}`, rrule: dailyRule(600, counter) })]),
+    )
+
+  // 8 rules of 600 days: 4,800 items, under the limit.
+  const under = planSync(feed(8), purdueSource())
+  assert.equal(under.sourceStatus, 'ready')
+  assert.equal(under.itemsToInsert.length, 4800)
+
+  // 20 rules of 600 days would be 12,000. Expansion stops inside the ninth
+  // rule, at the 5,001st occurrence, and the plan writes nothing.
+  counter.calls = 0
+  const over = planSync(feed(20), purdueSource())
+  assert.equal(counter.calls, 9)
+  assert.equal(over.sourceStatus, 'error')
+  assert.equal(over.statusMessage, FEED_TOO_MANY_ITEMS)
+  assert.deepEqual(over.itemsToInsert, [])
+  assert.equal(over.meta.rawCount, 20)
+  assert.equal(over.meta.itemCount, 0)
+})
+
+test('a rule that repeats within a day keeps its first occurrence and is never expanded', () => {
+  for (const options of [
+    { freq: 'HOURLY' },
+    { freq: 'MINUTELY' },
+    { freq: 'SECONDLY' },
+    { freq: 'DAILY', byHour: [1, 2] },
+    { freq: 'WEEKLY', byMinute: [0, 30] },
+    { freq: 'DAILY', bySecond: [0, 1] },
+  ]) {
+    let calls = 0
+    const rrule = { options, between: () => { calls += 1; return [] } }
+    const out = expandRecurringEvents([vevent({ rrule })], TZ)
+    assert.equal(calls, 0, JSON.stringify(options))
+    assert.deepEqual(out.map((e) => [e.uid, e.start.toISOString()]), [['evt-1', '2026-01-12T14:30:00.000Z']], JSON.stringify(options))
+  }
+  // One time a day, or no options to read, expands as before.
+  for (const options of [{ freq: 'DAILY', byHour: [9], byMinute: [30] }, undefined]) {
+    const counter = { calls: 0 }
+    const rrule = { ...dailyRule(3, counter), options }
+    assert.equal(expandRecurringEvents([vevent({ rrule })], TZ).length, 3)
+    assert.equal(counter.calls, 1)
+  }
+})
+
+test('raw_json keeps the same text limits as the columns', () => {
+  const plan = planSync(
+    { a: vevent({ uid: 'u'.repeat(900), summary: 's'.repeat(900), description: 'd'.repeat(20000), location: 'l'.repeat(900) }) },
+    purdueSource(),
+  )
+  const [item] = plan.itemsToInsert
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(item.raw_json).map(([key, text]) => [key, text.length])),
+    { uid: 500, summary: 500, description: 5000, location: 500 },
+  )
+  assert.equal(item.description.length, 5000)
+  assert.equal(item.external_uid.length, 500)
+  // Text within the limits is kept as it was, so a stored row still compares unchanged.
+  assert.deepEqual(planSync({ a: vevent() }, purdueSource()).itemsToInsert[0].raw_json, {
+    uid: 'evt-1',
+    summary: 'CS 180 Lecture',
+    description: 'Intro to programming',
+    location: 'LWSN B155',
+  })
+})
+
+test("classifyFetchError keeps the message of the server's own refusals", () => {
+  for (const message of [FEED_TOO_LARGE, FEED_TOO_MANY_EVENTS, PROVIDER_NOT_ALLOWED]) {
+    assert.deepEqual(classifyFetchError(new FeedRefusedError(message)), { status: 'error', message })
+  }
+  // Any other error reads as before, even one with the same words.
+  assert.equal(classifyFetchError(new Error(FEED_TOO_LARGE)).message, 'Could not fetch the calendar feed.')
 })
