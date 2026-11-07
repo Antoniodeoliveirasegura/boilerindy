@@ -76,7 +76,7 @@ const ROUTES = [
   ['POST', '/api/me/delete-account', {}],
 ]
 
-const TABLES = ['users', 'linked_sources', 'calendar_items', 'sign_in_challenges']
+const TABLES = ['users', 'linked_sources', 'calendar_items', 'sign_in_challenges', 'push_subscriptions', 'push_devices']
 
 // One table of the in-memory database, answering a recorded chain the way
 // PostgREST would: eq, neq and is filters, a head count, insert, update and
@@ -2002,6 +2002,43 @@ test('password-reset-complete stamps the change, keeps this session and ends old
     assert.ok(isRecent(db.users[0].password_changed_at))
     assert.equal((await call('GET', '/api/me/profile', { cookie: here })).status, 200)
     assert.equal((await call('GET', '/api/me/profile', { cookie: elsewhere })).status, 401)
+  })
+})
+
+test('a password change, from Settings or a reset link, ends every push channel of the account and only that account', async () => {
+  // A browser endpoint or phone token belongs to the account, not the session
+  // that registered it, so one planted through a stolen session kept getting
+  // the student's reminders after the password changed.
+  const channels = () => ({
+    push_subscriptions: [
+      { id: 'sub-mine', user_id: U1, endpoint: 'https://fcm.googleapis.com/fcm/send/mine' },
+      { id: 'sub-planted', user_id: U1, endpoint: 'https://fcm.googleapis.com/fcm/send/planted' },
+      { id: 'sub-other', user_id: U2, endpoint: 'https://fcm.googleapis.com/fcm/send/other' },
+    ],
+    push_devices: [
+      { id: 'dev-planted', user_id: U1, token: 'ExponentPushToken[planted]' },
+      { id: 'dev-other', user_id: U2, token: 'ExponentPushToken[other]' },
+    ],
+  })
+  const left = (db) => [...db.push_subscriptions, ...db.push_devices].map((row) => row.id)
+
+  const gotrue = { 'pete@example.com': { id: U1, password: PASSWORD } }
+  await withApp({ seed: { users: [STUDENT, OTHER], ...channels() }, gotrue }, async ({ call, sessionFor, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    // A save without a new password leaves them.
+    assert.equal((await call('PATCH', '/api/me/profile', { cookie, body: { name: 'Purdue Pete' } })).status, 200)
+    assert.equal(left(db).length, 5)
+    const res = await call('PATCH', '/api/me/profile', { cookie, body: { currentPassword: PASSWORD, newPassword: NEW_PASSWORD } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(left(db), ['sub-other', 'dev-other'])
+  })
+
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const recent = `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'recovery', timestamp: Math.floor(Date.now() / 1000) - 60 }] })}.sig`
+  await withApp({ seed: { users: [STUDENT, OTHER], ...channels() }, tokens: { [recent]: TOKEN_USER } }, async ({ call, db }) => {
+    const res = await call('POST', '/api/auth/password-reset-complete', { headers: { Authorization: `Bearer ${recent}` } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(left(db), ['sub-other', 'dev-other'])
   })
 })
 

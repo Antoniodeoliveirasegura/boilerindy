@@ -31,6 +31,25 @@ APNs: see [Track this bus](#track-this-bus-the-live-activity).
    names, `/assignments?taskId=<id>&taskKind=calendar|manual`, where the
    Assignments page opens that task's details.
 
+### When a channel ends
+
+A browser subscription or a phone token belongs to the account, not to the
+session that registered it, so each one is ended on purpose:
+
+- **Sign-out.** The web app unsubscribes the browser and deletes its row
+  (`unsubscribeThisDevice`) before it ends the session, so on a shared computer
+  the next person sees none of the student's reminders. The phone app removes
+  its token at sign-out the same way. The student turns notifications on again
+  after signing back in.
+- **Password change.** A new password, from Settings or a reset link, ends
+  every channel of the account (`forgetPushChannels` in
+  `src/pushChannels.mjs`), as it ends every older session (#132). Without
+  that, an endpoint or token planted through a stolen session kept receiving
+  the student's reminders after the password changed. The browser that made
+  the change registers its own subscription again right away
+  (`reregisterThisDevice`), and the phone app registers again on its next
+  launch.
+
 The push protocol is implemented in `src/webPush.mjs` with `node:crypto` only:
 VAPID (RFC 8292) ES256 tokens and `aes128gcm` payload encryption (RFC 8291 and
 RFC 8188). `test/webPush.test.mjs` pins the encryption to the RFC 8291

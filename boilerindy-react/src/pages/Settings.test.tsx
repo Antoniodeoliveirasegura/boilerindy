@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   signOut: vi.fn(),
   signInWithGoogle: vi.fn(),
   replace: vi.fn(),
+  reregisterThisDevice: vi.fn(),
 }))
 
 // One object for every render: Settings re-seeds its fields whenever `user`
@@ -43,6 +44,7 @@ vi.mock('../lib/supabase', () => ({
   supabase: { auth: { signOut: mocks.signOut } },
   signInWithGoogle: mocks.signInWithGoogle,
 }))
+vi.mock('../lib/push', () => ({ reregisterThisDevice: mocks.reregisterThisDevice }))
 // The cards with their own data and tests.
 vi.mock('../components/settings/PushNotificationsCard', () => ({ default: () => null }))
 vi.mock('../components/settings/BlockedUsersCard', () => ({ default: () => null }))
@@ -242,6 +244,42 @@ describe('Settings: account details for a Google account', () => {
     await waitFor(() => expect(screen.getByText('Settings updated.')).toBeInTheDocument())
     const [, init] = mocks.authRequest.mock.calls.find(([url]) => url === '/api/me/profile') as [string, RequestInit]
     expect(JSON.parse(init.body as string)).toMatchObject({ currentPassword: '', newPassword: 'a-new-password' })
+  })
+})
+
+// A new password ends every push channel of the account on the server, as it
+// ends the other sessions. This browser registers its own again.
+describe('Settings: push notifications after a password change', () => {
+  test('a saved new password registers this browser again; a save without one does not', async () => {
+    mocks.reregisterThisDevice.mockResolvedValue(true)
+    renderSettings()
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Renamed Student' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(screen.getByText('Settings updated.')).toBeInTheDocument())
+    expect(mocks.reregisterThisDevice).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'the-old-password' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-new-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-new-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mocks.reregisterThisDevice).toHaveBeenCalledTimes(1))
+    const profileSaves = mocks.authRequest.mock.calls.filter(([url]) => url === '/api/me/profile')
+    expect(JSON.parse((profileSaves.at(-1)?.[1] as RequestInit).body as string)).toMatchObject({ newPassword: 'a-new-password' })
+  })
+
+  test('a password change the server refuses registers nothing', async () => {
+    mocks.authRequest.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/me/profile' && init?.method === 'PATCH') throw new Error('Current password is incorrect.')
+      if (url === '/api/me/calendar-feed') return { feedUrl: null }
+      return {}
+    })
+    renderSettings()
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'wrong' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-new-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-new-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(screen.getByText('Current password is incorrect.')).toBeInTheDocument())
+    expect(mocks.reregisterThisDevice).not.toHaveBeenCalled()
   })
 })
 
