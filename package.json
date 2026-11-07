@@ -8,7 +8,7 @@
     "node": "^22.22.2 || ^24.15.0"
   },
   "scripts": {
-    "preinstall": "npx -y only-allow pnpm",
+    "preinstall": "node -e \"const a=process.env.npm_config_user_agent||'';if(a&&!a.startsWith('pnpm/')){console.error('This repository installs with pnpm: run pnpm install.');process.exit(1)}\"",
     "prepare": "node scripts/setup-git-hooks.mjs",
     "dev": "node server.mjs",
     "start": "node server.mjs",
