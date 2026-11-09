@@ -224,19 +224,28 @@ export function tokenAuthMethods(accessToken) {
   }
 }
 
-// When the token's latest `method` sign-in happened, in ms, or null. Read from
-// the `amr` entry's own timestamp: a refreshed token keeps it, so a token
-// refresh hours later never looks like a fresh sign-in.
+// When the token's latest `method` sign-in happened (any method's, for null),
+// in ms, or null. Read from the `amr` entry's own timestamp: a refreshed token
+// keeps it, so a token refresh hours later never looks like a fresh sign-in.
 function tokenMethodAt(accessToken, method) {
   try {
     const payload = JSON.parse(Buffer.from(String(accessToken).split('.')[1], 'base64url').toString('utf8'))
     const stamps = (Array.isArray(payload?.amr) ? payload.amr : [])
-      .filter((entry) => entry?.method === method && Number.isFinite(entry.timestamp))
+      .filter((entry) => (method === null || entry?.method === method) && Number.isFinite(entry?.timestamp))
       .map((entry) => entry.timestamp * 1000)
     return stamps.length ? Math.max(...stamps) : null
   } catch {
     return null
   }
+}
+
+/**
+ * When the token's session last signed in, by any method, in ms, or null when
+ * the token records none: the sign-in it was minted from, however often it was
+ * refreshed since.
+ */
+export function tokenSignedInAt(accessToken) {
+  return tokenMethodAt(accessToken, null)
 }
 
 /** When the token's provider (Google) sign-in happened, in ms, or null. */

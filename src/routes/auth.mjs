@@ -38,6 +38,7 @@ import {
   tokenNeedsSignInCode,
   tokenProviderSignInAt,
   tokenRecoveryAt,
+  tokenSignedInAt,
 } from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
@@ -291,6 +292,18 @@ export function createAuthRouter({
 
   function regenerate(req) {
     return new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())))
+  }
+
+  // Allowance between this server's clock, which stamps password_changed_at,
+  // and Supabase Auth's, which stamps a sign-in.
+  const SIGN_IN_CLOCK_SKEW_MS = 30 * 1000
+
+  // True when the token's session signed in before the account's password
+  // last changed (#132). A token that records no sign-in time is let through.
+  function signedInBeforePasswordChange(user, accessToken) {
+    const changedAt = Date.parse(user?.password_changed_at ?? '')
+    const signedInAt = tokenSignedInAt(accessToken)
+    return Number.isFinite(changedAt) && signedInAt !== null && signedInAt < changedAt - SIGN_IN_CLOCK_SKEW_MS
   }
 
   function save(req) {
@@ -1168,6 +1181,17 @@ export function createAuthRouter({
       if (req.session?.userId === tokenData.user.id) {
         req.session.authAt = stamp
         await save(req)
+      } else {
+        // Or gets one, as the sync it posts next used to give it: that sync
+        // carries a recovery token that signed in before this stamp, and
+        // supabase-sync opens no new session for such a token.
+        const user = await getUserByEmail(normalizeEmail(tokenData.user.email))
+        if (user) {
+          await regenerate(req)
+          req.session.userId = user.id
+          req.session.authAt = stamp
+          await save(req)
+        }
       }
       res.json({ ok: true })
     } catch (error) {
@@ -1186,6 +1210,9 @@ export function createAuthRouter({
         return res.status(401).json({ error: { message: 'Missing access token.', status: 401 } })
       }
 
+      // A session opened here is dated from before the token is checked, so a
+      // password change that lands while this request runs leaves it stale.
+      const checkedAt = new Date().toISOString()
       const { data: tokenData, error: tokenError } = await supabase.auth.getUser(accessToken)
       if (tokenError || !tokenData?.user) {
         return res.status(401).json({ error: { message: 'Invalid or expired access token.', status: 401 } })
@@ -1245,6 +1272,18 @@ export function createAuthRouter({
             error: { message: 'Enter the code we emailed you to finish signing in.', status: 401, code: 'two-factor-required' },
           })
         }
+      }
+
+      // A password change ends every older session (#132), but a Supabase
+      // token from before it could open a new one here: whoever held a stolen
+      // access or refresh token got a fresh cookie after the owner changed the
+      // password. Such a token may only refresh the session this browser
+      // already holds; the browser that reset its password got one from
+      // password-reset-complete.
+      if (user && req.session?.userId !== user.id && signedInBeforePasswordChange(user, accessToken)) {
+        return res.status(401).json({
+          error: { message: 'Your password was changed. Sign in again.', status: 401, code: 'password-changed' },
+        })
       }
 
       if (!user) {
@@ -1326,7 +1365,7 @@ export function createAuthRouter({
           return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
         }
         req.session.userId = user.id
-        req.session.authAt = new Date().toISOString()
+        req.session.authAt = checkedAt
         if (providerSignInAt) req.session.providerSignInAt = providerSignInAt
         req.session.save(async () => {
           const session = await buildSessionPayload(user, req)

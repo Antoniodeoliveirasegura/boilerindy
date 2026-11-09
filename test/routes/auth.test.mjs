@@ -863,6 +863,81 @@ test('supabase-sync updates an existing profile with only the fields sent', asyn
   })
 })
 
+// A Supabase token whose session signed in by `method` at `atMs`, as its amr records it.
+function signedInToken(method, atMs) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method, timestamp: Math.floor(atMs / 1000) }] })}.sig`
+}
+const PASSWORD_CHANGED = { error: { message: 'Your password was changed. Sign in again.', status: 401, code: 'password-changed' } }
+
+test('supabase-sync opens no new session for a token that signed in before the password changed; a later sign-in and the session already held still sync', async () => {
+  // A stolen access or refresh token used to get a fresh cookie after the
+  // owner changed the password; the cookie sessions themselves ended (#132).
+  const changedAt = Date.now() - 10 * 60 * 1000
+  const before = signedInToken('password', changedAt - 60 * 60 * 1000)
+  const googleBefore = signedInToken('oauth', changedAt - 60 * 60 * 1000)
+  const after = signedInToken('password', changedAt + 60 * 1000)
+  const seed = { users: [{ ...STUDENT, password_changed_at: new Date(changedAt).toISOString() }] }
+  const tokens = { [before]: TOKEN_USER, [googleBefore]: TOKEN_USER, [after]: TOKEN_USER }
+  await withApp({ seed, tokens }, async ({ call, sessions, sessionFor }) => {
+    for (const token of [before, googleBefore]) {
+      const res = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(res.status, 401)
+      assert.deepEqual(res.body, PASSWORD_CHANGED)
+    }
+    assert.deepEqual(await sessions(), [])
+
+    const fresh = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: `Bearer ${after}` } })
+    assert.equal(fresh.status, 200)
+    assert.equal(fresh.body.session.user.id, U1)
+
+    // A session this browser holds since the change is answered from, as before.
+    const cookie = await sessionFor({ userId: U1, authAt: new Date().toISOString() })
+    const held = await call('POST', '/api/auth/supabase-sync', { cookie, body: SYNC, headers: { Authorization: `Bearer ${before}` } })
+    assert.equal(held.status, 200)
+    assert.equal(held.body.reused, true)
+  })
+})
+
+test('a session supabase-sync opens is dated from before the token check, so a password change during the check leaves it stale', async () => {
+  await withApp({ seed: { users: [STUDENT] }, tokens: { good: TOKEN_USER } }, async ({ call, supabase, db }) => {
+    const getUser = supabase.auth.getUser
+    supabase.auth.getUser = async (token) => {
+      const answer = await getUser(token)
+      // The owner's password change lands while Supabase checks the token.
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      db.users[0].password_changed_at = new Date().toISOString()
+      return answer
+    }
+    const res = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: 'Bearer good' } })
+    assert.equal(res.status, 200)
+    assert.equal((await call('GET', '/api/me/profile', { cookie: res.cookie })).status, 401)
+  })
+})
+
+test('password-reset-complete signs in the browser that reset, and only that browser keeps syncing with the recovery token', async () => {
+  const recovery = signedInToken('recovery', Date.now() - 60 * 1000)
+  await withApp({ seed: { users: [STUDENT] }, tokens: { [recovery]: TOKEN_USER } }, async ({ call, sessions, sidOf, db }) => {
+    const reset = await call('POST', '/api/auth/password-reset-complete', { headers: { Authorization: `Bearer ${recovery}` } })
+    assert.equal(reset.status, 200)
+    const [stored] = await sessions()
+    assert.equal(stored.sid, sidOf(reset.cookie))
+    assert.equal(stored.userId, U1)
+    assert.equal(stored.authAt, db.users[0].password_changed_at)
+
+    // The sync ResetPassword posts next is answered from that session.
+    const here = await call('POST', '/api/auth/supabase-sync', { cookie: reset.cookie, body: SYNC, headers: { Authorization: `Bearer ${recovery}` } })
+    assert.equal(here.status, 200)
+    assert.equal(here.body.reused, true)
+    assert.equal((await call('GET', '/api/me/profile', { cookie: reset.cookie })).status, 200)
+
+    // The same recovery token signed in before the stamp, so it opens no
+    // session anywhere else.
+    const elsewhere = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: `Bearer ${recovery}` } })
+    assert.deepEqual(elsewhere.body, PASSWORD_CHANGED)
+  })
+})
+
 test('supabase-sync reuses the session the same user already holds, and regenerates it for another user', async () => {
   const seed = { users: [STUDENT, OTHER] }
   await withApp({ seed, tokens: { good: TOKEN_USER, other: { id: U2, email: 'other@example.com' } } }, async ({ call, sessionFor, sessions, sidOf }) => {
