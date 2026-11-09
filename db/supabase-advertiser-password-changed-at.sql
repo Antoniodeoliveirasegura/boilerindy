@@ -1,0 +1,16 @@
+-- Advertiser password-change sign-out: the advertiser portal's version of #132
+-- (db/supabase-session-invalidation.sql).
+--
+-- A password reset (POST /api/advertiser/reset-password), an admin
+-- re-provision (POST /api/admin/advertisers for an existing email) and
+-- scripts/create-advertiser.mjs stamp this column, and the portal refuses any
+-- advertiser session signed in before it, so a session from a leaked password
+-- or a former staff member's browser ends when the owner recovers the account.
+-- The column is nullable (NULL = no change recorded); the server writes it
+-- with a guarded update and treats a missing column as "feature off", so the
+-- portal keeps working before this runs.
+--
+-- Needs db/supabase-advertiser-portal.sql (the advertisers table). Adds a
+-- column, not a table, so db/supabase-anon-lockdown.sql needs no re-run.
+-- Safe to run more than once.
+ALTER TABLE advertisers ADD COLUMN IF NOT EXISTS password_changed_at timestamptz;

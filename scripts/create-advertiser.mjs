@@ -21,6 +21,7 @@ import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { hashPassword } from '../src/passwordHash.mjs'
 import { ADVERTISER_PASSWORD_MIN_LENGTH, normalizeAdvertiserAccountInput } from '../src/advertiserAuth.mjs'
+import { stampAdvertiserPasswordChange } from '../src/sessionFreshness.mjs'
 import { confirmWriteTarget, readSecretFromPrompt } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
@@ -125,6 +126,8 @@ if (existing) {
     console.error('ERROR updating advertiser:', error.message)
     process.exit(1)
   }
+  // The new password ends every portal session signed in with the old one.
+  await stampAdvertiserPasswordChange(supabase, existing.id, { now })
   console.log(`Updated existing advertiser: ${account.email}`)
   process.exit(0)
 }

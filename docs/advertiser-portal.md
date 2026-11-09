@@ -143,6 +143,14 @@ ad-blocker filter lists match the "ads" keyword and silently block the requests
 `requireAdvertiserAuth` mirrors `requireAuth` but reads `req.session.advertiserId`
 and looks up the `advertisers` row; returns 401 otherwise.
 
+A new password ends every advertiser session signed in before it, as a
+student's password change does (#132): sign-in records `req.session.authAt`,
+and a password reset, an admin re-provision and `scripts/create-advertiser.mjs`
+stamp `advertisers.password_changed_at` (README step 60). `requireAdvertiserAuth`
+answers 401 and `/api/advertiser/me` reads signed out for an older session.
+Until the column exists the stamp is skipped and logged, and older sessions keep
+working as before.
+
 ---
 
 ## 5. Frontend
