@@ -244,10 +244,11 @@ async function withApp(options, run) {
     next()
   }
   const admins = new Set(adminEmails)
+  const isAdminEmail = (email) => admins.has(String(email ?? '').trim().toLowerCase())
   const isUserAdmin = (user) => {
     if (!user?.email) return false
     if (user.is_admin) return true
-    return admins.has(String(user.email).trim().toLowerCase())
+    return isAdminEmail(user.email)
   }
   const linkCalls = []
   const linkPurdueIdentity = async (userId, { email }) => {
@@ -351,6 +352,7 @@ async function withApp(options, run) {
       getCurrentUser,
       getUserById,
       isUserAdmin,
+      isAdminEmail,
       verifySupabasePassword,
       linkPurdueIdentity,
       onboardingSummaryCache,
@@ -610,6 +612,67 @@ test('the session payload: two head counts on a cache miss and none on a hit, is
     assert.equal(res.body.user.isAdmin, false)
     assert.equal(res.body.user.hasPurdueLinked, false)
     assert.deepEqual(Object.keys(res.body), ['user'])
+  })
+})
+
+// ── Addresses ADMIN_EMAILS lists ────────────────────────────────────────────
+//
+// Whichever account holds an address ADMIN_EMAILS lists is an admin. While one
+// was unclaimed, a visitor could sign up with it, or a student move their own
+// account to it in Settings: neither proves the inbox.
+
+const ADMIN_ADDRESS = 'owner@example.com'
+const RESERVED = { error: { message: 'That email address is reserved. Sign in with Google to use it.', status: 403, code: 'email-reserved' } }
+
+test('a password sign-up cannot take an address ADMIN_EMAILS lists, however it is spelled', async () => {
+  await withApp({ seed: { users: [STUDENT] }, adminEmails: [ADMIN_ADDRESS] }, async ({ call, authCalls, db, sessions }) => {
+    for (const email of [ADMIN_ADDRESS, ' Owner@Example.COM ']) {
+      const res = await call('POST', '/api/auth/register-supabase', { body: { email, password: NEW_PASSWORD, name: 'Not The Owner' } })
+      assert.equal(res.status, 403, email)
+      assert.deepEqual(res.body, RESERVED)
+    }
+    assert.deepEqual(authCalls, [])
+    assert.equal(db.users.length, 1)
+    assert.deepEqual(await sessions(), [])
+  })
+})
+
+test('Settings cannot move an account to an address ADMIN_EMAILS lists, so the change grants no admin', async () => {
+  const gotrue = { 'pete@example.com': { id: U1, password: PASSWORD } }
+  await withApp({ seed: { users: [STUDENT] }, gotrue, adminEmails: [ADMIN_ADDRESS] }, async ({ call, sessionFor, authCalls, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    const res = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'Owner@Example.com', currentPassword: PASSWORD } })
+    assert.equal(res.status, 400)
+    assert.deepEqual(res.body, { error: { message: 'That email address is reserved.', status: 400 } })
+    assert.deepEqual(authCalls, [])
+    assert.equal(db.users[0].email, 'pete@example.com')
+    assert.equal((await call('GET', '/api/me/profile', { cookie })).body.user.isAdmin, false)
+
+    // Any other address still moves.
+    const moved = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'pete2@example.com', currentPassword: PASSWORD } })
+    assert.equal(moved.status, 200)
+    assert.equal(db.users[0].email, 'pete2@example.com')
+  })
+})
+
+test('supabase-sync makes the account for an address ADMIN_EMAILS lists only from a Google sign-in, and that account then signs in with a password as before', async () => {
+  const OWNER = { id: U2, email: ADMIN_ADDRESS }
+  const passwordToken = fakeJwt(['password'])
+  const googleToken = fakeJwt(['oauth'])
+  const body = { supabaseUserId: U2, email: ADMIN_ADDRESS, provider: 'google' }
+  await withApp({ tokens: { [passwordToken]: OWNER, [googleToken]: OWNER }, adminEmails: [ADMIN_ADDRESS] }, async ({ call, db }) => {
+    // A Supabase user someone made for the address, with a password.
+    const refused = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${passwordToken}` } })
+    assert.equal(refused.status, 403)
+    assert.deepEqual(refused.body, RESERVED)
+    assert.equal(db.users.length, 0)
+
+    const made = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${googleToken}` } })
+    assert.equal(made.status, 200)
+    assert.equal(made.body.session.user.isAdmin, true)
+
+    const again = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${passwordToken}` } })
+    assert.equal(again.status, 200)
   })
 })
 

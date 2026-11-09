@@ -678,10 +678,16 @@ async function getCurrentUser(req) {
   return user
 }
 
+// An address ADMIN_EMAILS lists. Whichever account holds one is an admin, so
+// the auth router lets no password sign-up or Settings change take one.
+function isAdminEmail(email) {
+  return adminEmails.has(String(email ?? '').trim().toLowerCase())
+}
+
 function isUserAdmin(user) {
   if (!user?.email) return false
   if (user.is_admin) return true
-  return adminEmails.has(String(user.email).trim().toLowerCase())
+  return isAdminEmail(user.email)
 }
 
 async function requireAuth(req, res, next) {
@@ -769,7 +775,7 @@ if (!appleTokenRevoker.configured) {
 // deletion and the Purdue link (CAS, mock, native handoff) are in
 // src/routes/auth.mjs (issue #191); the session core and
 // verifySupabasePassword stay here and are handed in.
-app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction, appleTokenRevoker }))
+app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, isAdminEmail, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction, appleTokenRevoker }))
 
 // ── Linked calendar sources (issues #12 and #120) ───────────────────────────
 // Connecting, syncing and deleting Brightspace and Purdue feeds, the dev-only

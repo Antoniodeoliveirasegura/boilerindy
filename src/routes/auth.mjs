@@ -66,6 +66,8 @@ import {
 const defaultNextPath = '/setup'
 const DEVICE_TRUST_COOKIE = 'pih.td'
 const REMEMBER_ME_MS = 1000 * 60 * 60 * 24 * 30
+// A new account for an address ADMIN_EMAILS lists: only a provider sign-in.
+const RESERVED_EMAIL_MESSAGE = 'That email address is reserved. Sign in with Google to use it.'
 
 function sanitizeNext(next) {
   // Must be a site-relative path. Reject protocol-relative (//host) and backslash
@@ -161,6 +163,8 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', tok
  * @param {Function} deps.getCurrentUser           the session's user, or null when signed out or stale
  * @param {Function} deps.getUserById              a users row by id, or null
  * @param {Function} deps.isUserAdmin              true for an admin (is_admin or ADMIN_EMAILS)
+ * @param {Function} [deps.isAdminEmail]           true for an address ADMIN_EMAILS lists, which no
+ *   password sign-up or Settings change may take
  * @param {Function} deps.verifySupabasePassword   (email, password) => the GoTrue user or null; throws
  *   an UpstreamError on an outage
  * @param {Function} deps.linkPurdueIdentity       (userId, { email }) => the updated users row
@@ -205,6 +209,7 @@ export function createAuthRouter({
   getCurrentUser,
   getUserById,
   isUserAdmin,
+  isAdminEmail = () => false,
   verifySupabasePassword,
   linkPurdueIdentity,
   onboardingSummaryCache,
@@ -466,6 +471,13 @@ export function createAuthRouter({
 
     const wantsEmailChange = normalizedEmail !== normalizeEmail(user.email)
     const wantsPasswordChange = Boolean(newPassword && newPassword.trim())
+
+    // An address ADMIN_EMAILS lists makes whichever account holds it an admin,
+    // and this change proves nothing about the new inbox, so no account may
+    // move to one here.
+    if (wantsEmailChange && isAdminEmail(normalizedEmail)) {
+      throw new Error('That email address is reserved.')
+    }
 
     // Changing the login email is as account-takeover-sensitive as changing the
     // password: require the current password either way, so a stolen session alone
@@ -793,6 +805,13 @@ export function createAuthRouter({
         return res.status(503).json({
           error: { message: 'Email sign-up is unavailable right now. Please try again later, or continue with Google.', status: 503 },
         })
+      }
+
+      // An address ADMIN_EMAILS lists makes whichever account holds it an
+      // admin, and a password sign-up proves nothing about the inbox: only a
+      // Google sign-in (supabase-sync) may create that account.
+      if (isAdminEmail(normalizedEmail)) {
+        return res.status(403).json({ error: { message: RESERVED_EMAIL_MESSAGE, status: 403, code: 'email-reserved' } })
       }
 
       const existingRow = await getUserByEmail(normalizedEmail)
@@ -1233,6 +1252,13 @@ export function createAuthRouter({
             code: 'provider-confirm-mismatch',
           },
         })
+      }
+
+      // A new account for an address ADMIN_EMAILS lists needs a sign-in that
+      // proved the identity or the inbox (Google, Apple, a code or a link), not
+      // a password alone, which anyone could set on a Supabase user they made.
+      if (!user && isAdminEmail(normalizedEmail) && tokenNeedsSignInCode(accessToken)) {
+        return res.status(403).json({ error: { message: RESERVED_EMAIL_MESSAGE, status: 403, code: 'email-reserved' } })
       }
 
       // Anyone holding the password can mint a password-only Supabase token
