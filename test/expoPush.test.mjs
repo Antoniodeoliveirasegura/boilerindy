@@ -9,6 +9,7 @@ import {
   expoTtlSeconds,
   fetchExpoReceipts,
   isExpoToken,
+  MAX_SPLIT_REQUESTS,
   parseExpoTickets,
   parsePushTokenBody,
   sendExpoPush,
@@ -390,6 +391,67 @@ test('nothing to send makes no request', async () => {
   const results = await sendExpoPush({ messages: [], fetchImpl: async () => { calls += 1 } })
   assert.deepEqual(results, [])
   assert.equal(calls, 0)
+})
+
+// Expo refuses a request whose tokens belong to more than one Expo project as
+// a whole. Any student can register a token from another project, and one
+// such token failed every phone in its request of 100, a campus alert's.
+const MIXED = { errors: [{ code: 'PUSH_TOO_MANY_EXPERIENCE_IDS', message: 'All push notification messages in the same request must be for the same project.' }] }
+
+test('a request refused for mixing Expo projects is split until each part holds one project, so a foreign token fails only itself', async () => {
+  const FOREIGN = 'ExponentPushToken[scratchapp0001]'
+  const sizes = []
+  const fetchImpl = async (_url, init) => {
+    const batch = JSON.parse(init.body)
+    sizes.push(batch.length)
+    const foreign = batch.filter((m) => m.to === FOREIGN).length
+    if (foreign && foreign < batch.length) return jsonResponse(MIXED, 400)
+    // This project's access token cannot send to another project's phones.
+    if (foreign) return jsonResponse({ errors: [{ code: 'UNAUTHORIZED', message: 'Not this project.' }] }, 401)
+    return jsonResponse({ data: batch.map((m) => ({ status: 'ok', id: `t-${m.to}` })) })
+  }
+  const rows = Array.from({ length: 100 }, (_, i) => ({ token: i === 37 ? FOREIGN : token(i) }))
+  const messages = buildExpoMessages(rows, PAYLOAD, { now: NOW })
+  const results = await sendExpoPush({ messages, fetchImpl })
+
+  assert.deepEqual(results.map((r) => r.token), messages.map((m) => m.to))
+  assert.equal(results.filter((r) => r.ok).length, 99)
+  assert.deepEqual(results[37], { token: FOREIGN, ok: false, error: 'http_401 UNAUTHORIZED', gone: false, strike: false })
+  // The refused 100, then a half at each level down to the foreign token.
+  assert.equal(sizes[0], 100)
+  assert.ok(sizes.length <= 1 + 2 * 7, `${sizes.length} requests`)
+})
+
+test('splitting stops after MAX_SPLIT_REQUESTS more requests a chunk, and a refusal for any other reason is never split', async () => {
+  assert.equal(MAX_SPLIT_REQUESTS, 30)
+  const messages = buildExpoMessages(Array.from({ length: 100 }, (_, i) => ({ token: token(i) })), PAYLOAD, { now: NOW })
+
+  // Every phone from another project: each part of two or more is refused again.
+  let calls = 0
+  const results = await sendExpoPush({
+    messages,
+    fetchImpl: async (_url, init) => {
+      calls += 1
+      const batch = JSON.parse(init.body)
+      return batch.length > 1 ? jsonResponse(MIXED, 400) : jsonResponse({ data: [{ status: 'ok', id: 'x' }] })
+    },
+  })
+  assert.equal(calls, 1 + MAX_SPLIT_REQUESTS)
+  assert.deepEqual(results.map((r) => r.token), messages.map((m) => m.to))
+  const failed = results.filter((r) => !r.ok)
+  assert.ok(failed.length > 0)
+  assert.ok(failed.every((r) => r.error === 'http_400 PUSH_TOO_MANY_EXPERIENCE_IDS' && !r.strike && !r.gone))
+
+  calls = 0
+  const limited = await sendExpoPush({
+    messages: messages.slice(0, 10),
+    fetchImpl: async () => {
+      calls += 1
+      return jsonResponse({ errors: [{ code: 'TOO_MANY_REQUESTS', message: 'Slow down.' }] }, 429)
+    },
+  })
+  assert.equal(calls, 1)
+  assert.ok(limited.every((r) => r.error === 'http_429 TOO_MANY_REQUESTS'))
 })
 
 // Issue #550, item 7: the receipts behind the tickets.

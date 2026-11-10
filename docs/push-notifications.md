@@ -452,6 +452,17 @@ What Expo answers, and what happens to the row:
 | Any other error | One strike (`failure_count + 1`). A phone with five strikes is skipped, and the next reminder run deletes the row. |
 | No ticket (a timeout, a network failure, a 4xx or 5xx for the whole request) | Unchanged: an Expo outage says nothing about the phones. The messages count as failed, the reason is logged, and they are not retried. |
 
+One whole-request refusal is not an outage. Expo answers
+`PUSH_TOO_MANY_EXPERIENCE_IDS` when a request holds tokens of more than one
+Expo project, and any signed-in student can register a token from another
+project (a scratch app on their own phone). The campus alert sends every
+student's phones of one wording together, so that one token used to fail up to
+99 other phones. `sendExpoPush` now splits such a request in halves and sends
+each again, until every part holds one project's tokens, within
+`MAX_SPLIT_REQUESTS` (30) more requests a chunk; only the foreign token's part
+fails. Its row is left alone: Expo's answer is cut before it says which
+project is ours, so nothing here can tell which tokens to drop.
+
 Log lines name the error code only. An Expo push token is a capability
 (anyone holding one can notify that phone through Expo), so tokens are never
 logged or returned, and the ticket messages, which quote the token, are

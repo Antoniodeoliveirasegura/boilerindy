@@ -262,13 +262,45 @@ function transportError(err) {
   return 'bad_response' // a 2xx whose body is not JSON
 }
 
+// Expo refuses a request whose tokens belong to more than one Expo project as
+// a whole, with PUSH_TOO_MANY_EXPERIENCE_IDS. Any signed-in student can
+// register a token from another project (a scratch app on their own phone), so
+// one such token failed every message in its request: in a campus alert, up to
+// 99 other students' phones. A refused request is split in halves and each
+// half sent again, until every part holds one project's tokens, within
+// MAX_SPLIT_REQUESTS more requests per chunk; past that the rest fail as before.
+const MIXED_PROJECTS = 'PUSH_TOO_MANY_EXPERIENCE_IDS'
+export const MAX_SPLIT_REQUESTS = 30
+
+async function sendChunk(batch, post, budget) {
+  let body
+  try {
+    body = await post(batch)
+  } catch (err) {
+    if (batch.length > 1 && err?.kind === 'status' && expoErrorCode(err.body) === MIXED_PROJECTS && budget.left >= 2) {
+      budget.left -= 2
+      const half = Math.ceil(batch.length / 2)
+      const first = await sendChunk(batch.slice(0, half), post, budget)
+      return [...first, ...(await sendChunk(batch.slice(half), post, budget))]
+    }
+    const error = transportError(err)
+    return batch.map((message) => ({ token: message.to, ok: false, error, gone: false, strike: false }))
+  }
+  if (!Array.isArray(body?.data)) {
+    return batch.map((message) => ({ token: message.to, ok: false, error: 'bad_response', gone: false, strike: false }))
+  }
+  return parseExpoTickets(batch, body)
+}
+
 /**
  * Send `messages` (from buildExpoMessages) to Expo, EXPO_CHUNK_SIZE per
  * request. Never throws: the result holds one entry per message, in order,
  * as parseExpoTickets describes. A request that gets no tickets back marks
  * each of its messages failed with the transport error ('timeout',
  * 'network', 'http_<status>' plus Expo's error code when it gives one, or
- * 'bad_response') and no strike; the other chunks are still sent.
+ * 'bad_response') and no strike; the other chunks are still sent. A request
+ * refused for mixing Expo projects is split until each part holds one
+ * project's tokens (sendChunk), so one foreign token fails only its own part.
  *
  * `accessToken` is the project's Expo access token (EXPO_ACCESS_TOKEN), sent
  * as a Bearer token when set. With "enhanced push security" on for the
@@ -281,27 +313,15 @@ export async function sendExpoPush({ messages, fetchImpl = globalThis.fetch, tim
     'Content-Type': 'application/json',
   }
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  const post = (batch) =>
+    fetchUpstreamJson('Expo', EXPO_PUSH_SEND_URL, {
+      fetchImpl,
+      timeoutMs,
+      init: { method: 'POST', headers, body: JSON.stringify(batch) },
+    })
   const results = []
   for (const batch of chunk(messages || [], EXPO_CHUNK_SIZE)) {
-    let body
-    try {
-      body = await fetchUpstreamJson('Expo', EXPO_PUSH_SEND_URL, {
-        fetchImpl,
-        timeoutMs,
-        init: { method: 'POST', headers, body: JSON.stringify(batch) },
-      })
-    } catch (err) {
-      const error = transportError(err)
-      for (const message of batch) results.push({ token: message.to, ok: false, error, gone: false, strike: false })
-      continue
-    }
-    if (!Array.isArray(body?.data)) {
-      for (const message of batch) {
-        results.push({ token: message.to, ok: false, error: 'bad_response', gone: false, strike: false })
-      }
-      continue
-    }
-    results.push(...parseExpoTickets(batch, body))
+    results.push(...(await sendChunk(batch, post, { left: MAX_SPLIT_REQUESTS })))
   }
   return results
 }
