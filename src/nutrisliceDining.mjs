@@ -92,6 +92,10 @@ const inFlight = new Map()
 // running for one, so the seven dates of a week share one download per meal.
 const weeks = new Map()
 const weekFetches = new Map()
+// Meal-weeks Nutrislice refused, per key, as { status, until }: asked again
+// only after FAILURE_RETRY_MS, so a week that keeps failing costs one request
+// every few minutes rather than one per call. Bounded like the weeks.
+const weekFailures = new Map()
 
 function apiBase() {
   return (process.env.NUTRISLICE_API_BASE || DEFAULT_API_BASE).replace(/\/$/, '')
@@ -618,12 +622,20 @@ function storeWeek(key, entry) {
   while (weeks.size > MAX_CACHE_WEEKS) weeks.delete(weeks.keys().next().value)
 }
 
+function rememberWeekFailure(key, failure) {
+  weekFailures.delete(key)
+  weekFailures.set(key, failure)
+  while (weekFailures.size > MAX_CACHE_WEEKS) weekFailures.delete(weekFailures.keys().next().value)
+}
+
 /**
  * One meal's week for a school, as { ok, status, week }. With `cache` the
  * processed week is kept per (slug, meal, week) for the cache TTL, so the
  * seven dates of a week cost one download per meal, and concurrent misses
- * share one fetch; `refresh` refetches it. A failure is never kept. Without
- * `cache` (buildDiningBase called directly, as the tests do) every call fetches.
+ * share one fetch; `refresh` refetches it. A failure is answered again from
+ * memory until FAILURE_RETRY_MS has passed (weekFailures), and never replaces
+ * a good week. Without `cache` (buildDiningBase called directly, as the tests
+ * do) every call fetches.
  */
 async function loadWeek(slug, meal, ymd, { fetchImpl, cache = false, refresh = false, nowMs = Date.now() } = {}) {
   const { year, month, day } = ymdParts(ymd)
@@ -639,11 +651,18 @@ async function loadWeek(slug, meal, ymd, { fetchImpl, cache = false, refresh = f
   // A cached week that somehow lacks the date (a week that is not Sunday to
   // Saturday) is refetched rather than trusted.
   if (!refresh && hit && nowMs < hit.expiresAt && hit.week.days.has(ymd)) return { ok: true, status: 200, week: hit.week }
+  const failure = weekFailures.get(key)
+  if (!refresh && failure && nowMs < failure.until) return { ok: false, status: failure.status, week: null }
   let pending = weekFetches.get(key)
   if (!pending) {
     pending = fetchWeek()
       .then((res) => {
-        if (res.ok) storeWeek(key, { week: res.week, expiresAt: nowMs + cacheMs() })
+        if (res.ok) {
+          storeWeek(key, { week: res.week, expiresAt: nowMs + cacheMs() })
+          weekFailures.delete(key)
+        } else {
+          rememberWeekFailure(key, { status: res.status, until: nowMs + FAILURE_RETRY_MS })
+        }
         return res
       })
       .finally(() => weekFetches.delete(key))
@@ -983,6 +1002,7 @@ export function __resetDiningCacheForTests() {
   inFlight.clear()
   weeks.clear()
   weekFetches.clear()
+  weekFailures.clear()
 }
 
 /** How many dates and weeks the caches hold, for the bound tests. */

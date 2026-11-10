@@ -29,6 +29,8 @@ const DEFAULT_DIGEST_CACHE_MS = 12 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const digests = new Map()
+// The digest request running for each key, which concurrent callers share.
+const digestFetches = new Map()
 
 function digestCacheMs() {
   const n = Number(process.env.NUTRISLICE_CACHE_MS)
@@ -75,30 +77,45 @@ function storeDigest(key, entry) {
   while (digests.size > MAX_CACHE_DIGESTS) digests.delete(digests.keys().next().value)
 }
 
-/**
- * One week's digest for a school and meal, cached for NUTRISLICE_CACHE_MS. A
- * failed refresh keeps serving the last good digest and tries again after
- * FAILURE_RETRY_MS; with nothing cached it answers null.
- */
-async function loadDigest(slug, meal, sundayYmd, { fetchImpl, nowMs }) {
-  const key = `${slug}|${meal}|${sundayYmd}`
-  const hit = digests.get(key)
-  if (hit && nowMs < hit.expiresAt) return hit.days
+// A digest's days, or null when Nutrislice did not answer with a list.
+async function fetchDigest(slug, meal, sundayYmd, fetchImpl) {
   const { year, month, day } = ymdParts(sundayYmd)
   const res = await fetchNutrisliceJson(
     `/menu/api/weeks/digest/school/${encodeURIComponent(slug)}/menu-type/${encodeURIComponent(meal)}/date/${year}/${month}/${day}/`,
     fetchImpl,
   )
-  if (!res.ok || !Array.isArray(res.data)) {
-    if (hit) {
-      storeDigest(key, { ...hit, expiresAt: nowMs + FAILURE_RETRY_MS })
-      return hit.days
-    }
-    return null
+  return res.ok && Array.isArray(res.data) ? parseDigest(res.data, meal) : null
+}
+
+/**
+ * One week's digest for a school and meal, cached for NUTRISLICE_CACHE_MS. A
+ * failed refresh keeps serving the last good digest and tries again after
+ * FAILURE_RETRY_MS. With nothing cached it answers null, and that failure is
+ * remembered for FAILURE_RETRY_MS as well: the look-ahead is a public read, so
+ * a week Nutrislice keeps refusing used to cost a request on every page view.
+ * Concurrent callers for a key share one request.
+ */
+async function loadDigest(slug, meal, sundayYmd, { fetchImpl, nowMs }) {
+  const key = `${slug}|${meal}|${sundayYmd}`
+  const hit = digests.get(key)
+  if (hit && nowMs < hit.expiresAt) return hit.days
+  let pending = digestFetches.get(key)
+  if (!pending) {
+    pending = fetchDigest(slug, meal, sundayYmd, fetchImpl)
+      .then((days) => {
+        if (days === null) {
+          // The last good digest, or null, until the next try.
+          const kept = hit?.days ?? null
+          storeDigest(key, { days: kept, expiresAt: nowMs + FAILURE_RETRY_MS })
+          return kept
+        }
+        storeDigest(key, { days, expiresAt: nowMs + digestCacheMs() })
+        return days
+      })
+      .finally(() => digestFetches.delete(key))
+    digestFetches.set(key, pending)
   }
-  const days = parseDigest(res.data, meal)
-  storeDigest(key, { days, expiresAt: nowMs + digestCacheMs() })
-  return days
+  return pending
 }
 
 /**
@@ -159,4 +176,5 @@ export async function getDiningUpcoming({ now = new Date(), fetchImpl, weeks = D
 
 export function __resetDiningHeadlinersForTests() {
   digests.clear()
+  digestFetches.clear()
 }
