@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { DIGEST_MEALS, DIGEST_WEEKS, TENTATIVE_AFTER_DAYS, __resetDiningHeadlinersForTests, getDiningUpcoming, parseDigest } from '../src/diningHeadliners.mjs'
-import { __resetDiningCacheForTests, weekSpecials } from '../src/nutrisliceDining.mjs'
+import { FAILURE_RETRY_MS, __resetDiningCacheForTests, weekSpecials } from '../src/nutrisliceDining.mjs'
 
 const load = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
 const SCHOOLS = load('nutrislice-schools.json')
@@ -140,6 +140,49 @@ test('a digest outage keeps the last good digest, and with nothing cached the we
   assert.equal(cold.ok, true)
   // Only this week's specials remain, Wednesday to Saturday.
   assert.deepEqual(cold.days.map((d) => d.date), ['2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17'])
+})
+
+// GET /api/dining/upcoming is a public read. A digest or meal-week Nutrislice
+// kept refusing was not remembered, so every page view, and every one of a
+// burst at once, asked for it again from the server's one address.
+test('a digest refused with nothing cached is asked for once per FAILURE_RETRY_MS, however often the look-ahead is read', async () => {
+  assert.equal(FAILURE_RETRY_MS, 5 * 60 * 1000)
+  const { fetchImpl, calls } = stubFetch({ digestDown: true })
+  const digestCalls = () => calls.filter((u) => u.includes('/digest/')).length
+  await getDiningUpcoming({ now: at('08:00'), fetchImpl })
+  // Tower's lunch (503) and dinner (404 here) for seven weeks each.
+  assert.equal(digestCalls(), 2 * DIGEST_WEEKS)
+
+  await getDiningUpcoming({ now: at('08:01'), fetchImpl })
+  await Promise.all(Array.from({ length: 5 }, () => getDiningUpcoming({ now: at('08:02'), fetchImpl })))
+  assert.equal(digestCalls(), 2 * DIGEST_WEEKS)
+
+  // Once the retry time has passed, each is asked for once more.
+  await getDiningUpcoming({ now: at('08:06'), fetchImpl })
+  assert.equal(digestCalls(), 4 * DIGEST_WEEKS)
+})
+
+test('concurrent look-aheads on a cold cache share one request per digest', async () => {
+  const { fetchImpl, calls } = stubFetch({ digestDown: true })
+  const ups = await Promise.all(Array.from({ length: 5 }, () => getDiningUpcoming({ now: at('09:00'), fetchImpl })))
+  assert.ok(ups.every((up) => up.ok))
+  assert.equal(calls.filter((u) => u.includes('/digest/')).length, 2 * DIGEST_WEEKS)
+})
+
+test('a meal-week Nutrislice refuses is asked for again only after FAILURE_RETRY_MS', async () => {
+  // The stub serves Tower's lunch week and answers 404 for its other meals.
+  const { fetchImpl, calls } = stubFetch()
+  const refusedWeeks = () => calls.filter((u) => u.includes('/weeks/school/') && !u.includes('/digest/') && !u.includes('/menu-type/lunch/')).length
+  await getDiningUpcoming({ now: at('12:00'), fetchImpl })
+  const once = refusedWeeks()
+  assert.ok(once > 0, 'Tower lists meals besides lunch')
+
+  await getDiningUpcoming({ now: at('12:01'), fetchImpl })
+  await weekSpecials('2026-10-14', { now: at('12:02'), fetchImpl })
+  assert.equal(refusedWeeks(), once)
+
+  await weekSpecials('2026-10-14', { now: at('12:06'), fetchImpl })
+  assert.equal(refusedWeeks(), 2 * once)
 })
 
 test('without a snapshot there is nothing to look ahead from', async () => {

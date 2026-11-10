@@ -75,7 +75,7 @@ owner's call (`contact@circuitpress.org`) and outside issue #470.
   header, when there is one (on 2026-10-17, the Fall 2026 Club Guide).
 
 The widget id is `campus-news` in `src/dashboardLayout.mjs`: half width and
-visible in the default layout, after the board. A saved layout gets a new
+visible in the default layout, after Smart alerts. A saved layout gets a new
 catalogue widget appended hidden (`normalizeLayout` in `src/widgetLayout.mjs`),
 so students who already arranged their dashboard turn it on from Customize,
 and new students see it.

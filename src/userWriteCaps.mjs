@@ -25,12 +25,16 @@ export const MAX_DRAFT_CAMPAIGNS = 20
 // Clubs a student follows (issue #16): every Events and Free Food read loads
 // them, so the cap is low. No student needs a hundred.
 export const MAX_CLUB_FOLLOWS = 100
+// Linked calendars a student keeps: each one is fetched by the hourly re-sync
+// and its items read on every dashboard load. A student links one or two.
+export const MAX_LINKED_SOURCES = 20
 
 export const MANUAL_TASKS_CAP_MESSAGE = `You can keep up to ${MAX_MANUAL_TASKS} tasks. Delete some you no longer need to add more.`
 export const GRADES_CAP_MESSAGE = `You can track up to ${MAX_GRADES} courses. Remove some to add more.`
 export const DINING_FAVORITES_CAP_MESSAGE = `You can save up to ${MAX_DINING_FAVORITES} favorites. Remove some to add more.`
 export const DRAFT_CAMPAIGNS_CAP_MESSAGE = `You can keep up to ${MAX_DRAFT_CAMPAIGNS} draft campaigns. Submit or end a draft before creating another.`
 export const CLUB_FOLLOWS_CAP_MESSAGE = `You can follow up to ${MAX_CLUB_FOLLOWS} clubs. Unfollow some to follow more.`
+export const LINKED_SOURCES_CAP_MESSAGE = `You can link up to ${MAX_LINKED_SOURCES} calendars. Remove one you no longer use to add another.`
 
 /**
  * True when a caller who already owns `count` rows may not add another, i.e.

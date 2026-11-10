@@ -123,7 +123,7 @@ code starts reading a name that file does not list (issue #210).
 | `TRUST_PROXY` | `1` trusts the `X-Forwarded-For` chain outside production, so `req.ip` is the real client and rate-limit buckets are per client. Production always trusts the proxy |
 | `BACKEND_PUBLIC_URL` | Public base URL the backend uses for links to itself. Defaults to `BETTER_AUTH_URL`, then `http://HOST:PORT` |
 | `PURDUE_CAS_LOGIN_URL`, `PURDUE_CAS_VALIDATE_URL` | Required when `PURDUE_AUTH_MODE=cas`; not read in `mock` mode |
-| `ADMIN_EMAILS` | Comma-separated addresses that get the admin pages and the moderation routes |
+| `ADMIN_EMAILS` | Comma-separated addresses that get the admin pages and the moderation routes. Whichever account holds a listed address is an admin, so no password sign-up (403 `email-reserved`) and no Settings email change (400) may take one; a new account for one needs a Google sign-in. List only addresses whose account already exists and is yours |
 | `APPLE_TEAM_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY`, `APPLE_SIGN_IN_SERVICES_ID` | Needed for the App Store release: deleting an account revokes the Sign in with Apple token the native app sends, as Apple asks. The Team ID, the Key ID and `.p8` contents of a key with Sign in with Apple enabled, and the Services ID listed first in Supabase's Apple provider, all from the Apple Developer account. Blank, deletion still works and its answer says the token was not revoked. See [docs/sign-in-with-apple.md](docs/sign-in-with-apple.md) |
 | `DEMO_CALENDARS` | `on` (default; only `off`, `0` or `false` turn it off). The demo Purdue timetable and Brightspace calendar for the App Review account: `<origin>/api/demo/calendars/purdue-timetable.ics` and `<origin>/api/demo/calendars/brightspace.ics`, with `<origin>` either `CLIENT_APP_URL` or `BACKEND_PUBLIC_URL`. Pasted into Setup, either link fills only the account that added it, from a feed the server builds itself with no fetch. Off, new demo links are refused, those already added fail their sync, and both links answer 404. See [docs/demo-calendars.md](docs/demo-calendars.md) |
 | `BOARD_BLOCKED_WORDS` | Extra comma-separated blocked words for the community text filter (board, guide, lost and found, study groups, marketplace, friend bio), added to the built-in list. Read once at first use |
@@ -360,6 +360,7 @@ file in `db/`; running it in order satisfies each file's dependencies.
 57. *(optional, production only)* `db/supabase-push-fast-tick.sql` - a commented `pg_cron` block that calls `POST /api/internal/push/fast-tick` every minute with `PUSH_CRON_SECRET`, as step 30's block calls the reminder run (every 30 seconds until 2026-11-03, when production moved the job with the `cron.alter_job` the file shows, which leaves the secret alone); replace the placeholder and run the block in the production project only. Needs the `pg_cron` and `pg_net` extensions from step 29. Creates nothing as committed; idempotent once run (`cron.schedule` updates the job in place). Until it runs nothing breaks: campus alerts are not pushed, Track this bus gets no updates (step 58), and the banners work as before. Already applied to production on 2026-11-03. See [docs/campus-alerts.md](docs/campus-alerts.md#push-notifications).
 58. *(optional)* `db/supabase-live-activities.sql` - adds `live_activities`, one row per Track this bus Live Activity the app starts (issue #550; boilerindy-app#173, item 5): its APNs push token, the APNs environment, the stop and route it follows, its 30-minute end, and the claim that keeps each update to one push. `POST /api/live-activities` writes it, signed in or out, and the fast tick sends the updates over APNs once `APNS_KEY_P8`, `APNS_KEY_ID` and `APNS_TEAM_ID` are set. Needs step 1. Idempotent and safe to rerun. It adds a table, so re-run step 50 afterwards, and re-run step 51 for its 1-day retention. Until it runs nothing breaks: `POST /api/live-activities` answers 503 `live_activities_schema_missing`, the tick sends nothing, and the log names the file once. Already applied to production on 2026-11-03. See [docs/push-notifications.md](docs/push-notifications.md#track-this-bus-the-live-activity).
 59. `db/supabase-calendar-reminders.sql` - adds `users.calendar_reminders_off`, off by default: while it is off, a student with no calendar connected lands on Setup after signing in and sees Home's Finish Setup card, and the app's sign-in reminder asks too (Antoniodeoliveirasegura/boilerindy-app#150). "Don't ask again" on Setup and the "Remind me to connect calendars" switch in Settings set it on the account, so the choice holds on every device; it used to live only in the browser that saved it (`pih-skip-setup`), and such a browser carries it over to the account once. Needs step 1. Adds a column, not a table, so step 50 needs no re-run; idempotent and safe to rerun, and existing accounts read `false`. Until it runs nothing breaks: every account reads reminders on, a "Don't ask again" still holds in the browser that saved it, and turning reminders off answers 503 `calendar_reminders_schema_missing`. Already applied to production on 2026-11-03.
+60. *(optional, advertiser portal)* `db/supabase-advertiser-password-changed-at.sql` - adds `advertisers.password_changed_at`, the advertiser portal's version of step 5: a password reset, an admin re-provision (`POST /api/admin/advertisers` for an existing email) and `scripts/create-advertiser.mjs` stamp it, and the portal refuses any advertiser session signed in before it, so a session from a leaked password or a former staff member's browser ends when the owner recovers the account. Needs step 23. Adds a column, not a table, so step 50 needs no re-run; idempotent and safe to rerun. Until it runs nothing breaks: a reset still changes the password, the server log names this file, and older advertiser sessions keep working as before.
 
 All files are safe to re-run (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP TRIGGER IF EXISTS`).
 
@@ -403,6 +404,7 @@ Do not merge dev-only env variables into `main`. Production secrets are configur
 
 - Framework: Express
 - Session: `express-session` (cookie-based, `httpOnly`, `sameSite: lax`)
+- Cross-site writes: any `POST`, `PUT`, `PATCH` or `DELETE` a browser sends from another site gets 403 `cross_site_request` (`src/crossSiteWrites.mjs`), and request bodies are parsed as JSON only, so another site's form cannot sign a visitor in or out
 - Database: Supabase (Postgres via `@supabase/supabase-js`)
 - Auth: local email/password + optional Purdue CAS
 - External integrations: Nutrislice dining API, TransLoc transit API, Groq (AI)
@@ -539,14 +541,22 @@ already landed on `develop` is not rewritten; it goes on the short exemption
 list in `scripts/lib/conventions.mjs`, by full SHA with the reason.
 
 **pnpm only.** Both `package.json` files refuse `npm install` and `yarn` through
-an `only-allow` preinstall script, so a foreign lockfile or a differently
-resolved `node_modules` cannot happen by accident.
+a preinstall script that reads `npm_config_user_agent` (no package is
+downloaded to do it), so a foreign lockfile or a differently resolved
+`node_modules` cannot happen by accident.
 
-**Committed git hooks.** `pnpm install` at the repo root points `core.hooksPath`
-at `.githooks/` (the `prepare` script), so from then on `git commit` runs the
-dash scan on the staged files and the trailer check on the message before
-anything reaches CI. `git commit --no-verify` skips them once; CI still runs the
-same checks. `pnpm run check:conventions` runs them by hand over the tracked
+**Committed git hooks.** `pnpm install` at the repo root (the `prepare` script,
+`scripts/setup-git-hooks.mjs`) copies the hooks in `.githooks/` into the
+clone's own hooks directory, `.git/hooks`, which every worktree shares, with a
+copy of the checker they run. From then on `git commit` runs the dash scan on
+the staged files and the trailer check on the message before anything reaches
+CI. The copies sit outside every working tree, so checking out a branch, an
+outside contributor's included, can neither add a hook nor change what one
+runs. After `.githooks/` or the checker changes, run
+`node scripts/setup-git-hooks.mjs` (a warm `pnpm install` can skip `prepare`);
+in a clone set up before this, that also removes the old
+`core.hooksPath=.githooks`. `git commit --no-verify` skips the hooks once; CI
+still runs the same checks. `pnpm run check:conventions` runs them by hand over the tracked
 files and the commits not yet on `origin/develop`. The rules live in
 `scripts/lib/conventions.mjs` and are pinned by `test/conventions.test.mjs`, so
 they are the same for everyone, whatever editor or AI assistant wrote the change.

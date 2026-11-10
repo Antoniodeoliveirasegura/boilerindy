@@ -11,12 +11,22 @@ schedule.
 - `POST /api/internal/sources/resync` (`src/routes/sources.mjs`),
   bearer-authenticated with `PUSH_CRON_SECRET`, the same token as the reminder
   runner. With the secret unset the route does not exist.
-- `src/sourceResync.mjs` lists up to 200 `linked_sources` rows in `ready`,
-  `pending` or `error` status, oldest sync first, and picks the ones that are
+- `src/sourceResync.mjs` lists `linked_sources` rows in `ready`, `pending` or
+  `error` status in two reads of up to 200 rows each: sources that have
+  synced, oldest sync first, and sources that never have (a first sync that
+  failed or never finished), oldest attempt first. It picks the ones that are
   due:
   - `ready` / `pending`: never synced, or last synced more than 6 hours ago;
   - `error`: last attempt more than 24 hours ago, so an expired link is
     retried daily instead of every tick (the student can still press Sync).
+- Sources that have synced go first, then the never-synced ones, whose
+  retries take turns by their last attempt. One account takes at most 2
+  places a tick (`DEFAULT_PER_USER`), enough for a student's class schedule
+  and Brightspace calendar together. Until 2026-11-07 one window, ordered
+  never-synced first, held both kinds: about 200 links that never worked, from
+  one account or several, filled it, and every other student's feed stopped
+  re-syncing. An account also keeps at most 20 linked calendars (row caps in
+  [RATE_LIMITS.md](RATE_LIMITS.md#row-caps)).
 - At most 4 sources per tick (15 until 2026-11-03, see [Tuning](#tuning)), synced one at a time with the same
   `runScheduleSync` the manual buttons use (SSRF-safe fetch, host allowlist,
   atomic replace of the items). A sync that fails marks its source `error`
@@ -73,5 +83,7 @@ run every 6 hours. Four spread that wave over three hourly runs. With more than
 about 24 active sources (4 per hour, 6-hour staleness) the oldest wait longer
 than 6 hours, which `deferred` and a growing `due` in the `[resync]` log show;
 raise the batch or the cron frequency once the database has memory to spare.
-`truncated: true` in the summary means more than 200 candidates were listed and
-the cap should rise too.
+`truncated: true` in the summary means one of the two reads came back full (200
+rows): more sources than that have synced, and the cap should rise too, or
+that many never have, which is a pile of dead links worth a look in the
+database.

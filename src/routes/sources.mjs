@@ -5,15 +5,25 @@ import { createCalendarItemStore } from '../calendarItemStore.mjs'
 import { isTransientFailure, retryOnceIfTransient, runCronTick } from '../cronTick.mjs'
 import { buildDemoCalendar, demoCalendarFileOf, matchDemoCalendarUrl } from '../demoCalendars.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
+import { LINKED_SOURCES_CAP_MESSAGE, MAX_LINKED_SOURCES, capCheck } from '../userWriteCaps.mjs'
 import {
   cancelCalendarCapture,
   getCalendarCaptureJob,
   isCalendarAutomationEnabled,
   startCalendarCapture,
 } from '../purdueCalendarAutomation.mjs'
-import { classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText, planSync } from '../scheduleSync.mjs'
+import {
+  FEED_TOO_MANY_EVENTS,
+  MAX_FEED_EVENTS,
+  classifyFetchError,
+  countFeedEvents,
+  detectTimezoneFromFeed,
+  expandRecurringEvents,
+  icalText,
+  planSync,
+} from '../scheduleSync.mjs'
 import { runSourceResync } from '../sourceResync.mjs'
-import { assertHostAllowed, assertSafeHttpUrl, safeFetchIcsText } from '../urlSafety.mjs'
+import { FeedRefusedError, PROVIDER_NOT_ALLOWED, assertHostAllowed, assertSafeHttpUrl, safeFetchIcsText } from '../urlSafety.mjs'
 
 // Linked calendar sources (issues #12 and #120): connecting a Brightspace or
 // Purdue Timetabling iCal feed, syncing and deleting it, the dev-only debug
@@ -32,11 +42,33 @@ function validateSourceUrl(sourceUrl) {
 
 // Hard host allowlist per schedule provider: the ONLY line of defense left once a
 // URL passes assertSafeHttpUrl, and what stops an attacker supplying a rebindable
-// hostname. A source type absent from this map is rejected (fail closed).
+// hostname. It is checked when a source is added and again on every fetch, for
+// the stored link and each redirect hop (safeFetchIcsText), so neither a redirect
+// nor a link stored before the list was enforced reaches another host. A source
+// type absent from this map is rejected (fail closed).
 const SCHEDULE_SOURCE_HOSTS = {
   purdue_schedule_ical: ['purdue.edu'],
   brightspace_ical: ['brightspace.com', 'd2l.com', 'desire2learn.com'],
 }
+
+// A source's name: the label sent, trimmed and cut to this many characters,
+// or the provider's own name. The web app sends a short fixed label.
+const MAX_SOURCE_LABEL = 100
+const DEFAULT_SOURCE_LABELS = { purdue_schedule_ical: 'Schedule', brightspace_ical: 'Brightspace Calendar' }
+
+function sourceLabel(label, sourceType) {
+  const text = typeof label === 'string' ? label.trim().slice(0, MAX_SOURCE_LABEL).trim() : ''
+  return text || DEFAULT_SOURCE_LABELS[sourceType] || 'Schedule'
+}
+
+// The linked calendar cap's refusal: the create routes answer it with 409,
+// as the other row caps do, and every other failure with 400.
+function linkedSourcesCapError() {
+  const error = new Error(LINKED_SOURCES_CAP_MESSAGE)
+  error.status = 409
+  return error
+}
+const createFailureStatus = (error) => (error?.status === 409 ? 409 : 400)
 
 /**
  * GET /api/demo/calendars/:file, a demo calendar's text (src/demoCalendars.mjs,
@@ -166,11 +198,23 @@ export function createSourcesRouter({
 
   // A demo calendar source is built here and never fetched, whatever
   // DEMO_CALENDARS says: switched off, its sync fails as a dead feed would.
-  async function feedText(sourceUrl) {
-    const file = demoCalendarFileOf(sourceUrl)
-    if (!file) return safeFetchIcsText(sourceUrl)
+  // Any other source is fetched only from its provider's hosts.
+  async function feedText(source) {
+    const file = demoCalendarFileOf(source.source_url)
+    if (!file) {
+      const allowedHosts = SCHEDULE_SOURCE_HOSTS[source.source_type]
+      if (!allowedHosts) throw new FeedRefusedError(PROVIDER_NOT_ALLOWED)
+      return safeFetchIcsText(source.source_url, { allowedHosts })
+    }
     if (!demoCalendarsEnabled) throw new Error('Demo calendars are turned off on this server.')
     return buildDemoCalendar(file)
+  }
+
+  // A feed listing more events than one import takes is refused before
+  // node-ical builds them.
+  function parseFeed(icsText) {
+    if (countFeedEvents(icsText) > MAX_FEED_EVENTS) throw new FeedRefusedError(FEED_TOO_MANY_EVENTS)
+    return ical.async.parseICS(icsText)
   }
 
   // retryTransient: the background re-sync gives a transient feed failure one
@@ -182,11 +226,11 @@ export function createSourcesRouter({
 
     let eventsByKey
     try {
-      const fetchFeed = () => feedText(source.source_url)
+      const fetchFeed = () => feedText(source)
       const icsText = retryTransient
         ? await retryOnceIfTransient('[runScheduleSync] source=' + sourceId, fetchFeed)
         : await fetchFeed()
-      eventsByKey = await ical.async.parseICS(icsText)
+      eventsByKey = await parseFeed(icsText)
     } catch (fetchError) {
       const classified = classifyFetchError(fetchError)
       if (isTransientFailure(fetchError)) warnFeedTransient(sourceId, fetchError)
@@ -196,6 +240,12 @@ export function createSourcesRouter({
     }
 
     const plan = planSync(eventsByKey, source)
+
+    // Over the item limit: nothing is written, and stored items stay as they were.
+    if (plan.sourceStatus === 'error') {
+      await calendarItemStore.setStatus(sourceId, 'error', plan.statusMessage)
+      throw new Error(plan.statusMessage)
+    }
 
     // Empty feed parsed cleanly: leave any existing items untouched (prior behaviour).
     if (plan.meta.rawCount === 0) {
@@ -242,6 +292,17 @@ export function createSourcesRouter({
       assertHostAllowed(icsUrl, allowedHosts)
       sourceUrl = await validateSourceUrl(icsUrl)
     }
+
+    // Row cap (MAX_LINKED_SOURCES, docs/RATE_LIMITS.md "Row caps"): counted
+    // right before the insert; a failed count lets the write through.
+    const countResult = await supabase
+      .from('linked_sources')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+    const cap = capCheck(countResult, MAX_LINKED_SOURCES)
+    if (cap.failure) console.error('[createScheduleSource]', cap.failure, countResult.error)
+    if (cap.blocked) throw linkedSourcesCapError()
+
     const timestamp = new Date().toISOString()
     const id = crypto.randomUUID()
 
@@ -251,7 +312,7 @@ export function createSourcesRouter({
         id,
         user_id: userId,
         source_type: sourceType,
-        label: (label || 'Schedule').trim() || 'Schedule',
+        label: sourceLabel(label, sourceType),
         source_url: sourceUrl,
         status: 'pending',
         created_at: timestamp,
@@ -281,8 +342,7 @@ export function createSourcesRouter({
     }
 
     try {
-      const icsText = await feedText(source.source_url)
-      const eventsByKey = await ical.async.parseICS(icsText)
+      const eventsByKey = await parseFeed(await feedText(source))
       const rawEvents = Object.values(eventsByKey).filter((item) => item?.type === 'VEVENT')
       const detectedTimezone = detectTimezoneFromFeed(eventsByKey)
       
@@ -390,7 +450,8 @@ export function createSourcesRouter({
       res.status(201).json({ source: await getSourceForUser(source.id, userId), sync })
     } catch (error) {
       console.error(`[/api/sources/purdue/schedule] User ${userId} error:`, error?.message || error)
-      res.status(400).json({ error: { message: error.message || 'Could not connect the Purdue schedule source.', status: 400 } })
+      const status = createFailureStatus(error)
+      res.status(status).json({ error: { message: error.message || 'Could not connect the Purdue schedule source.', status } })
     }
   })
 
@@ -412,9 +473,9 @@ export function createSourcesRouter({
 
     try {
       console.log(`[/api/sources/brightspace/schedule] User ${userId} creating source...`)
-      const source = await createScheduleSource(userId, { 
-        icsUrl: trimmedUrl, 
-        label: label || 'Brightspace Calendar',
+      const source = await createScheduleSource(userId, {
+        icsUrl: trimmedUrl,
+        label,
         sourceType: 'brightspace_ical'
       })
       
@@ -425,7 +486,8 @@ export function createSourcesRouter({
       res.status(201).json({ source: await getSourceForUser(source.id, userId), sync })
     } catch (error) {
       console.error(`[/api/sources/brightspace/schedule] User ${userId} error:`, error?.message || error)
-      res.status(400).json({ error: { message: error.message || 'Could not connect the Brightspace calendar.', status: 400 } })
+      const status = createFailureStatus(error)
+      res.status(status).json({ error: { message: error.message || 'Could not connect the Brightspace calendar.', status } })
     }
   })
 
@@ -487,7 +549,8 @@ export function createSourcesRouter({
   // due dates fresh without the student pressing "Sync all". Called hourly by
   // the pg_cron job in db/supabase-source-resync.sql with the same bearer token
   // as the reminder runner. Sequential per run (one upstream fetch at a time),
-  // 4 sources per tick, oldest first; a tick already in flight answers 409.
+  // 4 sources per tick, synced ones first and oldest first, at most 2 per
+  // account (src/sourceResync.mjs); a tick already in flight answers 409.
   // The candidate listing gets one retry on a transient Supabase failure, and
   // each feed fetch one retry on a transient failure of the feed host.
   let sourceResyncInFlight = false

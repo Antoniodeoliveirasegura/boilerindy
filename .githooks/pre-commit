@@ -1,5 +1,12 @@
 #!/bin/sh
-# Committed hook, activated by `pnpm install` (root package.json "prepare"
-# points core.hooksPath here). Runs the same em/en dash scan as CI on the
-# staged files only. Skip it once with `git commit --no-verify`; CI still runs.
-exec node scripts/check-conventions.mjs dashes --staged
+# Committed hook. `pnpm install` (root package.json "prepare", which runs
+# scripts/setup-git-hooks.mjs) copies it into the clone's hooks directory
+# beside a copy of the checker, so no checked-out branch can add a hook or
+# change what this one runs. Runs the same em/en dash scan as CI on the staged
+# files only. Skip it once with `git commit --no-verify`; CI still runs.
+checker="$(dirname "$0")/boilerindy-conventions/check-conventions.mjs"
+if [ ! -f "$checker" ]; then
+  echo "git hooks: run node scripts/setup-git-hooks.mjs to reinstall the hooks; skipping the dash check" >&2
+  exit 0
+fi
+exec node "$checker" dashes --staged

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase, updateUserPassword } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { authRequest, parseNextPath } from '../lib/authApi'
+import { reregisterThisDevice } from '../lib/push'
 import BrandMark from '../components/BrandMark'
 import Icon from '../components/Icons'
 import StatusBanner from '../components/StatusBanner'
@@ -105,6 +106,9 @@ export default function ResetPassword() {
         console.warn('Could not sign out other sessions after the reset:', error)
       }
       await establishSession()
+      // The reset ended every push channel of the account; this browser keeps
+      // its own, now that it has a session to register with.
+      void reregisterThisDevice()
       navigate(parseNextPath(''), { replace: true })
     } catch (error) {
       setMessage(

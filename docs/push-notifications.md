@@ -31,6 +31,25 @@ APNs: see [Track this bus](#track-this-bus-the-live-activity).
    names, `/assignments?taskId=<id>&taskKind=calendar|manual`, where the
    Assignments page opens that task's details.
 
+### When a channel ends
+
+A browser subscription or a phone token belongs to the account, not to the
+session that registered it, so each one is ended on purpose:
+
+- **Sign-out.** The web app unsubscribes the browser and deletes its row
+  (`unsubscribeThisDevice`) before it ends the session, so on a shared computer
+  the next person sees none of the student's reminders. The phone app removes
+  its token at sign-out the same way. The student turns notifications on again
+  after signing back in.
+- **Password change.** A new password, from Settings or a reset link, ends
+  every channel of the account (`forgetPushChannels` in
+  `src/pushChannels.mjs`), as it ends every older session (#132). Without
+  that, an endpoint or token planted through a stolen session kept receiving
+  the student's reminders after the password changed. The browser that made
+  the change registers its own subscription again right away
+  (`reregisterThisDevice`), and the phone app registers again on its next
+  launch.
+
 The push protocol is implemented in `src/webPush.mjs` with `node:crypto` only:
 VAPID (RFC 8292) ES256 tokens and `aes128gcm` payload encryption (RFC 8291 and
 RFC 8188). `test/webPush.test.mjs` pins the encryption to the RFC 8291
@@ -86,7 +105,7 @@ All routes except `config`, `/api/live-activities`, `run-reminders` and `fast-ti
 | `GET /api/push/config` | `{ enabled, publicKey, kinds: { version, digest }, campusAlertPush, liveActivities }` | Public; `public-read` rate limit. `kinds` is the [kind registry](#kind-registry)'s version and digest, reported with push on or off. `campusAlertPush` is true while campus alerts are pushed (push on, and `CAMPUS_ALERTS` and `CAMPUS_ALERT_PUSH` on), so a client offers that choice only then. `liveActivities` is true while Track this bus runs (the `APNS_*` variables set, push on, and `bus-live-activity` not in `PUSH_KINDS_OFF`), so the app offers it only then. |
 | `GET /api/push/settings` | `{ enabled, settings: { deadlineReminders, leadMinutes, diningFavoriteAlerts, classReminders, classLeadMinutes, digestMinute, deadlineItems, quietStart, quietEnd, campusAlerts, kindsMigrated }, diningAlertsAvailable, kindsAvailable, subscriptions: [{ id, createdAt, userAgent, lastUsedAt }], devices: [{ id, platform, deviceName, createdAt, lastSeenAt, localReminders, kinds }] }` | Endpoints and tokens are never returned. `devices` is empty until `db/supabase-push-devices.sql` runs; `diningAlertsAvailable` is false until `db/supabase-dining-favorite-alerts.sql` runs; `kindsAvailable` is false until `db/supabase-push-kinds.sql` runs, and until then the choices by kind read what that step will give the account; `localReminders` is false for every phone until `db/supabase-push-local-reminders.sql` runs. |
 | `PUT /api/push/settings` | Body `{ deadlineReminders?, leadMinutes?, diningFavoriteAlerts?, classReminders?, classLeadMinutes?, digestMinute?, deadlineItems?, quietStart?, quietEnd?, campusAlerts?, kindsMigrated? }`; answers `{ settings, diningAlertsAvailable, kindsAvailable }` | `leadMinutes` 5 to 10080; `classLeadMinutes` 5, 10, 15 or 30; `digestMinute`, `quietStart` and `quietEnd` minutes past midnight on campus (0 to 1439) or null; quiet hours change as a pair, a null pair for none; `kindsMigrated` only `true`, which stamps the account once. An evening list inside quiet hours answers 400. `push-write` limit. Shared by browsers and phones. `diningFavoriteAlerts` before its migration answers 503 `dining_alerts_schema_missing`, and a choice by kind before step 53 503 `push_kinds_schema_missing`. |
-| `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. |
+| `POST /api/push/subscriptions` | Body `{ subscription, userAgent }`, returns 201 | Upsert by endpoint; at most 10 devices per user. The endpoint must be an https URL on a browser push service (`PUSH_SERVICE_HOSTS` in `src/webPush.mjs`: FCM, Mozilla autopush, Apple, WNS) with the default port and no credentials, or the answer is 400. The sender applies the same check, so a stored row on any other host is deleted as gone at its next send, and it never follows a redirect. |
 | `DELETE /api/push/subscriptions` | Body `{ endpoint }`, returns `{ removed }` | |
 | `POST /api/me/push-token` | Body `{ token, platform, deviceName?, localReminders?, kinds?, channels?, kindsVersion?, redact?, activityStartToken? }`, returns 201 `{ device: { id, createdAt, localReminders, kinds, channels, kindsVersion, redact } }` | The native app. Upsert by token; at most 10 phones per user. `localReminders` defaults to false, and every registration replaces it and the rest. `push-write` limit. See [Native devices (Expo)](#native-devices-expo), [What a phone takes](#what-a-phone-takes-kinds-and-channels) and [Phones with local reminders](#phones-with-local-reminders). |
 | `DELETE /api/me/push-token` | Body `{ token }`, returns `{ removed }` | Only the student's own phone. `push-write` limit. |
@@ -432,6 +451,17 @@ What Expo answers, and what happens to the row:
 | `MessageTooBig` | Unchanged: the payload is ours, not the phone's. |
 | Any other error | One strike (`failure_count + 1`). A phone with five strikes is skipped, and the next reminder run deletes the row. |
 | No ticket (a timeout, a network failure, a 4xx or 5xx for the whole request) | Unchanged: an Expo outage says nothing about the phones. The messages count as failed, the reason is logged, and they are not retried. |
+
+One whole-request refusal is not an outage. Expo answers
+`PUSH_TOO_MANY_EXPERIENCE_IDS` when a request holds tokens of more than one
+Expo project, and any signed-in student can register a token from another
+project (a scratch app on their own phone). The campus alert sends every
+student's phones of one wording together, so that one token used to fail up to
+99 other phones. `sendExpoPush` now splits such a request in halves and sends
+each again, until every part holds one project's tokens, within
+`MAX_SPLIT_REQUESTS` (30) more requests a chunk; only the foreign token's part
+fails. Its row is left alone: Expo's answer is cut before it says which
+project is ours, so nothing here can tell which tokens to drop.
 
 Log lines name the error code only. An Expo push token is a capability
 (anyone holding one can notify that phone through Expo), so tokens are never

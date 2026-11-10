@@ -24,10 +24,15 @@ export function listAdminCampaigns(status = 'all'): Promise<unknown> {
   return authRequest(`/api/admin/campaigns${query}`)
 }
 
-export function updateAdminCampaign(id: string, { status }: { status: string }): Promise<unknown> {
+/**
+ * `updatedAt` is the campaign's own, as the list sent it: the server answers
+ * 409 when the advertiser changed the campaign since, so an approval always
+ * matches the creative the admin saw.
+ */
+export function updateAdminCampaign(id: string, { status, updatedAt }: { status: string; updatedAt: string }): Promise<unknown> {
   return authRequest(`/api/admin/campaigns/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, updatedAt }),
   })
 }
 

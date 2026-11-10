@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import express from 'express'
 import session from 'express-session'
 import { createAppleTokenRevoker } from '../../src/appleTokenRevoke.mjs'
+import { createCrossSiteWriteGuard } from '../../src/crossSiteWrites.mjs'
 import { createAuthRouter } from '../../src/routes/auth.mjs'
 import { createOnboardingSummaryCache } from '../../src/onboardingSummaryCache.mjs'
 import { hashPassword } from '../../src/passwordHash.mjs'
@@ -18,8 +19,10 @@ import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 // Issue #191: student auth, the profile and the Purdue link as a feature
 // router, booted on a small app behind the real express-session (a
 // MemoryStore under the server's cookie name, rolling as on the server) with
-// express.json, express.urlencoded and the req.body shim in front, so
-// regenerate, save and destroy and the cookie they send are the real ones.
+// server.mjs's cross-site write guard, express.json and the req.body shim in
+// front (the mock Purdue link route parses its own form body, as on the
+// server), so regenerate, save and destroy and the cookie they send are the
+// real ones.
 // getUserById, getCurrentUser and requireAuth read an in-memory users table
 // the way the server's do (getCurrentUser applies isSessionStale), the
 // Supabase client is the recording fake plus an `auth` fake, the limiters
@@ -76,7 +79,7 @@ const ROUTES = [
   ['POST', '/api/me/delete-account', {}],
 ]
 
-const TABLES = ['users', 'linked_sources', 'calendar_items', 'sign_in_challenges']
+const TABLES = ['users', 'linked_sources', 'calendar_items', 'sign_in_challenges', 'push_subscriptions', 'push_devices']
 
 // One table of the in-memory database, answering a recorded chain the way
 // PostgREST would: eq, neq and is filters, a head count, insert, update and
@@ -244,10 +247,11 @@ async function withApp(options, run) {
     next()
   }
   const admins = new Set(adminEmails)
+  const isAdminEmail = (email) => admins.has(String(email ?? '').trim().toLowerCase())
   const isUserAdmin = (user) => {
     if (!user?.email) return false
     if (user.is_admin) return true
-    return admins.has(String(user.email).trim().toLowerCase())
+    return isAdminEmail(user.email)
   }
   const linkCalls = []
   const linkPurdueIdentity = async (userId, { email }) => {
@@ -321,8 +325,8 @@ async function withApp(options, run) {
     }
   }
   const app = express()
+  app.use(createCrossSiteWriteGuard({ trustedOrigins: [CLIENT, BACKEND] }))
   app.use(express.json())
-  app.use(express.urlencoded({ extended: true }))
   // server.mjs's body shim (issue #291): Express 5 leaves req.body undefined on a bodyless request.
   app.use((req, _res, next) => {
     if (req.body === undefined) req.body = {}
@@ -351,6 +355,7 @@ async function withApp(options, run) {
       getCurrentUser,
       getUserById,
       isUserAdmin,
+      isAdminEmail,
       verifySupabasePassword,
       linkPurdueIdentity,
       onboardingSummaryCache,
@@ -613,6 +618,67 @@ test('the session payload: two head counts on a cache miss and none on a hit, is
   })
 })
 
+// ── Addresses ADMIN_EMAILS lists ────────────────────────────────────────────
+//
+// Whichever account holds an address ADMIN_EMAILS lists is an admin. While one
+// was unclaimed, a visitor could sign up with it, or a student move their own
+// account to it in Settings: neither proves the inbox.
+
+const ADMIN_ADDRESS = 'owner@example.com'
+const RESERVED = { error: { message: 'That email address is reserved. Sign in with Google to use it.', status: 403, code: 'email-reserved' } }
+
+test('a password sign-up cannot take an address ADMIN_EMAILS lists, however it is spelled', async () => {
+  await withApp({ seed: { users: [STUDENT] }, adminEmails: [ADMIN_ADDRESS] }, async ({ call, authCalls, db, sessions }) => {
+    for (const email of [ADMIN_ADDRESS, ' Owner@Example.COM ']) {
+      const res = await call('POST', '/api/auth/register-supabase', { body: { email, password: NEW_PASSWORD, name: 'Not The Owner' } })
+      assert.equal(res.status, 403, email)
+      assert.deepEqual(res.body, RESERVED)
+    }
+    assert.deepEqual(authCalls, [])
+    assert.equal(db.users.length, 1)
+    assert.deepEqual(await sessions(), [])
+  })
+})
+
+test('Settings cannot move an account to an address ADMIN_EMAILS lists, so the change grants no admin', async () => {
+  const gotrue = { 'pete@example.com': { id: U1, password: PASSWORD } }
+  await withApp({ seed: { users: [STUDENT] }, gotrue, adminEmails: [ADMIN_ADDRESS] }, async ({ call, sessionFor, authCalls, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    const res = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'Owner@Example.com', currentPassword: PASSWORD } })
+    assert.equal(res.status, 400)
+    assert.deepEqual(res.body, { error: { message: 'That email address is reserved.', status: 400 } })
+    assert.deepEqual(authCalls, [])
+    assert.equal(db.users[0].email, 'pete@example.com')
+    assert.equal((await call('GET', '/api/me/profile', { cookie })).body.user.isAdmin, false)
+
+    // Any other address still moves.
+    const moved = await call('PATCH', '/api/me/profile', { cookie, body: { email: 'pete2@example.com', currentPassword: PASSWORD } })
+    assert.equal(moved.status, 200)
+    assert.equal(db.users[0].email, 'pete2@example.com')
+  })
+})
+
+test('supabase-sync makes the account for an address ADMIN_EMAILS lists only from a Google sign-in, and that account then signs in with a password as before', async () => {
+  const OWNER = { id: U2, email: ADMIN_ADDRESS }
+  const passwordToken = fakeJwt(['password'])
+  const googleToken = fakeJwt(['oauth'])
+  const body = { supabaseUserId: U2, email: ADMIN_ADDRESS, provider: 'google' }
+  await withApp({ tokens: { [passwordToken]: OWNER, [googleToken]: OWNER }, adminEmails: [ADMIN_ADDRESS] }, async ({ call, db }) => {
+    // A Supabase user someone made for the address, with a password.
+    const refused = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${passwordToken}` } })
+    assert.equal(refused.status, 403)
+    assert.deepEqual(refused.body, RESERVED)
+    assert.equal(db.users.length, 0)
+
+    const made = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${googleToken}` } })
+    assert.equal(made.status, 200)
+    assert.equal(made.body.session.user.isAdmin, true)
+
+    const again = await call('POST', '/api/auth/supabase-sync', { body, headers: { Authorization: `Bearer ${passwordToken}` } })
+    assert.equal(again.status, 200)
+  })
+})
+
 // ── Register ────────────────────────────────────────────────────────────────
 
 test('register refuses a bad email, a short or long password, a bad name and a taken email, starting no session', async () => {
@@ -785,9 +851,10 @@ test('supabase-sync answers 401 without a token, for a bad token and for a token
       assert.equal(res.status, 401)
       assert.deepEqual(res.body, { error: { message: 'Token does not match the requested user.', status: 401 } })
     }
-    // The token may also come in the body.
-    const inBody = await call('POST', '/api/auth/supabase-sync', { body: { ...SYNC, supabaseUserId: U2, accessToken: 'good' } })
-    assert.deepEqual(inBody.body, { error: { message: 'Token does not match the requested user.', status: 401 } })
+    // A token in the body is ignored: only the Authorization header counts,
+    // which a form on another site cannot set.
+    const inBody = await call('POST', '/api/auth/supabase-sync', { body: { ...SYNC, accessToken: 'good' } })
+    assert.deepEqual(inBody.body, { error: { message: 'Missing access token.', status: 401 } })
     assert.equal(supabase.queries.length, 0)
     assert.deepEqual(await sessions(), [])
   })
@@ -860,6 +927,81 @@ test('supabase-sync updates an existing profile with only the fields sent', asyn
     assert.equal(db.users[0].display_name, 'Pete')
     assert.equal(db.users[0].avatar_url, 'https://img.example/old.png')
     assert.equal(db.users[0].auth_provider, 'google')
+  })
+})
+
+// A Supabase token whose session signed in by `method` at `atMs`, as its amr records it.
+function signedInToken(method, atMs) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  return `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method, timestamp: Math.floor(atMs / 1000) }] })}.sig`
+}
+const PASSWORD_CHANGED = { error: { message: 'Your password was changed. Sign in again.', status: 401, code: 'password-changed' } }
+
+test('supabase-sync opens no new session for a token that signed in before the password changed; a later sign-in and the session already held still sync', async () => {
+  // A stolen access or refresh token used to get a fresh cookie after the
+  // owner changed the password; the cookie sessions themselves ended (#132).
+  const changedAt = Date.now() - 10 * 60 * 1000
+  const before = signedInToken('password', changedAt - 60 * 60 * 1000)
+  const googleBefore = signedInToken('oauth', changedAt - 60 * 60 * 1000)
+  const after = signedInToken('password', changedAt + 60 * 1000)
+  const seed = { users: [{ ...STUDENT, password_changed_at: new Date(changedAt).toISOString() }] }
+  const tokens = { [before]: TOKEN_USER, [googleBefore]: TOKEN_USER, [after]: TOKEN_USER }
+  await withApp({ seed, tokens }, async ({ call, sessions, sessionFor }) => {
+    for (const token of [before, googleBefore]) {
+      const res = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: `Bearer ${token}` } })
+      assert.equal(res.status, 401)
+      assert.deepEqual(res.body, PASSWORD_CHANGED)
+    }
+    assert.deepEqual(await sessions(), [])
+
+    const fresh = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: `Bearer ${after}` } })
+    assert.equal(fresh.status, 200)
+    assert.equal(fresh.body.session.user.id, U1)
+
+    // A session this browser holds since the change is answered from, as before.
+    const cookie = await sessionFor({ userId: U1, authAt: new Date().toISOString() })
+    const held = await call('POST', '/api/auth/supabase-sync', { cookie, body: SYNC, headers: { Authorization: `Bearer ${before}` } })
+    assert.equal(held.status, 200)
+    assert.equal(held.body.reused, true)
+  })
+})
+
+test('a session supabase-sync opens is dated from before the token check, so a password change during the check leaves it stale', async () => {
+  await withApp({ seed: { users: [STUDENT] }, tokens: { good: TOKEN_USER } }, async ({ call, supabase, db }) => {
+    const getUser = supabase.auth.getUser
+    supabase.auth.getUser = async (token) => {
+      const answer = await getUser(token)
+      // The owner's password change lands while Supabase checks the token.
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      db.users[0].password_changed_at = new Date().toISOString()
+      return answer
+    }
+    const res = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: 'Bearer good' } })
+    assert.equal(res.status, 200)
+    assert.equal((await call('GET', '/api/me/profile', { cookie: res.cookie })).status, 401)
+  })
+})
+
+test('password-reset-complete signs in the browser that reset, and only that browser keeps syncing with the recovery token', async () => {
+  const recovery = signedInToken('recovery', Date.now() - 60 * 1000)
+  await withApp({ seed: { users: [STUDENT] }, tokens: { [recovery]: TOKEN_USER } }, async ({ call, sessions, sidOf, db }) => {
+    const reset = await call('POST', '/api/auth/password-reset-complete', { headers: { Authorization: `Bearer ${recovery}` } })
+    assert.equal(reset.status, 200)
+    const [stored] = await sessions()
+    assert.equal(stored.sid, sidOf(reset.cookie))
+    assert.equal(stored.userId, U1)
+    assert.equal(stored.authAt, db.users[0].password_changed_at)
+
+    // The sync ResetPassword posts next is answered from that session.
+    const here = await call('POST', '/api/auth/supabase-sync', { cookie: reset.cookie, body: SYNC, headers: { Authorization: `Bearer ${recovery}` } })
+    assert.equal(here.status, 200)
+    assert.equal(here.body.reused, true)
+    assert.equal((await call('GET', '/api/me/profile', { cookie: reset.cookie })).status, 200)
+
+    // The same recovery token signed in before the stamp, so it opens no
+    // session anywhere else.
+    const elsewhere = await call('POST', '/api/auth/supabase-sync', { body: SYNC, headers: { Authorization: `Bearer ${recovery}` } })
+    assert.deepEqual(elsewhere.body, PASSWORD_CHANGED)
   })
 })
 
@@ -1409,6 +1551,43 @@ test('sync gate: off, a password token still signs in; on, it is refused unless 
 })
 
 // ── Sign-out and account deletion ───────────────────────────────────────────
+
+test('a form posted from another site can neither sign a browser in nor sign it out', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: { 'pete@example.com': { id: U1, password: PASSWORD } }, tokens: { good: TOKEN_USER } }, async ({ call, sessionFor, sessions }) => {
+    const crossSite = { 'Sec-Fetch-Site': 'cross-site', Origin: 'https://other.example' }
+    const refused = { error: { message: 'Cross-site request refused.', status: 403, code: 'cross_site_request' } }
+    const cookie = await sessionFor({ userId: U1 })
+    const logged = await quietly(async () => {
+      const sync = await call('POST', '/api/auth/supabase-sync', { form: { ...SYNC, accessToken: 'good' }, headers: crossSite })
+      const signIn = await call('POST', '/api/auth/sign-in', { form: { email: 'pete@example.com', password: PASSWORD }, headers: crossSite })
+      // A browser too old to send Sec-Fetch-Site is judged by Origin instead.
+      const signOuts = []
+      for (const headers of [crossSite, { Origin: 'https://other.example' }]) {
+        signOuts.push(await call('POST', '/api/sign-out', { cookie, headers }))
+      }
+      for (const res of [sync, signIn, ...signOuts]) {
+        assert.equal(res.status, 403)
+        assert.deepEqual(res.body, refused)
+        assert.equal(res.sessionCookie, null)
+      }
+    })
+    assert.equal(logged.filter((line) => line.startsWith('[cross-site] refused POST')).length, 4)
+    assert.equal((await sessions()).length, 1, 'only the test session exists')
+    assert.equal((await call('GET', '/api/session', { cookie })).body.authenticated, true)
+
+    // Even with no browser headers, a form body reaches no route: only JSON is
+    // parsed, so these credentials never get to the password check.
+    const formSignIn = await call('POST', '/api/auth/sign-in', { form: { email: 'pete@example.com', password: PASSWORD } })
+    assert.notEqual(formSignIn.status, 200)
+    assert.equal(formSignIn.cookie, null)
+
+    // The site's own pages still sign in and out.
+    const sameOrigin = { 'Sec-Fetch-Site': 'same-origin', Origin: CLIENT }
+    const ok = await call('POST', '/api/sign-out', { cookie, headers: sameOrigin })
+    assert.equal(ok.status, 200)
+    assert.ok(ok.cleared)
+  })
+})
 
 test('sign-out destroys the session and clears the cookie', async () => {
   await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, sessions }) => {
@@ -2002,6 +2181,43 @@ test('password-reset-complete stamps the change, keeps this session and ends old
     assert.ok(isRecent(db.users[0].password_changed_at))
     assert.equal((await call('GET', '/api/me/profile', { cookie: here })).status, 200)
     assert.equal((await call('GET', '/api/me/profile', { cookie: elsewhere })).status, 401)
+  })
+})
+
+test('a password change, from Settings or a reset link, ends every push channel of the account and only that account', async () => {
+  // A browser endpoint or phone token belongs to the account, not the session
+  // that registered it, so one planted through a stolen session kept getting
+  // the student's reminders after the password changed.
+  const channels = () => ({
+    push_subscriptions: [
+      { id: 'sub-mine', user_id: U1, endpoint: 'https://fcm.googleapis.com/fcm/send/mine' },
+      { id: 'sub-planted', user_id: U1, endpoint: 'https://fcm.googleapis.com/fcm/send/planted' },
+      { id: 'sub-other', user_id: U2, endpoint: 'https://fcm.googleapis.com/fcm/send/other' },
+    ],
+    push_devices: [
+      { id: 'dev-planted', user_id: U1, token: 'ExponentPushToken[planted]' },
+      { id: 'dev-other', user_id: U2, token: 'ExponentPushToken[other]' },
+    ],
+  })
+  const left = (db) => [...db.push_subscriptions, ...db.push_devices].map((row) => row.id)
+
+  const gotrue = { 'pete@example.com': { id: U1, password: PASSWORD } }
+  await withApp({ seed: { users: [STUDENT, OTHER], ...channels() }, gotrue }, async ({ call, sessionFor, db }) => {
+    const cookie = await sessionFor({ userId: U1 })
+    // A save without a new password leaves them.
+    assert.equal((await call('PATCH', '/api/me/profile', { cookie, body: { name: 'Purdue Pete' } })).status, 200)
+    assert.equal(left(db).length, 5)
+    const res = await call('PATCH', '/api/me/profile', { cookie, body: { currentPassword: PASSWORD, newPassword: NEW_PASSWORD } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(left(db), ['sub-other', 'dev-other'])
+  })
+
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const recent = `${encode({ alg: 'HS256' })}.${encode({ amr: [{ method: 'recovery', timestamp: Math.floor(Date.now() / 1000) - 60 }] })}.sig`
+  await withApp({ seed: { users: [STUDENT, OTHER], ...channels() }, tokens: { [recent]: TOKEN_USER } }, async ({ call, db }) => {
+    const res = await call('POST', '/api/auth/password-reset-complete', { headers: { Authorization: `Bearer ${recent}` } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(left(db), ['sub-other', 'dev-other'])
   })
 })
 

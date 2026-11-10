@@ -4,10 +4,12 @@ import {
   DINING_FAVORITES_CAP_MESSAGE,
   DRAFT_CAMPAIGNS_CAP_MESSAGE,
   GRADES_CAP_MESSAGE,
+  LINKED_SOURCES_CAP_MESSAGE,
   MANUAL_TASKS_CAP_MESSAGE,
   MAX_DINING_FAVORITES,
   MAX_DRAFT_CAMPAIGNS,
   MAX_GRADES,
+  MAX_LINKED_SOURCES,
   MAX_MANUAL_TASKS,
   advertiserWriteBucketKey,
   capCheck,
@@ -22,6 +24,7 @@ test('the caps match the values agreed on the issue', () => {
   assert.equal(MAX_GRADES, 500)
   assert.equal(MAX_DINING_FAVORITES, 300)
   assert.equal(MAX_DRAFT_CAMPAIGNS, 20)
+  assert.equal(MAX_LINKED_SOURCES, 20)
 })
 
 test('each cap message names its limit', () => {
@@ -29,6 +32,7 @@ test('each cap message names its limit', () => {
   assert.match(GRADES_CAP_MESSAGE, /\b500 courses\b/)
   assert.match(DINING_FAVORITES_CAP_MESSAGE, /\b300 favorites\b/)
   assert.match(DRAFT_CAMPAIGNS_CAP_MESSAGE, /\b20 draft campaigns\b/)
+  assert.match(LINKED_SOURCES_CAP_MESSAGE, /\b20 calendars\b/)
 })
 
 test('exceedsCap allows an insert until the caller already owns cap rows', () => {

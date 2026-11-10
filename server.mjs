@@ -46,6 +46,7 @@ import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
 import { advertiserWriteBucketKey } from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
+import { createCrossSiteWriteGuard } from './src/crossSiteWrites.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
@@ -216,8 +217,14 @@ const purdueLinkHandoff = createPurdueLinkHandoff({
 
 console.log(`[startup] mode=${isProduction ? 'production' : (nodeEnv || 'development')} secureCookies=${isProduction} trustProxy=${isProduction || process.env.TRUST_PROXY === '1'}`)
 
+// Refuse writes a browser sends from another site before anything reads the
+// body: SameSite=Lax keeps pih.sid off such a request but would still let its
+// response set or clear the cookie (login and logout CSRF). See the module.
+app.use(createCrossSiteWriteGuard({ trustedOrigins: [clientAppUrl, publicBaseUrl] }))
+// JSON only. Every client sends JSON, and an HTML form on another site can
+// send a form body but not a JSON one. The one route that takes a form, the
+// non-production mock Purdue link page, parses it itself (src/routes/auth.mjs).
 app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
 
 // Express 5 leaves req.body undefined when a request carries no body or a
 // content-type no parser claims, where Express 4 handed over {}. server.mjs
@@ -678,10 +685,16 @@ async function getCurrentUser(req) {
   return user
 }
 
+// An address ADMIN_EMAILS lists. Whichever account holds one is an admin, so
+// the auth router lets no password sign-up or Settings change take one.
+function isAdminEmail(email) {
+  return adminEmails.has(String(email ?? '').trim().toLowerCase())
+}
+
 function isUserAdmin(user) {
   if (!user?.email) return false
   if (user.is_admin) return true
-  return adminEmails.has(String(user.email).trim().toLowerCase())
+  return isAdminEmail(user.email)
 }
 
 async function requireAuth(req, res, next) {
@@ -769,7 +782,7 @@ if (!appleTokenRevoker.configured) {
 // deletion and the Purdue link (CAS, mock, native handoff) are in
 // src/routes/auth.mjs (issue #191); the session core and
 // verifySupabasePassword stay here and are handed in.
-app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction, appleTokenRevoker }))
+app.use(createAuthRouter({ supabase, requireAuth, getCurrentUser, getUserById, isUserAdmin, isAdminEmail, verifySupabasePassword, linkPurdueIdentity, onboardingSummaryCache, purdueLinkHandoff, publicBaseUrl, clientAppUrl, purdueAuthMode, purdueLinkingEnabled, accountCreateRateLimit, signInRateLimit, sessionSyncIpRateLimit, sessionSyncRateLimit, purdueLinkTokenRateLimit, purdueLinkFlowRateLimit, userWriteRateLimit, loginCodeRateLimit, loginCodeAccountRateLimit, loginCodeSendRateLimit, signInCodeMailWindow, loginTwoFactorEnabled, loginTwoFactorSyncGate, twoFactorSecret: sessionSecret || 'dev-session-secret', sendEmail, isEmailConfigured, isProduction, appleTokenRevoker }))
 
 // ── Linked calendar sources (issues #12 and #120) ───────────────────────────
 // Connecting, syncing and deleting Brightspace and Purdue feeds, the dev-only

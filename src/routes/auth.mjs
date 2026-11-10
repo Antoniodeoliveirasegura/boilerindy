@@ -17,6 +17,7 @@ import { verifyPassword } from '../passwordHash.mjs'
 import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
 import { HandoffError } from '../purdueLinkHandoff.mjs'
 import { linkHandoffToken } from '../purdueLinkThrottle.mjs'
+import { forgetPushChannels } from '../pushChannels.mjs'
 import { isSessionStale } from '../sessionFreshness.mjs'
 import { sanitizeSignupRef } from '../signupRef.mjs'
 import { applyPasswordChange, applyPasswordSet, hasLegacyHash, resolveSignIn, verifyCurrentPassword } from '../studentPasswordAuth.mjs'
@@ -38,6 +39,7 @@ import {
   tokenNeedsSignInCode,
   tokenProviderSignInAt,
   tokenRecoveryAt,
+  tokenSignedInAt,
 } from '../twoFactor.mjs'
 import { UpstreamError, fetchUpstream, isAbortLike } from '../upstreamFetch.mjs'
 import {
@@ -66,6 +68,8 @@ import {
 const defaultNextPath = '/setup'
 const DEVICE_TRUST_COOKIE = 'pih.td'
 const REMEMBER_ME_MS = 1000 * 60 * 60 * 24 * 30
+// A new account for an address ADMIN_EMAILS lists: only a provider sign-in.
+const RESERVED_EMAIL_MESSAGE = 'That email address is reserved. Sign in with Google to use it.'
 
 function sanitizeNext(next) {
   // Must be a site-relative path. Reject protocol-relative (//host) and backslash
@@ -161,6 +165,8 @@ function renderMockPurdueLinkPage(nextPath, message = '', currentEmail = '', tok
  * @param {Function} deps.getCurrentUser           the session's user, or null when signed out or stale
  * @param {Function} deps.getUserById              a users row by id, or null
  * @param {Function} deps.isUserAdmin              true for an admin (is_admin or ADMIN_EMAILS)
+ * @param {Function} [deps.isAdminEmail]           true for an address ADMIN_EMAILS lists, which no
+ *   password sign-up or Settings change may take
  * @param {Function} deps.verifySupabasePassword   (email, password) => the GoTrue user or null; throws
  *   an UpstreamError on an outage
  * @param {Function} deps.linkPurdueIdentity       (userId, { email }) => the updated users row
@@ -205,6 +211,7 @@ export function createAuthRouter({
   getCurrentUser,
   getUserById,
   isUserAdmin,
+  isAdminEmail = () => false,
   verifySupabasePassword,
   linkPurdueIdentity,
   onboardingSummaryCache,
@@ -291,6 +298,18 @@ export function createAuthRouter({
 
   function regenerate(req) {
     return new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())))
+  }
+
+  // Allowance between this server's clock, which stamps password_changed_at,
+  // and Supabase Auth's, which stamps a sign-in.
+  const SIGN_IN_CLOCK_SKEW_MS = 30 * 1000
+
+  // True when the token's session signed in before the account's password
+  // last changed (#132). A token that records no sign-in time is let through.
+  function signedInBeforePasswordChange(user, accessToken) {
+    const changedAt = Date.parse(user?.password_changed_at ?? '')
+    const signedInAt = tokenSignedInAt(accessToken)
+    return Number.isFinite(changedAt) && signedInAt !== null && signedInAt < changedAt - SIGN_IN_CLOCK_SKEW_MS
   }
 
   function save(req) {
@@ -467,6 +486,13 @@ export function createAuthRouter({
     const wantsEmailChange = normalizedEmail !== normalizeEmail(user.email)
     const wantsPasswordChange = Boolean(newPassword && newPassword.trim())
 
+    // An address ADMIN_EMAILS lists makes whichever account holds it an admin,
+    // and this change proves nothing about the new inbox, so no account may
+    // move to one here.
+    if (wantsEmailChange && isAdminEmail(normalizedEmail)) {
+      throw new Error('That email address is reserved.')
+    }
+
     // Changing the login email is as account-takeover-sensitive as changing the
     // password: require the current password either way, so a stolen session alone
     // can't silently repoint the account's identity (#124). A Google account has
@@ -570,6 +596,8 @@ export function createAuthRouter({
       if (stampError) {
         console.warn('[updateUserProfile] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
       }
+      // Push channels end with the older sessions (src/pushChannels.mjs).
+      await forgetPushChannels(supabase, userId)
     }
 
     return data
@@ -793,6 +821,13 @@ export function createAuthRouter({
         return res.status(503).json({
           error: { message: 'Email sign-up is unavailable right now. Please try again later, or continue with Google.', status: 503 },
         })
+      }
+
+      // An address ADMIN_EMAILS lists makes whichever account holds it an
+      // admin, and a password sign-up proves nothing about the inbox: only a
+      // Google sign-in (supabase-sync) may create that account.
+      if (isAdminEmail(normalizedEmail)) {
+        return res.status(403).json({ error: { message: RESERVED_EMAIL_MESSAGE, status: 403, code: 'email-reserved' } })
       }
 
       const existingRow = await getUserByEmail(normalizedEmail)
@@ -1164,10 +1199,23 @@ export function createAuthRouter({
       if (stampError) {
         console.warn('[password-reset-complete] password_changed_at not set (run db/supabase-session-invalidation.sql):', stampError.message)
       }
+      // Push channels end with the older sessions (src/pushChannels.mjs).
+      await forgetPushChannels(supabase, tokenData.user.id)
       // This browser keeps its session: it is the one that just reset.
       if (req.session?.userId === tokenData.user.id) {
         req.session.authAt = stamp
         await save(req)
+      } else {
+        // Or gets one, as the sync it posts next used to give it: that sync
+        // carries a recovery token that signed in before this stamp, and
+        // supabase-sync opens no new session for such a token.
+        const user = await getUserByEmail(normalizeEmail(tokenData.user.email))
+        if (user) {
+          await regenerate(req)
+          req.session.userId = user.id
+          req.session.authAt = stamp
+          await save(req)
+        }
       }
       res.json({ ok: true })
     } catch (error) {
@@ -1179,13 +1227,17 @@ export function createAuthRouter({
   router.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit, async (req, res) => {
     try {
       const authHeader = req.headers.authorization || ''
-      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
-      const accessToken = bearerToken || req.body?.accessToken
+      // The header only: a form on another site can put a token in the body
+      // but cannot set this header. Both clients send it.
+      const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
 
       if (!accessToken || typeof accessToken !== 'string') {
         return res.status(401).json({ error: { message: 'Missing access token.', status: 401 } })
       }
 
+      // A session opened here is dated from before the token is checked, so a
+      // password change that lands while this request runs leaves it stale.
+      const checkedAt = new Date().toISOString()
       const { data: tokenData, error: tokenError } = await supabase.auth.getUser(accessToken)
       if (tokenError || !tokenData?.user) {
         return res.status(401).json({ error: { message: 'Invalid or expired access token.', status: 401 } })
@@ -1235,6 +1287,13 @@ export function createAuthRouter({
         })
       }
 
+      // A new account for an address ADMIN_EMAILS lists needs a sign-in that
+      // proved the identity or the inbox (Google, Apple, a code or a link), not
+      // a password alone, which anyone could set on a Supabase user they made.
+      if (!user && isAdminEmail(normalizedEmail) && tokenNeedsSignInCode(accessToken)) {
+        return res.status(403).json({ error: { message: RESERVED_EMAIL_MESSAGE, status: 403, code: 'email-reserved' } })
+      }
+
       // Anyone holding the password can mint a password-only Supabase token
       // directly, so with the gate on such a token may only refresh the session
       // that already passed the emailed code, or sign in a trusted device.
@@ -1245,6 +1304,18 @@ export function createAuthRouter({
             error: { message: 'Enter the code we emailed you to finish signing in.', status: 401, code: 'two-factor-required' },
           })
         }
+      }
+
+      // A password change ends every older session (#132), but a Supabase
+      // token from before it could open a new one here: whoever held a stolen
+      // access or refresh token got a fresh cookie after the owner changed the
+      // password. Such a token may only refresh the session this browser
+      // already holds; the browser that reset its password got one from
+      // password-reset-complete.
+      if (user && req.session?.userId !== user.id && signedInBeforePasswordChange(user, accessToken)) {
+        return res.status(401).json({
+          error: { message: 'Your password was changed. Sign in again.', status: 401, code: 'password-changed' },
+        })
       }
 
       if (!user) {
@@ -1326,7 +1397,7 @@ export function createAuthRouter({
           return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
         }
         req.session.userId = user.id
-        req.session.authAt = new Date().toISOString()
+        req.session.authAt = checkedAt
         if (providerSignInAt) req.session.providerSignInAt = providerSignInAt
         req.session.save(async () => {
           const session = await buildSessionPayload(user, req)
@@ -1398,6 +1469,9 @@ export function createAuthRouter({
     res.type('html').send(renderMockPurdueLinkPage(nextPath, '', req.currentUser.purdue_email, native?.token))
   })
 
+  // The mock page posts an HTML form, and server.mjs parses only JSON, so this
+  // path parses its own form body, ahead of the limiter that reads `t` from it.
+  router.use('/auth/purdue/dev/link', express.urlencoded({ extended: false }))
   router.post('/auth/purdue/dev/link', purdueLinkFlowRateLimit, resolvePurdueLinkActor, async (req, res) => {
     const native = req.linkHandoff
     const nextPath = sanitizeNext(req.body.next)

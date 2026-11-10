@@ -29,7 +29,31 @@ box when it is wrong:
 
 The server remains the real gate: `assertSafeHttpUrl` (SSRF checks, redirect
 re-validation) plus `SCHEDULE_SOURCE_HOSTS` in `src/routes/sources.mjs`. The
-client list must be kept identical to it.
+client list must be kept identical to it. The server checks the allowlist when
+a source is added and again on every sync, for the stored link and for each
+redirect hop (`safeFetchIcsText` in `src/urlSafety.mjs`), so a redirect cannot
+leave the provider, and a link stored before the allowlist was enforced fails
+its sync with "That calendar provider is not allowed." instead of being
+fetched.
+
+## Import limits
+
+One sync of one feed reads and writes at most this much. A real feed is far
+below every limit (a few hundred kilobytes, events and items), and a feed over
+one is refused whole: the source is marked `error` with the reason, and the
+items an earlier sync stored stay as they were.
+
+| Limit | Where | Message |
+| --- | --- | --- |
+| 5 MB of feed body, after gzip or brotli decoding | `MAX_FEED_BYTES`, `src/urlSafety.mjs` | This calendar feed is over 5 MB, too large to import. |
+| 5,000 events, counted before parsing | `MAX_FEED_EVENTS`, `src/scheduleSync.mjs` | This calendar has more than 5,000 events, too many to import. |
+| 5,000 dated items after recurrences expand | `MAX_FEED_ITEMS`, `src/scheduleSync.mjs` | This calendar repeats into more than 5,000 dated items, too many to import. |
+
+A rule that repeats within a day (`FREQ=HOURLY` or finer, or several `BYHOUR`,
+`BYMINUTE` or `BYSECOND` values) imports once, at its start, since the import
+keeps one occurrence per event per day anyway. Each stored text keeps the
+column limits in `raw_json` too: 500 characters for the title, location and
+UID, 5,000 for the description.
 
 Two more links pass both checks: the demo calendars for the App Review account
 (issue #521), on BoilerIndy's own origin, which the server builds itself

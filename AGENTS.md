@@ -20,9 +20,9 @@ over both.
   off. Crediting a person is fine.
 - **pnpm only**, never `npm install` or `yarn`. The frontend has its own
   lockfile, so install twice: `pnpm install --frozen-lockfile` at the root,
-  then the same inside `boilerindy-react/`. The root install also turns on the
-  git hooks in `.githooks/`, which run the dash and credit checks on every
-  commit.
+  then the same inside `boilerindy-react/`. The root install also installs the
+  git hooks in `.githooks/` into `.git/hooks`, which run the dash and credit
+  checks on every commit.
 - **PRs go to `develop`.** Branch from `develop` and open the PR against it;
   `main` only receives release PRs from `develop`. Do not merge: the owner
   merges.

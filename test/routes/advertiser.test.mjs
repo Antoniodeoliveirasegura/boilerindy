@@ -711,6 +711,61 @@ test('reset-password sets the new hash for the token owner alone and burns their
   })
 })
 
+// A session signed in with a leaked password, or a former staff member's
+// browser, kept the portal after the owner reset the password: nothing ended
+// an advertiser session but signing out.
+test('a reset ends every portal session signed in before it, and the new password signs in', async () => {
+  const TOKEN = 'reset-token-ends-sessions'
+  const seed = { advertisers: [ADVERTISER, OTHER], advertiser_password_resets: [resetRow(TOKEN)] }
+  await withApp({ seed }, async ({ call, sessionFor, db }) => {
+    const signIn = await call('POST', '/api/advertiser/sign-in', { body: { email: ADVERTISER.email, password: PASSWORD } })
+    assert.equal(signIn.status, 200)
+    // One established before sign-in recorded a time, and another advertiser's.
+    const older = await sessionFor({ advertiserId: ADVERTISER.id })
+    const other = await sessionFor({ advertiserId: OTHER.id })
+    for (const cookie of [signIn.cookie, older]) assert.equal((await call('GET', '/api/advertiser/campaigns', { cookie })).status, 200)
+
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.equal((await call('POST', '/api/advertiser/reset-password', { body: { token: TOKEN, password: NEW_PASSWORD } })).status, 200)
+    assert.ok(isRecent(db.advertisers.find((a) => a.id === ADVERTISER.id).password_changed_at))
+    assert.equal(db.advertisers.find((a) => a.id === OTHER.id).password_changed_at, undefined)
+
+    for (const cookie of [signIn.cookie, older]) {
+      const campaigns = await call('GET', '/api/advertiser/campaigns', { cookie })
+      assert.equal(campaigns.status, 401)
+      assert.deepEqual(campaigns.body, PORTAL_401)
+      assert.deepEqual((await call('GET', '/api/advertiser/me', { cookie })).body, SIGNED_OUT_PROBE)
+    }
+    assert.equal((await call('GET', '/api/advertiser/campaigns', { cookie: other })).status, 200)
+
+    const again = await call('POST', '/api/advertiser/sign-in', { body: { email: ADVERTISER.email, password: NEW_PASSWORD } })
+    assert.equal(again.status, 200)
+    assert.equal((await call('GET', '/api/advertiser/campaigns', { cookie: again.cookie })).status, 200)
+    assert.equal((await call('GET', '/api/advertiser/me', { cookie: again.cookie })).body.authenticated, true)
+  })
+})
+
+test('before its column exists, a reset still changes the password, names the file to run, and older sessions carry on', async () => {
+  const TOKEN = 'reset-token-before-the-column'
+  const seed = { advertisers: [ADVERTISER], advertiser_password_resets: [resetRow(TOKEN)] }
+  await withApp({ seed }, async ({ call, sessionFor, db, failures }) => {
+    failures.advertisers = (chain) => {
+      const values = chain.find((c) => c.method === 'update')?.args[0]
+      return values && 'password_changed_at' in values
+        ? { code: 'PGRST204', message: "Could not find the 'password_changed_at' column of 'advertisers' in the schema cache" }
+        : null
+    }
+    const cookie = await sessionFor({ advertiserId: ADVERTISER.id })
+    const lines = await captureConsole(async () => {
+      assert.equal((await call('POST', '/api/advertiser/reset-password', { body: { token: TOKEN, password: NEW_PASSWORD } })).status, 200)
+    })
+    assert.ok(verifyPassword(NEW_PASSWORD, db.advertisers[0].password_hash))
+    assert.equal(db.advertisers[0].password_changed_at, undefined)
+    assert.ok(lines.some((line) => line.includes('db/supabase-advertiser-password-changed-at.sql')), lines.join('\n'))
+    assert.equal((await call('GET', '/api/advertiser/campaigns', { cookie })).status, 200)
+  })
+})
+
 // ── Campaigns ───────────────────────────────────────────────────────────────
 
 test("the campaign list holds the signed-in advertiser's campaigns alone, newest first", async () => {

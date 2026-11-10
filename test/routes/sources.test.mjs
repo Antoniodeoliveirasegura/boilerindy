@@ -4,6 +4,7 @@ import dns from 'node:dns/promises'
 import express from 'express'
 import ical from 'node-ical'
 import { createSourcesPublicRouter, createSourcesRouter } from '../../src/routes/sources.mjs'
+import { LINKED_SOURCES_CAP_MESSAGE, MAX_LINKED_SOURCES } from '../../src/userWriteCaps.mjs'
 import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 
 // Issue #191: the linked calendar source routes and the source re-sync cron
@@ -100,14 +101,17 @@ function sourceRow(overrides = {}) {
 }
 
 // linked_sources as a small in-memory table, so a dropped filter changes what
-// a test reads back: a select answers the rows every eq and in filter on the
-// chain matches (single() wants exactly one, as PostgREST does), an insert
-// stores its row, an update patches the matches and a delete removes them.
+// a test reads back: a select answers the rows every eq, in, is null and not
+// is null filter on the chain matches (single() wants exactly one, as
+// PostgREST does, and a head count answers only the count), an insert stores
+// its row, an update patches the matches and a delete removes them.
 function linkedSourcesTable(rows) {
   const matches = (chain) => (row) =>
     chain.every(({ method, args }) => {
       if (method === 'eq') return row[args[0]] === args[1]
       if (method === 'in') return args[1].includes(row[args[0]])
+      if (method === 'is' && args[1] === null) return row[args[0]] == null
+      if (method === 'not' && args[1] === 'is' && args[2] === null) return row[args[0]] != null
       return true
     })
   return (chain) => {
@@ -118,6 +122,7 @@ function linkedSourcesTable(rows) {
       return { data: { ...row }, error: null }
     }
     const hits = rows.filter(matches(chain))
+    if (chain.find((c) => c.method === 'select')?.args[1]?.head) return { data: null, count: hits.length, error: null, status: 200 }
     if (op === 'update') {
       const patch = chain.find((c) => c.method === 'update').args[0]
       for (const row of hits) Object.assign(row, patch)
@@ -325,7 +330,7 @@ test('with linking on, a student with no Purdue link cannot add a Purdue schedul
   await withApp({ user: UNLINKED, purdueLinkingEnabled: false, feed: icsFeed }, async ({ call, supabase }) => {
     const res = await call('POST', '/api/sources/purdue/schedule', { icsUrl: PURDUE_FEED })
     assert.equal(res.status, 201)
-    const [insert] = supabase.queriesOf('linked_sources')
+    const insert = supabase.queriesOf('linked_sources').find((q) => operation(q.chain) === 'insert')
     assert.equal(insert.chain.find((c) => c.method === 'insert').args[0].user_id, UNLINKED.id)
     await withAutomationOn(async () => {
       const status = await call('GET', '/api/purdue/calendar-link/status')
@@ -417,6 +422,75 @@ test("a feed on another provider's host is refused by the host allowlist before 
   })
 })
 
+test('a sync checks the allowlist again: a stored link off it is never fetched, and a redirect off it is refused before its lookup', async () => {
+  const PROVIDER_NOT_ALLOWED = 'That calendar provider is not allowed.'
+  // A link stored before the allowlist was enforced, and a source type it does
+  // not list: refused before any lookup or fetch, and marked error with why.
+  for (const stored of [{ source_url: 'https://calendar.example.com/feed.ics' }, { source_type: 'google_ical' }]) {
+    await withApp({ rows: [sourceRow(stored)], feed: icsFeed }, async ({ call, rows, feedUrls, lookups }) => {
+      const res = await call('POST', `/api/sync/${SOURCE_ID}`, {})
+      assert.equal(res.status, 400, JSON.stringify(stored))
+      assert.deepEqual(res.body, { error: { message: PROVIDER_NOT_ALLOWED, status: 400 } })
+      assert.deepEqual(feedUrls, [])
+      assert.deepEqual(lookups, [])
+      assert.equal(rows[0].status, 'error')
+      assert.equal(rows[0].last_error, PROVIDER_NOT_ALLOWED)
+      assert.equal(rows[0].last_synced_at, sourceRow().last_synced_at)
+    })
+  }
+
+  // A Brightspace link that redirects to a host off the list: the hop is
+  // refused before it is looked up, so a name that rebinds between the check
+  // and the connection never gets the request.
+  const offList = (url) =>
+    url === BRIGHTSPACE_FEED ? new Response('', { status: 302, headers: { location: 'http://unlisted.example:8080/probe' } }) : icsFeed()
+  await withApp({ feed: offList }, async ({ call, rows, feedUrls, lookups }) => {
+    const res = await call('POST', '/api/sources/brightspace/schedule', { icsUrl: BRIGHTSPACE_FEED })
+    assert.equal(res.status, 400)
+    assert.deepEqual(res.body, { error: { message: PROVIDER_NOT_ALLOWED, status: 400 } })
+    assert.deepEqual(feedUrls, [BRIGHTSPACE_FEED])
+    assert.deepEqual(lookups, ['purdue.brightspace.com', 'purdue.brightspace.com'])
+    assert.equal(rows[0].status, 'error')
+    assert.equal(rows[0].last_error, PROVIDER_NOT_ALLOWED)
+  })
+})
+
+test('a feed over an import limit is refused with its reason, and no item is written', async () => {
+  const vevents = (count, rule = null) =>
+    Array.from({ length: count }, (_, i) => [
+      'BEGIN:VEVENT',
+      `UID:event-${i}@purdue.brightspace.com`,
+      'DTSTART:20261019T035900Z',
+      'DTEND:20261019T035900Z',
+      ...(rule ? [rule] : []),
+      `SUMMARY:Item ${i} - Due`,
+      'END:VEVENT',
+    ]).flat()
+  const calendar = (events) => ['BEGIN:VCALENDAR', 'VERSION:2.0', ...events, 'END:VCALENDAR', ''].join('\r\n')
+  const answer = (text, headers = {}) => () => new Response(text, { status: 200, headers: { 'content-type': 'text/calendar', ...headers } })
+
+  for (const [feed, message] of [
+    // More events than one import takes: counted before node-ical parses them.
+    [answer(calendar(vevents(5001))), 'This calendar has more than 5,000 events, too many to import.'],
+    // Twenty events that repeat daily: at least 420 days each in the window.
+    [answer(calendar(vevents(20, 'RRULE:FREQ=DAILY'))), 'This calendar repeats into more than 5,000 dated items, too many to import.'],
+    // A body that says it is over 5 MB is not read.
+    [answer('BEGIN:VCALENDAR', { 'content-length': String(5 * 1024 * 1024 + 1) }), 'This calendar feed is over 5 MB, too large to import.'],
+  ]) {
+    await withApp({ rows: [sourceRow()], feed }, async ({ call, supabase, rows, invalidated }) => {
+      const res = await call('POST', `/api/sync/${SOURCE_ID}`, {})
+      assert.equal(res.status, 400, message)
+      assert.deepEqual(res.body, { error: { message, status: 400 } })
+      assert.deepEqual(supabase.queriesOf('calendar_items'), [])
+      assert.deepEqual(invalidated, [])
+      assert.equal(rows[0].status, 'error')
+      assert.equal(rows[0].last_error, message)
+      // The items an earlier sync stored stay, and so does its time.
+      assert.equal(rows[0].last_synced_at, sourceRow().last_synced_at)
+    })
+  }
+})
+
 test('POST /api/sources/purdue/schedule stores a pending source for the student, syncs it and answers 201', async () => {
   await withApp({ feed: icsFeed }, async ({ call, supabase, rows, limiterHits, invalidated, feedUrls, lookups }) => {
     const res = await call('POST', '/api/sources/purdue/schedule', { icsUrl: `  ${PURDUE_FEED}  ` })
@@ -492,6 +566,61 @@ test('POST /api/sources/brightspace/schedule needs no Purdue link and labels the
     assert.deepEqual(invalidated.map((i) => i.userId), [UNLINKED.id, UNLINKED.id])
     assert.equal(res.body.source.id, rows[0].id)
     assert.equal(res.body.sync.itemCount, 2)
+  })
+})
+
+test('a student who keeps 20 calendars gets 409 for another, with nothing stored or fetched; other students do not count', async () => {
+  assert.equal(MAX_LINKED_SOURCES, 20)
+  const linked = (user, count) =>
+    Array.from({ length: count }, (_, i) => sourceRow({ id: `${String(i).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, user_id: user.id }))
+
+  await withApp({ rows: linked(STUDENT, MAX_LINKED_SOURCES), feed: icsFeed }, async ({ call, supabase, rows, invalidated, feedUrls }) => {
+    // A demo link meets the cap too, though nothing would fetch it.
+    for (const [path, icsUrl] of [
+      ['/api/sources/brightspace/schedule', BRIGHTSPACE_FEED],
+      ['/api/sources/purdue/schedule', PURDUE_FEED],
+      ['/api/sources/purdue/schedule', DEMO_PURDUE],
+    ]) {
+      const res = await call('POST', path, { icsUrl })
+      assert.equal(res.status, 409, `${path} ${icsUrl}`)
+      assert.deepEqual(res.body, { error: { message: LINKED_SOURCES_CAP_MESSAGE, status: 409 } })
+    }
+    // Each was one head count of the student's own rows, after the link checks.
+    const queries = supabase.queriesOf('linked_sources')
+    assert.equal(queries.length, 3)
+    for (const { chain } of queries) {
+      assert.ok(hasCall(chain, 'select', 'id', { count: 'exact', head: true }))
+      assert.ok(hasCall(chain, 'eq', 'user_id', STUDENT.id))
+    }
+    assert.equal(rows.length, MAX_LINKED_SOURCES)
+    assert.deepEqual(feedUrls, [])
+    assert.deepEqual(invalidated, [])
+  })
+
+  await withApp(
+    { rows: [...linked(STUDENT, MAX_LINKED_SOURCES - 1), ...linked(OTHER, MAX_LINKED_SOURCES)], feed: icsFeed },
+    async ({ call, rows }) => {
+      const res = await call('POST', '/api/sources/brightspace/schedule', { icsUrl: BRIGHTSPACE_FEED })
+      assert.equal(res.status, 201)
+      assert.equal(rows.filter((row) => row.user_id === STUDENT.id).length, MAX_LINKED_SOURCES)
+    },
+  )
+})
+
+test('a label is trimmed and cut to 100 characters, and a missing or non-text one falls back to the provider name', async () => {
+  await withApp({ feed: icsFeed }, async ({ call, rows }) => {
+    for (const [path, label, expected] of [
+      ['/api/sources/purdue/schedule', `  ${'x'.repeat(300)}  `, 'x'.repeat(100)],
+      ['/api/sources/purdue/schedule', '   ', 'Schedule'],
+      ['/api/sources/purdue/schedule', 12345, 'Schedule'],
+      ['/api/sources/brightspace/schedule', { nested: 'label' }, 'Brightspace Calendar'],
+      ['/api/sources/brightspace/schedule', ' My courses ', 'My courses'],
+    ]) {
+      const icsUrl = path === '/api/sources/purdue/schedule' ? PURDUE_FEED : BRIGHTSPACE_FEED
+      const res = await call('POST', path, { icsUrl, label })
+      assert.equal(res.status, 201, JSON.stringify(label))
+      assert.equal(rows.at(-1).label, expected, JSON.stringify(label))
+    }
   })
 })
 
@@ -727,7 +856,8 @@ test('a re-sync already in flight answers 409, and the next one runs once it is 
     const third = await call('POST', '/api/internal/sources/resync', undefined, AUTH)
     assert.equal(third.status, 200)
     assert.equal(third.body.due, 0)
-    assert.equal(listings, 2)
+    // Two listings a tick (src/sourceResync.mjs), and none for the refused one.
+    assert.equal(listings, 4)
   })
 })
 

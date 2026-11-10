@@ -8,7 +8,7 @@
     "node": "^22.22.2 || ^24.15.0"
   },
   "scripts": {
-    "preinstall": "npx -y only-allow pnpm",
+    "preinstall": "node -e \"const a=process.env.npm_config_user_agent||'';if(a&&!a.startsWith('pnpm/')){console.error('This repository installs with pnpm: run pnpm install.');process.exit(1)}\"",
     "prepare": "node scripts/setup-git-hooks.mjs",
     "dev": "node server.mjs",
     "start": "node server.mjs",
@@ -22,8 +22,8 @@
     "vapid:generate": "node scripts/generate-vapid-keys.mjs"
   },
   "dependencies": {
-    "@sentry/node": "^11.10.0",
-    "@supabase/supabase-js": "^2.118.0",
+    "@sentry/node": "^11.11.0",
+    "@supabase/supabase-js": "^2.119.0",
     "dotenv": "^18.0.9",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
-    "@playwright/test": "1.64.1",
-    "playwright": "1.64.1"
+    "@playwright/test": "1.65.0",
+    "playwright": "1.65.0"
   }
 }

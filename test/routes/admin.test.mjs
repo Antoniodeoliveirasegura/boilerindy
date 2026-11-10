@@ -283,9 +283,15 @@ function campaignRow(overrides = {}) {
     status: 'pending_review',
     starts_on: '2026-10-05',
     ends_on: '2026-10-31',
-    creative: { headline: 'Two for one' },
+    // A banner as submitting one requires: three photos and a website.
+    creative: {
+      headline: 'Two for one',
+      imageUrls: ['https://img.bean.example/1.jpg', 'https://img.bean.example/2.jpg', 'https://img.bean.example/3.jpg'],
+      ctaUrl: 'https://bean.example/',
+    },
     created_at: '2026-10-01T12:00:00.000Z',
-    updated_at: '2026-10-01T12:00:00.000Z',
+    // As PostgREST answers a timestamptz.
+    updated_at: '2026-10-01T12:00:00.123456+00:00',
     advertisers: { email: 'owner@bean.example', company_name: 'Bean There' },
     ...overrides,
   }
@@ -367,8 +373,9 @@ test('PATCH a campaign checks the move from its current status and answers 404 C
         ? { data: campaignRow({ status: chain.find((c) => c.method === 'update').args[0].status }), error: null }
         : { data: current, error: null },
   }
+  const updatedAt = campaignRow().updated_at
   await withApp({ handlers }, async ({ call, supabase }) => {
-    const approved = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active' })
+    const approved = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt })
     assert.equal(approved.status, 200)
     assert.deepEqual(approved.body, { campaign: mapAdminCampaignRow(campaignRow({ status: 'active' })) })
     assert.equal(approved.body.campaign.advertiserEmail, 'owner@bean.example')
@@ -382,22 +389,100 @@ test('PATCH a campaign checks the move from its current status and answers 404 C
     assert.deepEqual(Object.keys(values), ['status', 'updated_at'])
     assert.equal(values.status, 'active')
     assert.ok(!Number.isNaN(Date.parse(values.updated_at)))
+    // Only the version the admin saw, in the status it was read in.
     assert.ok(hasCall(update.chain, 'eq', 'id', CAMPAIGN))
+    assert.ok(hasCall(update.chain, 'eq', 'status', 'pending_review'))
+    assert.ok(hasCall(update.chain, 'eq', 'updated_at', updatedAt))
     assert.ok(hasCall(update.chain, 'select', '*, advertisers ( email, company_name )'))
-    assert.ok(hasCall(update.chain, 'single'))
+    assert.ok(hasCall(update.chain, 'maybeSingle'))
 
     current = campaignRow({ status: 'ended' })
-    const reopen = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active' })
+    const reopen = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt })
     assert.equal(reopen.status, 400)
     assert.deepEqual(reopen.body, { error: { message: 'Cannot change campaign from "ended" to "active".', status: 400 } })
-    const empty = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, {})
+    const empty = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { updatedAt })
     assert.deepEqual(empty.body, { error: { message: 'Campaign status is required.', status: 400 } })
     assert.equal(supabase.queriesOf('campaigns').filter((q) => operation(q.chain) === 'update').length, 1, 'a refused move writes nothing')
 
     current = null
-    const missing = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'paused' })
+    const missing = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'paused', updatedAt })
     assert.equal(missing.status, 404)
     assert.deepEqual(missing.body, { error: { message: 'Campaign not found.', status: 404 } })
+  })
+})
+
+test('PATCH a campaign needs the version the admin saw: none is 400, and any write since is 409 with nothing put live', async () => {
+  const RELOAD = { error: { message: 'Reload the campaigns and try again.', status: 400 } }
+  const CHANGED = { error: { message: 'The advertiser changed this campaign after the list loaded. Reload to see the latest version.', status: 409 } }
+  const seen = campaignRow().updated_at
+  let current = campaignRow()
+  let updateMatches = true
+  const handlers = {
+    campaigns: (chain) =>
+      operation(chain) === 'update'
+        ? { data: updateMatches ? campaignRow({ status: 'active' }) : null, error: null }
+        : { data: current, error: null },
+  }
+  await withApp({ handlers }, async ({ call, supabase }) => {
+    // No version, or one that is not a time: refused before any query.
+    for (const body of [{ status: 'active' }, { status: 'active', updatedAt: 'yesterday' }, { status: 'active', updatedAt: 7 }]) {
+      const res = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, body)
+      assert.equal(res.status, 400, JSON.stringify(body))
+      assert.deepEqual(res.body, RELOAD)
+    }
+    assert.equal(supabase.queries.length, 0)
+
+    // The advertiser edited the creative after the list loaded (the table's
+    // trigger moved updated_at): refused before any write.
+    current = campaignRow({ creative: { ...campaignRow().creative, headline: 'Something else' }, updated_at: '2026-10-01T12:05:00.654321+00:00' })
+    const edited = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt: seen })
+    assert.equal(edited.status, 409)
+    assert.deepEqual(edited.body, CHANGED)
+
+    // Withdrawn to a draft and edited since: the same, though draft may go live.
+    current = campaignRow({ status: 'draft', updated_at: '2026-10-01T12:06:00.000001+00:00' })
+    const withdrawn = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt: seen })
+    assert.deepEqual(withdrawn.body, CHANGED)
+    assert.equal(supabase.queriesOf('campaigns').filter((q) => operation(q.chain) === 'update').length, 0)
+
+    // A write between the read and the update: the update matches no row.
+    current = campaignRow()
+    updateMatches = false
+    const raced = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt: seen })
+    assert.equal(raced.status, 409)
+    assert.deepEqual(raced.body, CHANGED)
+  })
+})
+
+test('going live from review or a draft checks the banner as submitting it does; resuming a paused campaign does not', async () => {
+  let current
+  const handlers = {
+    campaigns: (chain) =>
+      operation(chain) === 'update'
+        ? { data: { ...current, status: chain.find((c) => c.method === 'update').args[0].status }, error: null }
+        : { data: current, error: null },
+  }
+  const onePhoto = { headline: 'Two for one', imageUrls: ['https://img.bean.example/1.jpg'], ctaUrl: 'https://bean.example/' }
+  const noWebsite = { ...campaignRow().creative, ctaUrl: undefined }
+  await withApp({ handlers }, async ({ call, supabase }) => {
+    for (const [row, message] of [
+      [campaignRow({ creative: onePhoto }), 'Banner campaigns need at least 3 photo URLs.'],
+      [campaignRow({ status: 'draft', placement: 'side-rail', creative: noWebsite }), 'Banner campaigns require a website URL (https://…).'],
+    ]) {
+      current = row
+      const res = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt: row.updated_at })
+      assert.equal(res.status, 400, message)
+      assert.deepEqual(res.body, { error: { message, status: 400 } })
+    }
+    assert.equal(supabase.queriesOf('campaigns').filter((q) => operation(q.chain) === 'update').length, 0)
+
+    // Not a banner placement, or a paused campaign that was live before.
+    for (const row of [campaignRow({ placement: 'dining', creative: { headline: 'Bagels' } }), campaignRow({ status: 'paused', creative: onePhoto })]) {
+      current = row
+      const res = await call('PATCH', `/api/admin/campaigns/${CAMPAIGN}`, { status: 'active', updatedAt: row.updated_at })
+      assert.equal(res.status, 200, `${row.status} ${row.placement}`)
+      assert.equal(res.body.campaign.status, 'active')
+    }
   })
 })
 
@@ -495,6 +580,14 @@ test('POST advertisers updates an existing email and answers 200; a leadId close
     assert.equal(values.status, 'active')
     assert.ok(hasCall(update.chain, 'eq', 'id', ADVERTISER))
     assert.equal(supabase.queriesOf('advertisers').filter((q) => operation(q.chain) === 'insert').length, 0)
+
+    // The new password ends every portal session signed in with the old one,
+    // also those of an account this un-suspends: the change is stamped.
+    const [, , stamp] = supabase.queriesOf('advertisers')
+    assert.deepEqual(stamp.chain, [
+      { method: 'update', args: [{ password_changed_at: values.updated_at }] },
+      { method: 'eq', args: ['id', ADVERTISER] },
+    ])
 
     const [close] = supabase.queriesOf('advertiser_leads')
     assert.deepEqual(close.chain, [

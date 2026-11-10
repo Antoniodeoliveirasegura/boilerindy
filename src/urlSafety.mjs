@@ -3,6 +3,26 @@ import net from 'node:net'
 
 const MAX_REDIRECTS = 5
 const FETCH_TIMEOUT_MS = 15000
+// The most of a calendar feed the server reads, counted after any gzip or
+// brotli decoding. A real Brightspace or Purdue feed is a few hundred
+// kilobytes. Reading stops at the limit, so a huge or highly compressed body
+// never sits in memory whole.
+export const MAX_FEED_BYTES = 5 * 1024 * 1024
+export const PROVIDER_NOT_ALLOWED = 'That calendar provider is not allowed.'
+export const FEED_TOO_LARGE = 'This calendar feed is over 5 MB, too large to import.'
+
+/**
+ * A feed this server refuses on purpose: its link is off the provider's hosts,
+ * or it passed an import limit. classifyFetchError (src/scheduleSync.mjs)
+ * keeps the message, so the student reads the reason, and no retry treats it
+ * as a passing failure.
+ */
+export class FeedRefusedError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'FeedRefusedError'
+  }
+}
 
 function isBlockedIp(ip) {
   // Unwrap IPv4-mapped IPv6 (::ffff:a.b.c.d and its hex form ::ffff:HHHH:HHHH, which
@@ -94,20 +114,48 @@ export function assertHostAllowed(rawUrl, suffixes) {
     throw new Error('Please enter a valid iCalendar URL.')
   }
   if (!hostMatchesSuffix(parsed.hostname, suffixes)) {
-    throw new Error('That calendar provider is not allowed.')
+    throw new FeedRefusedError(PROVIDER_NOT_ALLOWED)
   }
 }
 
+// The body as text, read no further than MAX_FEED_BYTES of decoded bytes. A
+// declared length over the limit is refused before any of it is read.
+async function readFeedText(res) {
+  const declared = Number(res.headers.get('content-length'))
+  if (declared > MAX_FEED_BYTES) {
+    await res.body?.cancel().catch(() => {})
+    throw new FeedRefusedError(FEED_TOO_LARGE)
+  }
+  if (!res.body) return ''
+  const chunks = []
+  let size = 0
+  // Leaving the loop early cancels the stream, so the rest is never fetched.
+  for await (const chunk of res.body) {
+    size += chunk.byteLength
+    if (size > MAX_FEED_BYTES) throw new FeedRefusedError(FEED_TOO_LARGE)
+    chunks.push(chunk)
+  }
+  // TextDecoder drops a leading byte order mark, as res.text() did.
+  return new TextDecoder().decode(Buffer.concat(chunks, size))
+}
+
 /**
- * Fetch an iCal feed safely: validate the URL, then follow redirects MANUALLY,
- * re-validating every hop through assertSafeHttpUrl so a "public" URL cannot 302
- * to an internal address (the redirect-follow SSRF). Returns the response body text.
+ * Fetch an iCal feed safely and return its text. Every URL it requests, the
+ * stored link and each redirect hop alike, must sit on the provider's hosts
+ * (allowedHosts: SCHEDULE_SOURCE_HOSTS in src/routes/sources.mjs) and pass
+ * assertSafeHttpUrl, so a feed can neither 302 to an internal address (the
+ * redirect-follow SSRF) nor leave its provider. Redirects are followed by hand
+ * for that reason, and the body is read up to MAX_FEED_BYTES.
  *
- * ponytail: no per-request IP pinning here (that needs the `undici` Agent, not a
- * dependency). The hard host allowlist enforced at source creation is what closes
- * DNS-rebinding for this feature; add pinning if that allowlist is ever loosened.
+ * ponytail: no per-request IP pinning here (that needs the `undici` Agent, not
+ * a dependency). The provider allowlist, checked on every hop, is what keeps
+ * a rebindable hostname out; add pinning if that allowlist is ever loosened.
  */
-export async function safeFetchIcsText(rawUrl) {
+export async function safeFetchIcsText(rawUrl, { allowedHosts } = {}) {
+  if (!Array.isArray(allowedHosts) || allowedHosts.length === 0) {
+    throw new Error('safeFetchIcsText needs the provider host allowlist.')
+  }
+  assertHostAllowed(rawUrl, allowedHosts)
   let currentUrl = await assertSafeHttpUrl(rawUrl)
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const res = await fetch(currentUrl, {
@@ -116,9 +164,12 @@ export async function safeFetchIcsText(rawUrl) {
       headers: { accept: 'text/calendar, text/plain, */*' },
     })
     if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel().catch(() => {})
       const location = res.headers.get('location')
       if (!location) throw new Error('That calendar URL is not allowed.')
-      currentUrl = await assertSafeHttpUrl(new URL(location, currentUrl).toString())
+      const nextUrl = new URL(location, currentUrl).toString()
+      assertHostAllowed(nextUrl, allowedHosts)
+      currentUrl = await assertSafeHttpUrl(nextUrl)
       continue
     }
     if (!res.ok) {
@@ -129,7 +180,7 @@ export async function safeFetchIcsText(rawUrl) {
       error.status = res.status
       throw error
     }
-    return await res.text()
+    return await readFeedText(res)
   }
   throw new Error('Too many redirects for the calendar URL.')
 }
