@@ -540,14 +540,22 @@ already landed on `develop` is not rewritten; it goes on the short exemption
 list in `scripts/lib/conventions.mjs`, by full SHA with the reason.
 
 **pnpm only.** Both `package.json` files refuse `npm install` and `yarn` through
-an `only-allow` preinstall script, so a foreign lockfile or a differently
-resolved `node_modules` cannot happen by accident.
+a preinstall script that reads `npm_config_user_agent` (no package is
+downloaded to do it), so a foreign lockfile or a differently resolved
+`node_modules` cannot happen by accident.
 
-**Committed git hooks.** `pnpm install` at the repo root points `core.hooksPath`
-at `.githooks/` (the `prepare` script), so from then on `git commit` runs the
-dash scan on the staged files and the trailer check on the message before
-anything reaches CI. `git commit --no-verify` skips them once; CI still runs the
-same checks. `pnpm run check:conventions` runs them by hand over the tracked
+**Committed git hooks.** `pnpm install` at the repo root (the `prepare` script,
+`scripts/setup-git-hooks.mjs`) copies the hooks in `.githooks/` into the
+clone's own hooks directory, `.git/hooks`, which every worktree shares, with a
+copy of the checker they run. From then on `git commit` runs the dash scan on
+the staged files and the trailer check on the message before anything reaches
+CI. The copies sit outside every working tree, so checking out a branch, an
+outside contributor's included, can neither add a hook nor change what one
+runs. After `.githooks/` or the checker changes, run
+`node scripts/setup-git-hooks.mjs` (a warm `pnpm install` can skip `prepare`);
+in a clone set up before this, that also removes the old
+`core.hooksPath=.githooks`. `git commit --no-verify` skips the hooks once; CI
+still runs the same checks. `pnpm run check:conventions` runs them by hand over the tracked
 files and the commits not yet on `origin/develop`. The rules live in
 `scripts/lib/conventions.mjs` and are pinned by `test/conventions.test.mjs`, so
 they are the same for everyone, whatever editor or AI assistant wrote the change.
