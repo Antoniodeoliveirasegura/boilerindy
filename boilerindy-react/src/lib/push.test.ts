@@ -13,6 +13,7 @@ import {
   inQuietHours,
   normalizeSettings,
   readPushSupportEnv,
+  reregisterThisDevice,
   withSaved,
   urlBase64ToUint8Array,
   type PushSupportEnv,
@@ -236,6 +237,38 @@ describe('push API wrappers', () => {
   it('fetchPushSettings rethrows any other failure', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: { message: 'boom' } }))
     await expect(fetchPushSettings()).rejects.toThrow('boom')
+  })
+
+  // A password change ends every push channel of the account on the server;
+  // the browser that made it registers its own subscription again.
+  it('reregisterThisDevice posts this browser subscription again, and does nothing without one', async () => {
+    const json = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', keys: { p256dh: 'P', auth: 'A' } }
+    let current: unknown = { endpoint: json.endpoint, toJSON: () => json }
+    const registration = { active: {}, pushManager: { getSubscription: async () => current } }
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistration: async () => registration },
+      configurable: true,
+    })
+    try {
+      fetchMock.mockResolvedValue(jsonResponse(201, { subscription: { id: 's1', createdAt: '2026-11-07T00:00:00.000Z' } }))
+      await expect(reregisterThisDevice()).resolves.toBe(true)
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(url).toBe('/api/push/subscriptions')
+      expect(init.method).toBe('POST')
+      expect(JSON.parse(init.body)).toEqual({ subscription: json, userAgent: navigator.userAgent })
+
+      // A refusal is reported, never thrown: the password change already succeeded.
+      fetchMock.mockResolvedValue(jsonResponse(500, { error: { message: 'boom' } }))
+      await expect(reregisterThisDevice()).resolves.toBe(false)
+
+      current = null
+      fetchMock.mockClear()
+      await expect(reregisterThisDevice()).resolves.toBe(false)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      // jsdom has no service worker; put it back that way.
+      delete (navigator as { serviceWorker?: unknown }).serviceWorker
+    }
   })
 })
 

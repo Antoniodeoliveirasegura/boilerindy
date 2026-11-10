@@ -520,3 +520,21 @@ export async function unsubscribeThisDevice(): Promise<UnsubscribeResult> {
       : 'Notifications are off on this device. The server could not be reached, so it will drop this device the next time a send fails.',
   }
 }
+
+/**
+ * Registers this browser's subscription again, if it has one. A password
+ * change ends every push channel of the account on the server, as it ends the
+ * other sessions (src/pushChannels.mjs), so the browser that made the change
+ * calls this to keep its own notifications. Best-effort: false when there is
+ * nothing to register or the server did not take it.
+ */
+export async function reregisterThisDevice(): Promise<boolean> {
+  const subscription = await getCurrentPushSubscription()
+  if (!subscription) return false
+  try {
+    await registerPushSubscription(subscription)
+    return true
+  } catch {
+    return false
+  }
+}

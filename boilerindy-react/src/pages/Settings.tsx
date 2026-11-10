@@ -6,6 +6,7 @@ import { authRequest, calendarRemindersOff, saveCalendarRemindersOff, type ApiRe
 import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
 import { clearGoogleConfirm, startGoogleConfirm } from '../lib/googleConfirm'
 import { signInWithGoogle, supabase } from '../lib/supabase'
+import { reregisterThisDevice } from '../lib/push'
 import Icon from '../components/Icons'
 import PushNotificationsCard from '../components/settings/PushNotificationsCard'
 import BlockedUsersCard from '../components/settings/BlockedUsersCard'
@@ -279,6 +280,9 @@ export default function Settings() {
           newPassword,
         }),
       })
+      // A new password ends every push channel of the account; this browser
+      // keeps its own.
+      if (newPassword) void reregisterThisDevice()
       await refreshSession()
       setCurrentPassword('')
       setNewPassword('')

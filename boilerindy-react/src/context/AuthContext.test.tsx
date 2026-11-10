@@ -26,7 +26,10 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   onAuthStateChange: vi.fn(),
   signOut: vi.fn(),
+  unsubscribeThisDevice: vi.fn(),
 }))
+
+vi.mock('../lib/push', () => ({ unsubscribeThisDevice: mocks.unsubscribeThisDevice }))
 
 vi.mock('../lib/supabase', () => ({
   supabase: {
@@ -82,6 +85,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 
   mocks.getSession.mockResolvedValue({ data: { session: makeSupabaseSession('tok-1') } })
+  mocks.unsubscribeThisDevice.mockResolvedValue({ ok: true, message: null })
 
   mocks.onAuthStateChange.mockImplementation((cb: typeof emitAuthEvent) => {
     emitAuthEvent = cb
@@ -279,6 +283,33 @@ describe('sign-out clears per-user caches (issues #219, #294)', () => {
     })
 
     expect(Object.keys(localStorage)).toEqual(['boilerindy-task-priority-v1-user-1'])
+    expect(result.current.session).toBeNull()
+  })
+
+  // On a shared computer the browser kept showing the last student's
+  // reminders after they signed out. It now unsubscribes first, while the
+  // session can still tell the server to forget it.
+  test('signOut takes this browser off push notifications before it ends either session', async () => {
+    const result = await mountAuth()
+    const order: string[] = []
+    mocks.unsubscribeThisDevice.mockImplementation(async () => {
+      order.push('push')
+      return { ok: true, message: null }
+    })
+    mocks.signOut.mockImplementation(async () => {
+      order.push('supabase')
+      return { error: null }
+    })
+    mocks.authRequest.mockImplementation(async (path: string) => {
+      order.push(path)
+      return {}
+    })
+
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(order).toEqual(['push', 'supabase', '/api/sign-out'])
     expect(result.current.session).toBeNull()
   })
 

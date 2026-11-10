@@ -14,6 +14,7 @@ import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase
 import { supabase } from '../lib/supabase'
 import { clearAiCaches, clearUserStores } from '../lib/aiInsightCache'
 import { dropUserQueries } from '../lib/queries/userData'
+import { unsubscribeThisDevice } from '../lib/push'
 import {
   authRequest,
   getDisplayName,
@@ -386,6 +387,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
+      // This browser stops getting the student's notifications, while the
+      // session can still tell the server: on a shared computer the next
+      // person would otherwise see every reminder. The phone app removes its
+      // own token at sign-out the same way. Never throws.
+      await unsubscribeThisDevice()
       // Sign out from Supabase
       await supabase.auth.signOut()
       // Sign out from backend
