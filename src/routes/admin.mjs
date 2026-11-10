@@ -17,6 +17,7 @@ import { countMarketplaceReports, respondMarketplaceDbError } from '../marketpla
 import { countPendingPhotoReviews } from '../marketplacePhotoReview.mjs'
 import { isMissingColumnError, isUuid } from '../moderation.mjs'
 import { hashPassword } from '../passwordHash.mjs'
+import { stampAdvertiserPasswordChange } from '../sessionFreshness.mjs'
 import { STUDY_SOFT_DELETE_SQL_FILE } from '../studyGroups.mjs'
 
 // Platform admin (student session + isAdmin / ADMIN_EMAILS): the advertiser
@@ -294,6 +295,9 @@ export function createAdminRouter({ supabase, requireAuth, requireAdmin, adminWr
         .single()
       if (error) return respondAdvertiserDbError(res, error)
       row = data
+      // A new password ends every session signed in with the old one, including
+      // those of an account this un-suspends.
+      await stampAdvertiserPasswordChange(supabase, existing.id, { now: timestamp })
     } else {
       const { data, error } = await supabase
         .from('advertisers')

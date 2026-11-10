@@ -21,6 +21,7 @@ import { DB_FEATURES, isSchemaMissingError, respondDbError, respondSchemaMissing
 import { requireIdParam } from '../httpGuards.mjs'
 import { hashPassword, verifyPassword } from '../passwordHash.mjs'
 import { SESSION_COOKIE_NAME } from '../publicReadKey.mjs'
+import { isSessionStale, stampAdvertiserPasswordChange } from '../sessionFreshness.mjs'
 import { DRAFT_CAMPAIGNS_CAP_MESSAGE, MAX_DRAFT_CAMPAIGNS, capCheck } from '../userWriteCaps.mjs'
 
 // The advertiser portal (separate from student auth - see
@@ -136,11 +137,17 @@ export function createAdvertiserRouter({
     return { advertiser: data || null, error: null }
   }
 
+  // A session signed in before the account's password last changed is over,
+  // as a student's is (#132): a reset or re-provision stamps the change.
+  function isStaleAdvertiserSession(advertiser, session) {
+    return isSessionStale(advertiser?.password_changed_at, session?.authAt)
+  }
+
   // Mirrors requireAuth, but reads the advertiser session key. An advertiser
   // session grants zero access to student (/api/me/*) routes and vice versa.
   async function requireAdvertiserAuth(req, res, next) {
     const advertiser = await getAdvertiserById(req.session.advertiserId)
-    if (!advertiser) {
+    if (!advertiser || isStaleAdvertiserSession(advertiser, req.session)) {
       return res.status(401).json({ error: { message: 'You must sign in to the advertiser portal.', status: 401 } })
     }
     if (advertiser.status !== 'active') {
@@ -179,6 +186,7 @@ export function createAdvertiserRouter({
         return res.status(500).json({ error: { message: 'Could not create a session.', status: 500 } })
       }
       req.session.advertiserId = advertiser.id
+      req.session.authAt = new Date().toISOString()
       req.session.save(() => {
         res.json({ session: buildAdvertiserSessionPayload(advertiser, req) })
       })
@@ -199,7 +207,7 @@ export function createAdvertiserRouter({
   // Signed in: { authenticated: true, session: { expiresAt, advertiser } }.
   router.get('/api/advertiser/me', async (req, res) => {
     const advertiser = await getAdvertiserById(req.session.advertiserId)
-    if (!advertiser || advertiser.status !== 'active') {
+    if (!advertiser || advertiser.status !== 'active' || isStaleAdvertiserSession(advertiser, req.session)) {
       return res.json({ authenticated: false, advertiser: null })
     }
     res.json({ authenticated: true, session: buildAdvertiserSessionPayload(advertiser, req) })
@@ -330,6 +338,8 @@ export function createAdvertiserRouter({
       .update({ password_hash: hashPassword(input.password), updated_at: new Date().toISOString() })
       .eq('id', reset.advertiser_id)
     if (updateErr) return respondAdvertiserDbError(res, updateErr)
+    // Every session signed in before the reset ends with it.
+    await stampAdvertiserPasswordChange(supabase, reset.advertiser_id)
 
     // Burn this token AND any other outstanding tokens for the advertiser, so a
     // reset link can't be replayed and stale links stop working.

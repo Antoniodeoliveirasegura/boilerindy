@@ -581,6 +581,14 @@ test('POST advertisers updates an existing email and answers 200; a leadId close
     assert.ok(hasCall(update.chain, 'eq', 'id', ADVERTISER))
     assert.equal(supabase.queriesOf('advertisers').filter((q) => operation(q.chain) === 'insert').length, 0)
 
+    // The new password ends every portal session signed in with the old one,
+    // also those of an account this un-suspends: the change is stamped.
+    const [, , stamp] = supabase.queriesOf('advertisers')
+    assert.deepEqual(stamp.chain, [
+      { method: 'update', args: [{ password_changed_at: values.updated_at }] },
+      { method: 'eq', args: ['id', ADVERTISER] },
+    ])
+
     const [close] = supabase.queriesOf('advertiser_leads')
     assert.deepEqual(close.chain, [
       { method: 'update', args: [{ status: 'closed' }] },
