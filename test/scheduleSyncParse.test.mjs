@@ -318,6 +318,36 @@ test("cancelling an evening class leaves the next day's class alone", async (t) 
   )
 })
 
+test('a real rule that repeats every minute imports once, without listing the minutes', async (t) => {
+  // Without the guard, the second rule alone lists 1,440 times a day across
+  // the 600-day window before expansion keeps one per day.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-07T12:00:00Z') })
+  const hours = Array.from({ length: 24 }, (_, h) => h).join(',')
+  const minutes = Array.from({ length: 60 }, (_, m) => m).join(',')
+  const ics = feed([
+    'BEGIN:VEVENT',
+    'UID:every-minute@example.edu',
+    'DTSTART:20261107T000000Z',
+    'RRULE:FREQ=MINUTELY;COUNT=1000000',
+    'SUMMARY:Every minute',
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    'UID:minute-grid@example.edu',
+    'DTSTART:20261107T000000Z',
+    `RRULE:FREQ=DAILY;BYHOUR=${hours};BYMINUTE=${minutes}`,
+    'SUMMARY:Every minute of every day',
+    'END:VEVENT',
+  ])
+  const plan = planSync(await ical.async.parseICS(ics), SCHEDULE_SOURCE)
+  assert.deepEqual(
+    plan.itemsToInsert.map((item) => [item.title, item.start_time]).sort(([a], [b]) => a.localeCompare(b)),
+    [
+      ['Every minute', '2026-11-07T00:00:00.000Z'],
+      ['Every minute of every day', '2026-11-07T00:00:00.000Z'],
+    ],
+  )
+})
+
 test('a morning class reads the same as before', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-12-01T12:00:00Z') })
   const lecture = Object.values(await ical.async.parseICS(ICS)).find((e) => e?.type === 'VEVENT' && String(e.uid).startsWith('lecture'))

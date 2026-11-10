@@ -11,9 +11,18 @@ import {
   isCalendarAutomationEnabled,
   startCalendarCapture,
 } from '../purdueCalendarAutomation.mjs'
-import { classifyFetchError, detectTimezoneFromFeed, expandRecurringEvents, icalText, planSync } from '../scheduleSync.mjs'
+import {
+  FEED_TOO_MANY_EVENTS,
+  MAX_FEED_EVENTS,
+  classifyFetchError,
+  countFeedEvents,
+  detectTimezoneFromFeed,
+  expandRecurringEvents,
+  icalText,
+  planSync,
+} from '../scheduleSync.mjs'
 import { runSourceResync } from '../sourceResync.mjs'
-import { assertHostAllowed, assertSafeHttpUrl, safeFetchIcsText } from '../urlSafety.mjs'
+import { FeedRefusedError, PROVIDER_NOT_ALLOWED, assertHostAllowed, assertSafeHttpUrl, safeFetchIcsText } from '../urlSafety.mjs'
 
 // Linked calendar sources (issues #12 and #120): connecting a Brightspace or
 // Purdue Timetabling iCal feed, syncing and deleting it, the dev-only debug
@@ -32,7 +41,10 @@ function validateSourceUrl(sourceUrl) {
 
 // Hard host allowlist per schedule provider: the ONLY line of defense left once a
 // URL passes assertSafeHttpUrl, and what stops an attacker supplying a rebindable
-// hostname. A source type absent from this map is rejected (fail closed).
+// hostname. It is checked when a source is added and again on every fetch, for
+// the stored link and each redirect hop (safeFetchIcsText), so neither a redirect
+// nor a link stored before the list was enforced reaches another host. A source
+// type absent from this map is rejected (fail closed).
 const SCHEDULE_SOURCE_HOSTS = {
   purdue_schedule_ical: ['purdue.edu'],
   brightspace_ical: ['brightspace.com', 'd2l.com', 'desire2learn.com'],
@@ -166,11 +178,23 @@ export function createSourcesRouter({
 
   // A demo calendar source is built here and never fetched, whatever
   // DEMO_CALENDARS says: switched off, its sync fails as a dead feed would.
-  async function feedText(sourceUrl) {
-    const file = demoCalendarFileOf(sourceUrl)
-    if (!file) return safeFetchIcsText(sourceUrl)
+  // Any other source is fetched only from its provider's hosts.
+  async function feedText(source) {
+    const file = demoCalendarFileOf(source.source_url)
+    if (!file) {
+      const allowedHosts = SCHEDULE_SOURCE_HOSTS[source.source_type]
+      if (!allowedHosts) throw new FeedRefusedError(PROVIDER_NOT_ALLOWED)
+      return safeFetchIcsText(source.source_url, { allowedHosts })
+    }
     if (!demoCalendarsEnabled) throw new Error('Demo calendars are turned off on this server.')
     return buildDemoCalendar(file)
+  }
+
+  // A feed listing more events than one import takes is refused before
+  // node-ical builds them.
+  function parseFeed(icsText) {
+    if (countFeedEvents(icsText) > MAX_FEED_EVENTS) throw new FeedRefusedError(FEED_TOO_MANY_EVENTS)
+    return ical.async.parseICS(icsText)
   }
 
   // retryTransient: the background re-sync gives a transient feed failure one
@@ -182,11 +206,11 @@ export function createSourcesRouter({
 
     let eventsByKey
     try {
-      const fetchFeed = () => feedText(source.source_url)
+      const fetchFeed = () => feedText(source)
       const icsText = retryTransient
         ? await retryOnceIfTransient('[runScheduleSync] source=' + sourceId, fetchFeed)
         : await fetchFeed()
-      eventsByKey = await ical.async.parseICS(icsText)
+      eventsByKey = await parseFeed(icsText)
     } catch (fetchError) {
       const classified = classifyFetchError(fetchError)
       if (isTransientFailure(fetchError)) warnFeedTransient(sourceId, fetchError)
@@ -196,6 +220,12 @@ export function createSourcesRouter({
     }
 
     const plan = planSync(eventsByKey, source)
+
+    // Over the item limit: nothing is written, and stored items stay as they were.
+    if (plan.sourceStatus === 'error') {
+      await calendarItemStore.setStatus(sourceId, 'error', plan.statusMessage)
+      throw new Error(plan.statusMessage)
+    }
 
     // Empty feed parsed cleanly: leave any existing items untouched (prior behaviour).
     if (plan.meta.rawCount === 0) {
@@ -281,8 +311,7 @@ export function createSourcesRouter({
     }
 
     try {
-      const icsText = await feedText(source.source_url)
-      const eventsByKey = await ical.async.parseICS(icsText)
+      const eventsByKey = await parseFeed(await feedText(source))
       const rawEvents = Object.values(eventsByKey).filter((item) => item?.type === 'VEVENT')
       const detectedTimezone = detectTimezoneFromFeed(eventsByKey)
       

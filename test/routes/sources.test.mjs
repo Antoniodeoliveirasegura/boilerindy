@@ -417,6 +417,75 @@ test("a feed on another provider's host is refused by the host allowlist before 
   })
 })
 
+test('a sync checks the allowlist again: a stored link off it is never fetched, and a redirect off it is refused before its lookup', async () => {
+  const PROVIDER_NOT_ALLOWED = 'That calendar provider is not allowed.'
+  // A link stored before the allowlist was enforced, and a source type it does
+  // not list: refused before any lookup or fetch, and marked error with why.
+  for (const stored of [{ source_url: 'https://calendar.example.com/feed.ics' }, { source_type: 'google_ical' }]) {
+    await withApp({ rows: [sourceRow(stored)], feed: icsFeed }, async ({ call, rows, feedUrls, lookups }) => {
+      const res = await call('POST', `/api/sync/${SOURCE_ID}`, {})
+      assert.equal(res.status, 400, JSON.stringify(stored))
+      assert.deepEqual(res.body, { error: { message: PROVIDER_NOT_ALLOWED, status: 400 } })
+      assert.deepEqual(feedUrls, [])
+      assert.deepEqual(lookups, [])
+      assert.equal(rows[0].status, 'error')
+      assert.equal(rows[0].last_error, PROVIDER_NOT_ALLOWED)
+      assert.equal(rows[0].last_synced_at, sourceRow().last_synced_at)
+    })
+  }
+
+  // A Brightspace link that redirects to a host off the list: the hop is
+  // refused before it is looked up, so a name that rebinds between the check
+  // and the connection never gets the request.
+  const offList = (url) =>
+    url === BRIGHTSPACE_FEED ? new Response('', { status: 302, headers: { location: 'http://unlisted.example:8080/probe' } }) : icsFeed()
+  await withApp({ feed: offList }, async ({ call, rows, feedUrls, lookups }) => {
+    const res = await call('POST', '/api/sources/brightspace/schedule', { icsUrl: BRIGHTSPACE_FEED })
+    assert.equal(res.status, 400)
+    assert.deepEqual(res.body, { error: { message: PROVIDER_NOT_ALLOWED, status: 400 } })
+    assert.deepEqual(feedUrls, [BRIGHTSPACE_FEED])
+    assert.deepEqual(lookups, ['purdue.brightspace.com', 'purdue.brightspace.com'])
+    assert.equal(rows[0].status, 'error')
+    assert.equal(rows[0].last_error, PROVIDER_NOT_ALLOWED)
+  })
+})
+
+test('a feed over an import limit is refused with its reason, and no item is written', async () => {
+  const vevents = (count, rule = null) =>
+    Array.from({ length: count }, (_, i) => [
+      'BEGIN:VEVENT',
+      `UID:event-${i}@purdue.brightspace.com`,
+      'DTSTART:20261019T035900Z',
+      'DTEND:20261019T035900Z',
+      ...(rule ? [rule] : []),
+      `SUMMARY:Item ${i} - Due`,
+      'END:VEVENT',
+    ]).flat()
+  const calendar = (events) => ['BEGIN:VCALENDAR', 'VERSION:2.0', ...events, 'END:VCALENDAR', ''].join('\r\n')
+  const answer = (text, headers = {}) => () => new Response(text, { status: 200, headers: { 'content-type': 'text/calendar', ...headers } })
+
+  for (const [feed, message] of [
+    // More events than one import takes: counted before node-ical parses them.
+    [answer(calendar(vevents(5001))), 'This calendar has more than 5,000 events, too many to import.'],
+    // Twenty events that repeat daily: at least 420 days each in the window.
+    [answer(calendar(vevents(20, 'RRULE:FREQ=DAILY'))), 'This calendar repeats into more than 5,000 dated items, too many to import.'],
+    // A body that says it is over 5 MB is not read.
+    [answer('BEGIN:VCALENDAR', { 'content-length': String(5 * 1024 * 1024 + 1) }), 'This calendar feed is over 5 MB, too large to import.'],
+  ]) {
+    await withApp({ rows: [sourceRow()], feed }, async ({ call, supabase, rows, invalidated }) => {
+      const res = await call('POST', `/api/sync/${SOURCE_ID}`, {})
+      assert.equal(res.status, 400, message)
+      assert.deepEqual(res.body, { error: { message, status: 400 } })
+      assert.deepEqual(supabase.queriesOf('calendar_items'), [])
+      assert.deepEqual(invalidated, [])
+      assert.equal(rows[0].status, 'error')
+      assert.equal(rows[0].last_error, message)
+      // The items an earlier sync stored stay, and so does its time.
+      assert.equal(rows[0].last_synced_at, sourceRow().last_synced_at)
+    })
+  }
+})
+
 test('POST /api/sources/purdue/schedule stores a pending source for the student, syncs it and answers 201', async () => {
   await withApp({ feed: icsFeed }, async ({ call, supabase, rows, limiterHits, invalidated, feedUrls, lookups }) => {
     const res = await call('POST', '/api/sources/purdue/schedule', { icsUrl: `  ${PURDUE_FEED}  ` })

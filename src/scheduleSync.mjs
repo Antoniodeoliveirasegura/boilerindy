@@ -12,6 +12,23 @@
 
 const DEFAULT_TZ = 'America/Indiana/Indianapolis'
 
+// What one feed may import. A real Brightspace or Purdue feed holds a few
+// hundred events and imports a few hundred items, so these sit far above any
+// student's calendar while bounding the parse, the recurrence expansion and
+// the rows one sync writes. The shell counts events before node-ical parses
+// the text (countFeedEvents); planSync refuses a feed whose events repeat into
+// more items than MAX_FEED_ITEMS.
+export const MAX_FEED_EVENTS = 5000
+export const MAX_FEED_ITEMS = 5000
+export const FEED_TOO_MANY_EVENTS = 'This calendar has more than 5,000 events, too many to import.'
+export const FEED_TOO_MANY_ITEMS = 'This calendar repeats into more than 5,000 dated items, too many to import.'
+
+// The most of each text an item stores, in its columns and in raw_json alike.
+const MAX_TITLE = 500
+const MAX_DESCRIPTION = 5000
+const MAX_LOCATION = 500
+const MAX_UID = 500
+
 // node-ical returns most text properties as plain strings, but when a property
 // carries parameters (e.g. SUMMARY;LANGUAGE=en-US:…) it instead yields an
 // object of shape { params, val }. Reading `.toLowerCase()` or `String(...)` on
@@ -229,14 +246,48 @@ function createDateInTimezone(year, month, day, hour, minute, timezone) {
 // ── Recurrence expansion ────────────────────────────────────────────────────
 
 /**
+ * VEVENT components in a feed's text, counted before node-ical parses it so a
+ * feed over MAX_FEED_EVENTS is refused without building every event.
+ */
+export function countFeedEvents(icsText) {
+  const text = String(icsText ?? '')
+  const begin = /^BEGIN:VEVENT[ \t]*\r?$/gim
+  let count = 0
+  while (begin.exec(text)) count += 1
+  return count
+}
+
+const WITHIN_A_DAY = new Set(['HOURLY', 'MINUTELY', 'SECONDLY'])
+
+// True for a rule that repeats inside a day: FREQ=HOURLY or finer, or several
+// BYHOUR, BYMINUTE or BYSECOND values. Such a rule can list hundreds of
+// thousands of times in the window, and expansion keeps one occurrence per
+// event per day anyway. No class or due date repeats inside a day.
+function repeatsWithinADay(rrule) {
+  let options
+  try {
+    options = rrule?.options
+  } catch {
+    return false
+  }
+  if (!options) return false
+  if (WITHIN_A_DAY.has(String(options.freq).toUpperCase())) return true
+  return [options.byHour, options.byMinute, options.bySecond].some((list) => Array.isArray(list) && list.length > 1)
+}
+
+/**
  * Expand RRULE-based recurring events into individual occurrences.
  * node-ical returns one object per UID even for recurring events; this
  * generates all individual date instances within roughly ±1 year.
  *
  * The key insight: we preserve the LOCAL time from the original event start,
  * then apply it to each occurrence date. This avoids timezone conversion bugs.
+ *
+ * A rule that repeats inside a day keeps only its first occurrence, as a rule
+ * that fails to expand does. Expansion stops once it has more than maxItems
+ * occurrences, so a caller that refuses past the limit never builds the rest.
  */
-export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
+export function expandRecurringEvents(events, timezone = DEFAULT_TZ, { maxItems = Infinity } = {}) {
   const rangeStart = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000) // ~6 months back
   const rangeEnd   = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000) // ~13 months forward
   const result = []
@@ -244,6 +295,7 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
   const seenKeys = new Set()
 
   for (const event of events) {
+    if (result.length > maxItems) break
     // Handle non-recurring events
     if (!event.rrule) {
       const startDate = safeParseDate(event.start)
@@ -277,6 +329,7 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
 
     let dates
     try {
+      if (repeatsWithinADay(event.rrule)) throw new Error('the rule repeats within a day; keeping its first occurrence')
       dates = event.rrule.between(rangeStart, rangeEnd, true /* inclusive */)
     } catch (rruleError) {
       console.warn(`[scheduleSync] RRULE expansion failed for "${icalText(event.summary)}":`, rruleError?.message || rruleError)
@@ -295,6 +348,7 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
     const eventDaysSeen = new Set()
 
     for (const date of dates) {
+      if (result.length > maxItems) break
       // A timed meeting falls on its day in the feed's timezone, the day
       // node-ical files its EXDATE and RECURRENCE-ID entries under. Its UTC day
       // put a class at 7 PM EST (8 PM EDT) or later on the day after. An
@@ -386,6 +440,9 @@ export function expandRecurringEvents(events, timezone = DEFAULT_TZ) {
  * so the shell can persist a clear `last_error` without re-deriving wording.
  */
 export function classifyFetchError(fetchError) {
+  // A refusal of this server's own (src/urlSafety.mjs): the link left its
+  // provider's hosts or the feed passed an import limit. Its message says which.
+  if (fetchError?.name === 'FeedRefusedError') return { status: 'error', message: fetchError.message }
   const errorMsg = fetchError?.message || 'Failed to fetch calendar'
   const isNetworkError = errorMsg.includes('ENOTFOUND') || errorMsg.includes('ETIMEDOUT') || errorMsg.includes('fetch')
   const isAuthError = errorMsg.includes('401') || errorMsg.includes('403') || errorMsg.includes('Unauthorized')
@@ -437,7 +494,7 @@ export function planSync(eventsByKey, source) {
 
   let events
   try {
-    events = expandRecurringEvents(rawEvents, timezone)
+    events = expandRecurringEvents(rawEvents, timezone, { maxItems: MAX_FEED_ITEMS })
   } catch (expandError) {
     console.error('[scheduleSync] RRULE expansion failed, falling back to raw events:', expandError?.message || expandError)
     events = rawEvents.map((e) => ({
@@ -445,6 +502,25 @@ export function planSync(eventsByKey, source) {
       start: safeParseDate(e.start) || new Date(),
       end: safeParseDate(e.end) || safeParseDate(e.start) || new Date(),
     }))
+  }
+
+  // Over the item limit: refuse the whole feed rather than keep an arbitrary
+  // part of it. The shell marks the source error and writes nothing, so the
+  // items an earlier sync stored stay as they were.
+  if (events.length > MAX_FEED_ITEMS) {
+    return {
+      itemsToInsert: [],
+      sourceStatus: 'error',
+      statusMessage: FEED_TOO_MANY_ITEMS,
+      meta: {
+        timezone,
+        itemCount: 0,
+        skippedCount: 0,
+        duplicateCount: 0,
+        rawCount: rawEvents.length,
+        warning: FEED_TOO_MANY_ITEMS,
+      },
+    }
   }
 
   const itemsToInsert = []
@@ -509,15 +585,21 @@ export function planSync(eventsByKey, source) {
       user_id: userId,
       source_id: sourceId,
       source_type: source.source_type,
-      title: (cleanTitle(summaryText) || 'Untitled item').slice(0, 500),
-      description: descriptionText ? descriptionText.slice(0, 5000) : null,
+      title: (cleanTitle(summaryText) || 'Untitled item').slice(0, MAX_TITLE),
+      description: descriptionText ? descriptionText.slice(0, MAX_DESCRIPTION) : null,
       start_time: startTime,
       end_time: endTime,
-      location: locationText ? locationText.slice(0, 500) : null,
+      location: locationText ? locationText.slice(0, MAX_LOCATION) : null,
       category,
-      external_uid: uid.slice(0, 500),
+      external_uid: uid.slice(0, MAX_UID),
       all_day: event.datetype === 'date',
-      raw_json: { uid, summary: summaryText, description: descriptionText, location: locationText },
+      // Cut like the columns: a daily event repeats its text into every row.
+      raw_json: {
+        uid: uid.slice(0, MAX_UID),
+        summary: summaryText.slice(0, MAX_TITLE),
+        description: descriptionText.slice(0, MAX_DESCRIPTION),
+        location: locationText.slice(0, MAX_LOCATION),
+      },
     })
   }
 
