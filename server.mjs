@@ -46,6 +46,7 @@ import { createRateLimiter, createRateWindow } from './src/rateLimiter.mjs'
 import { SESSION_COOKIE_NAME, publicReadBucketKey } from './src/publicReadKey.mjs'
 import { advertiserWriteBucketKey } from './src/userWriteCaps.mjs'
 import { sessionSyncBucketKey } from './src/sessionSyncKey.mjs'
+import { createCrossSiteWriteGuard } from './src/crossSiteWrites.mjs'
 import { UpstreamError, createStaleCache, fetchUpstream } from './src/upstreamFetch.mjs'
 import { createSessionStore } from './src/sessionStore.mjs'
 import { createOnboardingSummaryCache } from './src/onboardingSummaryCache.mjs'
@@ -216,8 +217,14 @@ const purdueLinkHandoff = createPurdueLinkHandoff({
 
 console.log(`[startup] mode=${isProduction ? 'production' : (nodeEnv || 'development')} secureCookies=${isProduction} trustProxy=${isProduction || process.env.TRUST_PROXY === '1'}`)
 
+// Refuse writes a browser sends from another site before anything reads the
+// body: SameSite=Lax keeps pih.sid off such a request but would still let its
+// response set or clear the cookie (login and logout CSRF). See the module.
+app.use(createCrossSiteWriteGuard({ trustedOrigins: [clientAppUrl, publicBaseUrl] }))
+// JSON only. Every client sends JSON, and an HTML form on another site can
+// send a form body but not a JSON one. The one route that takes a form, the
+// non-production mock Purdue link page, parses it itself (src/routes/auth.mjs).
 app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
 
 // Express 5 leaves req.body undefined when a request carries no body or a
 // content-type no parser claims, where Express 4 handed over {}. server.mjs

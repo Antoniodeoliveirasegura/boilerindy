@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import express from 'express'
 import session from 'express-session'
 import { createAppleTokenRevoker } from '../../src/appleTokenRevoke.mjs'
+import { createCrossSiteWriteGuard } from '../../src/crossSiteWrites.mjs'
 import { createAuthRouter } from '../../src/routes/auth.mjs'
 import { createOnboardingSummaryCache } from '../../src/onboardingSummaryCache.mjs'
 import { hashPassword } from '../../src/passwordHash.mjs'
@@ -18,8 +19,10 @@ import { fakeSupabase, hasCall, operation } from './fakeSupabase.mjs'
 // Issue #191: student auth, the profile and the Purdue link as a feature
 // router, booted on a small app behind the real express-session (a
 // MemoryStore under the server's cookie name, rolling as on the server) with
-// express.json, express.urlencoded and the req.body shim in front, so
-// regenerate, save and destroy and the cookie they send are the real ones.
+// server.mjs's cross-site write guard, express.json and the req.body shim in
+// front (the mock Purdue link route parses its own form body, as on the
+// server), so regenerate, save and destroy and the cookie they send are the
+// real ones.
 // getUserById, getCurrentUser and requireAuth read an in-memory users table
 // the way the server's do (getCurrentUser applies isSessionStale), the
 // Supabase client is the recording fake plus an `auth` fake, the limiters
@@ -321,8 +324,8 @@ async function withApp(options, run) {
     }
   }
   const app = express()
+  app.use(createCrossSiteWriteGuard({ trustedOrigins: [CLIENT, BACKEND] }))
   app.use(express.json())
-  app.use(express.urlencoded({ extended: true }))
   // server.mjs's body shim (issue #291): Express 5 leaves req.body undefined on a bodyless request.
   app.use((req, _res, next) => {
     if (req.body === undefined) req.body = {}
@@ -785,9 +788,10 @@ test('supabase-sync answers 401 without a token, for a bad token and for a token
       assert.equal(res.status, 401)
       assert.deepEqual(res.body, { error: { message: 'Token does not match the requested user.', status: 401 } })
     }
-    // The token may also come in the body.
-    const inBody = await call('POST', '/api/auth/supabase-sync', { body: { ...SYNC, supabaseUserId: U2, accessToken: 'good' } })
-    assert.deepEqual(inBody.body, { error: { message: 'Token does not match the requested user.', status: 401 } })
+    // A token in the body is ignored: only the Authorization header counts,
+    // which a form on another site cannot set.
+    const inBody = await call('POST', '/api/auth/supabase-sync', { body: { ...SYNC, accessToken: 'good' } })
+    assert.deepEqual(inBody.body, { error: { message: 'Missing access token.', status: 401 } })
     assert.equal(supabase.queries.length, 0)
     assert.deepEqual(await sessions(), [])
   })
@@ -1409,6 +1413,43 @@ test('sync gate: off, a password token still signs in; on, it is refused unless 
 })
 
 // ── Sign-out and account deletion ───────────────────────────────────────────
+
+test('a form posted from another site can neither sign a browser in nor sign it out', async () => {
+  await withApp({ seed: { users: [STUDENT] }, gotrue: { 'pete@example.com': { id: U1, password: PASSWORD } }, tokens: { good: TOKEN_USER } }, async ({ call, sessionFor, sessions }) => {
+    const crossSite = { 'Sec-Fetch-Site': 'cross-site', Origin: 'https://other.example' }
+    const refused = { error: { message: 'Cross-site request refused.', status: 403, code: 'cross_site_request' } }
+    const cookie = await sessionFor({ userId: U1 })
+    const logged = await quietly(async () => {
+      const sync = await call('POST', '/api/auth/supabase-sync', { form: { ...SYNC, accessToken: 'good' }, headers: crossSite })
+      const signIn = await call('POST', '/api/auth/sign-in', { form: { email: 'pete@example.com', password: PASSWORD }, headers: crossSite })
+      // A browser too old to send Sec-Fetch-Site is judged by Origin instead.
+      const signOuts = []
+      for (const headers of [crossSite, { Origin: 'https://other.example' }]) {
+        signOuts.push(await call('POST', '/api/sign-out', { cookie, headers }))
+      }
+      for (const res of [sync, signIn, ...signOuts]) {
+        assert.equal(res.status, 403)
+        assert.deepEqual(res.body, refused)
+        assert.equal(res.sessionCookie, null)
+      }
+    })
+    assert.equal(logged.filter((line) => line.startsWith('[cross-site] refused POST')).length, 4)
+    assert.equal((await sessions()).length, 1, 'only the test session exists')
+    assert.equal((await call('GET', '/api/session', { cookie })).body.authenticated, true)
+
+    // Even with no browser headers, a form body reaches no route: only JSON is
+    // parsed, so these credentials never get to the password check.
+    const formSignIn = await call('POST', '/api/auth/sign-in', { form: { email: 'pete@example.com', password: PASSWORD } })
+    assert.notEqual(formSignIn.status, 200)
+    assert.equal(formSignIn.cookie, null)
+
+    // The site's own pages still sign in and out.
+    const sameOrigin = { 'Sec-Fetch-Site': 'same-origin', Origin: CLIENT }
+    const ok = await call('POST', '/api/sign-out', { cookie, headers: sameOrigin })
+    assert.equal(ok.status, 200)
+    assert.ok(ok.cleared)
+  })
+})
 
 test('sign-out destroys the session and clears the cookie', async () => {
   await withApp({ seed: { users: [STUDENT] } }, async ({ call, sessionFor, sessions }) => {

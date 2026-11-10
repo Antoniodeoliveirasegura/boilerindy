@@ -1179,8 +1179,9 @@ export function createAuthRouter({
   router.post('/api/auth/supabase-sync', sessionSyncIpRateLimit, sessionSyncRateLimit, async (req, res) => {
     try {
       const authHeader = req.headers.authorization || ''
-      const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
-      const accessToken = bearerToken || req.body?.accessToken
+      // The header only: a form on another site can put a token in the body
+      // but cannot set this header. Both clients send it.
+      const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
 
       if (!accessToken || typeof accessToken !== 'string') {
         return res.status(401).json({ error: { message: 'Missing access token.', status: 401 } })
@@ -1398,6 +1399,9 @@ export function createAuthRouter({
     res.type('html').send(renderMockPurdueLinkPage(nextPath, '', req.currentUser.purdue_email, native?.token))
   })
 
+  // The mock page posts an HTML form, and server.mjs parses only JSON, so this
+  // path parses its own form body, ahead of the limiter that reads `t` from it.
+  router.use('/auth/purdue/dev/link', express.urlencoded({ extended: false }))
   router.post('/auth/purdue/dev/link', purdueLinkFlowRateLimit, resolvePurdueLinkActor, async (req, res) => {
     const native = req.linkHandoff
     const nextPath = sanitizeNext(req.body.next)
