@@ -94,6 +94,7 @@ logs the failure with its HTTP status and goes on to the insert.
 | `POST /api/me/grades` | 500 courses | user |
 | `POST /api/me/dining/favorites` | 300 favorites (re-saving one the user already has still succeeds at the cap) | user |
 | `PUT /api/me/club-follows/:organizationKey` | 100 clubs followed (following one already followed still succeeds at the cap). Its `409` carries the code `club_follows_limit`, and it reads the follows instead of counting them, so a failed read answers its error rather than letting the write through (issue #16, see [clubs.md](clubs.md#following-a-club)) | user |
+| `POST /api/sources/purdue/schedule`, `POST /api/sources/brightspace/schedule` | 20 linked calendars, of either provider, demo links included. The hourly re-sync fetches every one, so the cap also bounds what one account can queue there ([source-resync.md](source-resync.md)) | user |
 | `POST /api/advertiser/campaigns` | 20 campaigns in `draft` (campaigns pending review, active, paused or ended do not count) | advertiser |
 
 The draft cap does not bound the admin review queue. An advertiser who submits
