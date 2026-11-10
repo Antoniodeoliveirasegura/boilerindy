@@ -10,7 +10,7 @@ import {
   parseAdminListFilter,
 } from '../adminPortal.mjs'
 import { normalizeAdvertiserAccountInput } from '../advertiserAuth.mjs'
-import { CAMPAIGN_STATUSES } from '../advertiserCampaign.mjs'
+import { CAMPAIGN_STATUSES, assertBannerCreative } from '../advertiserCampaign.mjs'
 import { DB_FEATURES, respondDbError, respondSchemaMissing, SOFT_DELETE_SQL_FILE } from '../dbErrors.mjs'
 import { requireIdParam } from '../httpGuards.mjs'
 import { countMarketplaceReports, respondMarketplaceDbError } from '../marketplaceDb.mjs'
@@ -36,6 +36,16 @@ import { STUDY_SOFT_DELETE_SQL_FILE } from '../studyGroups.mjs'
 function respondAdvertiserDbError(res, err) {
   return respondDbError(res, err, DB_FEATURES.advertiser)
 }
+
+// A campaign's updatedAt as the admin list sent it, e.g.
+// 2026-10-24T15:04:05.123456+00:00, or null when the body has none.
+const MAX_VERSION_LENGTH = 64
+function readCampaignVersion(value) {
+  if (typeof value !== 'string' || !value || value.length > MAX_VERSION_LENGTH || Number.isNaN(Date.parse(value))) return null
+  return value
+}
+const CAMPAIGN_RELOAD_MESSAGE = 'Reload the campaigns and try again.'
+const CAMPAIGN_CHANGED_MESSAGE = 'The advertiser changed this campaign after the list loaded. Reload to see the latest version.'
 
 // ── Soft-delete moderation (admin) ───────────────────────────────────────────
 // User/owner delete endpoints only soft-delete (set deleted_at). Admins review
@@ -192,7 +202,14 @@ export function createAdminRouter({ supabase, requireAuth, requireAdmin, adminWr
     res.json({ campaigns: (data || []).map(mapAdminCampaignRow) })
   })
 
+  // Body: { status, updatedAt }, the campaign's updatedAt from the list. An
+  // advertiser can change a campaign while the admin looks at it: edit it in
+  // review, withdraw it and edit the draft, or edit a paused one. A write since
+  // the list loaded answers 409, so an admin never puts live a creative or
+  // placement they did not see.
   router.patch('/api/admin/campaigns/:id', adminWriteRateLimit, requireIdParam('id'), requireAuth, requireAdmin, async (req, res) => {
+    const updatedAt = readCampaignVersion(req.body?.updatedAt)
+    if (!updatedAt) return res.status(400).json({ error: { message: CAMPAIGN_RELOAD_MESSAGE, status: 400 } })
     const { data: current, error: lookupError } = await supabase
       .from('campaigns')
       .select('*')
@@ -202,21 +219,34 @@ export function createAdminRouter({ supabase, requireAuth, requireAdmin, adminWr
     if (!current) {
       return res.status(404).json({ error: { message: 'Campaign not found.', status: 404 } })
     }
+    if (Date.parse(current.updated_at) !== Date.parse(updatedAt)) {
+      return res.status(409).json({ error: { message: CAMPAIGN_CHANGED_MESSAGE, status: 409 } })
+    }
 
     let status
     try {
       status = normalizeAdminCampaignStatusInput(current.status, req.body?.status)
+      // Going live from draft or review checks the banner as submitting it
+      // does, since a draft can go live without being submitted.
+      if (status === 'active' && (current.status === 'draft' || current.status === 'pending_review')) {
+        assertBannerCreative(current.creative, current.placement)
+      }
     } catch (error) {
       return res.status(400).json({ error: { message: error.message, status: 400 } })
     }
 
+    // Only the version the admin saw, still in the status it was read in: a
+    // write in between matches no row.
     const { data, error } = await supabase
       .from('campaigns')
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', current.id)
+      .eq('status', current.status)
+      .eq('updated_at', updatedAt)
       .select('*, advertisers ( email, company_name )')
-      .single()
+      .maybeSingle()
     if (error) return respondAdvertiserDbError(res, error)
+    if (!data) return res.status(409).json({ error: { message: CAMPAIGN_CHANGED_MESSAGE, status: 409 } })
     res.json({ campaign: mapAdminCampaignRow(data) })
   })
 

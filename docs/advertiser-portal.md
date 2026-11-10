@@ -15,6 +15,12 @@ Last updated: 2026-06-12
 > `pages/advertiser/Dashboard.jsx` at `/advertise/dashboard` (create/list/edit +
 > submit-for-review). **Approval is owner-gated**: advertisers submit for review;
 > only the owner sets `active` (via the review script).
+> An approval, from the admin console (`PATCH /api/admin/campaigns/:id` with the
+> campaign's `updatedAt`) or the script, applies only to the version the reviewer
+> saw: an advertiser edit since then answers 409 and the console reloads the
+> campaign, or the script stops. Going live from review or a draft also re-checks
+> the banner rules submitting does (three photos and a website for `home-widget`
+> and `side-rail`).
 > **Manual step before campaigns work live:** run `db/supabase-advertiser-campaigns.sql`
 > in the Supabase SQL Editor.
 >

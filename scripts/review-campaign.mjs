@@ -14,7 +14,7 @@
 
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
-import { CAMPAIGN_STATUSES } from '../src/advertiserCampaign.mjs'
+import { CAMPAIGN_STATUSES, assertBannerCreative } from '../src/advertiserCampaign.mjs'
 import { confirmWriteTarget } from './lib/confirmTarget.mjs'
 
 function parseArgs(argv) {
@@ -73,19 +73,48 @@ if (!CAMPAIGN_STATUSES.includes(status)) {
   process.exit(1)
 }
 
+// The campaign as it stands is shown before the confirmation, and the update is
+// tied to that version, as in the admin console: an advertiser edit in between
+// leaves the campaign alone instead of putting live what nobody reviewed.
+const { data: current, error: readError } = await supabase
+  .from('campaigns')
+  .select('id, name, status, placement, creative, updated_at')
+  .eq('id', id)
+  .maybeSingle()
+if (readError) {
+  console.error('ERROR reading campaign:', readError.message)
+  process.exit(1)
+}
+if (!current) {
+  console.error(`ERROR: no campaign found with id ${id}`)
+  process.exit(1)
+}
+console.log(`Campaign "${current.name}" (${current.id}): ${current.status}, ${current.placement}, last changed ${current.updated_at}`)
+console.log(JSON.stringify(current.creative, null, 2))
+if (status === 'active' && (current.status === 'draft' || current.status === 'pending_review')) {
+  try {
+    assertBannerCreative(current.creative, current.placement)
+  } catch (err) {
+    console.error(`ERROR: ${err.message}`)
+    process.exit(1)
+  }
+}
+
 await confirmWriteTarget({ action: `set campaign ${id} to status ${status}`, yes: args.yes === true })
 
 const { data, error } = await supabase
   .from('campaigns')
   .update({ status, updated_at: new Date().toISOString() })
   .eq('id', id)
+  .eq('status', current.status)
+  .eq('updated_at', current.updated_at)
   .select('id, name, status')
 if (error) {
   console.error('ERROR updating campaign:', error.message)
   process.exit(1)
 }
 if (!data || data.length === 0) {
-  console.error(`ERROR: no campaign found with id ${id}`)
+  console.error('ERROR: the campaign changed after it was shown above. Run the command again to review the latest version.')
   process.exit(1)
 }
 

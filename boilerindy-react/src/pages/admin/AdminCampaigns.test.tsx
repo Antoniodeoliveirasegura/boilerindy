@@ -17,19 +17,33 @@ vi.mock('../../lib/adminApi', () => ({
   updateAdminCampaign: vi.fn(),
 }))
 
-type Campaign = { id: string; name: string; status: string; placement: string; creative?: Record<string, unknown> }
+type Campaign = {
+  id: string
+  name: string
+  status: string
+  placement: string
+  updatedAt: string
+  creative?: Record<string, unknown>
+}
 
 const PENDING: Campaign = {
   id: 'cmp-pending',
   name: 'Finals coffee',
   status: 'pending_review',
   placement: 'side-rail',
+  updatedAt: '2026-11-07T12:00:00.123456+00:00',
   creative: {
     ctaUrl: 'https://cafe.example/',
     imageUrls: ['https://img.example/1.jpg', 'https://img.example/2.jpg', 'https://img.example/3.jpg'],
   },
 }
-const LIVE: Campaign = { id: 'cmp-live', name: 'Bagel Tuesday', status: 'active', placement: 'dining' }
+const LIVE: Campaign = {
+  id: 'cmp-live',
+  name: 'Bagel Tuesday',
+  status: 'active',
+  placement: 'dining',
+  updatedAt: '2026-11-06T09:30:00.000001+00:00',
+}
 
 beforeEach(() => {
   vi.mocked(listAdminCampaigns)
@@ -141,8 +155,41 @@ describe('AdminCampaigns focus', () => {
     fireEvent.click(approve)
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve & go live' }))
 
-    await waitFor(() => expect(updateAdminCampaign).toHaveBeenCalledWith(PENDING.id, { status: 'active' }))
+    await waitFor(() => expect(updateAdminCampaign).toHaveBeenCalledWith(PENDING.id, { status: 'active', updatedAt: PENDING.updatedAt }))
     await waitFor(() => expect(cardOf('Finals coffee')).toHaveFocus())
     expect(screen.queryByRole('button', { name: 'Approve & go live' })).not.toBeInTheDocument()
+  })
+})
+
+// An advertiser could change a campaign between the admin's list and the
+// admin's Approve, and the approval put live a creative nobody had seen. The
+// card sends the version it shows; the server answers 409 when it is stale.
+describe('AdminCampaigns stale approvals', () => {
+  it('approves the version on the card, and a 409 reloads the list and says why', async () => {
+    const changed = { ...PENDING, updatedAt: '2026-11-07T12:05:00.654321+00:00', creative: { ...PENDING.creative, headline: 'New' } }
+    const message = 'The advertiser changed this campaign after the list loaded. Reload to see the latest version.'
+    vi.mocked(updateAdminCampaign).mockRejectedValue(Object.assign(new Error(message), { status: 409 }))
+    render(<AdminCampaigns />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve & go live' }))
+    vi.mocked(listAdminCampaigns).mockResolvedValue({ campaigns: [changed] })
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve & go live' }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(updateAdminCampaign).toHaveBeenCalledWith(PENDING.id, { status: 'active', updatedAt: PENDING.updatedAt })
+    // The list was read again, so the next approval carries the new version.
+    expect(listAdminCampaigns).toHaveBeenCalledTimes(2)
+    vi.mocked(updateAdminCampaign).mockResolvedValue({ campaign: { ...changed, status: 'active' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & go live' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve & go live' }))
+    await waitFor(() => expect(updateAdminCampaign).toHaveBeenLastCalledWith(PENDING.id, { status: 'active', updatedAt: changed.updatedAt }))
+  })
+
+  it('any other refusal keeps the list as it is', async () => {
+    vi.mocked(updateAdminCampaign).mockRejectedValue(Object.assign(new Error('Banner campaigns need at least 3 photo URLs.'), { status: 400 }))
+    render(<AdminCampaigns />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve & go live' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve & go live' }))
+    expect(await screen.findByText('Banner campaigns need at least 3 photo URLs.')).toBeInTheDocument()
+    expect(listAdminCampaigns).toHaveBeenCalledTimes(1)
   })
 })
